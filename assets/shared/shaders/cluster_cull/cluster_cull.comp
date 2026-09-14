@@ -32,14 +32,26 @@ layout(push_constant) uniform Push {
 } pc;
 
 bool cull_frustum(vec3 center_ws, float radius_ws) {
+    for (int i = 0; i < 6; i++) {
+        vec4 pl = pc.camera.frustum_planes[i];
+        if (dot(pl.xyz, center_ws) + pl.w < -radius_ws) return true;
+    }
     return false;
 }
 
 bool cull_backface_cone(vec3 center_ws, vec3 cone_axis_ws, float cone_cutoff, vec3 cam_pos) {
-    return false;
+    vec3 view = normalize(center_ws - cam_pos);
+    return dot(view, cone_axis_ws) >= cone_cutoff;
 }
 
 bool lod_reject(Cluster cluster, vec3 center_ws, float dist, float px_per_unit) {
+    // const float THRESHOLD = 1.0;
+    // float k = scale * px_per_unit / max(dist, 1e-4);
+    // float lod_px = cluster.lod_error * k;
+    // float parent_px = cluster.lod_parent_error * k;
+    // bool render = (lod_px <= THRESHOLD) && (parent_px > THRESHOLD);
+    // return !render;
+
     return false;
 }
 

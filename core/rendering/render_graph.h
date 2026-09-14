@@ -267,6 +267,7 @@ struct RenderGraph
         std::vector<ImageBarrier> pre_image_barriers;
         std::vector<BufferAccess> buffer_accesses;
         std::vector<BufferBarrier> pre_buffer_barriers;
+        std::vector<int> deps;
         bool culled = false;
 
         bool has_render_pass = false;

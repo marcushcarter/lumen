@@ -2,6 +2,8 @@
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/renderer.h>
+#include <core/rendering/render_graph.h>
+#include <core/rendering/render_path/editor_render_path.h>
 #include <IconsFontAwesome6.h>
 #include <imgui_internal.h>
 
@@ -10,6 +12,37 @@ namespace lumen {
 void CenterView::initialize()
 {
     debugger.initialize();
+}
+
+bool CenterView::_view_item(const char* p_icon, const char* p_label, const char* p_image, int p_id)
+{
+    ImGui::PushID(p_id);
+    const bool sel = (selected_view == p_id);
+    const float line = ImGui::GetTextLineHeight();
+    const float pad_y = ImGui::GetStyle().FramePadding.y;
+    const float row_h = line + pad_y * 2.0f;
+    const float icon_x = 26.0f;
+    const float text_x = icon_x + ImGui::CalcTextSize(p_icon).x + 10.0f;
+    const float w = text_x + ImGui::CalcTextSize(p_label).x + 14.0f;
+
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::Selectable("##vi", sel, 0, ImVec2(w, row_h));
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
+    const float cy = p.y + row_h * 0.5f;
+    dl->AddCircle(ImVec2(p.x + 12.0f, cy), 5.0f, col, 20, 1.5f);          // the "()"
+    if (sel) dl->AddCircleFilled(ImVec2(p.x + 12.0f, cy), 2.5f, col, 20); // filled when active
+    dl->AddText(ImVec2(p.x + icon_x, p.y + pad_y), col, p_icon);
+    dl->AddText(ImVec2(p.x + text_x, p.y + pad_y), col, p_label);
+
+    if (clicked) {
+        selected_view = p_id;
+        selected_image = p_image;
+        selected_label = p_label;
+    }
+    ImGui::PopID();
+    return clicked;
 }
 
 void CenterView::_draw_scene(EditorContext& ctx)
@@ -21,17 +54,20 @@ void CenterView::_draw_scene(EditorContext& ctx)
         ctx.renderer->request_size((uint32_t)(size.x * screen_percentage), (uint32_t)(size.y * screen_percentage));
     }
 
-    if (!source_resolved) {
-        for (const auto& [id, name] : ctx.renderer->graph.debug_names) {
-            if (name == "Out_Color") {
-                selected_name_id = id;
-                source_resolved = true;
-                break;
-            }
-        }
-    }
+    // if (ctx.render_path) ctx.render_path->ui.sampled_image = selected_image;
+    if (ctx.render_path) ctx.render_path->ui.sampled_image = "G_Albedo";
+
+    // if (!source_resolved) {
+    //     for (const auto& [id, name] : ctx.renderer->graph.debug_names) {
+    //         if (name == "Out_Color") {
+    //             selected_name_id = id;
+    //             source_resolved = true;
+    //             break;
+    //         }
+    //     }
+    // }
     
-    RenderGraph::ImageResource* sel = ctx.renderer->graph.image_resource_by_id(selected_name_id);
+    RenderGraph::ImageResource* sel = ctx.renderer->graph.image_resource(selected_image);
     VkImageView sel_view = (sel && sel->image) ? sel->image->image_view : VK_NULL_HANDLE;
     VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
 
@@ -49,28 +85,55 @@ void CenterView::_draw_scene(EditorContext& ctx)
         ImGui::SliderFloat("Screen Percentage", &screen_percentage, 0.01f, 1.0f);
         left_overlay.end_menu();
     }
-    // if (left_overlay.button(ICON_FA_CUBE " Perspective")) {}
-    // if (left_overlay.button(ICON_FA_ADDRESS_BOOK " Lit")) {}
-    // if (left_overlay.button("Show")) {}
     left_overlay.end();
 
-    const char* src_label = "(no source)";
-    if (selected_name_id != 0) {
-        auto it = ctx.renderer->graph.debug_names.find(selected_name_id);
-        if (it != ctx.renderer->graph.debug_names.end()) src_label = it->second.c_str();
-    }
+    char view_btn[96];
+    snprintf(view_btn, sizeof(view_btn), ICON_FA_DISPLAY "  %s###ViewMode", selected_label);
+
+    // const char* src_label = "(no source)";
+    // if (selected_name_id != 0) {
+    //     auto it = ctx.renderer->graph.debug_names.find(selected_name_id);
+    //     if (it != ctx.renderer->graph.debug_names.end()) src_label = it->second.c_str();
+    // }
 
     right_overlay.begin(pos, size, OverlayBar::Align::Right);
-    if (right_overlay.combo("##viewport_source", src_label, 160.0f)) {
-        bool any = false;
-        for (const RenderGraph::ImageResource& r : ctx.renderer->graph.image_resources) {
-            if (!r.image || r.image->state.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) continue;
-            any = true;
-            const std::string& name = ctx.renderer->graph.debug_names[r.name_id];
-            if (ImGui::Selectable(name.c_str(), r.name_id == selected_name_id)) selected_name_id = r.name_id;
+    // if (right_overlay.combo("##viewport_source", src_label, 160.0f)) {
+    if (right_overlay.begin_menu(view_btn)) {
+
+        // _view_item(ICON_FA_LIGHTBULB, "Lit",   "G_Albedo", 0);
+        // _view_item(ICON_FA_IMAGE,     "Unlit", "G_Albedo", 1);
+
+        _view_item(ICON_FA_LIGHTBULB, "Lit",   "G_Albedo", 0);
+        _view_item(ICON_FA_IMAGE,     "Unlit", "G_Albedo", 1);
+
+        if (ImGui::BeginMenu(ICON_FA_LAYER_GROUP "  Buffer Visualization")) {
+            _view_item(ICON_FA_PALETTE, "Base Color",          "G_Albedo",   2);
+            _view_item(ICON_FA_MOUNTAIN,"World Normal",         "G_Normal",   3);
+            _view_item(ICON_FA_GEM,     "Metallic / Roughness", "G_Material", 4);
+            _view_item(ICON_FA_WIND,    "Velocity",            "G_Motion",   5);
+            _view_item(ICON_FA_RULER_VERTICAL, "Scene Depth",  "G_Depth",    6);
+            ImGui::EndMenu();
         }
-        if (!any) ImGui::TextDisabled("(no inspectable resources)");
-        ImGui::EndCombo();
+        if (ImGui::BeginMenu(ICON_FA_CUBES "  Nanite Visualization")) {
+            ImGui::TextDisabled("(none yet)");
+            ImGui::EndMenu();
+        }
+        right_overlay.end_menu();
+
+
+
+
+
+
+        // bool any = false;
+        // for (const RenderGraph::ImageResource& r : ctx.renderer->graph.image_resources) {
+        //     if (!r.image || r.image->state.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) continue;
+        //     any = true;
+        //     const std::string& name = ctx.renderer->graph.debug_names[r.name_id];
+        //     if (ImGui::Selectable(name.c_str(), r.name_id == selected_name_id)) selected_name_id = r.name_id;
+        // }
+        // if (!any) ImGui::TextDisabled("(no inspectable resources)");
+        // ImGui::EndCombo();
     }
     right_overlay.end();
 }

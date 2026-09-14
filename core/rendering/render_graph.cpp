@@ -718,80 +718,90 @@ Error RenderGraph::compile()
 {
     using enum Error;
 
+    std::vector<int> img_writer(image_resources.size(), -1);
+    std::vector<int> buf_writer(buffer_resources.size(), -1);
+
+    constexpr VkAccessFlags2 READ_BITS =
+        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+        VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_UNIFORM_READ_BIT |
+        VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
+        VK_ACCESS_2_MEMORY_READ_BIT;
+
     for (uint32_t n = 0; n < nodes.size(); ++n) {
-        for (ImageAccess& a : nodes[n].image_accesses) {
+        Node& node = nodes[n];
+
+        for (ImageAccess& a : node.image_accesses) {
             auto it = image_resource_map.find(a.name_id);
             if (it == image_resource_map.end()) {
-                log_write("RenderGraph: pass '%s' accesses unimported image '%s'.", nodes[n].pass->name.c_str(), debug_names[a.name_id].c_str());
+                log_write("RenderGraph: pass '%s' accesses unimported image '%s'.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
                 continue;
             }
             a.resource_index = static_cast<int>(it->second);
             ImageResource& r = image_resources[a.resource_index];
             if (r.first_use == -1) r.first_use = n;
             r.last_use = n;
+
+            const bool loads = a.is_attachment && a.load_op == VK_ATTACHMENT_LOAD_OP_LOAD;
+            const bool reads_existing = !a.is_write || (a.access & READ_BITS) != 0 || loads;
+            if (reads_existing) {
+                r.read = true;
+                int prod = img_writer[a.resource_index];
+                if (prod >= 0) node.deps.push_back(prod);
+            }
             if (a.is_write) {
                 r.written = true;
-                r.producer = static_cast<int>(n);
-            } else {
-                r.read = true;
+                img_writer[a.resource_index] = static_cast<int>(n);
             }
         }
 
-        for (BufferAccess& a : nodes[n].buffer_accesses) {
+        for (BufferAccess& a : node.buffer_accesses) {
             auto it = buffer_resource_map.find(a.name_id);
             if (it == buffer_resource_map.end()) {
-                log_write("RenderGraph: pass '%s' accesses unimported buffer '%s'.", nodes[n].pass->name.c_str(), debug_names[a.name_id].c_str());
+                log_write("RenderGraph: pass '%s' accesses unimported buffer '%s'.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
                 continue;
             }
             a.resource_index = static_cast<int>(it->second);
             BufferResource& r = buffer_resources[a.resource_index];
             if (r.first_use == -1) r.first_use = n;
             r.last_use = n;
+
+            const bool reads_existing = !a.is_write || (a.access & READ_BITS) != 0;
+            if (reads_existing) {
+                r.read = true;
+                int prod = buf_writer[a.resource_index];
+                if (prod >= 0) node.deps.push_back(prod);
+            }
             if (a.is_write) {
                 r.written = true;
-                r.producer = static_cast<int>(n);
-            } else {
-                r.read = true;
+                buf_writer[a.resource_index] = static_cast<int>(n);
             }
         }
     }
 
     for (ImageResource& r : image_resources) {
-        // bool is_sink = (r.kind == ResourceKind::Imported) && r.final_layout != VK_IMAGE_LAYOUT_UNDEFINED;
-        // if (r.written && !r.read && !is_sink) log_write("RenderGraph: '%s' written but never read (dead write).", debug_names[r.name_id].c_str());
         if (r.read && !r.written && r.kind != ResourceKind::Imported) log_write("RenderGraph: '%s' read before write.", debug_names[r.name_id].c_str());
     }
 
-    // for (Node& node : nodes) node.culled = true;
-    for (Node& node : nodes) node.culled = false;
+    for (Node& node : nodes) node.culled = true;
 
     std::vector<uint32_t> worklist;
     for (uint32_t n = 0; n < nodes.size(); ++n) {
-        if (nodes[n].pass->never_cull && nodes[n].culled) {
-            nodes[n].culled = false;
-            worklist.push_back(n);
-        }
+        bool root = nodes[n].pass->never_cull;
 
         for (ImageAccess& a : nodes[n].image_accesses) {
-            if (a.is_write && a.resource_index >= 0) {
-                ImageResource& r = image_resources[a.resource_index];
-                bool is_sink = (r.kind == ResourceKind::Imported) && r.final_layout != VK_IMAGE_LAYOUT_UNDEFINED;
-                if (is_sink && nodes[n].culled) {
-                    nodes[n].culled = false;
-                    worklist.push_back(n);
-                }
-            }
+            if (!a.is_write || a.resource_index < 0) continue;
+            ImageResource& r = image_resources[a.resource_index];
+            if (r.kind == ResourceKind::Imported && r.final_layout != VK_IMAGE_LAYOUT_UNDEFINED) root = true;
+        }
+        for (BufferAccess& a : nodes[n].buffer_accesses) {
+            if (!a.is_write || a.resource_index < 0) continue;
+            BufferResource& r = buffer_resources[a.resource_index];
+            if (r.kind == ResourceKind::Imported && r.final_access != 0) root = true;
         }
 
-        for (BufferAccess& a : nodes[n].buffer_accesses) {
-            if (a.is_write && a.resource_index >= 0) {
-                BufferResource& r = buffer_resources[a.resource_index];
-                bool is_sink = (r.kind == ResourceKind::Imported) && r.final_access != 0;
-                if (is_sink && nodes[n].culled) {
-                    nodes[n].culled = false;
-                    worklist.push_back(n);
-                }
-            }
+        if (root) {
+            nodes[n].culled = false;
+            worklist.push_back(n);
         }
     }
 
@@ -799,23 +809,10 @@ Error RenderGraph::compile()
         uint32_t n = worklist.back();
         worklist.pop_back();
 
-        for (ImageAccess& a : nodes[n].image_accesses) {
-            if (!a.is_write && a.resource_index >= 0) {
-                int prod = image_resources[a.resource_index].producer;
-                if (prod >= 0 && nodes[prod].culled) {
-                    nodes[prod].culled = false;
-                    worklist.push_back((uint32_t)prod);
-                }
-            }
-        }
-
-        for (BufferAccess& a : nodes[n].buffer_accesses) {
-            if (!a.is_write && a.resource_index >= 0) {
-                int prod = buffer_resources[a.resource_index].producer;
-                if (prod >= 0 && nodes[prod].culled) {
-                    nodes[prod].culled = false;
-                    worklist.push_back((uint32_t)prod);
-                }
+        for (int dep : nodes[n].deps) {
+            if (nodes[dep].culled) {
+                nodes[dep].culled = false;
+                worklist.push_back(static_cast<uint32_t>(dep));
             }
         }
     }

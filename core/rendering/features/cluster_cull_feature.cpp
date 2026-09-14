@@ -67,7 +67,7 @@ void ClusterCullFeature::_create_instance_cull_pass()
 
 void ClusterCullFeature::_create_cluster_refs_args_pass()
 {
-    cluster_refs_args_pass.name = "ClusterExpandArgs";
+    cluster_refs_args_pass.name = "ClusterRefsArgs";
     cluster_refs_args_pass.category = "ClusterCull";
     cluster_refs_args_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo args_ci{};
@@ -108,7 +108,7 @@ void ClusterCullFeature::_create_cluster_refs_args_pass()
 
 void ClusterCullFeature::_create_cluster_refs_pass()
 {
-    cluster_refs_pass.name = "ClusterExpand";
+    cluster_refs_pass.name = "ClusterRefs";
     cluster_refs_pass.category = "ClusterCull";
     cluster_refs_pass.setup = [this](RenderGraph::Builder& b) {
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
@@ -614,7 +614,7 @@ void ClusterCullFeature::_create_cluster_retest_pass()
 
 void ClusterCullFeature::_create_raster_count_2_pass()
 {
-    raster_count_pass_2.name = "RasterCount1";
+    raster_count_pass_2.name = "RasterCount2";
     raster_count_pass_2.category = "ClusterCull";
     raster_count_pass_2.setup = [this](RenderGraph::Builder& b) {
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -812,7 +812,6 @@ void ClusterCullFeature::_create_hiz_build_2_pass()
 {
     hiz_build_pass_2.name = "HiZBuild2";
     hiz_build_pass_2.category = "ClusterCull";
-    hiz_build_pass_2.never_cull = true;
     hiz_build_pass_2.setup = [this](RenderGraph::Builder& b) {
         b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image("HiZ", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);

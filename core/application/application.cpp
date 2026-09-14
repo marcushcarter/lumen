@@ -12,7 +12,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     using enum Error;
     Error err;
 
-    lumen::log_write("%s v%s.stable.official - https://lumengames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
+    lumen::log_write("%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
 
     err = win32.initialize();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);

@@ -22,9 +22,9 @@ layout(push_constant) uniform Push {
 } pc;
 
 bool cull_frustum(vec3 center_ws, float radius_ws) {
-    for (uint i = 0; i < 6; ++i) {
-        vec4 plane = pc.camera.frustum_planes[i];
-        if (dot(plane.xyz, center_ws) + plane.w < -radius_ws) return true;
+    for (int i = 0; i < 6; i++) {
+        vec4 pl = pc.camera.frustum_planes[i];
+        if (dot(pl.xyz, center_ws) + pl.w < -radius_ws) return true;
     }
     return false;
 }

@@ -15,39 +15,36 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
     const float right_width = avail.x * 0.2f;
     const float leftWidth = avail.x - right_width - ImGui::GetStyle().ItemSpacing.x;
 
-    const float topHeight = avail.y / 2.0f;
-    const float bottomHeight = avail.y - topHeight - ImGui::GetStyle().ItemSpacing.y;
-
     ImGui::BeginGroup();
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::BeginChild("TopLeft", ImVec2(leftWidth, topHeight), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("TopLeft", ImVec2(leftWidth, avail.y), ImGuiChildFlags_Borders);
     ImGui::PopStyleVar();
     {
         timeline.draw(ctx);
     }
     ImGui::EndChild();
 
-    ImGui::BeginChild("BottomLeft", ImVec2(leftWidth, bottomHeight), ImGuiChildFlags_Borders);
-    {
-        if (ImGui::BeginTabBar("Tabs")) {
-            if (ImGui::BeginTabItem("Resources")) {
-                resources.draw(ctx, timeline.selected_pass ? timeline.selected_pass->name : nullptr);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Samplers")) {
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Blend State")) {
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Shader State")) {
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
-        }
-    }
-    ImGui::EndChild();
+    // ImGui::BeginChild("BottomLeft", ImVec2(leftWidth, bottomHeight), ImGuiChildFlags_Borders);
+    // {
+    //     if (ImGui::BeginTabBar("Tabs")) {
+    //         if (ImGui::BeginTabItem("Resources")) {
+    //             resources.draw(ctx, timeline.selected_pass ? timeline.selected_pass->name : nullptr);
+    //             ImGui::EndTabItem();
+    //         }
+    //         if (ImGui::BeginTabItem("Samplers")) {
+    //             ImGui::EndTabItem();
+    //         }
+    //         if (ImGui::BeginTabItem("Blend State")) {
+    //             ImGui::EndTabItem();
+    //         }
+    //         if (ImGui::BeginTabItem("Shader State")) {
+    //             ImGui::EndTabItem();
+    //         }
+    //         ImGui::EndTabBar();
+    //     }
+    // }
+    // ImGui::EndChild();
 
     ImGui::EndGroup();
     ImGui::SameLine();
@@ -69,6 +66,8 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
         imgui_spacing();
 
         distribution.draw(ctx, timeline.selected_draw, profiler.frozen);
+
+        resources.draw(ctx, timeline.selected_pass ? timeline.selected_pass->name : nullptr);
     }
     ImGui::EndChild();
 }

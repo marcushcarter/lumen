@@ -15,6 +15,7 @@
 #include <vector>
 #include <cstring>
 #include <cmath>
+#include <cfloat>
 
 namespace lumen {
 
@@ -32,6 +33,16 @@ struct MeshSource {
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
 };
+
+static i16vec2 _oct_encode(vec3 n)
+{
+    const float s = abs(n.x) + abs(n.y) + abs(n.z);
+    if (s > 0.0f) n /= s;
+    vec2 e = vec2(n.x, n.y);
+    if (n.z < 0.0f) e = (1.0f - abs(vec2(e.y, e.x))) * vec2(e.x >= 0.0f ? 1.0f : -1.0f, e.y >= 0.0f ? 1.0f : -1.0f);
+    e = clamp(e, -1.0f, 1.0f);
+    return i16vec2((int16_t)glm::round(e.x * 32767.0f), (int16_t)glm::round(e.y * 32767.0f));
+}
 
 Error MeshCooker::_cook(const Job& p_job)
 {
@@ -51,38 +62,51 @@ Error MeshCooker::_cook(const Job& p_job)
     } else {
 
     }
-    const vec3 pos[3] = {
-        vec3( 0.0f,  0.5f, 0.0f),
-        vec3(-0.5f, -0.5f, 0.0f),
-        vec3( 0.5f, -0.5f, 0.0f),
-    };
 
-    vec3 pmin = pos[0], pmax = pos[0];
-    for (const vec3& p : pos) { pmin = glm::min(pmin, p); pmax = glm::max(pmax, p); }
-    const vec3 extent = pmax - pmin;
-    const vec3 inv_extent = vec3(extent.x > 0.0f ? 1.0f / extent.x : 0.0f, extent.y > 0.0f ? 1.0f / extent.y : 0.0f, extent.z > 0.0f ? 1.0f / extent.z : 0.0f);
+    {
+        struct SrcVert { vec3 p; vec3 n; vec2 uv; };
+        const SrcVert verts[3] = {
+            { vec3( 0.0f,  0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.5f, 1.0f) },
+            { vec3(-0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.0f, 0.0f) },
+            { vec3( 0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(1.0f, 0.0f) },
+        };
 
-    auto quantize_pos = [&](const vec3& p) -> u16vec3 {
-        vec3 n = clamp((p - pmin) * inv_extent, 0.0f, 1.0f);
-        return u16vec3((uint16_t)glm::round(n.x * 65535.0f), (uint16_t)glm::round(n.y * 65535.0f), (uint16_t)glm::round(n.z * 65535.0f));
-    };
+        vec3 pmin = verts[0].p, pmax = verts[0].p;
+        vec2 uvmin = verts[0].uv, uvmax = verts[0].uv;
+        for (const SrcVert& v : verts) {
+            pmin = glm::min(pmin, v.p); pmax = glm::max(pmax, v.p);
+            uvmin = glm::min(uvmin, v.uv); uvmax = glm::max(uvmax, v.uv);
+        }
+        const vec3 pextent = pmax - pmin;
+        const vec2 uvextent = uvmax - uvmin;
+        const vec3 inv_pext = vec3(pextent.x > 0.0f ? 1.0f / pextent.x : 0.0f, pextent.y > 0.0f ? 1.0f / pextent.y : 0.0f, pextent.z > 0.0f ? 1.0f / pextent.z : 0.0f);
+        const vec2 inv_uvext = vec2(uvextent.x > 0.0f ? 1.0f / uvextent.x : 0.0f, uvextent.y > 0.0f ? 1.0f / uvextent.y : 0.0f);
 
-    for (const vec3& p : pos) {
-        Vertex v{};
-        v.position = quantize_pos(p);
-        v.normal = i16vec2(0);
-        v.uv = u16vec2(0);
-        src.vertices.push_back(v);
+        for (const SrcVert& v : verts) {
+            const vec3 np = clamp((v.p - pmin) * inv_pext, 0.0f, 1.0f);
+            const vec2 nu = clamp((v.uv - uvmin) * inv_uvext, 0.0f, 1.0f);
+            Vertex out{};
+            out.position = u16vec3((uint16_t)glm::round(np.x * 65535.0f), (uint16_t)glm::round(np.y * 65535.0f), (uint16_t)glm::round(np.z * 65535.0f));
+            out.normal = _oct_encode(v.n);
+            out.uv = u16vec2((uint16_t)glm::round(nu.x * 65535.0f), (uint16_t)glm::round(nu.y * 65535.0f));
+            src.vertices.push_back(out);
+        }
+
+        src.pos_min = pmin;
+        src.pos_extent = pextent;
+        src.uv_min = uvmin;
+        src.uv_extent = uvextent;
+        src.bounds_sphere = vec4((pmin + pmax) * 0.5f, length(pextent) * 0.5f);
+
+        src.indices = { 0, 1, 2 };
+        src.tri_slots = { 0 };
+        src.slot_table = { 0 };
+
+        const vec4 sphere = src.bounds_sphere;
+        src.clusters.push_back(Cluster{ 0, 3, sphere, vec4(0.0f, 0.0f, 1.0f, 1.0f), sphere, sphere, 0.0f, FLT_MAX, });
+
+        src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, 1u });
     }
-    src.pos_min = pmin;
-    src.pos_extent = extent;
-    src.bounds_sphere = vec4((pmin + pmax) * 0.5f, length(extent) * 0.5f);
-
-    src.indices = { 0, 1, 2 };
-    src.tri_slots = { 0 };
-    src.slot_table = { 0, 0, 0 };
-    src.clusters.push_back(Cluster{ 0, 3, vec4(0.0f), vec4(0.0f), vec4(0.0f), vec4(0.0f), 0.0f, 0.0f });
-    src.bvh_nodes.push_back(BVHNode{ vec3(-0.5f, -0.5f, 0.0f), BVH_LEAF_BIT | 0u, vec3(0.5f, 0.5f, 0.0f), 1u });
 
     const bool skinned = !src.skin_vertices.empty();
 

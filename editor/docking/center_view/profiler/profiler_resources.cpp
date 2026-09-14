@@ -48,10 +48,9 @@ void ProfilerResources::draw(EditorContext& ctx, const char* p_pass_name)
     };
 
     const ImGuiTableFlags tf = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
-    const float col_w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
 
     // Images.
-    ImGui::BeginChild("ResLeft", ImVec2(col_w, 0), ImGuiChildFlags_None);
+    ImGui::BeginChild("ResLeft", ImVec2(0, 0), ImGuiChildFlags_None);
     {
         imgui_title("Images");
         if (ImGui::BeginTable("img", 3, tf)) {
@@ -95,8 +94,6 @@ void ProfilerResources::draw(EditorContext& ctx, const char* p_pass_name)
         }
     }
     ImGui::EndChild();
-
-    ImGui::SameLine();
 
     // Buffers.
     ImGui::BeginChild("ResRight", ImVec2(0, 0), ImGuiChildFlags_None);

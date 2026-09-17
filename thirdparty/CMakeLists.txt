@@ -28,3 +28,14 @@ add_library(bc7enc STATIC
 )
 target_include_directories(bc7enc PUBLIC bc7enc_rdo)
 target_compile_options(bc7enc PRIVATE /W1)
+
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+add_subdirectory(assimp)
+
+set(MESHOPT_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+set(MESHOPT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+add_subdirectory(mesh_opt)

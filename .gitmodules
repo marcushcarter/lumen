@@ -20,3 +20,9 @@
 [submodule "thirdparty/bc7enc_rdo"]
 	path = thirdparty/bc7enc_rdo
 	url = https://github.com/richgel999/bc7enc_rdo
+[submodule "thirdparty/assimp"]
+	path = thirdparty/assimp
+	url = https://github.com/assimp/assimp.git
+[submodule "thirdparty/mesh_opt"]
+	path = thirdparty/mesh_opt
+	url = https://github.com/zeux/meshoptimizer.git

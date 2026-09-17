@@ -20,4 +20,6 @@ PUBLIC
     lumen_compiler_options
     lumen_core
     bc7enc
+    assimp
+    meshoptimizer
 )

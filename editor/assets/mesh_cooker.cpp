@@ -65,10 +65,18 @@ Error MeshCooker::_cook(const Job& p_job)
 
     {
         struct SrcVert { vec3 p; vec3 n; vec2 uv; };
-        const SrcVert verts[3] = {
-            { vec3( 0.0f,  0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.5f, 1.0f) },
+        const SrcVert verts[6] = {
+            // { vec3( 0.0f,  0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.5f, 1.0f) },
+            // { vec3(-0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.0f, 0.0f) },
+            // { vec3( 0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(1.0f, 0.0f) },
+
+            { vec3(-0.5f,  0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.0f, 1.0f) },
             { vec3(-0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.0f, 0.0f) },
             { vec3( 0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(1.0f, 0.0f) },
+
+            { vec3(-0.5f,  0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(0.0f, 1.0f) },
+            { vec3( 0.5f, -0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(1.0f, 0.0f) },
+            { vec3( 0.5f,  0.5f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec2(1.0f, 1.0f) },
         };
 
         vec3 pmin = verts[0].p, pmax = verts[0].p;
@@ -98,12 +106,12 @@ Error MeshCooker::_cook(const Job& p_job)
         src.uv_extent = uvextent;
         src.bounds_sphere = vec4((pmin + pmax) * 0.5f, length(pextent) * 0.5f);
 
-        src.indices = { 0, 1, 2 };
-        src.tri_slots = { 0 };
-        src.slot_table = { 0 };
+        src.indices = { 0, 1, 2, 3, 4, 5 };
+        src.tri_slots = { 0, 1 };
+        src.slot_table = { 0, 1 };
 
         const vec4 sphere = src.bounds_sphere;
-        src.clusters.push_back(Cluster{ 0, 3, sphere, vec4(0.0f, 0.0f, 1.0f, 1.0f), sphere, sphere, 0.0f, FLT_MAX, });
+        src.clusters.push_back(Cluster{ 0, 6, sphere, vec4(0.0f, 0.0f, 1.0f, 1.0f), sphere, sphere, 0.0f, FLT_MAX, });
 
         src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, 1u });
     }

@@ -80,28 +80,6 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd)
     pending_width = width;
     pending_height = height;
 
-    
-    // frame.reset();
-    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-    //     for (int j=0; j<1000; j++) {
-    //         frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-    //         frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
-    //         // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
-    //         frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-    //     }
-    // }
-    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
-
-    // if (frame.instance_count != 0) {
-    //     drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
-    //     dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-    //     dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
-
-    //     drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
-    //     dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    //     dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    // }
-
     return Ok;
 }
 
@@ -153,31 +131,28 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
         }
     }
 
-    
+    // frame.reset();
+    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
+    //     for (int j=0; j<10000; j++) {
+    //         frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+    //         frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
+    //         // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
+    //         frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
+    //     }
+    // }
+    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
 
-    
-    frame.reset();
-    for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-        for (int j=0; j<10000; j++) {
-            frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-            frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
-            // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
-            frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-        }
-    }
-    frame.instance_count = (uint32_t)frame.instances_scratch.size();
+    // for (uint32_t i = 0; i < frame_count; i++) {
+    //     if (frame.instance_count != 0) {
+    //         drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[i];
+    //         dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
+    //         dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
 
-    for (uint32_t i = 0; i < frame_count; i++) {
-        if (frame.instance_count != 0) {
-            drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[i];
-            dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-            dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
-
-            drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[i];
-            dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-            dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
-        }
-    }
+    //         drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[i];
+    //         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
+    //         dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
+    //     }
+    // }
 
     return Ok;
 }
@@ -291,16 +266,16 @@ void Renderer::_frame_build(const World& p_world)
 {
     (void)p_world;
 
-    // frame.reset();
-    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-    //     for (int j=0; j<100000; j++) {
-    //         frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-    //         frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
-    //         // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
-    //         frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-    //     }
-    // }
-    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
+    frame.reset();
+    for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
+        for (int j=0; j<5; j++) {
+            frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+            frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
+            // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
+            frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
+        }
+    }
+    frame.instance_count = (uint32_t)frame.instances_scratch.size();
     
     const float aspect = height ? (float)width / (float)height : 1.0f;
 
@@ -309,21 +284,23 @@ void Renderer::_frame_build(const World& p_world)
     frame.camera.prev_view_proj = camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
     frame.camera.position = vec4(active_camera.position, 1.0f);
     extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
+    frame.camera.near_z = active_camera.near_z;
+    frame.camera.far_z = active_camera.far_z;
     
     camera_cut_pending = false;
 }
 
 void Renderer::_frame_upload()
 {
-    // if (frame.instance_count != 0) {
-    //     drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
-    //     dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-    //     dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
+    if (frame.instance_count != 0) {
+        drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
+        dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
+        dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
 
-    //     drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
-    //     dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    //     dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    // }
+        drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
+        dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
+        dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
+    }
     
     drivers::DeviceDriverVulkan::Buffer& cb = camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));

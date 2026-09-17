@@ -849,6 +849,7 @@ void ClusterCullFeature::_create_material_resolve_pass()
 {
     material_resolve_pass.name = "MaterialResolve";
     material_resolve_pass.category = "Material";
+    material_resolve_pass.never_cull = true;
     material_resolve_pass.setup = [this](RenderGraph::Builder& b) {
         
         drivers::DeviceDriverVulkan::ImageCreateInfo normal_ci{};
@@ -869,6 +870,12 @@ void ClusterCullFeature::_create_material_resolve_pass()
         material_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Material", material_ci);
 
+        drivers::DeviceDriverVulkan::ImageCreateInfo custom_ci{};
+        custom_ci.name = "G_Custom";
+        custom_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        custom_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        b.create_image("G_Custom", custom_ci);
+
         drivers::DeviceDriverVulkan::ImageCreateInfo motion_ci{};
         motion_ci.name = "G_Motion";
         motion_ci.format = VK_FORMAT_R16G16_SFLOAT;
@@ -886,6 +893,7 @@ void ClusterCullFeature::_create_material_resolve_pass()
         b.write_image("G_Normal", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Albedo", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Material", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_image("G_Custom", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Motion", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     material_resolve_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -894,6 +902,7 @@ void ClusterCullFeature::_create_material_resolve_pass()
         auto normal = cl.graph->image("G_Normal");
         auto albedo = cl.graph->image("G_Albedo");
         auto matl = cl.graph->image("G_Material");
+        auto custom = cl.graph->image("G_Custom");
         auto motion = cl.graph->image("G_Motion");
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
@@ -915,6 +924,7 @@ void ClusterCullFeature::_create_material_resolve_pass()
             uint32_t normal_slot;
             uint32_t albedo_slot;
             uint32_t material_slot;
+            uint32_t custom_slot;
             uint32_t motion_slot;
             uint32_t width;
             uint32_t height;
@@ -929,6 +939,7 @@ void ClusterCullFeature::_create_material_resolve_pass()
         pc.normal_slot = normal->bindless_storage;
         pc.albedo_slot = albedo->bindless_storage;
         pc.material_slot = matl->bindless_storage;
+        pc.custom_slot = custom->bindless_storage;
         pc.motion_slot = motion->bindless_storage;
         pc.width = vis->extent.width;
         pc.height = vis->extent.height;
@@ -1032,9 +1043,7 @@ Error ClusterCullFeature::create_pipelines()
     VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Vertex,   .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
     VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Fragment, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "raster_visibility_fs" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
-    pipeline_ci.vertex_shader = vs;
-    pipeline_ci.fragment_shader = fs;
-    pipeline_ci.render_pass = rp;
+    pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     // pipeline_ci.cull_mode = VK_CULL_MODE_FRONT_BIT;
     pipeline_ci.cull_mode = VK_CULL_MODE_NONE;
@@ -1044,8 +1053,7 @@ Error ClusterCullFeature::create_pipelines()
     pipeline_ci.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL;
     pipeline_ci.name = "raster_visibility_pipeline";
     raster_visibility_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
-    ctx->dd->shader_free(vs);
-    ctx->dd->shader_free(fs);
+    ctx->dd->shader_free(vs); ctx->dd->shader_free(fs);
     }
     
     {

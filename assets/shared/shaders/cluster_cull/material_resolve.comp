@@ -32,6 +32,7 @@ layout(push_constant) uniform Push {
     uint normal_slot;
     uint albedo_slot;
     uint material_slot;
+    uint custom_slot;
     uint motion_slot;
     uint width;
     uint height;

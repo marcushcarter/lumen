@@ -8,8 +8,8 @@ struct DebugViewFeature : Feature
 {
     uint32_t view = 0;
 
-    RenderGraph::Pass pass;
-    drivers::DeviceDriverVulkan::Pipeline pipe;
+    RenderGraph::Pass viewport_resolve_pass;
+    drivers::DeviceDriverVulkan::Pipeline viewport_resolve_pipe;
 
     Error create_resources() override;
     Error create_pipelines() override;

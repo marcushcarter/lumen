@@ -4,23 +4,72 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
 
+#include "common/camera.glsl"
+#include "common/instances.glsl"
+// #include "common/geometry.glsl"
+#include "editor/debug_op.glsl"
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
 
-const uint OP_COPY = 0u;
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
 
 layout(push_constant) uniform Push {
+    CameraBuffer camera;
+    ClusterRefsBuffer cluster_refs;
+    InstanceBuffer instances;
+    uint vis_index;
+    uint depth_index;
     uint src_index;
     uint out_slot;
     uint op;
+    uint width;
+    uint height;
 } pc;
+
+float linearize_depth(ivec2 coord) {
+    float depth = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).r;
+    depth = 1.0 - depth;
+    const float N = 1.0;
+    depth /= pc.camera.far_z - depth * (pc.camera.far_z - N);
+    return depth;
+}
+
+vec3 view_normal_from_depth(ivec2 coord, ivec2 size) {
+    vec2 ps  = 1.0 / vec2(size);
+    ivec2 cN = clamp(coord + ivec2(0, -1), ivec2(0), size - 1);
+    ivec2 cE = clamp(coord + ivec2(1,  0), ivec2(0), size - 1);
+    vec3 vC = vec3((vec2(coord) + 0.5) * ps - 0.5, 1.0) * linearize_depth(coord);
+    vec3 vN = vec3((vec2(cN) + 0.5) * ps - 0.5, 1.0) * linearize_depth(cN);
+    vec3 vE = vec3((vec2(cE) + 0.5) * ps - 0.5, 1.0) * linearize_depth(cE);
+    return normalize(cross(vC - vN, vC - vE));
+}
+
+bool sample_vis(ivec2 coord, out uvec2 v, out uvec2 ref) {
+    float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
+    if (d == 0.0) return false;
+    v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).xy;
+    ref = pc.cluster_refs.data[v.x];
+    return true;
+}
+
+vec3 hsv2rgb(vec3 c) {
+    vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0/3.0, 1.0/3.0)) * 6.0 - 3.0);
+    return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+}
+
+vec3 hash_color(uint k) {
+    uint h = k * 2654435761u;
+    return vec3(float(h & 0xffu), float((h >> 8) & 0xffu), float((h >> 16) & 0xffu)) / 255.0;
+}
+uint hash2(uint a, uint b) { return (a * 2654435761u) ^ (b * 2246822519u); }
 
 void main() {
     uvec2 px = gl_GlobalInvocationID.xy;
-    ivec2 size = textureSize(u_textures[nonuniformEXT(pc.src_index)], 0);
+    ivec2 size  = ivec2(pc.width, pc.height);
     if (px.x >= uint(size.x) || px.y >= uint(size.y)) return;
     ivec2 coord = ivec2(px);
 
@@ -28,6 +77,32 @@ void main() {
 
     if (pc.op == OP_COPY) {
         color = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb;
+    } else if (pc.op == OP_NORMAL) {
+        color = view_normal_from_depth(coord, size) * 0.5 + 0.5;
+    } else if (pc.op == OP_VELOCITY) {
+        vec2 m = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg;
+        const float SCALE = 40.0;
+        float speed = length(m) * SCALE;
+        float hue = atan(m.y, m.x) / 6.2831853 + 0.5;
+        color = hsv2rgb(vec3(hue, 1.0, clamp(speed, 0.0, 1.0)));
+    } else if (pc.op == OP_DEPTH) {
+        color = vec3(linearize_depth(coord));
+    } else if (pc.op == OP_TRIANGLES) {
+        uvec2 v, ref;
+        color = vec3(0.02);
+        if (sample_vis(coord, v, ref)) color = hash_color(hash2(ref.y, v.y));
+    } else if (pc.op == OP_CLUSTERS) {
+        uvec2 v, ref;
+        color = vec3(0.02);
+        if (sample_vis(coord, v, ref)) color = hash_color(hash2(ref.x, v.y));
+    } else if (pc.op == OP_INSTANCES) {
+        uvec2 v, ref;
+        color = vec3(0.02);
+        if (sample_vis(coord, v, ref)) color = hash_color(ref.x + 1u);
+    } else if (pc.op == OP_MATERIAL_ID) {
+        uvec2 v, ref;
+        color = vec3(0.02);
+        if (sample_vis(coord, v, ref)) color = hash_color(pc.instances.data[ref.x].mesh_id + 1u);
     }
 
     imageStore(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord, vec4(color, 1.0));

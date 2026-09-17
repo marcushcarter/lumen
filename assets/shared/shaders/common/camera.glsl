@@ -9,6 +9,8 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     mat4 curr_view_proj;
     vec4 position;
     vec4 frustum_planes[6];
+    float near_z;
+    float far_z;
 };
 
 #endif

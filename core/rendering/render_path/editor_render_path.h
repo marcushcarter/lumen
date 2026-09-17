@@ -1,17 +1,20 @@
 #pragma once
 #include <core/rendering/render_path/scene_render_path.h>
-#include <core/rendering/features/editor/imgui_feature.h>
-#include <core/rendering/features/editor/screenshot_feature.h>
+#include <core/rendering/features/debug_view_feature.h>
+#include <core/rendering/features/imgui_feature.h>
+#include <core/rendering/features/screenshot_feature.h>
 
 namespace lumen {
 
 struct EditorRenderPath : SceneRenderPath
 {
+    DebugViewFeature debug;
     ImGuiFeature ui;
     ScreenshotFeature screenshot;    
 
     EditorRenderPath() {
-        ui.sampled_image = "Out_Color";
+        ui.viewport = "Viewport";
+        features.push_back(&debug);
         features.push_back(&ui);
         features.push_back(&screenshot);
     }

@@ -7,7 +7,7 @@ namespace lumen {
 struct ImGuiFeature : Feature
 {
     RenderGraph::Pass ui_pass;
-    const char* sampled_image = nullptr;
+    const char* viewport = nullptr;
 
     Error create_resources() override;
     void build(RenderGraph& g) override;

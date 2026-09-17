@@ -1,0 +1,34 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
+
+const uint OP_COPY = 0u;
+
+layout(push_constant) uniform Push {
+    uint src_index;
+    uint out_slot;
+    uint op;
+} pc;
+
+void main() {
+    uvec2 px = gl_GlobalInvocationID.xy;
+    ivec2 size = textureSize(u_textures[nonuniformEXT(pc.src_index)], 0);
+    if (px.x >= uint(size.x) || px.y >= uint(size.y)) return;
+    ivec2 coord = ivec2(px);
+
+    vec3 color = vec3(0.6, 0.0, 0.6);
+
+    if (pc.op == OP_COPY) {
+        color = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb;
+    }
+
+    imageStore(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord, vec4(color, 1.0));
+}

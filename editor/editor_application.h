@@ -72,7 +72,7 @@ struct EditorApplication : Application
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
     
-    RenderPath* create_render_path() { return new EditorRenderPath(); }
+    RenderPath* create_render_path() override { return new ProjectManagerRenderPath(); }
 };
 
 }

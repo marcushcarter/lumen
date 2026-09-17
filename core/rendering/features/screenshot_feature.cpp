@@ -1,4 +1,4 @@
-#include <core/rendering/features/editor/screenshot_feature.h>
+#include <core/rendering/features/screenshot_feature.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/io/image_io.h>
 #include <core/io/path.h>

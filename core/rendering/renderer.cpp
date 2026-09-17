@@ -268,6 +268,7 @@ void Renderer::_frame_build(const World& p_world)
 
     frame.reset();
     for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
+        if (geometry.mesh_guids[i] == Guid{}) continue;
         for (int j=0; j<5; j++) {
             frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
             frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });

@@ -91,7 +91,7 @@ struct GeometryPool
     //     return it == by_guid.end() ? nullptr : &slots[it->second];
     // }
 
-    // const BMesh* get(Guid p_guid) const {
+    // const LMesh* get(Guid p_guid) const {
     //     auto it = by_guid.find(p_guid);
     //     return it == by_guid.end() ? nullptr : &slots[it->second];
     // }

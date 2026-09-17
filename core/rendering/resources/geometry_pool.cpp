@@ -205,6 +205,13 @@ void GeometryPool::unload(Guid p_guid)
     auto it = by_guid.find(p_guid);
     if (it == by_guid.end()) return;
     const uint32_t id = it->second;
+
+    if (allocated) {
+        LMesh empty{};
+        drivers::DeviceDriverVulkan::BufferUpload up = { &mesh_buffer, &empty, sizeof(LMesh), (VkDeviceSize)id * sizeof(LMesh) };
+        dd->buffer_upload_batch(&up, 1);
+    }
+
     meshes[id] = LMesh{};
     mesh_guids[id] = Guid{};
     free_meshes.push_back(id);

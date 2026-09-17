@@ -68,8 +68,6 @@ Error EditorApplication::on_init()
 
     err = project_manager.initialize();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
-    err = asset_manager.initialize();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
     err = editor.initialize();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
 
@@ -87,7 +85,6 @@ void EditorApplication::on_shutdown()
     project_manager.save_recents();
 
     project_manager.shutdown();
-    asset_manager.shutdown();
     editor.shutdown();
 }
 
@@ -118,9 +115,7 @@ void EditorApplication::on_update(float p_dt)
         }
         imports.completed.clear();
 
-        if (active_tab == 0) asset_manager.on_update(ctx);
-        else editor.on_update(ctx, p_dt);
-
+        editor.on_update(ctx, p_dt);
     } else {
         project_manager.on_update(ctx);
     }
@@ -382,13 +377,13 @@ void EditorApplication::_titlebar_tabs(const TitlebarLayout& L)
             return pending_tab == idx ? ImGuiTabItemFlags_SetSelected : 0;
         };
 
-        ImGui::PushID(0);
-        if (ImGui::BeginTabItem("Asset Manager", nullptr, flags(0))) { active_tab = 0; ImGui::EndTabItem(); }
-        _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-        ImGui::PopID();
+        // ImGui::PushID(0);
+        // if (ImGui::BeginTabItem("Asset Manager", nullptr, flags(0))) { active_tab = 0; ImGui::EndTabItem(); }
+        // _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        // ImGui::PopID();
 
-        ImGui::PushID(1);
-        if (ImGui::BeginTabItem("World", nullptr, flags(1))) { active_tab = 1; ImGui::EndTabItem(); }
+        ImGui::PushID(0);
+        if (ImGui::BeginTabItem("World", nullptr, flags(1))) { active_tab = 0; ImGui::EndTabItem(); }
         _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         ImGui::PopID();
 
@@ -620,7 +615,6 @@ EditorContext EditorApplication::_make_context()
     ctx.imports = &imports;
     
     ctx.project_manager = &project_manager;
-    ctx.asset_manager = &asset_manager;
     ctx.editor = &editor;
     ctx.popups = &popups;
 

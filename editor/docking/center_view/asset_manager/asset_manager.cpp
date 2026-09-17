@@ -1,4 +1,6 @@
-#include <editor/asset_manager/asset_manager.h>
+#include <editor/docking/center_view/asset_manager/asset_manager.h>
+
+// #include <editor/asset_manager/asset_manager.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/project/project.h>
 #include <core/io/path.h>
@@ -8,19 +10,14 @@
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
+#include <drivers/imgui/imgui_helpers.h>
+#include <core/rendering/renderer.h>
+#include <imgui.h>
+#include <implot.h>
+
 namespace lumen {
-    
-Error AssetManager::initialize()
-{
-    return Error::Ok;
-}
 
-void AssetManager::shutdown()
-{
-
-}
-
-void AssetManager::_draw_folder_node(const std::filesystem::path& dir, std::filesystem::path& selected, int depth)
+void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, std::filesystem::path& selected, int depth)
 {
     ImGui::PushID(dir.string().c_str());
 
@@ -97,25 +94,11 @@ void AssetManager::_draw_folder_node(const std::filesystem::path& dir, std::file
     ImGui::PopID();
 }
 
-void AssetManager::on_update(EditorContext& ctx)
-{   
+void AssetManagerDebugTab::draw(EditorContext& ctx)
+{
     if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
     const std::filesystem::path& root = ctx.project->assets_dir;
-
-    ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::SetNextWindowViewport(vp->ID);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("##EditorHost", nullptr,
-        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus
-    );
-    ImGui::PopStyleVar(3);
-
+    
     const ImVec2 region_p0 = ImGui::GetCursorScreenPos();
 
     const float thick = 6.0f;
@@ -142,7 +125,7 @@ void AssetManager::on_update(EditorContext& ctx)
     ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
     toolbar.draw_header(ctx, root, selected_folder, search_buf, sizeof(search_buf));
     ImGui::BeginChild("##bottom_right", ImVec2(0, 0), true);
-    grid.draw(ctx, selected_folder, search_buf);
+    list.draw(ctx, selected_folder, search_buf);
     ImGui::EndChild();
     ImGui::EndChild();
     
@@ -153,7 +136,6 @@ void AssetManager::on_update(EditorContext& ctx)
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     dl->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
 
-    ImGui::End();
 }
 
 }

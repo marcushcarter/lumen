@@ -1412,6 +1412,47 @@ Error DeviceDriverVulkan::buffer_upload_batch(const BufferUpload* p_uploads, uin
     return Ok;
 }
 
+Error DeviceDriverVulkan::buffer_copy_batch(const BufferCopy* p_copies, uint32_t p_count)
+{
+    using enum Error;
+    if (p_count == 0) return Ok;
+
+    CommandPool pool = command_pool_create(cd->graphics_queue_family, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    VkCommandBuffer cmd = command_buffer_create(pool);
+    command_buffer_begin(cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+    for (uint32_t i = 0; i < p_count; i++)
+        command_copy_buffer(cmd, *p_copies[i].src, *p_copies[i].dst, p_copies[i].size, p_copies[i].src_offset, p_copies[i].dst_offset);
+
+    VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cmd, &dep);
+
+    command_buffer_end(cmd);
+
+    VkCommandBufferSubmitInfo cmd_si{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    cmd_si.commandBuffer = cmd;
+    VkSubmitInfo2 submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submit.commandBufferInfoCount = 1;
+    submit.pCommandBufferInfos = &cmd_si;
+
+    VkFence fence = fence_create(false);
+    vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence);
+    fence_wait(fence, UINT64_MAX);
+
+    fence_free(fence);
+    command_pool_free(pool);
+
+    for (uint32_t i = 0; i < p_count; i++) p_copies[i].dst->state.stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    return Ok;
+}
+
 void DeviceDriverVulkan::command_copy_image_to_buffer(VkCommandBuffer p_cmd, const Image& p_image, const Buffer& p_buffer, VkExtent2D p_extent)
 {
     VkBufferImageCopy region{};

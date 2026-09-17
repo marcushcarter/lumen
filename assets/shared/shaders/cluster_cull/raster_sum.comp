@@ -45,14 +45,13 @@ void main() {
     if (lid == 0u) pc.draw_count.value = 0u;
     barrier();
 
-    uint carry = 0u; // running exclusive base across tiles (same in every lane)
+    uint carry = 0u;
     uint tiles = (pc.cluster_count + WG_SIZE - 1u) / WG_SIZE;
 
     for (uint t = 0u; t < tiles; t++) {
         uint cid = t * WG_SIZE + lid;
         uint c = (cid < pc.cluster_count) ? pc.counts.data[cid] : 0u;
 
-        // Inclusive Hillis-Steele scan of this tile in shared memory.
         s_scan[lid] = c;
         barrier();
         for (uint off = 1u; off < WG_SIZE; off <<= 1u) {
@@ -63,7 +62,7 @@ void main() {
         }
 
         uint inclusive = s_scan[lid];
-        uint exclusive = carry + inclusive - c; // this cluster's base slot
+        uint exclusive = carry + inclusive - c;
 
         if (cid < pc.cluster_count) {
             pc.offsets.data[cid] = exclusive;
@@ -74,17 +73,16 @@ void main() {
 
                 DrawIndexedIndirectCommand cmd;
                 cmd.index_count = cluster.index_count;
-                cmd.instance_count = c;             // hardware instancing across shared refs
+                cmd.instance_count = c;
                 cmd.first_index = cluster.index_base;
                 cmd.vertex_offset = 0;
-                cmd.first_instance = 0u;            // base carried via draw_meta
+                cmd.first_instance = 0u;
                 pc.draw_cmds.cmds[draw] = cmd;
                 pc.draw_meta.base[draw] = exclusive;
             }
         }
 
-        // Advance carry by this tile's total (inclusive value of the last lane).
         carry += s_scan[WG_SIZE - 1u];
-        barrier(); // protect s_scan before the next tile overwrites it
+        barrier();
     }
 }

@@ -3,7 +3,6 @@
 #include <core/application/application.h>
 #include <editor/docking/editor.h>
 #include <editor/project_manager/project_manager.h>
-#include <editor/asset_manager/asset_manager.h>
 #include <editor/editor_settings.h>
 #include <editor/editor_resources.h>
 #include <editor/editor_camera.h>
@@ -20,7 +19,6 @@ struct EditorApplication : Application
     enum class EditorMode { Edit, Play } mode = EditorMode::Edit;
 
     ProjectManager project_manager;
-    AssetManager asset_manager;
     Editor editor;
     PopupManager popups;
 

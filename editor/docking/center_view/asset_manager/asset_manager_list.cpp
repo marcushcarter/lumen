@@ -1,4 +1,4 @@
-#include <editor/asset_manager/asset_manager_grid.h>
+#include <editor/docking/center_view/asset_manager/asset_manager_list.h>
 #include <core/rendering/renderer.h>
 #include <editor/editor_resources.h>
 #include <drivers/imgui/imgui_driver.h>
@@ -10,31 +10,41 @@
 
 namespace lumen {
 
-void AssetBrowserGrid::_delete_content(const Project& p_project, const std::filesystem::path& p_asset)
+void AssetBrowserList::_delete_content(EditorContext& ctx, const std::filesystem::path& p_asset)
 {
     AssetInfo info = read_asset_info(p_asset);
-    if (info.valid()) Paths::remove_to_recycle(p_project.content_path(info.guid));
+    if (!info.valid()) return;
+
+    if (ctx.renderer) {
+        switch (info.type) {
+            case AssetType::Texture: ctx.renderer->textures.unload(info.guid); break;
+            case AssetType::Mesh: ctx.renderer->geometry.unload(info.guid); break;
+            default: break;
+        }
+    }
+
+    Paths::remove_to_recycle(ctx.project->content_path(info.guid));
 }
 
-void AssetBrowserGrid::_delete_asset(const Project& p_project, const std::filesystem::path& p_path)
+void AssetBrowserList::_delete_asset(EditorContext& ctx, const std::filesystem::path& p_path)
 {
-    _delete_content(p_project, p_path);
+    _delete_content(ctx, p_path);
     Paths::remove_to_recycle(p_path);
 }
 
-void AssetBrowserGrid::_delete_folder(const Project& p_project, const std::filesystem::path& p_folder)
+void AssetBrowserList::_delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder)
 {
     std::error_code ec;
     for (auto it = std::filesystem::recursive_directory_iterator(p_folder, ec); it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) break;
         if (it->is_directory(ec)) continue;
-        if (it->path().extension() != ".ltexture") continue;
-        _delete_content(p_project, it->path());
+        const std::filesystem::path ext = it->path().extension();
+        if (ext == ".ltexture" || ext == ".lmesh") _delete_content(ctx, it->path());
     }
     Paths::remove_to_recycle(p_folder);
 }
 
-Guid AssetBrowserGrid::_resolve_texture_guid(const std::filesystem::path& p_path)
+Guid AssetBrowserList::_resolve_texture_guid(const std::filesystem::path& p_path)
 {
     if (auto it = _thumb_guids.find(p_path); it != _thumb_guids.end()) return it->second;
     AssetInfo info = read_asset_info(p_path);
@@ -43,7 +53,12 @@ Guid AssetBrowserGrid::_resolve_texture_guid(const std::filesystem::path& p_path
     return info.guid;
 }
 
-bool AssetBrowserGrid::_draw_card(ImTextureID p_texture, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
+void AssetBrowserList::_list_item(ImTextureID , const char* , const char* )
+{
+
+}
+
+bool AssetBrowserList::_draw_card(ImTextureID p_texture, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
     ImGui::BeginChild("##card", ImVec2(card_width, card_height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -135,7 +150,7 @@ bool AssetBrowserGrid::_draw_card(ImTextureID p_texture, const char* p_name, con
     return double_clicked;
 }
 
-void AssetBrowserGrid::draw(EditorContext& ctx, std::filesystem::path& selected, const char* search_buf)
+void AssetBrowserList::draw(EditorContext& ctx, std::filesystem::path& selected, const char* search_buf)
 {
     const float min_gap = 16.0f;
     const float row_gap = 8.0f;
@@ -206,7 +221,7 @@ void AssetBrowserGrid::draw(EditorContext& ctx, std::filesystem::path& selected,
             if (activated && entry.is_directory()) selected = entry.path();
 
             if (!rename_delete_request.empty()) {
-                std::filesystem::is_directory(rename_delete_request) ? _delete_folder(*ctx.project, rename_delete_request) : _delete_asset(*ctx.project, rename_delete_request);
+                std::filesystem::is_directory(rename_delete_request) ? _delete_folder(ctx, rename_delete_request) : _delete_asset(ctx, rename_delete_request);
                 rename_delete_request.clear();
                 _thumb_guids.clear();
             }

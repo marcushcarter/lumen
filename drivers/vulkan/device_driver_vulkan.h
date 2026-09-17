@@ -210,8 +210,19 @@ struct DeviceDriverVulkan
     void command_update_buffer(VkCommandBuffer p_cmd, const Buffer& p_buffer, const void* p_data, VkDeviceSize p_size, VkDeviceSize p_offset = 0);
     Error buffer_upload_batch(const BufferUpload* p_uploads, uint32_t p_count);
 
-    void command_copy_image_to_buffer(VkCommandBuffer p_cmd, const Image& p_image, const Buffer& p_buffer, VkExtent2D p_extent);
+    // ----- STAGED COPY -----
 
+    struct BufferCopy {
+        const Buffer* src;
+        Buffer* dst;
+        VkDeviceSize size;
+        VkDeviceSize src_offset;
+        VkDeviceSize dst_offset;
+    };
+
+    Error buffer_copy_batch(const BufferCopy* p_copies, uint32_t p_count);
+
+    void command_copy_image_to_buffer(VkCommandBuffer p_cmd, const Image& p_image, const Buffer& p_buffer, VkExtent2D p_extent);
 
     // ----- RING -----
 

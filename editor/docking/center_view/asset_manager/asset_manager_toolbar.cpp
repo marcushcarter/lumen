@@ -1,4 +1,4 @@
-#include <editor/asset_manager/asset_manager_toolbar.h>
+#include <editor/docking/center_view/asset_manager/asset_manager_toolbar.h>
 #include <editor/editor_resources.h>
 #include <core/io/path.h>
 #include <drivers/imgui/imgui_driver.h>

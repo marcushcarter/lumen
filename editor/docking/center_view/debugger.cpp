@@ -2,6 +2,7 @@
 #include <editor/docking/center_view/output/output.h>
 #include <editor/docking/center_view/profiler/profiler.h>
 #include <editor/docking/center_view/memory/memory.h>
+#include <editor/docking/center_view/asset_manager/asset_manager.h>
 #include <core/base/error.h>
 #include <cfloat>
 
@@ -9,6 +10,7 @@ namespace lumen {
 
 void Debugger::initialize()
 {
+    tabs.push_back(std::make_unique<AssetManagerDebugTab>());
     tabs.push_back(std::make_unique<ProfilerDebugTab>());
     tabs.push_back(std::make_unique<MemoryDebugTab>());
     tabs.push_back(std::make_unique<OutputDebugTab>());

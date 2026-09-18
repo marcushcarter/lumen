@@ -9,7 +9,19 @@ struct EditorContext;
 
 struct MeshCooker
 {
-    struct CookSettings { bool dag = true; };
+    struct CookSettings {
+        uint32_t dag_level = 2;
+        float scale = 1.0f;
+        uint32_t max_verts = 64;
+        uint32_t max_tris = 124;
+        uint32_t group_size = 8;
+        uint32_t max_levels = 50;
+    };
+
+    // dag levels
+    // 0 = one cluster, full res mesh
+    // 1 = clusters, full re mesh
+    // 2 = dag + clusters
 
     struct Job {
         std::filesystem::path source;

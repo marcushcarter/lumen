@@ -27,9 +27,15 @@ struct BVHNode {
 struct Cluster {
     uint index_base;
     uint index_count;
-    vec4 cull_sphere, cull_cone;
-    vec4 lod_sphere, lod_parent_sphere;
-    float lod_error, lod_parent_error;
+    vec4 cull_sphere;
+    uint self_group;
+    uint parent_group;
+};
+
+struct ClusterGroup {
+    vec4 sphere;
+    float error;
+    uint _pad;
 };
 
 struct Mesh {
@@ -52,6 +58,7 @@ layout(buffer_reference, scalar) readonly buffer IndexBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer TriSlotBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer SlotTableBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer ClusterBuffer { Cluster data[]; };
+layout(buffer_reference, scalar) readonly buffer ClusterGroupBuffer { ClusterGroup data[]; };
 layout(buffer_reference, scalar) readonly buffer SkinVerticesBuffer { SkinVertex data[]; };
 layout(buffer_reference, scalar) readonly buffer BVHNodeBuffer { BVHNode data[]; };
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
@@ -62,6 +69,7 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     TriSlotBuffer tri_slots;
     SlotTableBuffer slot_table;
     ClusterBuffer clusters;
+    ClusterGroupBuffer groups;
     SkinVerticesBuffer skin_vertices;
     BVHNodeBuffer bvh_nodes;
     MeshBuffer meshes;

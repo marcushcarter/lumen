@@ -30,6 +30,8 @@ struct Renderer
     uint32_t current_frame = 0;
     uint64_t frame_number = 0;
 
+    float lod_bias = 0.6f;
+
     std::vector<VkSemaphore> image_available_semaphores;
     std::vector<VkFence> in_flight_fences;
     std::vector<drivers::DeviceDriverVulkan::CommandPool> command_pools;

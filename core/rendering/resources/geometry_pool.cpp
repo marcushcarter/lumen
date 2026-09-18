@@ -4,7 +4,7 @@
 #include <fstream>
 
 namespace lumen {
-    
+
 Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd)
 {
     using enum Error;
@@ -22,6 +22,7 @@ Error GeometryPool::allocate()
     tri_slot_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_INDICES/3 * sizeof(uint32_t), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_tri_slots" });
     slot_table_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_SLOT_TABLE * sizeof(uint32_t), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_slot_table" });
     cluster_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_CLUSTERS * sizeof(Cluster), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_clusters" });
+    group_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_GROUPS * sizeof(ClusterGroup), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_groups" });
     skin_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_SKIN_VERTS * sizeof(SkinVertex), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_skin" });
     bvh_nodes_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_BVH_NODES * sizeof(BVHNode), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_bvh_nodes" });
     mesh_buffer = dd->buffer_create({ .size = (VkDeviceSize)MAX_MESHES * sizeof(LMesh), .usage = usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = "geo_meshes" });
@@ -33,10 +34,11 @@ Error GeometryPool::allocate()
     a.tri_slots = tri_slot_buffer.device_address;
     a.slot_table = slot_table_buffer.device_address;
     a.clusters = cluster_buffer.device_address;
+    a.groups = group_buffer.device_address;
     a.skin_vertices = skin_buffer.device_address;
     a.bvh_nodes = bvh_nodes_buffer.device_address;
     a.meshes = mesh_buffer.device_address;
-    dd->buffer_update(address_buffer, &a, sizeof(a));
+    dd->buffer_update(address_buffer, &a, sizeof(GeometryAddresses));
     allocated = true;
 
     return Ok;
@@ -50,6 +52,7 @@ void GeometryPool::free()
     dd->buffer_free(tri_slot_buffer);
     dd->buffer_free(slot_table_buffer);
     dd->buffer_free(cluster_buffer);
+    dd->buffer_free(group_buffer);
     dd->buffer_free(mesh_buffer);
     dd->buffer_free(bvh_nodes_buffer);
     dd->buffer_free(address_buffer);
@@ -96,12 +99,13 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const size_t tri_bytes = (size_t)ph.tri_count * sizeof(uint32_t);
     const size_t slot_bytes = (size_t)ph.slot_table_count * sizeof(uint32_t);
     const size_t clus_bytes = (size_t)ph.cluster_count * sizeof(Cluster);
+    const size_t group_bytes = (size_t)ph.group_count * sizeof(ClusterGroup);
     const size_t skin_bytes = skinned ? (size_t)ph.vertex_count * sizeof(SkinVertex) : 0;
     const size_t bvhn_bytes = (size_t)ph.bvh_node_count * sizeof(BVHNode);
 
     const size_t payload_off = sizeof(ah) + sizeof(ph);
     const size_t blocks_size = (size_t)ah.payload_size - sizeof(ph);
-    if (ph.tri_count != ph.index_count/3 || vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + skin_bytes + bvhn_bytes != blocks_size || payload_off + blocks_size > bytes.size()) {
+    if (ph.tri_count != ph.index_count/3 || vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes != blocks_size || payload_off + blocks_size > bytes.size()) {
         log_write("GeometryPool: bad/truncated payload %s", p_path.string().c_str());
         return UINT32_MAX;
     }
@@ -116,6 +120,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         tri_head + ph.tri_count > MAX_TRI_SLOTS ||
         slot_table_head + ph.slot_table_count > MAX_SLOT_TABLE ||
         cluster_head + ph.cluster_count > MAX_CLUSTERS ||
+        group_head + ph.group_count > MAX_GROUPS ||
         skinned && skin_head + ph.vertex_count > MAX_SKIN_VERTS ||
         bvhn_head + ph.bvh_node_count > MAX_BVH_NODES) {
         log_write("GeometryPool: arena full loading %s", p_path.string().c_str());
@@ -128,15 +133,20 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     uint8_t* p_tri = p; p += tri_bytes;
     uint8_t* p_slot = p; p += slot_bytes;
     uint8_t* p_clus = p; p += clus_bytes;
+    uint8_t* p_group = p; p += group_bytes;
     uint8_t* p_skin = p; p += skin_bytes;
     uint8_t* p_bvhn = p; p += bvhn_bytes;
 
     Cluster* clus = reinterpret_cast<Cluster*>(p_clus);
-    for (uint32_t i = 0; i < ph.cluster_count; i++) clus[i].index_base += index_head;
+    for (uint32_t i = 0; i < ph.cluster_count; i++) {
+        clus[i].index_base += index_head;
+        if (clus[i].self_group != CLUSTER_GROUP_NONE) clus[i].self_group += group_head;
+        if (clus[i].parent_group != CLUSTER_GROUP_NONE) clus[i].parent_group += group_head;
+    }
 
     uint32_t* idx = reinterpret_cast<uint32_t*>(p_idx);
     for (uint32_t i = 0; i < ph.index_count; i++) idx[i] += vertex_head;
-    
+
     BVHNode* bvhn = reinterpret_cast<BVHNode*>(p_bvhn);
     for (uint32_t i = 0; i < ph.bvh_node_count; i++) {
         if (bvhn[i].left & BVH_LEAF_BIT) {
@@ -163,13 +173,14 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     m.uv_extent = ph.uv_extent;
     m.bounds_sphere = ph.bounds_sphere;
 
-    drivers::DeviceDriverVulkan::BufferUpload uploads[8];
+    drivers::DeviceDriverVulkan::BufferUpload uploads[9];
     uint32_t upload_count = 0;
     uploads[upload_count++] = { &vertex_buffer, p_vtx, vtx_bytes, (VkDeviceSize)vertex_head * sizeof(Vertex) };
     uploads[upload_count++] = { &index_buffer, p_idx, idx_bytes, (VkDeviceSize)index_head * sizeof(uint32_t) };
     if (tri_bytes) uploads[upload_count++] = { &tri_slot_buffer, p_tri, tri_bytes, (VkDeviceSize)tri_head * sizeof(uint32_t) };
     if (slot_bytes) uploads[upload_count++] = { &slot_table_buffer, p_slot, slot_bytes, (VkDeviceSize)slot_table_head * sizeof(uint32_t) };
     if (clus_bytes) uploads[upload_count++] = { &cluster_buffer, p_clus, clus_bytes, (VkDeviceSize)cluster_head * sizeof(Cluster) };
+    if (group_bytes) uploads[upload_count++] = { &group_buffer, p_group, group_bytes, (VkDeviceSize)group_head * sizeof(ClusterGroup) };
     if (skinned && skin_bytes) uploads[upload_count++] = { &skin_buffer, p_skin, skin_bytes, (VkDeviceSize)skin_head * sizeof(SkinVertex) };
     if (bvhn_bytes) uploads[upload_count++] = { &bvh_nodes_buffer, p_bvhn, bvhn_bytes, (VkDeviceSize)bvhn_head * sizeof(BVHNode) };
     uploads[upload_count++] = { &mesh_buffer, &m, sizeof(LMesh), (VkDeviceSize)id * sizeof(LMesh) };
@@ -183,6 +194,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     index_head += ph.index_count;
     slot_table_head += ph.slot_table_count;
     cluster_head += ph.cluster_count;
+    group_head += ph.group_count;
     if (skinned) skin_head += ph.vertex_count;
     bvhn_head += ph.bvh_node_count;
 
@@ -196,7 +208,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     }
     by_guid.emplace(p_guid, id);
 
-    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u bvh_nodes=%u id=%u", p_path.string().c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.bvh_node_count, id);
+    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", p_path.string().c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
     return id;
 }
 
@@ -220,7 +232,7 @@ void GeometryPool::unload(Guid p_guid)
 
 void GeometryPool::clear()
 {
-    vertex_head = index_head = slot_table_head = cluster_head = skin_head = bvhn_head = 0;
+    vertex_head = index_head = slot_table_head = cluster_head = group_head = skin_head = bvhn_head = 0;
     meshes.clear();
     free_meshes.clear();
     by_guid.clear();

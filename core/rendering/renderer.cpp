@@ -267,19 +267,33 @@ void Renderer::_frame_build(const World& p_world)
     (void)p_world;
 
     frame.reset();
+
+    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
+    //     if (geometry.mesh_guids[i] == Guid{}) continue;
+    //     frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+    //     frame.transforms_scratch.push_back(Transform{ mat4(1.0f), mat4(1.0f) });
+    //     frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
+    // }
+    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
+
+    const int GRID = 1;
     for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
         if (geometry.mesh_guids[i] == Guid{}) continue;
-        for (int j=0; j<5; j++) {
-            frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-            frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
-            // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
-            frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
+        const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
+        const float half = (GRID - 1) * 0.5f * spacing;
+        for (int gz = 0; gz < GRID; gz++) {
+            for (int gx = 0; gx < GRID; gx++) {
+                const vec3 pos = vec3(gx * spacing - half, 0.0f, gz * spacing - half);
+                const mat4 model = translate(mat4(1.0f), pos);
+                frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+                frame.transforms_scratch.push_back(Transform{ model, model });
+                frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
+            }
         }
     }
     frame.instance_count = (uint32_t)frame.instances_scratch.size();
     
     const float aspect = height ? (float)width / (float)height : 1.0f;
-
     const mat4 prev_vp = frame.camera.curr_view_proj;
     frame.camera.curr_view_proj = active_camera.view_proj(aspect);
     frame.camera.prev_view_proj = camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
@@ -287,6 +301,7 @@ void Renderer::_frame_build(const World& p_world)
     extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
     frame.camera.near_z = active_camera.near_z;
     frame.camera.far_z = active_camera.far_z;
+    frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
     
     camera_cut_pending = false;
 }

@@ -14,7 +14,7 @@ struct Camera
     quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
     float fov_y = radians(60.0f);
     float near_z = 0.1f;
-    float far_z = 1000.0f;
+    float far_z = 10000.0f;
 
     vec3 forward() const;
     vec3 right() const;

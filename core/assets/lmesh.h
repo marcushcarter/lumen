@@ -10,6 +10,8 @@ enum MeshFlags : uint32_t {
     MESH_FLAG_SKINNED = 1u << 0,
 };
 
+static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
+
 struct Vertex {
     u16vec3 position;
     i16vec2 normal;
@@ -33,9 +35,15 @@ struct BVHNode {
 struct Cluster {
     uint32_t index_base;
     uint32_t index_count;
-    vec4 cull_sphere, cull_cone;
-    vec4 lod_sphere, lod_parent_sphere;
-    float lod_error, lod_parent_error;
+    vec4 cull_sphere;
+    uint32_t self_group;
+    uint32_t parent_group;
+};
+
+struct ClusterGroup {
+    vec4 sphere;
+    float error;
+    uint32_t _pad;
 };
 
 struct LMeshPayloadHeader {
@@ -44,6 +52,7 @@ struct LMeshPayloadHeader {
     uint32_t tri_count;
     uint32_t slot_table_count;
     uint32_t cluster_count;
+    uint32_t group_count;
     uint32_t bvh_node_count;
     uint32_t flags;
     vec3 pos_min, pos_extent;
@@ -51,7 +60,7 @@ struct LMeshPayloadHeader {
     vec4 bounds_sphere;
 };
 
-static_assert(sizeof(LMeshPayloadHeader) == 84, "LMeshPayloadHeader layout changed");
+static_assert(sizeof(LMeshPayloadHeader) == 88, "LMeshPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LMeshPayloadHeader>, "must be blittable");
 
 }

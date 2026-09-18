@@ -17,6 +17,7 @@ struct GeometryAddresses {
     VkDeviceAddress tri_slots;
     VkDeviceAddress slot_table;
     VkDeviceAddress clusters;
+    VkDeviceAddress groups;
     VkDeviceAddress skin_vertices;
     VkDeviceAddress bvh_nodes;
     VkDeviceAddress meshes;
@@ -44,6 +45,7 @@ struct GeometryPool
     static constexpr uint32_t MAX_TRI_SLOTS = MAX_INDICES / 3;
     static constexpr uint32_t MAX_SLOT_TABLE = 256u * 1024;
     static constexpr uint32_t MAX_CLUSTERS = 4u * 1024 * 1024;
+    static constexpr uint32_t MAX_GROUPS = 512u * 1024;
     static constexpr uint32_t MAX_SKIN_VERTS = 4u * 1024 * 1024;
     static constexpr uint32_t MAX_BVH_NODES = 8u * 1024 * 1024;
     static constexpr uint32_t MAX_MESHES = 64u * 1024;
@@ -55,6 +57,7 @@ struct GeometryPool
     drivers::DeviceDriverVulkan::Buffer tri_slot_buffer;
     drivers::DeviceDriverVulkan::Buffer slot_table_buffer;
     drivers::DeviceDriverVulkan::Buffer cluster_buffer;
+    drivers::DeviceDriverVulkan::Buffer group_buffer;
     drivers::DeviceDriverVulkan::Buffer skin_buffer;
     drivers::DeviceDriverVulkan::Buffer bvh_nodes_buffer;
     drivers::DeviceDriverVulkan::Buffer mesh_buffer;
@@ -64,6 +67,7 @@ struct GeometryPool
     uint32_t index_head = 0;
     uint32_t slot_table_head = 0;
     uint32_t cluster_head = 0;
+    uint32_t group_head = 0;
     uint32_t skin_head = 0;
     uint32_t bvhn_head = 0;
     bool allocated = false;

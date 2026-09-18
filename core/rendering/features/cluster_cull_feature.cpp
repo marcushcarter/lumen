@@ -263,7 +263,7 @@ void ClusterCullFeature::_create_cluster_cull_pass()
         pc.visible_clusters_addr = vis_clus->device_address;
         pc.retest_addr = retest->device_address;
         pc.hiz_index = hiz->bindless_sampled;
-        pc.px_per_unit = 1.0f;
+        pc.px_per_unit = ctx->frame->px_per_unit;
 
         cl.dd->command_bind_pipeline(cl.cmd, cluster_cull_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);

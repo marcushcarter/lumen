@@ -6,7 +6,6 @@
 
 #include "common/camera.glsl"
 #include "common/instances.glsl"
-// #include "common/geometry.glsl"
 #include "editor/debug_op.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -94,7 +93,7 @@ void main() {
     } else if (pc.op == OP_CLUSTERS) {
         uvec2 v, ref;
         color = vec3(0.02);
-        if (sample_vis(coord, v, ref)) color = hash_color(hash2(ref.x, v.y));
+        if (sample_vis(coord, v, ref)) color = hash_color(hash2(ref.x, ref.y));
     } else if (pc.op == OP_INSTANCES) {
         uvec2 v, ref;
         color = vec3(0.02);

@@ -14,10 +14,9 @@ void ProjectSettingsPopup::draw_contents(EditorContext& ctx)
     ImGui::SameLine();
     if (ImGui::Button("Reset##Height")) ctx.project->settings.height = 1280;
 
-    
-    ImGui::DragFloat("LOD Bias", &ctx.renderer->lod_bias);
+    ImGui::DragFloat("LOD Bias", &ctx.renderer->lod_bias, 0.01f, 0.01f, 1.f);
     ImGui::SameLine();
-    if (ImGui::Button("Reset##LOD Bias")) ctx.renderer->lod_bias = 1280;
+    if (ImGui::Button("Reset##LOD Bias")) ctx.renderer->lod_bias = 0.6f;
 }
 
 }

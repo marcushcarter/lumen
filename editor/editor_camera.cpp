@@ -13,7 +13,7 @@ void EditorCamera::update(float )
     // angle += orbit_speed * p_dt;
 
     // zoom_time += zoom_speed * p_dt;
-    // const float t = 0.5f * (std::sin(zoom_time / 4) + 1.0f);   // 0..1
+    // const float t = 0.5f * (std::sin(zoom_time / 4) + 1.0f);
     // radius = mix(10.0f, 1000.0f, t);
     
     radius = 1000.0f;

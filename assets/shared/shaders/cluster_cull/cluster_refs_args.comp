@@ -2,22 +2,67 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 
-layout(local_size_x = 1) in;
+#include "common/geometry.glsl"
+#include "common/instances.glsl"
 
-layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint count; };
+#define WG 256u
+layout(local_size_x = 256) in;
+
+layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) buffer OffsetBuffer { uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
-layout(buffer_reference, scalar) writeonly buffer ClusterRefsBuffer { uint count; };
+layout(buffer_reference, scalar) writeonly buffer ClusterRefsCount { uint count; };
 
 layout(push_constant) uniform Push {
+    GeometryBuffer geometry;
+    InstanceBuffer instances;
     VisibleInstanceBuffer visible_instances;
+    OffsetBuffer offsets;
     IndirectDispatch expand_args;
-    ClusterRefsBuffer cluster_refs;
+    ClusterRefsCount cluster_refs;
 } pc;
 
-void main() {
-    pc.expand_args.x = (pc.visible_instances.count + 63u) / 64u;
-    pc.expand_args.y = 1u;
-    pc.expand_args.z = 1u;
+shared uint s_scan[WG];
 
-    pc.cluster_refs.count = 0u;
+void main() {
+    uint lid = gl_LocalInvocationID.x;
+    uint n = pc.visible_instances.count;
+
+    uint carry = 0u;
+    uint tiles = (n + WG - 1u) / WG;
+
+    for (uint t = 0u; t < tiles; t++) {
+        uint k = t * WG + lid;
+
+        uint v = 0u;
+        if (k < n) {
+            uint inst = pc.visible_instances.data[k];
+            uint mesh_id = pc.instances.data[inst].mesh_id;
+            v = pc.geometry.meshes.data[mesh_id].cluster_count;
+        }
+
+        s_scan[lid] = v;
+        barrier();
+        for (uint off = 1u; off < WG; off <<= 1u) {
+            uint a = (lid >= off) ? s_scan[lid - off] : 0u;
+            barrier();
+            s_scan[lid] += a;
+            barrier();
+        }
+
+        uint inclusive = s_scan[lid];
+        uint exclusive = carry + inclusive - v;
+        if (k < n) pc.offsets.data[k] = exclusive;
+
+        carry += s_scan[WG - 1u];
+        barrier();
+    }
+
+    if (lid == 0u) {
+        pc.offsets.data[n] = carry;
+        pc.expand_args.x = (carry + 63u) / 64u;
+        pc.expand_args.y = 1u;
+        pc.expand_args.z = 1u;
+        pc.cluster_refs.count = 0u;
+    }
 }

@@ -63,6 +63,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd)
         command_pools[i] = dd->command_pool_create(graphics_family);
         command_buffers[i] = dd->command_buffer_create(command_pools[i]);
     }
+    images_in_flight.assign(dd->swapchain.images.size(), VK_NULL_HANDLE);
 
     Error err = textures.initialize(r_dd);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
@@ -328,12 +329,16 @@ Error Renderer::begin_frame(const World& p_world)
     using enum Error;
     
     auto& sc = dd->swapchain;
-
+    
     Error err = dd->fence_wait(in_flight_fences[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
-    err = dd->fence_reset(in_flight_fences[current_frame]);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
     err = dd->swapchain_acquire_next_image(image_available_semaphores[current_frame]);
+    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+
+    if (images_in_flight[sc.image_index] != VK_NULL_HANDLE) dd->fence_wait(images_in_flight[sc.image_index]);
+    images_in_flight[sc.image_index] = in_flight_fences[current_frame];
+
+    err = dd->fence_reset(in_flight_fences[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
 
     _frame_build(p_world);

@@ -69,7 +69,7 @@ uint32_t TextureCache::load(Guid p_guid, const std::filesystem::path& p_path)
     }
     by_guid.emplace(p_guid, slot);
 
-    log_write("TextureCache: loaded %s %ux%u %s (mips=%u) slot=%u bindless=%u", img.bindless_sampled, p_path.string().c_str(), img.extent.width, img.extent.height, string_VkFormat(img.format), img.mip_levels, slot, img.bindless_sampled);
+    log_write("TextureCache: loaded %s %ux%u %s (mips=%u) slot=%u bindless=%u", p_path.string().c_str(), img.extent.width, img.extent.height, string_VkFormat(img.format), img.mip_levels, slot, img.bindless_sampled);
     return slot;
 }
 

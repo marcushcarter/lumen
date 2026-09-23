@@ -10,6 +10,7 @@
 #include <core/base/error.h>
 #include <string>
 #include <filesystem>
+#include <functional>
 
 namespace lumen {
 
@@ -32,6 +33,7 @@ struct Application
     Renderer renderer;
     RenderPath* render_path = nullptr;
     RenderPath* pending_render_path = nullptr;
+    std::function<void()> pending_transition;
 
     TaskSystem tasks;
 

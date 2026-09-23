@@ -7,6 +7,9 @@
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
+#include <editor/docking/world/world.h>
+#include <editor/docking/details/details.h>
+
 namespace lumen {
 
 Error Editor::initialize()
@@ -15,6 +18,10 @@ Error Editor::initialize()
     center_view.initialize();
     right_top.zone = DockZone::RightTop;
     right_bottom.zone = DockZone::RightBottom;
+
+    panels.push_back(std::make_unique<WorldPanel>());
+    panels.push_back(std::make_unique<DetailsPanel>());
+
     return Ok;
 }
 

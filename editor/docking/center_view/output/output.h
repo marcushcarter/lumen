@@ -5,7 +5,7 @@ namespace lumen {
     
 struct OutputDebugTab : DebugTab
 {
-    const char* name() const override { return "Ouput"; }
+    const char* name() const override { return "Ouput Log"; }
     void draw(EditorContext& ctx) override;
 };
 

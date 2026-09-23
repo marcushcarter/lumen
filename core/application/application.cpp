@@ -144,8 +144,8 @@ Error Application::project_load(const std::filesystem::path &p_root)
 void Application::project_unload()
 {
     dd.device_wait_idle();
-    renderer.unload();
     world.unload();
+    renderer.unload();
     project.unload();
 }
 
@@ -161,6 +161,8 @@ void Application::_apply_pending_render_path()
     if (!pending_render_path) return;
 
     dd.device_wait_idle();
+
+    if (pending_transition) { pending_transition(); pending_transition = nullptr; }
     
     renderer.resize_epoch++;
 

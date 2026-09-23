@@ -2,10 +2,8 @@
 #include <editor/docking/center_view/debug_tab.h>
 #include <editor/docking/center_view/asset_manager/asset_manager_list.h>
 #include <editor/docking/center_view/asset_manager/asset_manager_toolbar.h>
-
 #include <editor/editor_context.h>
-#include <core/base/error.h>
-#include <imgui.h>
+#include <IconsFontAwesome6.h>
 #include <filesystem>
 
 namespace lumen {
@@ -21,7 +19,7 @@ struct AssetManagerDebugTab : DebugTab
     
     void _draw_folder_node(const std::filesystem::path& dir, std::filesystem::path& selected, int depth);
     
-    const char* name() const override { return "Asset Browser"; }
+    const char* name() const override { return ICON_FA_FOLDER_CLOSED " Asset Browser"; }
     void draw(EditorContext& ctx) override;
 };
 

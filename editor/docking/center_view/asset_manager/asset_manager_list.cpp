@@ -53,28 +53,24 @@ Guid AssetBrowserList::_resolve_texture_guid(const std::filesystem::path& p_path
     return info.guid;
 }
 
-void AssetBrowserList::_list_item(ImTextureID , const char* , const char* )
+bool AssetBrowserList::_list_item(ImTextureID p_texture, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
 {
+    const float list_item_height = 48.0f;
+    const float icon_size = 36.0f;
+    const float pad = 6.0f;
+    const float rounding = 4.0f;
+    const float width = ImGui::GetContentRegionAvail().x;
 
-}
-
-bool AssetBrowserList::_draw_card(ImTextureID p_texture, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
-{
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
-    ImGui::BeginChild("##card", ImVec2(card_width, card_height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::BeginChild("##list_item", ImVec2(width, list_item_height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const ImVec2 p1(p0.x + card_width, p0.y + card_height);
-    const float rounding = 4.0f;
-    const float pad = 6.0f;
-    const float img_pad = 4.0f;
+    const ImVec2 p1(p0.x + width, p0.y + list_item_height);
 
     const bool renaming = (rename_target == p_path);
 
-    ImGui::InvisibleButton("##hit", ImVec2(card_width, card_height));
-
+    ImGui::InvisibleButton("##hit", ImVec2(width, list_item_height));
     if (!renaming && ImGui::BeginPopupContextItem()) {
         if (p_importing) {
             if (ImGui::MenuItem("Cancel Import")) cancel_request = p_path;
@@ -97,51 +93,50 @@ bool AssetBrowserList::_draw_card(ImTextureID p_texture, const char* p_name, con
         ImGui::EndDragDropSource();
     }
 
-    const ImVec2 thumb1(p0.x + card_width, p0.y + card_width);
-    const ImVec2 foot0(p0.x, thumb1.y);
-    const ImVec2 sh_off(2.0f, 2.0f);
-    const ImVec2 img0(p0.x + img_pad, p0.y + img_pad);
-    const ImVec2 img1(thumb1.x - img_pad, thumb1.y - img_pad);
+    const ImVec2 icon0(p0.x + pad, p0.y + (list_item_height - icon_size) * 0.5f);
+    const ImVec2 icon1(icon0.x + icon_size, icon0.y + icon_size);
+    const ImVec2 text0(icon1.x + pad, p0.y + 7.0f);
 
-    dl->AddRectFilled(ImVec2(p0.x + sh_off.x, p0.y + sh_off.y), ImVec2(p1.x + sh_off.x, p1.y + sh_off.y), IM_COL32(0, 0, 0, 160), rounding, ImDrawFlags_RoundCornersBottom);
-    dl->AddRectFilled(p0, thumb1, ImGui::GetColorU32(ImGuiCol_FrameBg));
-    if (p_texture) dl->AddImage(p_texture, img0, img1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
-    dl->AddRectFilled(foot0, p1, ImGui::GetColorU32(ImGuiCol_FrameBgHovered), rounding, ImDrawFlags_RoundCornersBottom);
-
-    if (ImGui::IsItemHovered()) dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Text), rounding, ImDrawFlags_RoundCornersBottom, 1.0f);
-
-    const ImVec2 name_min(foot0.x + pad, foot0.y + pad);
+    dl->AddRectFilled(p0, p1, ImGui::IsItemHovered() ? ImGui::GetColorU32(ImGuiCol_FrameBgHovered) : ImGui::GetColorU32(ImGuiCol_FrameBg), rounding);
+    if (p_texture) dl->AddImage(p_texture, icon0, icon1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
+    else dl->AddRectFilled(icon0, icon1, ImGui::GetColorU32(ImGuiCol_FrameBgActive), rounding);
+    if (ImGui::IsItemHovered()) dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Text), rounding, 0, 1.0f);
 
     if (renaming) {
-        ImGui::SetCursorScreenPos(name_min);
-        ImGui::SetNextItemWidth(card_width - pad * 2.0f);
+        const float text_width = width - (text0.x - p0.x) - pad;
+        ImGui::SetCursorScreenPos(text0);
+        ImGui::SetNextItemWidth(text_width);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
         if (!ImGui::IsAnyItemActive()) ImGui::SetKeyboardFocusHere();
         const bool entered = ImGui::InputText("##rename", rename_buf, sizeof(rename_buf), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
         ImGui::PopStyleVar();
+
         const bool escaped = ImGui::IsKeyPressed(ImGuiKey_Escape);
-        if (entered || (ImGui::IsItemDeactivated() && !escaped)) { Paths::rename(p_path, rename_buf); _thumb_guids.clear(); }
+        if (entered || (ImGui::IsItemDeactivated() && !escaped)) {
+            Paths::rename(p_path, rename_buf);
+            _thumb_guids.clear();
+        }
         if (entered || escaped || ImGui::IsItemDeactivated()) rename_target.clear();
     } else {
-        const ImVec2 name_max(p1.x - pad, name_min.y + ImGui::GetTextLineHeight());
-        dl->PushClipRect(name_min, name_max, true);
-        dl->AddText(name_min, ImGui::GetColorU32(ImGuiCol_Text), p_name);
+        const ImVec2 text_max(p1.x - pad, p1.y - pad);
+        dl->PushClipRect(text0, text_max, true);
+        dl->AddText(text0, ImGui::GetColorU32(ImGuiCol_Text), p_name);
+        if (p_type && *p_type) {
+            const ImVec2 subtext_pos(text0.x, text0.y + ImGui::GetTextLineHeight() + 1.0f);
+            dl->AddText(subtext_pos, ImGui::GetColorU32(ImGuiCol_TextDisabled), p_type);
+        }
         dl->PopClipRect();
     }
 
-    if (p_type && *p_type) {
-        const ImVec2 ts = ImGui::CalcTextSize(p_type);
-        const ImVec2 type_pos(p1.x - pad - ts.x, p1.y - pad - ts.y);
-        dl->AddText(type_pos, ImGui::GetColorU32(ImGuiCol_TextDisabled), p_type);
-    }
-
     if (p_progress >= 0.0f && p_progress < 1.0f) {
-        const float bar_h = 3.0f;
+        const float bar_h = 2.0f;
         const ImVec2 bar0(p0.x, p1.y - bar_h);
         const ImVec2 bar1(p1.x, p1.y);
-        dl->AddRectFilled(bar0, bar1, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg), rounding, ImDrawFlags_RoundCornersBottom);
-        const float w = (bar1.x - bar0.x) * (p_progress < 0.0f ? 0.0f : p_progress);
-        if (w > 0.5f) dl->AddRectFilled(bar0, ImVec2(bar0.x + w, bar1.y), ImGui::GetColorU32(ImGuiCol_Button), rounding, w >= (bar1.x - bar0.x) - rounding ? ImDrawFlags_RoundCornersBottom : ImDrawFlags_RoundCornersBottomLeft);
+        dl->AddRectFilled(bar0, bar1, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg));
+        const float w = (bar1.x - bar0.x) * p_progress;
+        if (w > 0.5f) {
+            dl->AddRectFilled(bar0, ImVec2(bar0.x + w, bar1.y), ImGui::GetColorU32(ImGuiCol_Button));
+        }
     }
 
     ImGui::EndChild();
@@ -196,7 +191,6 @@ void AssetBrowserList::draw(EditorContext& ctx, std::filesystem::path& selected,
             std::string type = entry.path().extension().string();
             for (char& c : type) c = (char)toupper((unsigned char)c);
 
-            if (i % columns != 0) ImGui::SameLine(0.0f, gap);
             ImGui::PushID(i);
             
             const float progress = ctx.imports->progress(entry.path());
@@ -207,11 +201,10 @@ void AssetBrowserList::draw(EditorContext& ctx, std::filesystem::path& selected,
                 if (entry.path().extension() == ".ltexture" && ctx.renderer) {
                     if (const LTexture* bt = ctx.renderer->textures.get(_resolve_texture_guid(entry.path()))) view = bt->image.image_view;
                 }
-
                 set = ctx.imgui->texture_cache.get(view);
             }
 
-            const bool activated = _draw_card((ImTextureID)set, name.c_str(), type.c_str(), entry.path(), progress);
+            const bool activated = _list_item((ImTextureID)set, name.c_str(), type.c_str(), entry.path(), progress);
 
             if (entry.is_directory() && ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) Paths::move((const char*)payload->Data, entry.path());
@@ -233,9 +226,9 @@ void AssetBrowserList::draw(EditorContext& ctx, std::filesystem::path& selected,
         std::vector<std::filesystem::path> pending = ctx.imports->pending_out(selected);
         for (const auto& ppath : pending) {
             if (!matches(ppath)) continue;
-            if (i % columns != 0) ImGui::SameLine(0.0f, gap);
+
             ImGui::PushID(i);
-            _draw_card(0, ppath.stem().string().c_str(), "IMPORTING", ppath, ctx.imports->progress(ppath), true);
+            _list_item(0, ppath.stem().string().c_str(), "IMPORTING", ppath, ctx.imports->progress(ppath), true);
             ImGui::PopID();
             ++i;
         }

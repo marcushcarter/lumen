@@ -139,7 +139,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 
 void EditorApplication::close_project()
 {
-    project_unload();
+    pending_transition = [this]{ project_unload(); };
     render_path_request(new ProjectManagerRenderPath());
 }
 

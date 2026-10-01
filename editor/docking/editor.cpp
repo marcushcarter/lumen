@@ -58,9 +58,6 @@ void Editor::_draw_toolbar(EditorContext& ctx)
         }
     }
 
-    ImGui::SameLine();
-    ImGui::Text("%.1f FPS (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
-
     const char* cog = ICON_FA_GEAR " Settings";
     float settings_width = ImGui::CalcTextSize(cog).x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - settings_width);

@@ -26,7 +26,7 @@ static void _view_row_decor(ImDrawList* dl, ImVec2 p, float h, const char* text,
     const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
     dl->AddCircle(ImVec2(p.x + 12.0f, cy), 5.0f, col, 20, 1.5f);
     if (filled) dl->AddCircleFilled(ImVec2(p.x + 12.0f, cy), 2.5f, col, 20);
-    dl->AddText(ImVec2(p.x + 28.0f, ty), col, text); // name already carries its icon
+    dl->AddText(ImVec2(p.x + 28.0f, ty), col, text);
 }
 
 bool CenterView::_view_item(const char* p_name, int p_id)

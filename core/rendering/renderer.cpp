@@ -2,6 +2,7 @@
 #include <core/world/world.h>
 #include <core/assets/asset_common.h>
 #include <core/io/embedded_resource.h>
+#include <core/base/cpu_profiler.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -329,13 +330,23 @@ Error Renderer::acquire_frame()
     using enum Error;
     
     auto& sc = dd->swapchain;
+    CpuProfiler& cpu = cpu_profiler();
     
+    cpu.zone_begin("Frame Fence", CpuProfiler::FLAG_WAIT);
     Error err = dd->fence_wait(in_flight_fences[current_frame]);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
-    err = dd->swapchain_acquire_next_image(image_available_semaphores[current_frame]);
+    cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
 
-    if (images_in_flight[sc.image_index] != VK_NULL_HANDLE) dd->fence_wait(images_in_flight[sc.image_index]);
+    cpu.zone_begin("Swapchain Acquire", CpuProfiler::FLAG_WAIT);
+    err = dd->swapchain_acquire_next_image(image_available_semaphores[current_frame]);
+    cpu.zone_end();
+    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+
+    if (images_in_flight[sc.image_index] != VK_NULL_HANDLE) {
+        cpu.zone_begin("Image Fence", CpuProfiler::FLAG_WAIT);
+        dd->fence_wait(images_in_flight[sc.image_index]);
+        cpu.zone_end();
+    }
     images_in_flight[sc.image_index] = in_flight_fences[current_frame];
 
     err = dd->fence_reset(in_flight_fences[current_frame]);
@@ -350,14 +361,20 @@ Error Renderer::begin_frame(const World& p_world)
     using enum Error;
     
     auto& sc = dd->swapchain;
+    CpuProfiler& cpu = cpu_profiler();
 
     if (!frame_acquired) {
         Error err = acquire_frame();
         LUMEN_ERR_FAIL_COND_V(err != Ok, err);
     }
 
+    cpu.zone_begin("Scene Gather");
     _frame_build(p_world);
+    cpu.zone_end();
+
+    cpu.zone_begin("Upload");
     _frame_upload();
+    cpu.zone_end();
 
     graph.begin(current_frame);
     graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
@@ -373,7 +390,9 @@ Error Renderer::begin_frame(const World& p_world)
 
 void Renderer::compile()
 {
+    cpu_profiler().zone_begin("Graph Compile");
     graph.compile();
+    cpu_profiler().zone_end();
 }
 
 Error Renderer::record()
@@ -390,7 +409,9 @@ Error Renderer::record()
     dd->command_bind_graphics_uniform_sets(cmd, { dd->bindless_heap.set });
     dd->command_bind_compute_uniform_sets(cmd, { dd->bindless_heap.set });
 
+    cpu_profiler().zone_begin("Graph Execute");
     graph.execute(cmd);
+    cpu_profiler().zone_end();
     
     err = dd->command_buffer_end(command_buffers[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
@@ -401,7 +422,9 @@ Error Renderer::record()
 Error Renderer::end_frame()
 {
     using enum Error;
+    
     auto& sc = dd->swapchain;
+    CpuProfiler& cpu = cpu_profiler();
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit_info{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -414,7 +437,9 @@ Error Renderer::end_frame()
     submit_info.pSignalSemaphores = &sc.present_semaphores[sc.image_index];
 
     VkQueue graphics_queue = dd->queue_families[dd->cd->graphics_queue_family][0].queue;
+    cpu.zone_begin("Queue Submit");
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
+    cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, Failed, "Failed to submit Vulkan queue");
 
     VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
@@ -425,7 +450,9 @@ Error Renderer::end_frame()
     present_info.pImageIndices = &sc.image_index;
 
     VkQueue present_queue = dd->queue_families[dd->cd->present_queue_family][0].queue;
+    cpu.zone_begin("Queue Present");
     result = vkQueuePresentKHR(present_queue, &present_info);
+    cpu.zone_end();
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         dd->swapchain.surface->needs_resize = true;
     } else {

@@ -1,6 +1,6 @@
 #pragma once
 #include <editor/docking/center_view/debug_tab.h>
-#include <editor/docking/center_view/memory/memory_transients.h>
+#include <core/rendering/render_graph_profiler.h>
 #include <cstdint>
 #include <vector>
 
@@ -14,10 +14,12 @@ struct MemoryDebugTab : DebugTab
     std::vector<float> detailed_frag;
     bool detailed_valid = false;
 
-    MemoryTransients transients;
+    uint32_t max_rows = 100;
     
     const char* name() const override { return "Memory"; }
     void draw(EditorContext& ctx) override;
+
+    void _draw_transients(EditorContext& ctx);
 };
 
 }

@@ -55,6 +55,7 @@ struct WindowDriverWin32
     void window_minimize();
     void window_toggle_maximize();
     bool window_is_maximized();
+    bool window_is_minimized();
     
     void window_set_custom_titlebar(bool p_enabled);
     void window_titlebar_reset(int height);

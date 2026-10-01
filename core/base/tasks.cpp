@@ -1,4 +1,6 @@
 #include <core/base/tasks.h>
+#include <core/base/cpu_profiler.h>
+#include <cstdio>
 
 namespace lumen {
 
@@ -9,7 +11,12 @@ void TaskSystem::start(uint32_t p_worker_count, uint32_t p_high_reserve)
     running = true;
     workers.reserve(p_worker_count);
     for (uint32_t i = 0; i < p_worker_count; i++)
-        workers.emplace_back([this]{ _worker_loop(); });
+        workers.emplace_back([this, i]{
+            char name[32];
+            std::snprintf(name, sizeof(name), "Worker %u", i);
+            cpu_profiler().set_thread_name(name);
+            _worker_loop();
+        });
 }
 
 void TaskSystem::stop()
@@ -43,7 +50,9 @@ bool TaskSystem::_try_run_one()
 {
     Task task;
     { std::lock_guard lock(mutex); if (!_pop(task)) return false; }
+    cpu_profiler().zone_begin("Task");
     task.fn();
+    cpu_profiler().zone_end();
     task.counter->fetch_sub(1, std::memory_order_release);
     if (task.is_normal) {
         { std::lock_guard lock(mutex); if (normal_in_flight) normal_in_flight--; }
@@ -67,7 +76,9 @@ void TaskSystem::_worker_loop()
             cv.wait(lock, [this]{ return !high.empty() || (!normal.empty() && normal_in_flight < _normal_cap()) || !running; });
             if (!_pop(task)) { if (!running) return; continue; }
         }
+        cpu_profiler().zone_begin("Task");
         task.fn();
+        cpu_profiler().zone_end();
         task.counter->fetch_sub(1, std::memory_order_release);
         if (task.is_normal) {
             { std::lock_guard lock(mutex); if (normal_in_flight) normal_in_flight--; }

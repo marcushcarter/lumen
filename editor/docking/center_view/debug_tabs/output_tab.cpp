@@ -1,4 +1,4 @@
-#include <editor/docking/center_view/output/output.h>
+#include <editor/docking/center_view/debug_tabs/output_tab.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <core/base/error.h>
 #include <imgui.h>

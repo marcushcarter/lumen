@@ -1960,26 +1960,6 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
 	err = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface->surface, &present_modes_count, present_modes.data());
 	LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, Failed, "Couldn't get Vulkan surface present modes.");
 
-    // VkPresentModeKHR present_mode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
-	// std::string present_mode_name = "Enabled";
-    // if (surface->vsync_enabled) {
-    //     present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
-	// 	present_mode_name = "Mailbox";
-    // } else {
-    //     present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-	// 	present_mode_name = "Disabled";
-    // }
-
-    // bool present_mode_available = false;
-    // for (auto mode : present_modes) {
-    //     if (mode == present_mode) present_mode_available = true;
-    // }
-
-	// if (!present_mode_available) {
-	// 	surface->vsync_enabled = true;
-	// 	present_mode = VK_PRESENT_MODE_FIFO_KHR;
-	// }
-
     auto mode_name = [](VkPresentModeKHR p_mode) -> const char* {
         switch (p_mode) {
             case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
@@ -2010,8 +1990,6 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
         if (len >= sizeof(supported_str)) break;
         len += (size_t)std::snprintf(supported_str + len, sizeof(supported_str) - len, "%s ", mode_name(m));
     }
-    log_write("Swapchain: present mode %s (supported: %s)", mode_name(present_mode), supported_str);
-
 
 	uint32_t desired_swapchain_images = std::max(p_desired_framebuffer_count, surface_capabilities.minImageCount);
 	if (surface_capabilities.maxImageCount > 0) {

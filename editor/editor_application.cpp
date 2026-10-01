@@ -284,6 +284,14 @@ void EditorApplication::_draw_titlebar()
     if (show_tabs) _titlebar_tabs(L);
     _titlebar_logo(L);
 
+    if (frame_stats.frame_avg > 0.0f) {
+        char perf[48];
+        std::snprintf(perf, sizeof(perf), "%.2f ms  %.0f fps", frame_stats.frame_avg, 1000.0f / frame_stats.frame_avg);
+        const ImVec2 ts = ImGui::CalcTextSize(perf);
+        const ImVec2 pos(L.origin.x + L.width - ts.x - 10.0f, L.origin.y + L.menu_h + (L.tab_h - ts.y) * 0.5f);
+        ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImGuiCol_TextDisabled), perf);
+    }
+
     ImGui::End();
     ImGui::PopStyleVar();
 }

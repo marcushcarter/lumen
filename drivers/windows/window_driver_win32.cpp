@@ -188,6 +188,11 @@ bool WindowDriverWin32::window_is_maximized()
     return window.hwnd && IsZoomed(window.hwnd);
 }
 
+bool WindowDriverWin32::window_is_minimized()
+{
+    return window.hwnd && IsIconic(window.hwnd);
+}
+
 void WindowDriverWin32::window_set_custom_titlebar(bool p_enabled)
 {
     if (!window.hwnd || window.custom_titlebar == p_enabled) return;

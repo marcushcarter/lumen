@@ -1,16 +1,12 @@
-// core/application/frame_stats.cpp
 #include <core/application/frame_stats.h>
 #include <imgui.h>
+#include <algorithm>
 #include <cmath>
 
 namespace lumen {
 
 void FrameStats::initialize(HWND p_hwnd)
 {
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-    ticks_to_ms = 1000.0 / (double)freq.QuadPart;
-
     MONITORINFOEXW mi{};
     mi.cbSize = sizeof(mi);
     DEVMODEW dm{};
@@ -19,96 +15,95 @@ void FrameStats::initialize(HWND p_hwnd)
         refresh_hz = dm.dmDisplayFrequency;
 }
 
-void FrameStats::begin_frame()
+uint32_t FrameStats::_row(const char* p_name, bool p_wait)
 {
-    const int64_t now = _now();
-    if (frame_start != 0) {
-        current.frame_ms = (float)((double)(now - frame_start) * ticks_to_ms);
-        samples[sample_head] = current;
-        sample_head = (sample_head + 1) % HISTORY;
-        if (sample_count < HISTORY) sample_count++;
-
-        resolve_timer += current.frame_ms * 0.001f;
-        if (resolve_timer >= RESOLVE_INTERVAL_S) {
-            resolve_timer = 0.0f;
-            _resolve();
-        }
-    }
-    current = Sample{};
-    frame_start = now;
-    lap_start = now;
+    for (uint32_t i = 0; i < row_count; i++) if (rows[i].name == p_name) return i;
+    if (row_count == MAX_ROWS) return MAX_ROWS;
+    Row& r = rows[row_count];
+    r = {};
+    r.name = p_name;
+    r.wait = p_wait;
+    return row_count++;
 }
 
-void FrameStats::lap(Zone p_zone)
+void FrameStats::update(const CpuProfiler& p_profiler)
 {
-    const int64_t now = _now();
-    current.zone_ms[(uint32_t)p_zone] += (float)((double)(now - lap_start) * ticks_to_ms);
-    lap_start = now;
+    const CpuProfiler::Frame* f = p_profiler.last_complete_frame();
+    if (!f || f->number == last_frame) return;
+    last_frame = f->number;
+
+    float row_ms[MAX_ROWS] = {};
+    int64_t wait_begin[MAX_WAITS];
+    int64_t wait_end[MAX_WAITS];
+    uint32_t wait_count = 0;
+
+    for (const CpuProfiler::Zone& z : p_profiler.zones) {
+        if (z.lane != p_profiler.main_lane || z.begin < f->begin || z.begin >= f->end) continue;
+        const bool wait = (z.flags & CpuProfiler::FLAG_WAIT) != 0;
+        if (wait && wait_count < MAX_WAITS) {
+            wait_begin[wait_count] = z.begin;
+            wait_end[wait_count] = z.end;
+            wait_count++;
+        }
+        if (z.depth != 0) continue;
+        const uint32_t r = _row(z.name, wait);
+        if (r < MAX_ROWS) row_ms[r] += (float)((double)(z.end - z.begin) * p_profiler.ticks_to_ms);
+    }
+
+    int64_t wait_ticks = 0;
+    if (wait_count) {
+        uint32_t order[MAX_WAITS];
+        for (uint32_t i = 0; i < wait_count; i++) order[i] = i;
+        std::sort(order, order + wait_count, [&](uint32_t a, uint32_t b) { return wait_begin[a] < wait_begin[b]; });
+        int64_t cur_b = wait_begin[order[0]];
+        int64_t cur_e = wait_end[order[0]];
+        for (uint32_t i = 1; i < wait_count; i++) {
+            const uint32_t w = order[i];
+            if (wait_begin[w] <= cur_e) { cur_e = std::max(cur_e, wait_end[w]); continue; }
+            wait_ticks += cur_e - cur_b;
+            cur_b = wait_begin[w];
+            cur_e = wait_end[w];
+        }
+        wait_ticks += cur_e - cur_b;
+    }
+
+    const float frame_ms = (float)((double)(f->end - f->begin) * p_profiler.ticks_to_ms);
+    frame_samples[sample_head] = frame_ms;
+    wait_samples[sample_head] = (float)((double)wait_ticks * p_profiler.ticks_to_ms);
+    for (uint32_t i = 0; i < row_count; i++) rows[i].samples[sample_head] = row_ms[i];
+    sample_head = (sample_head + 1) % HISTORY;
+    if (sample_count < HISTORY) sample_count++;
+
+    resolve_timer += frame_ms * 0.001f;
+    if (resolve_timer >= RESOLVE_INTERVAL_S) {
+        resolve_timer = 0.0f;
+        _resolve();
+    }
 }
 
 void FrameStats::_resolve()
 {
-    avg = Sample{};
-    peak = Sample{};
-    for (uint32_t i = 0; i < sample_count; i++) {
-        const Sample& s = samples[i];
-        avg.frame_ms += s.frame_ms;
-        if (s.frame_ms > peak.frame_ms) peak.frame_ms = s.frame_ms;
-        for (uint32_t z = 0; z < ZONE_COUNT; z++) {
-            avg.zone_ms[z] += s.zone_ms[z];
-            if (s.zone_ms[z] > peak.zone_ms[z]) peak.zone_ms[z] = s.zone_ms[z];
-        }
-    }
     if (!sample_count) return;
     const float inv = 1.0f / (float)sample_count;
-    avg.frame_ms *= inv;
-    for (uint32_t z = 0; z < ZONE_COUNT; z++) avg.zone_ms[z] *= inv;
-}
 
-void FrameStats::draw()
-{
-    if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) visible = !visible;
-    if (!visible || avg.frame_ms <= 0.0f) return;
-
-    float tracked = 0.0f;
-    for (uint32_t z = 0; z < ZONE_COUNT; z++) tracked += avg.zone_ms[z];
-    const float wait = avg.zone_ms[(uint32_t)Zone::GpuWait];
-    const float refresh_ms = refresh_hz ? 1000.0f / (float)refresh_hz : 0.0f;
-    const bool refresh_locked = refresh_ms > 0.0f && std::fabs(avg.frame_ms - refresh_ms) < refresh_ms * 0.03f;
-
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 10.0f, vp->WorkPos.y + 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-    ImGui::SetNextWindowBgAlpha(0.8f);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoDocking;
-    if (!ImGui::Begin("##frame_stats", nullptr, flags)) { ImGui::End(); return; }
-
-    ImGui::Text("frame %.2f ms (%.0f fps)  max %.2f", avg.frame_ms, 1000.0f / avg.frame_ms, peak.frame_ms);
-    // ImGui::Text("cpu busy %.2f ms  (frame - fence wait)", avg.frame_ms - wait);
-    ImGui::Text("cpu busy %.2f ms  (frame - gpu/acquire wait)", avg.frame_ms - wait);
-    if (refresh_hz) ImGui::TextDisabled("display %u Hz = %.2f ms", refresh_hz, refresh_ms);
-    if (refresh_locked) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "frame time == refresh interval: present-bound, not cpu");
-
-    if (ImGui::BeginTable("##zones", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("zone");
-        ImGui::TableSetupColumn("avg", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("max", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableHeadersRow();
-        for (uint32_t z = 0; z < ZONE_COUNT; z++) {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            if (z == (uint32_t)Zone::GpuWait) ImGui::TextDisabled("%s", ZONE_NAMES[z]);
-            else ImGui::TextUnformatted(ZONE_NAMES[z]);
-            ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f", avg.zone_ms[z]);
-            ImGui::TableSetColumnIndex(2); ImGui::Text("%.3f", peak.zone_ms[z]);
-        }
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("untracked");
-        ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f", avg.frame_ms - tracked);
-        ImGui::EndTable();
+    frame_avg = frame_peak = wait_avg = 0.0f;
+    for (uint32_t s = 0; s < sample_count; s++) {
+        frame_avg += frame_samples[s];
+        wait_avg += wait_samples[s];
+        frame_peak = std::max(frame_peak, frame_samples[s]);
     }
+    frame_avg *= inv;
+    wait_avg *= inv;
 
-    ImGui::End();
+    for (uint32_t i = 0; i < row_count; i++) {
+        Row& r = rows[i];
+        r.avg = r.peak = 0.0f;
+        for (uint32_t s = 0; s < sample_count; s++) {
+            r.avg += r.samples[s];
+            r.peak = std::max(r.peak, r.samples[s]);
+        }
+        r.avg *= inv;
+    }
 }
 
-}
+}

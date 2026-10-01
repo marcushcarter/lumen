@@ -21,7 +21,7 @@ struct AssetManagerDebugTab : DebugTab
     
     void _draw_folder_node(const std::filesystem::path& dir, std::filesystem::path& selected, int depth);
     
-    const char* name() const override { return ICON_FA_FOLDER_CLOSED " Asset Browser"; }
+    const char* name() const override { return "Content Browser"; }
     void draw(EditorContext& ctx) override;
 };
 

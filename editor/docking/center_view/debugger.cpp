@@ -1,7 +1,7 @@
 #include <editor/docking/center_view/debugger.h>
-#include <editor/docking/center_view/output/output.h>
-#include <editor/docking/center_view/profiler/profiler.h>
-#include <editor/docking/center_view/memory/memory.h>
+#include <editor/docking/center_view/debug_tabs/output_tab.h>
+#include <editor/docking/center_view/debug_tabs/profiler_tab.h>
+#include <editor/docking/center_view/debug_tabs/memory_tab.h>
 #include <editor/docking/center_view/asset_manager/asset_manager.h>
 #include <core/base/error.h>
 #include <cfloat>

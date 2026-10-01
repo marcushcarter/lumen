@@ -14,6 +14,8 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
 
     lumen::log_write("%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
 
+    cpu_profiler().initialize();
+
     err = win32.initialize();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
     
@@ -82,74 +84,88 @@ void Application::shutdown()
     
     win32.window_free();
     win32.shutdown();
+
+    cpu_profiler().shutdown();
 }
 
 int Application::run()
 {
     using enum Error;
 
+    CpuProfiler& cpu = cpu_profiler();
     auto lastTime = std::chrono::steady_clock::now();
 
     while (!win32.window_should_close()) {
-        frame_stats.begin_frame();
-
-        _apply_pending_render_path();
-
-        cd.surface_set_size(win32.window.width, win32.window.height);
-        if (dd.swapchain_update() != Ok) {
+        if (win32.window_is_minimized()) {
+            WaitMessage();
             win32.poll_events();
             continue;
         }
-
-        renderer.apply_pending_size();
-        frame_stats.lap(FrameStats::Zone::Swapchain);
-
-        renderer.acquire_frame();
-        frame_stats.lap(FrameStats::Zone::GpuWait);
         
+        cpu.begin_frame(renderer.frame_number);
+        frame_stats.update(cpu);
+
+        cpu.zone_begin("Swapchain");
+        _apply_pending_render_path();
+        cd.surface_set_size(win32.window.width, win32.window.height);
+        if (dd.swapchain_update() != Ok) {
+            win32.poll_events();
+            cpu.zone_end();
+            continue;
+        }
+        renderer.apply_pending_size();
+        cpu.zone_end();
+
+        cpu.zone_begin("Wait GPU + Acquire", CpuProfiler::FLAG_WAIT);
+        renderer.acquire_frame();
+        cpu.zone_end();
+
         auto now = std::chrono::steady_clock::now();
         double delta = std::chrono::duration<double>(now - lastTime).count();
         lastTime = now;
 
+        cpu.zone_begin("Poll Events");
         win32.poll_events();
-        frame_stats.lap(FrameStats::Zone::Poll);
+        cpu.zone_end();
 
+        cpu.zone_begin("ImGui Begin");
         imgui.begin_frame(renderer.frame_number, renderer.frame_count, renderer.resize_epoch);
-        frame_stats.lap(FrameStats::Zone::ImGuiBegin);
-        
+        cpu.zone_end();
+
+        cpu.zone_begin("Camera");
         update_camera((float)delta);
         renderer.set_camera(active_camera());
-        frame_stats.lap(FrameStats::Zone::Camera);
+        cpu.zone_end();
 
-        // dd.fence_wait(renderer.in_flight_fences[renderer.current_frame]);
-        // renderer.acquire_frame();
-        // frame_stats.lap(FrameStats::Zone::GpuWait);
-        
+        cpu.zone_begin("Frame Build");
         renderer.begin_frame(world);
-        frame_stats.lap(FrameStats::Zone::BeginFrame);
-        
+        cpu.zone_end();
+
+        cpu.zone_begin("Graph Build");
         render_path->build(renderer.graph);
         renderer.compile();
-        frame_stats.lap(FrameStats::Zone::GraphBuild);
+        cpu.zone_end();
 
+        cpu.zone_begin("Update");
         on_update((float)delta);
-        frame_stats.lap(FrameStats::Zone::Update);
+        cpu.zone_end();
 
-        frame_stats.draw();
-        frame_stats.lap(FrameStats::Zone::Overlay);
-
+        cpu.zone_begin("ImGui Render");
         imgui.render();
-        frame_stats.lap(FrameStats::Zone::ImGuiRender);
+        cpu.zone_end();
 
+        cpu.zone_begin("Record");
         Error rec_err = renderer.record();
         LUMEN_ERR_FAIL_COND_V(rec_err != Ok, (int)rec_err);
-        frame_stats.lap(FrameStats::Zone::Record);
-        
-        renderer.end_frame();
-        frame_stats.lap(FrameStats::Zone::SubmitPresent);
+        cpu.zone_end();
 
+        cpu.zone_begin("Submit + Present");
+        renderer.end_frame();
+        cpu.zone_end();
+
+        cpu.zone_begin("End Frame");
         imgui.end_frame(renderer.frame_number);
-        frame_stats.lap(FrameStats::Zone::EndFrame);
+        cpu.zone_end();
     }
 
     on_shutdown();

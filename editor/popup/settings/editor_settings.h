@@ -1,13 +1,16 @@
-#pragma once
-#include <editor/popup/popup.h>
+// #pragma once
+// #include <editor/editor_context.h>
 
-namespace lumen {
+// namespace lumen {
 
-struct EditorSettingsPopup : Popup
-{
-    const char* name() const override { return "Editor Settings"; }
-    void before_begin() override;
-    void draw_contents(EditorContext& ctx) override;
-};
+// struct EditorSettingsPopup
+// {
+//     static constexpr const char* NAME = "Editor Settings";
 
-}
+//     bool request = false;
+
+//     void open() { request = true; }
+//     void draw(EditorContext& ctx);
+// };
+
+// }

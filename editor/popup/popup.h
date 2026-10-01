@@ -1,68 +1,53 @@
-#pragma once
-#include <editor/editor_context.h>
-#include <imgui.h>
+// #pragma once
+// #include <imgui.h>
 
-namespace lumen {
+// namespace lumen {
 
-struct Popup
-{
-    bool open = false;
+// // Usage: if (!popup_begin(...)) return; <body> switch (popup_footer(...)) {...} popup_end();
+// // Call ImGui::CloseCurrentPopup() between popup_footer and popup_end to close.
 
-    virtual ~Popup() = default;
-    virtual const char* name() const = 0;
-    void close() { open = false; ImGui::CloseCurrentPopup(); }
+// inline bool popup_begin(const char* p_name, bool& p_request, ImVec2 p_size)
+// {
+//     if (p_request) {
+//         ImGui::OpenPopup(p_name);
+//         p_request = false;
+//     }
 
-    void draw(EditorContext& ctx)
-    {
-        if (open) {
-            ImGui::OpenPopup(name());
-            on_open(ctx);
-            open = false;
-        }
+//     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+//     ImGui::SetNextWindowSize(p_size, ImGuiCond_Appearing);
+//     if (!ImGui::BeginPopupModal(p_name, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) return false;
 
-        int style_count = push_style();
-        before_begin();        
-        ImGuiViewport* vp = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        if (ImGui::BeginPopupModal(name(), nullptr, window_flags())) {
-            const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y;
-            ImGui::BeginChild("##popup_body", ImVec2(0, -footer_h));
-            draw_contents(ctx);
-            ImGui::EndChild();
-            draw_footer(ctx);
-            ImGui::EndPopup();
-        }
-        if (style_count) ImGui::PopStyleVar(style_count);
-    }
+//     const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y;
+//     ImGui::BeginChild("##popup_body", ImVec2(0, -footer_h));
+//     return true;
+// }
 
-    virtual void on_open(EditorContext&) {}
-    virtual int push_style() { return 0; }
-    virtual void before_begin() { ImGui::SetNextWindowSize(ImVec2(500, 250), ImGuiCond_Appearing); }
-    virtual ImGuiWindowFlags window_flags() const { return ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings; }
-    virtual void draw_contents(EditorContext&) {}
+// // Closes the body child, draws centered buttons, returns clicked index or -1.
+// inline int popup_footer(const char* const* p_labels, int p_count, unsigned p_disabled_mask = 0, float p_button_w = 120.0f)
+// {
+//     ImGui::EndChild();
 
-    virtual void draw_footer(EditorContext&) {
-        const char* labels[] = { "Close" };
-        switch (footer_buttons(labels, 1)) { case 0: close(); break; }
-    }
+//     ImGuiStyle& s = ImGui::GetStyle();
+//     float total = p_count * p_button_w + s.ItemSpacing.x * (p_count - 1);
+//     float avail = ImGui::GetContentRegionAvail().x;
+//     if (total < avail) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - total) * 0.5f);
 
-    static int footer_buttons(const char* const* labels, int count, float bw = 120.0f, unsigned disabled_mask = 0) {
-        ImGuiStyle& s = ImGui::GetStyle();
-        float total = count * bw + s.ItemSpacing.x * (count - 1);
-        float avail = ImGui::GetContentRegionAvail().x;
-        if (total < avail) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - total) * 0.5f);
-        int clicked = -1;
-        for (int i = 0; i < count; ++i) {
-            if (i) ImGui::SameLine();
-            ImGui::PushID(i);
-            bool dis = (disabled_mask >> i) & 1u;
-            if (dis) ImGui::BeginDisabled();
-            if (ImGui::Button(labels[i], ImVec2(bw, 0))) clicked = i;
-            if (dis) ImGui::EndDisabled();
-            ImGui::PopID();
-        }
-        return clicked;
-    }
-};
+//     int clicked = -1;
+//     for (int i = 0; i < p_count; ++i) {
+//         if (i) ImGui::SameLine();
+//         ImGui::PushID(i);
+//         bool dis = (p_disabled_mask >> i) & 1u;
+//         if (dis) ImGui::BeginDisabled();
+//         if (ImGui::Button(p_labels[i], ImVec2(p_button_w, 0))) clicked = i;
+//         if (dis) ImGui::EndDisabled();
+//         ImGui::PopID();
+//     }
+//     return clicked;
+// }
 
-}
+// inline void popup_end()
+// {
+//     ImGui::EndPopup();
+// }
+
+// }

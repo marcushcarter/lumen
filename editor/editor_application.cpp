@@ -1,10 +1,9 @@
 #include <editor/editor_application.h>
-#include <editor/popup/settings/editor_settings.h>
-#include <editor/popup/settings/project_settings.h>
-#include <editor/popup/project/new_project.h>
-#include <editor/popup/project/delete_project.h>
-#include <editor/popup/project/export.h>
-#include <editor/popup/about/about_lumen.h>
+// #include <editor/popup/settings/editor_settings.h>
+// #include <editor/popup/project/new_project.h>
+// #include <editor/popup/project/delete_project.h>
+// #include <editor/popup/project/export.h>
+// #include <editor/popup/about/about_lumen.h>
 #include <drivers/toml/toml_helpers.h>
 #include <core/io/embedded_resource.h>
 #include <core/io/path.h>
@@ -59,12 +58,11 @@ Error EditorApplication::on_init()
         io.Fonts->Build();
     }
     
-    popups.register_popup(std::make_unique<EditorSettingsPopup>());
-    popups.register_popup(std::make_unique<ProjectSettingsPopup>());
-    popups.register_popup(std::make_unique<ExportPopup>());
-    popups.register_popup(std::make_unique<NewProjectPopup>());
-    popups.register_popup(std::make_unique<DeleteProjectPopup>());
-    popups.register_popup(std::make_unique<AboutLumenPopup>());
+    // popups.register_popup(std::make_unique<EditorSettingsPopup>());
+    // popups.register_popup(std::make_unique<ExportPopup>());
+    // popups.register_popup(std::make_unique<NewProjectPopup>());
+    // popups.register_popup(std::make_unique<DeleteProjectPopup>());
+    // popups.register_popup(std::make_unique<AboutLumenPopup>());
 
     err = project_manager.initialize();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
@@ -94,7 +92,7 @@ void EditorApplication::on_update(float p_dt)
 
     EditorContext ctx = _make_context();
     
-    popups.draw(ctx);
+    // popups.draw(ctx);
     if (project.loaded()) {
         imports.tick();
         for (const auto& c : imports.completed) {
@@ -418,12 +416,12 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& L)
     if (logo_set) dl->AddImage(logo_set, mn, mx);
     else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), 4.0f);
     dl->PopClipRect();
-    ImGui::SetCursorScreenPos(L.origin);
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.12f));
-    if (ImGui::Button("##LumenLogo", ImVec2(L.logo, L.bar_h))) popups.open("About Lumen");
-    ImGui::PopStyleColor(3);
+    // ImGui::SetCursorScreenPos(L.origin);
+    // ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    // ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
+    // ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.12f));
+    // if (ImGui::Button("##LumenLogo", ImVec2(L.logo, L.bar_h))) popups.open("About Lumen");
+    // ImGui::PopStyleColor(3);
 }
 
 void EditorApplication::_titlebar_help_menu()
@@ -464,7 +462,7 @@ void EditorApplication::_titlebar_help_menu()
             ImGui::SetClipboardText(buf);
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("About Lumen")) popups.open("About Lumen");
+        // if (ImGui::MenuItem("About Lumen")) popups.open("About Lumen");
         if (ImGui::MenuItem("Support Development")) ShellExecuteA(nullptr, "open", "https://lumengames.ca", nullptr, nullptr, SW_SHOWNORMAL);
         ImGui::EndMenu();
     }
@@ -532,8 +530,9 @@ void EditorApplication::_titlebar_editor_menu()
         
         ImGui::Separator();
 
-        if (ImGui::MenuItem("Editor Settings")) popups.open("Editor Settings");
-        if (ImGui::MenuItem("Project Settings")) popups.open("Project Settings");
+        // if (ImGui::MenuItem("Editor Settings")) popups.open("Editor Settings");
+        // if (ImGui::MenuItem("Editor Settings")) editor.settings_popup.open();
+        // if (ImGui::MenuItem("World Settings")) popups.open("World Settings");
         // if (ImGui::MenuItem("Keyboard Shortcuts")) {}
         // if (ImGui::MenuItem("Plugins")) {}
         
@@ -589,15 +588,15 @@ void EditorApplication::_titlebar_editor_menu()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Export")) {
-        // search bar
-        ImGui::Separator();
-        
-        // if (ImGui::MenuItem("Play In Editor Current Scene")) {}
-        if (ImGui::MenuItem("Export")) popups.open("Export");
-        
-        ImGui::EndMenu();
-    }
+    // if (ImGui::BeginMenu("Export")) {
+    //     // search bar
+    //     ImGui::Separator();
+    //     
+    //     // if (ImGui::MenuItem("Play In Editor Current Scene")) {}
+    //     if (ImGui::MenuItem("Export")) popups.open("Export");
+    //     
+    //     ImGui::EndMenu();
+    // }
 }
 
 EditorContext EditorApplication::_make_context()
@@ -616,7 +615,7 @@ EditorContext EditorApplication::_make_context()
     
     ctx.project_manager = &project_manager;
     ctx.editor = &editor;
-    ctx.popups = &popups;
+    // ctx.popups = &popups;
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};

@@ -1,7 +1,7 @@
 #include <editor/docking/editor.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/render_path/editor_render_path.h>
-#include <editor/popup/popup_manager.h>
+// #include <editor/popup/popup_manager.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -9,6 +9,7 @@
 
 #include <editor/docking/world/world.h>
 #include <editor/docking/details/details.h>
+#include <editor/docking/panels/world_settings.h>
 
 namespace lumen {
 
@@ -20,7 +21,9 @@ Error Editor::initialize()
     right_bottom.zone = DockZone::RightBottom;
 
     panels.push_back(std::make_unique<WorldPanel>());
+
     panels.push_back(std::make_unique<DetailsPanel>());
+    panels.push_back(std::make_unique<WorldSettingsPanel>());
 
     return Ok;
 }
@@ -68,7 +71,8 @@ void Editor::_draw_toolbar(EditorContext& ctx)
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.15f));
     if (ImGui::Button(cog)) {
-        ctx.popups->open("Editor Settings");
+        // ctx.popups->open("Editor Settings");
+        // settings_popup.open();
     }
     ImGui::PopStyleColor(3);
     
@@ -157,6 +161,8 @@ void Editor::on_update(EditorContext& ctx, float)
 
     ImGui::PopStyleVar();
     ImGui::End();
+
+    // settings_popup.draw(ctx);
 }
 
 void Editor::draw_menu()

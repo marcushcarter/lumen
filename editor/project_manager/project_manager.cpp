@@ -1,6 +1,6 @@
 #include <editor/project_manager/project_manager.h>
-#include <editor/popup/popup_manager.h>
-#include <editor/popup/project/delete_project.h>
+// #include <editor/popup/popup_manager.h>
+// #include <editor/popup/project/delete_project.h>
 #include <drivers/toml/toml_helpers.h>
 #include <core/project/project.h>
 #include <core/io/path.h>
@@ -219,7 +219,8 @@ void ProjectManager::on_update(EditorContext& ctx)
     ImGui::SetNextWindowSize(vp->WorkSize);
     ImGui::Begin("ProjectManager", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
     
-    if (ImGui::Button("New Project")) ctx.popups->open("New Project");
+    // if (ImGui::Button("New Project")) ctx.popups->open("New Project");
+    // if (ImGui::Button("New Project")) new_project_popup.open();
     ImGui::SameLine();
 
     const float sort_w = 160.0f;
@@ -258,13 +259,14 @@ void ProjectManager::on_update(EditorContext& ctx)
         selected = -1;
     }
 
-    if (ImGui::Button("Delete", ImVec2(-1, 0))) {
-        if (auto* p = ctx.popups->get<DeleteProjectPopup>("Delete Project")) {
-            p->project_path = recent[selected].path;
-            p->project_name = recent[selected].name;
-        }
-        ctx.popups->open("Delete Project");
-    }
+    // if (ImGui::Button("Delete", ImVec2(-1, 0))) {
+    //     if (auto* p = ctx.popups->get<DeleteProjectPopup>("Delete Project")) {
+    //         p->project_path = recent[selected].path;
+    //         p->project_name = recent[selected].name;
+    //     }
+    //     ctx.popups->open("Delete Project");
+    // }
+    // if (ImGui::Button("Delete", ImVec2(-1, 0))) delete_project_popup.open(recent[selected].path, recent[selected].name);
 
     ImGui::BeginDisabled(true);
     if (ImGui::Button("Export", ImVec2(-1, 0))) {}
@@ -275,6 +277,9 @@ void ProjectManager::on_update(EditorContext& ctx)
     ImGui::EndChild();
 
     ImGui::End();
+
+    // new_project_popup.draw(ctx);
+    // delete_project_popup.draw(ctx);
 }
 
 }

@@ -7,7 +7,7 @@
 #include <editor/editor_resources.h>
 #include <editor/editor_camera.h>
 #include <editor/assets/asset_import_tracker.h>
-#include <editor/popup/popup_manager.h>
+// #include <editor/popup/popup_manager.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
 #include <vector>
@@ -20,7 +20,7 @@ struct EditorApplication : Application
 
     ProjectManager project_manager;
     Editor editor;
-    PopupManager popups;
+    // PopupManager popups;
 
     EditorSettings settings;
     EditorResources resources;
@@ -73,4 +73,4 @@ struct EditorApplication : Application
     RenderPath* create_render_path() override { return new ProjectManagerRenderPath(); }
 };
 
-}
+}

@@ -19,7 +19,7 @@ void AssetBrowserToolbar::_breadcrumb(const std::filesystem::path& root, std::fi
     chain.push_back(root); 
     if (!selected.empty()) {
         std::filesystem::path accum = root;
-        for (const auto& part : std::filesystem::relative(selected, root)) {
+        for (const auto& part : selected.lexically_relative(root)) {
             if (part == ".") continue;
             accum /= part;
             chain.push_back(accum);
@@ -46,7 +46,7 @@ void AssetBrowserToolbar::_breadcrumb(const std::filesystem::path& root, std::fi
     ImGui::PopStyleColor();
 }
 
-void AssetBrowserToolbar::draw_header(EditorContext& ctx, const std::filesystem::path& root, std::filesystem::path& selected, char* search_buf, size_t search_cap)
+void AssetBrowserToolbar::draw_header(EditorContext& ctx, AssetDirCache& cache, const std::filesystem::path& root, std::filesystem::path& selected, char* search_buf, size_t search_cap)
 {
     ImGui::BeginDisabled(!(!selected.empty() && selected != root));
     if (ImGui::Button(ICON_FA_CHEVRON_LEFT)) selected = selected.parent_path();
@@ -55,6 +55,7 @@ void AssetBrowserToolbar::draw_header(EditorContext& ctx, const std::filesystem:
     ImGui::SameLine();
     if (ImGui::Button("New Folder")) {
         std::filesystem::create_directory(ctx.project->assets_dir / "New Folder");
+        cache.request_refresh();
     }
     
     ImGui::SameLine();
@@ -69,6 +70,7 @@ void AssetBrowserToolbar::draw_header(EditorContext& ctx, const std::filesystem:
                 const std::filesystem::path source = f;
                 if (!asset_import_any(ctx, source, selected)) log_write("Skipped unsupported import: %s", source.string().c_str());
             }
+            cache.request_refresh();
         }
     }
     

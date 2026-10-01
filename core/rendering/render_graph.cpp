@@ -1,5 +1,5 @@
 #include <core/rendering/render_graph.h>
-#include <unordered_set>
+// #include <unordered_set>
 
 namespace lumen {
 
@@ -61,6 +61,7 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
 
     for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
     framebuffer_cache.clear();
+    _alias_free.clear();
 
     for (ImageTransientPool& pool : image_transient_pools) {
         for (auto& [key, imgs] : pool.free)
@@ -94,7 +95,7 @@ uint64_t RenderGraph::intern(std::string_view p_name)
 uint64_t RenderGraph::intern_named(std::string_view p_name)
 {
     uint64_t id = intern(p_name);
-    if (!debug_names.contains(id)) debug_names.emplace(id, std::string(p_name));
+    if (_named_ids.insert(id, 0)) debug_names.emplace(id, std::string(p_name));
     return id;
 }
 
@@ -112,23 +113,20 @@ void RenderGraph::release_transients()
 
 drivers::DeviceDriverVulkan::Image* RenderGraph::image(std::string_view p_name)
 {
-    auto it = image_resource_map.find(intern(p_name));
-    if (it == image_resource_map.end()) return nullptr;
-    return image_resources[it->second].image;
+    const uint32_t i = image_resource_map.get(intern(p_name));
+    return i == IdMap::NONE ? nullptr : image_resources[i].image;
 }
 
 RenderGraph::ImageResource* RenderGraph::image_resource(std::string_view p_name)
 {
-    auto it = image_resource_map.find(intern(p_name));
-    if (it == image_resource_map.end()) return nullptr;
-    return &image_resources[it->second];
+    const uint32_t i = image_resource_map.get(intern(p_name));
+    return i == IdMap::NONE ? nullptr : &image_resources[i];
 }
 
 RenderGraph::ImageResource* RenderGraph::image_resource_by_id(uint64_t p_name_id)
 {
-    auto it = image_resource_map.find(p_name_id);
-    if (it == image_resource_map.end()) return nullptr;
-    return &image_resources[it->second];
+    const uint32_t i = image_resource_map.get(p_name_id);
+    return i == IdMap::NONE ? nullptr : &image_resources[i];
 }
 
 void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access)
@@ -147,11 +145,11 @@ void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVul
     p_image->state.stage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
     p_image->state.access = 0;
 
-    declared_image_formats[id] = p_image->format;
+    declared_image_formats.set(id, (uint32_t)p_image->format);
 
     uint32_t res_idx = static_cast<uint32_t>(image_resources.size());
-    image_resources.push_back(r);
-    auto [it, inserted] = image_resource_map.insert({ id, res_idx });
+    image_resources.push_back(std::move(r));
+    image_resource_map.insert(id, res_idx);
 }
 
 void RenderGraph::create_image(std::string_view p_name, const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info)
@@ -167,11 +165,11 @@ void RenderGraph::create_image(std::string_view p_name, const drivers::DeviceDri
     r.image_create_info.pool = dd->image_transient_pool;
     r.final_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    declared_image_formats[id] = p_create_info.format;
+    declared_image_formats.set(id, (uint32_t)p_create_info.format);
 
     uint32_t idx = static_cast<uint32_t>(image_resources.size());
-    image_resources.push_back(r);
-    image_resource_map[id] = idx;    
+    image_resources.push_back(std::move(r));
+    image_resource_map.set(id, idx);
 }
 
 uint64_t RenderGraph::_image_transient_key(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info, VkExtent2D p_extent)
@@ -217,7 +215,7 @@ void RenderGraph::_image_materialize_transient(ImageResource& r)
     drivers::DeviceDriverVulkan::Image img;
     auto it = pool.free.find(key);
     if (it != pool.free.end() && !it->second.empty()) {
-        img = it->second.back();
+        img = std::move(it->second.back());
         it->second.pop_back();
         ++image_reuse_hits;
     } else {
@@ -227,7 +225,7 @@ void RenderGraph::_image_materialize_transient(ImageResource& r)
 
     img.state = {};
 
-    r.transient_storage = img;
+    r.transient_storage = std::move(img);
     r.image = &r.transient_storage;
 }
 
@@ -235,15 +233,14 @@ void RenderGraph::_image_release_transients()
 {
     if (image_transient_pools.empty()) return;
     ImageTransientPool& pool = image_transient_pools[current_frame];
-    std::unordered_set<VkImage> returned;
     for (ImageResource& r : image_resources) {
         if (r.kind != ResourceKind::Transient) continue;
         if (!r.image) continue;
 
         VkImage vk = r.transient_storage.image;
-        if (vk != VK_NULL_HANDLE && returned.insert(vk).second) {
+        if (vk != VK_NULL_HANDLE) {
             uint64_t key = _image_transient_key(r.image_create_info, r.transient_storage.extent);
-            pool.free[key].push_back(r.transient_storage);
+            pool.free[key].push_back(std::move(r.transient_storage));
         }
         r.image = nullptr;
         r.transient_storage = {};
@@ -252,30 +249,27 @@ void RenderGraph::_image_release_transients()
 
 void RenderGraph::declare_image_format(std::string_view p_name, VkFormat p_format)
 {
-    declared_image_formats[intern_named(p_name)] = p_format;
+    declared_image_formats.set(intern_named(p_name), (uint32_t)p_format);
 }
 
 // ----- BUFFER -----
 
 drivers::DeviceDriverVulkan::Buffer* RenderGraph::buffer(std::string_view p_name)
 {
-    auto it = buffer_resource_map.find(intern(p_name));
-    if (it == buffer_resource_map.end()) return nullptr;
-    return buffer_resources[it->second].buffer;
+    const uint32_t i = buffer_resource_map.get(intern(p_name));
+    return i == IdMap::NONE ? nullptr : buffer_resources[i].buffer;
 }
 
 RenderGraph::BufferResource* RenderGraph::buffer_resource(std::string_view p_name)
 {
-    auto it = buffer_resource_map.find(intern(p_name));
-    if (it == buffer_resource_map.end()) return nullptr;
-    return &buffer_resources[it->second];
+    const uint32_t i = buffer_resource_map.get(intern(p_name));
+    return i == IdMap::NONE ? nullptr : &buffer_resources[i];
 }
 
 RenderGraph::BufferResource* RenderGraph::buffer_resource_by_id(uint64_t p_name_id)
 {
-    auto it = buffer_resource_map.find(p_name_id);
-    if (it == buffer_resource_map.end()) return nullptr;
-    return &buffer_resources[it->second];
+    const uint32_t i = buffer_resource_map.get(p_name_id);
+    return i == IdMap::NONE ? nullptr : &buffer_resources[i];
 }
 
 void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVulkan::Buffer* p_buffer, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access)
@@ -293,8 +287,8 @@ void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVu
     p_buffer->state.access = 0;
 
     uint32_t res_idx = static_cast<uint32_t>(buffer_resources.size());
-    buffer_resources.push_back(r);
-    buffer_resource_map.insert({ id, res_idx });
+    buffer_resources.push_back(std::move(r));
+    buffer_resource_map.insert(id, res_idx);
 }
 
 void RenderGraph::create_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::BufferCreateInfo& p_create_info)
@@ -310,8 +304,8 @@ void RenderGraph::create_buffer(std::string_view p_name, const drivers::DeviceDr
     r.buffer_create_info.pool = dd->buffer_device_pool;
 
     uint32_t idx = static_cast<uint32_t>(buffer_resources.size());
-    buffer_resources.push_back(r);
-    buffer_resource_map[id] = idx;
+    buffer_resources.push_back(std::move(r));
+    buffer_resource_map.set(id, idx);
 }
 
 uint64_t RenderGraph::_buffer_transient_key(VkBufferUsageFlags p_usage, bool p_device_local, bool p_host_visible, bool p_cpu_read, VkDeviceSize p_capacity)
@@ -342,7 +336,7 @@ void RenderGraph::_buffer_materialize_transient(BufferResource& r)
     drivers::DeviceDriverVulkan::Buffer buf;
     auto it = pool.free.find(key);
     if (it != pool.free.end() && !it->second.empty()) {
-        buf = it->second.back();
+        buf = std::move(it->second.back());
         it->second.pop_back();
         ++buffer_reuse_hits;
     } else {
@@ -368,7 +362,7 @@ void RenderGraph::_buffer_release_transients()
         if (!r.buffer) continue;
 
         uint64_t key = _buffer_transient_key(r.transient_storage.usage, r.transient_storage.device_local, r.transient_storage.host_visible, r.transient_storage.cpu_read, r.transient_storage.capacity);
-        pool.free[key].push_back(r.transient_storage);
+        pool.free[key].push_back(std::move(r.transient_storage));
 
         r.buffer = nullptr;
         r.transient_storage = {};
@@ -592,30 +586,30 @@ VkRenderPass RenderGraph::_get_or_create_render_pass(Node& node)
 
 VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
 {
-    const size_t node_mark = nodes.size();
+    const uint32_t node_mark = node_count;
     const size_t img_mark  = image_resources.size();
     const size_t buf_mark  = buffer_resources.size();
 
-    nodes.push_back(Node{ &p_pass });
+    const uint32_t node_idx = _node_push(&p_pass);
     if (p_pass.setup) {
-        Builder b{ this, &p_pass, static_cast<uint32_t>(node_mark) };
+        Builder b{ this, &p_pass, node_idx };
         p_pass.setup(b);
     }
 
     struct Att { VkFormat format; bool is_depth; };
     std::vector<Att> atts;
-    atts.reserve(nodes[node_mark].image_accesses.size());
+    atts.reserve(nodes[node_idx].image_accesses.size());
 
-    for (const ImageAccess& a : nodes[node_mark].image_accesses) {
+    for (const ImageAccess& a : nodes[node_idx].image_accesses) {
         if (!a.is_attachment) continue;
 
         VkFormat fmt = VK_FORMAT_UNDEFINED;
-        if (auto it = image_resource_map.find(a.name_id); it != image_resource_map.end()) {
-            const ImageResource& r = image_resources[it->second];
+        if (const uint32_t ri = image_resource_map.get(a.name_id); ri != IdMap::NONE) {
+            const ImageResource& r = image_resources[ri];
             fmt = (r.kind == ResourceKind::Transient) ? r.image_create_info.format : (r.image ? r.image->format : VK_FORMAT_UNDEFINED);
         }
         if (fmt == VK_FORMAT_UNDEFINED) {
-            if (auto it = declared_image_formats.find(a.name_id); it != declared_image_formats.end()) fmt = it->second;
+            if (const uint32_t f = declared_image_formats.get(a.name_id); f != IdMap::NONE) fmt = (VkFormat)f;
         }
         if (fmt == VK_FORMAT_UNDEFINED) {
             log_write("RenderGraph: pass '%s' attaches '%s' with no resolvable format. If it is imported after pipeline creation, call declare_image_format().", p_pass.name.c_str(), debug_names[a.name_id].c_str());
@@ -627,7 +621,7 @@ VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
     image_resources.resize(img_mark);
     for (size_t i = buffer_resources.size(); i-- > buf_mark; ) buffer_resource_map.erase(buffer_resources[i].name_id);
     buffer_resources.resize(buf_mark);
-    nodes.resize(node_mark);
+    node_count = node_mark;
 
     uint64_t key = 1469598103934665603ull;
     auto mix = [&](uint64_t v){ key ^= v; key *= 1099511628211ull; };
@@ -698,16 +692,34 @@ void RenderGraph::begin(uint32_t p_current_frame)
     buffer_resource_map.clear();
     final_buffer_barriers.clear();
     
-    nodes.clear();
+    node_count = 0;
+}
+
+uint32_t RenderGraph::_node_push(Pass* p_pass)
+{
+    const uint32_t idx = node_count++;
+    if (idx == nodes.size()) nodes.emplace_back();
+
+    Node& node = nodes[idx];
+    node.pass = p_pass;
+    node.image_accesses.clear();
+    node.pre_image_barriers.clear();
+    node.buffer_accesses.clear();
+    node.pre_buffer_barriers.clear();
+    node.deps.clear();
+    node.culled = false;
+    node.has_render_pass = false;
+    node.render_pass = VK_NULL_HANDLE;
+    node.framebuffer = VK_NULL_HANDLE;
+    node.area = {};
+    node.clear_values.clear();
+    node.attachment_access_idx.clear();
+    return idx;
 }
 
 void RenderGraph::add(Pass* p_pass)
 {
-    Node node;
-    node.pass = p_pass;
-    uint32_t idx = static_cast<uint32_t>(nodes.size());
-    nodes.push_back(std::move(node));
-
+    const uint32_t idx = _node_push(p_pass);
     if (p_pass->setup) {
         Builder builder{ this, p_pass, idx };
         p_pass->setup(builder);
@@ -718,8 +730,10 @@ Error RenderGraph::compile()
 {
     using enum Error;
 
-    std::vector<int> img_writer(image_resources.size(), -1);
-    std::vector<int> buf_writer(buffer_resources.size(), -1);
+    std::vector<int>& img_writer = _img_writer;
+    std::vector<int>& buf_writer = _buf_writer;
+    img_writer.assign(image_resources.size(), -1);
+    buf_writer.assign(buffer_resources.size(), -1);
 
     constexpr VkAccessFlags2 READ_BITS =
         VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
@@ -727,16 +741,16 @@ Error RenderGraph::compile()
         VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
         VK_ACCESS_2_MEMORY_READ_BIT;
 
-    for (uint32_t n = 0; n < nodes.size(); ++n) {
+    for (uint32_t n = 0; n < node_count; ++n) {
         Node& node = nodes[n];
 
         for (ImageAccess& a : node.image_accesses) {
-            auto it = image_resource_map.find(a.name_id);
-            if (it == image_resource_map.end()) {
+            const uint32_t ri = image_resource_map.get(a.name_id);
+            if (ri == IdMap::NONE) {
                 log_write("RenderGraph: pass '%s' accesses unimported image '%s'.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
                 continue;
             }
-            a.resource_index = static_cast<int>(it->second);
+            a.resource_index = static_cast<int>(ri);
             ImageResource& r = image_resources[a.resource_index];
             if (r.first_use == -1) r.first_use = n;
             r.last_use = n;
@@ -755,12 +769,12 @@ Error RenderGraph::compile()
         }
 
         for (BufferAccess& a : node.buffer_accesses) {
-            auto it = buffer_resource_map.find(a.name_id);
-            if (it == buffer_resource_map.end()) {
+            const uint32_t ri = buffer_resource_map.get(a.name_id);
+            if (ri == IdMap::NONE) {
                 log_write("RenderGraph: pass '%s' accesses unimported buffer '%s'.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
                 continue;
             }
-            a.resource_index = static_cast<int>(it->second);
+            a.resource_index = static_cast<int>(ri);
             BufferResource& r = buffer_resources[a.resource_index];
             if (r.first_use == -1) r.first_use = n;
             r.last_use = n;
@@ -782,10 +796,12 @@ Error RenderGraph::compile()
         if (r.read && !r.written && r.kind != ResourceKind::Imported) log_write("RenderGraph: '%s' read before write.", debug_names[r.name_id].c_str());
     }
 
-    for (Node& node : nodes) node.culled = true;
+    // for (Node& node : nodes) node.culled = true;
+    for (uint32_t n = 0; n < node_count; ++n) nodes[n].culled = true;
 
-    std::vector<uint32_t> worklist;
-    for (uint32_t n = 0; n < nodes.size(); ++n) {
+    std::vector<uint32_t>& worklist = _worklist;
+    worklist.clear();
+    for (uint32_t n = 0; n < node_count; ++n) {
         bool root = nodes[n].pass->never_cull;
 
         for (ImageAccess& a : nodes[n].image_accesses) {
@@ -818,7 +834,7 @@ Error RenderGraph::compile()
     }
 
     for (ImageResource& r : image_resources) if (r.kind == ResourceKind::Transient) { r.first_use = -1; r.last_use = -1; }
-    for (int n = 0; n < (int)nodes.size(); ++n) {
+    for (int n = 0; n < (int)node_count; ++n) {
         if (nodes[n].culled) continue;
         for (ImageAccess& a : nodes[n].image_accesses) {
             if (a.resource_index < 0) continue;
@@ -829,12 +845,14 @@ Error RenderGraph::compile()
         }
     }
 
-    std::unordered_map<uint64_t, std::vector<drivers::DeviceDriverVulkan::Image>> local_free;
+    for (auto& [key, list] : _alias_free) list.clear();
+    _img_released.assign(image_resources.size(), 0);
 
-    for (Node& node : nodes) {
+    for (uint32_t ni = 0; ni < node_count; ++ni) {
+        Node& node = nodes[ni];
         if (node.culled) continue;
         node.attachment_access_idx.clear();
-        const int node_idx = (int)(&node - nodes.data());
+        const int node_idx = (int)ni;
 
         for (int i = 0; i < (int)node.image_accesses.size(); ++i) {
             ImageAccess& a = node.image_accesses[i];
@@ -844,11 +862,10 @@ Error RenderGraph::compile()
             if (r.kind == ResourceKind::Transient && !r.image) {
                 uint32_t w, h; _image_resolve_extent(r.image_create_info, w, h);
                 uint64_t key = _image_transient_key(r.image_create_info, VkExtent2D{ w, h });
-                auto it = local_free.find(key);
-                if (it != local_free.end() && !it->second.empty()) {
-                    r.transient_storage = it->second.back();
+                auto it = _alias_free.find(key);
+                if (it != _alias_free.end() && !it->second.empty()) {
+                    r.image = image_resources[it->second.back()].image;
                     it->second.pop_back();
-                    r.image = &r.transient_storage;
                 } else {
                     _image_materialize_transient(r);
                 }
@@ -956,17 +973,17 @@ Error RenderGraph::compile()
             }
         }
 
-        std::unordered_set<int> released;
         for (ImageAccess& a : node.image_accesses) {
             if (a.resource_index < 0) continue;
             ImageResource& r = image_resources[a.resource_index];
             if (r.kind != ResourceKind::Transient || !r.image) continue;
             if (r.last_use != node_idx) continue;
-            if (!released.insert(a.resource_index).second) continue;
+            if (_img_released[a.resource_index]) continue;
+            _img_released[a.resource_index] = 1;
             uint32_t w, h;
             _image_resolve_extent(r.image_create_info, w, h);
             uint64_t key = _image_transient_key(r.image_create_info, VkExtent2D{ w, h });
-            local_free[key].push_back(r.transient_storage);
+            _alias_free[key].push_back((uint32_t)a.resource_index);
         }
     }
 
@@ -994,14 +1011,14 @@ Error RenderGraph::compile()
     return Ok;
 }
 
-static void emit_barriers_images(VkCommandBuffer p_cmd, const std::vector<RenderGraph::ImageBarrier>& p_barriers)
+void RenderGraph::_emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageBarrier>& p_images, const std::vector<BufferBarrier>& p_buffers)
 {
-    if (p_barriers.empty()) return;
+    if (p_images.empty() && p_buffers.empty()) return;
 
-    std::vector<VkImageMemoryBarrier2> vk_barriers;
-    vk_barriers.reserve(p_barriers.size());
-    for (const RenderGraph::ImageBarrier& b : p_barriers) {
-        VkImageMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    _vk_image_barriers.clear();
+    for (const ImageBarrier& b : p_images) {
+        VkImageMemoryBarrier2& mb = _vk_image_barriers.emplace_back();
+        mb = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
         mb.srcStageMask = b.src_stage;
         mb.srcAccessMask = b.src_access;
         mb.dstStageMask = b.dst_stage;
@@ -1012,23 +1029,12 @@ static void emit_barriers_images(VkCommandBuffer p_cmd, const std::vector<Render
         mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         mb.image = b.image;
         mb.subresourceRange = { b.aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS };
-        vk_barriers.push_back(mb);
     }
 
-    VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-    dep.imageMemoryBarrierCount = static_cast<uint32_t>(vk_barriers.size());
-    dep.pImageMemoryBarriers = vk_barriers.data();
-    vkCmdPipelineBarrier2(p_cmd, &dep);
-}
-
-static void emit_buffer_barriers(VkCommandBuffer p_cmd, const std::vector<RenderGraph::BufferBarrier>& p_barriers)
-{
-    if (p_barriers.empty()) return;
-
-    std::vector<VkBufferMemoryBarrier2> vk_barriers;
-    vk_barriers.reserve(p_barriers.size());
-    for (const RenderGraph::BufferBarrier& b : p_barriers) {
-        VkBufferMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+    _vk_buffer_barriers.clear();
+    for (const BufferBarrier& b : p_buffers) {
+        VkBufferMemoryBarrier2& mb = _vk_buffer_barriers.emplace_back();
+        mb = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
         mb.srcStageMask = b.src_stage;
         mb.srcAccessMask = b.src_access;
         mb.dstStageMask = b.dst_stage;
@@ -1038,12 +1044,13 @@ static void emit_buffer_barriers(VkCommandBuffer p_cmd, const std::vector<Render
         mb.buffer = b.buffer;
         mb.offset = b.offset;
         mb.size = b.size;
-        vk_barriers.push_back(mb);
     }
 
     VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-    dep.bufferMemoryBarrierCount = static_cast<uint32_t>(vk_barriers.size());
-    dep.pBufferMemoryBarriers = vk_barriers.data();
+    dep.imageMemoryBarrierCount = static_cast<uint32_t>(_vk_image_barriers.size());
+    dep.pImageMemoryBarriers = _vk_image_barriers.data();
+    dep.bufferMemoryBarrierCount = static_cast<uint32_t>(_vk_buffer_barriers.size());
+    dep.pBufferMemoryBarriers = _vk_buffer_barriers.data();
     vkCmdPipelineBarrier2(p_cmd, &dep);
 }
 
@@ -1051,14 +1058,13 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
 {
     profiler.frame_begin(p_cmd, current_frame);
 
-    for (uint32_t n = 0; n < nodes.size(); ++n) {
+    for (uint32_t n = 0; n < node_count; ++n) {
         Node& node = nodes[n];
         if (node.culled) continue;
 
         const bool has_barriers = !node.pre_image_barriers.empty() || !node.pre_buffer_barriers.empty();
         if (has_barriers) profiler.sync_begin(p_cmd, node.pass->name, node.pass->category);
-        emit_barriers_images(p_cmd, node.pre_image_barriers);
-        emit_buffer_barriers(p_cmd, node.pre_buffer_barriers);
+        _emit_barriers(p_cmd, node.pre_image_barriers, node.pre_buffer_barriers);
         if (has_barriers) profiler.sync_end(p_cmd);
 
         profiler.pass_begin(p_cmd, node.pass->name, node.pass->category);
@@ -1073,8 +1079,7 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
         profiler.pass_end(p_cmd, cl.draw_count);
     }
 
-    emit_barriers_images(p_cmd, final_image_barriers);
-    emit_buffer_barriers(p_cmd, final_buffer_barriers);
+    _emit_barriers(p_cmd, final_image_barriers, final_buffer_barriers);
 
     profiler.frame_end();
     release_transients();

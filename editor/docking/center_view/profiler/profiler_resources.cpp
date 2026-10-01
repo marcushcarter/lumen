@@ -18,7 +18,8 @@ void ProfilerResources::draw(EditorContext& ctx, const char* p_pass_name)
     RenderGraph& graph = ctx.renderer->graph;
 
     const RenderGraph::Node* node = nullptr;
-    for (const RenderGraph::Node& n : graph.nodes) {
+    for (uint32_t i = 0; i < graph.node_count; ++i) {
+        const RenderGraph::Node& n = graph.nodes[i];
         if (n.pass && n.pass->name == p_pass_name) { node = &n; break; }
     }
     if (!node) {
@@ -43,7 +44,7 @@ void ProfilerResources::draw(EditorContext& ctx, const char* p_pass_name)
         return k == RenderGraph::ResourceKind::Imported ? "Imported" : "Transient";
     };
     auto producer_name = [&](int prod) -> const char* {
-        if (prod < 0 || prod >= (int)graph.nodes.size() || !graph.nodes[prod].pass) return "-";
+        if (prod < 0 || prod >= (int)graph.node_count || !graph.nodes[prod].pass) return "-";
         return graph.nodes[prod].pass->name.c_str();
     };
 

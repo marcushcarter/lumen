@@ -89,6 +89,9 @@ struct Renderer
     void _frame_build(const World& p_world);
     void _frame_upload();
 
+    bool frame_acquired = false;
+
+    Error acquire_frame();
     Error begin_frame(const World& p_world);
     void compile();
     Error record();
@@ -97,4 +100,4 @@ struct Renderer
     RenderContext make_context();
 };
 
-}
+}

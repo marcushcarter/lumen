@@ -19,20 +19,14 @@ namespace lumen {
 
 void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, std::filesystem::path& selected, int depth)
 {
-    ImGui::PushID(dir.string().c_str());
+    AssetDirCache::Dir& node = cache.get(dir);
+    ImGui::PushID(node.path_str.c_str());
 
     ImGuiStorage* storage  = ImGui::GetStateStorage();
     const ImGuiID open_key = ImGui::GetID("open");
     bool open = storage->GetBool(open_key, depth == 0);
 
-    std::vector<std::filesystem::path> subs;
-    bool has_children;
-    if (open) {
-        Paths::gather_subdirs(dir, subs);
-        has_children = !subs.empty();
-    } else {
-        has_children = Paths::has_subdir(dir);
-    }
+    const bool has_children = !node.subdirs.empty();
     if (!has_children) open = false;
 
     float indent_w = 14.0f;
@@ -72,8 +66,10 @@ void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, s
         open = !open; storage->SetBool(open_key, open);
     }
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH"))
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
             Paths::move((const char*)payload->Data, dir);
+            cache.request_refresh();
+        }
         ImGui::EndDragDropTarget();
     }
 
@@ -82,14 +78,13 @@ void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, s
     dl->AddText(ImVec2(body_x, row_min.y + (row_h - is.y) * 0.5f), IM_COL32(224, 187, 88, 255), icon);
 
     float icon_gap = 6.0f;
-    const std::string name = dir.filename().string();
     const float name_x = body_x + is.x + icon_gap;
     dl->PushClipRect(ImVec2(name_x, row_min.y), row_max, true);
-    dl->AddText(ImVec2(name_x, row_min.y + (row_h - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+    dl->AddText(ImVec2(name_x, row_min.y + (row_h - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), node.name.c_str());
     dl->PopClipRect();
 
     ImGui::SetCursorScreenPos(ImVec2(row_min.x, row_max.y));
-    if (open) for (const auto& sub : subs) _draw_folder_node(sub, selected, depth + 1);
+    if (open) for (const auto& sub : node.subdirs) _draw_folder_node(sub, selected, depth + 1);
 
     ImGui::PopID();
 }
@@ -98,6 +93,7 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
 {
     if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
     const std::filesystem::path& root = ctx.project->assets_dir;
+    cache.tick(ImGui::GetTime());
     
     const ImVec2 region_p0 = ImGui::GetCursorScreenPos();
 
@@ -112,9 +108,7 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     float right_w = body_w - left_w;
 
     ImGui::BeginChild("##left", ImVec2(left_w, avail.y), true);
-    std::error_code ec;
-    if (!std::filesystem::exists(root, ec)) return;
-    _draw_folder_node(root, selected_folder, 0);
+    if (cache.get(root).exists) _draw_folder_node(root, selected_folder, 0);
     ImGui::EndChild();
 
     ImGui::SameLine(0, 0);
@@ -123,9 +117,9 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     ImGui::SameLine(0, 0);
 
     ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
-    toolbar.draw_header(ctx, root, selected_folder, search_buf, sizeof(search_buf));
+    toolbar.draw_header(ctx, cache, root, selected_folder, search_buf, sizeof(search_buf));
     ImGui::BeginChild("##bottom_right", ImVec2(0, 0), true);
-    list.draw(ctx, selected_folder, search_buf);
+    list.draw(ctx, cache, selected_folder, search_buf);
     ImGui::EndChild();
     ImGui::EndChild();
     

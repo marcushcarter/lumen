@@ -1,14 +1,11 @@
 #include <editor/docking/editor.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/render_path/editor_render_path.h>
-// #include <editor/popup/popup_manager.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
-#include <editor/docking/world/world.h>
-#include <editor/docking/details/details.h>
 #include <editor/docking/panels/world_settings.h>
 
 namespace lumen {
@@ -20,9 +17,9 @@ Error Editor::initialize()
     right_top.zone = DockZone::RightTop;
     right_bottom.zone = DockZone::RightBottom;
 
-    panels.push_back(std::make_unique<WorldPanel>());
+    // panels.push_back(std::make_unique<WorldPanel>());
 
-    panels.push_back(std::make_unique<DetailsPanel>());
+    // panels.push_back(std::make_unique<DetailsPanel>());
     panels.push_back(std::make_unique<WorldSettingsPanel>());
 
     return Ok;

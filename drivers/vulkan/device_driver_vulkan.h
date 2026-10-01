@@ -8,6 +8,7 @@
 #include <drivers/vulkan/lumen_vulkan.h>
 
 #include <string>
+#include <initializer_list>
 
 namespace shaderc { class Compiler; }
 
@@ -317,6 +318,9 @@ struct DeviceDriverVulkan
 
     void command_render_set_viewport(VkCommandBuffer p_cmd, const std::vector<VkRect2D>& p_viewports);
     void command_render_set_scissor(VkCommandBuffer p_cmd, const std::vector<VkRect2D>& p_scissors);
+    void command_render_set_viewport(VkCommandBuffer p_cmd, std::initializer_list<VkRect2D> p_viewports);
+    void command_render_set_scissor(VkCommandBuffer p_cmd, std::initializer_list<VkRect2D> p_scissors);
+    void _command_render_set_viewport(VkCommandBuffer p_cmd, const VkRect2D* p_rects, uint32_t p_count);
     void command_bind_push_constants(const VkCommandBuffer& p_cmd, uint32_t p_size, void* r_data, uint32_t p_offset = 0);
 
     void command_render_draw(VkCommandBuffer p_cmd, uint32_t p_vertex_count, uint32_t p_instance_count = 1, uint32_t p_base_vertex = 0, uint32_t p_first_instance = 0);
@@ -485,9 +489,12 @@ struct DeviceDriverVulkan
     void pipeline_free(Pipeline& r_pipeline);
     
     void command_bind_pipeline(VkCommandBuffer p_cmd, const Pipeline& p_pipeline);
-    void _command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset);
+    // void _command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset);
+    void _command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const VkDescriptorSet* p_sets, uint32_t p_count, uint32_t p_first_set_index, uint32_t p_dynamic_offset);
     void command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
     void command_bind_compute_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
+    void command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, std::initializer_list<VkDescriptorSet> p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
+    void command_bind_compute_uniform_sets(VkCommandBuffer p_cmd, std::initializer_list<VkDescriptorSet> p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
 	void command_compute_dispatch(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups);
 	void command_compute_dispatch_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset);
 
@@ -534,4 +541,4 @@ struct DeviceDriverVulkan
     GpuDescription gpu_describe() const;
 };
 
-}
+}

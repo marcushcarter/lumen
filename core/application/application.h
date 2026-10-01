@@ -8,6 +8,7 @@
 #include <core/world/world.h>
 #include <core/base/tasks.h>
 #include <core/base/error.h>
+#include <core/application/frame_stats.h>
 #include <string>
 #include <filesystem>
 #include <functional>
@@ -43,6 +44,8 @@ struct Application
     World world;
 
     Project project;
+
+    FrameStats frame_stats;
 
     Error initialize(const ApplicationCreateInfo& p_initialize_info);
     void shutdown();

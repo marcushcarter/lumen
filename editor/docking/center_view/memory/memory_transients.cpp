@@ -32,7 +32,7 @@ void MemoryTransients::draw(EditorContext& ctx)
             if (r.kind != RenderGraph::ResourceKind::Transient) continue;
             if (!r.image) continue;
             ++live_count;
-            live_bytes += r.transient_storage.mem_req.size;
+            live_bytes += r.image->mem_req.size;
         }
 
         imgui_title("Transient Image Pool");
@@ -54,9 +54,9 @@ void MemoryTransients::draw(EditorContext& ctx)
                     const char* name = (it != graph->debug_names.end()) ? it->second.c_str() : "<unnamed>";
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Text(name);
-                    ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(string_VkFormat(r.transient_storage.format));
-                    ImGui::TableSetColumnIndex(2); ImGui::Text("%ux%u", r.transient_storage.extent.width, r.transient_storage.extent.height);
-                    ImGui::TableSetColumnIndex(3); ImGui::Text(fmt_bytes(r.transient_storage.mem_req.size));
+                    ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(string_VkFormat(r.image->format));
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%ux%u", r.image->extent.width, r.image->extent.height);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text(fmt_bytes(r.image->mem_req.size));
                 }
                 ImGui::EndTable();
             }

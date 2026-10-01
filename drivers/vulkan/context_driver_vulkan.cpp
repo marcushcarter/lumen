@@ -126,8 +126,10 @@ Error ContextDriverVulkan::_initialize_instance()
 {
     using enum Error;
 
-    Error err = _find_validation_layers();
-	LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    // if (p_validation) {
+    //     Error err = _find_validation_layers();
+    //     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    // }
 
     // Instance
     VkApplicationInfo app_info{ VK_STRUCTURE_TYPE_APPLICATION_INFO };

@@ -56,6 +56,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = on_init();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
     
+    frame_stats.initialize(win32.window.hwnd);
     win32.window_show();
     return Ok;
 }
@@ -90,38 +91,65 @@ int Application::run()
     auto lastTime = std::chrono::steady_clock::now();
 
     while (!win32.window_should_close()) {
+        frame_stats.begin_frame();
+
+        _apply_pending_render_path();
+
+        cd.surface_set_size(win32.window.width, win32.window.height);
+        if (dd.swapchain_update() != Ok) {
+            win32.poll_events();
+            continue;
+        }
+
+        renderer.apply_pending_size();
+        frame_stats.lap(FrameStats::Zone::Swapchain);
+
+        renderer.acquire_frame();
+        frame_stats.lap(FrameStats::Zone::GpuWait);
+        
         auto now = std::chrono::steady_clock::now();
         double delta = std::chrono::duration<double>(now - lastTime).count();
         lastTime = now;
 
-        _apply_pending_render_path();
-
         win32.poll_events();
-
-        cd.surface_set_size(win32.window.width, win32.window.height);
-        if (dd.swapchain_update() != Ok) continue;
-
-        renderer.apply_pending_size();
+        frame_stats.lap(FrameStats::Zone::Poll);
 
         imgui.begin_frame(renderer.frame_number, renderer.frame_count, renderer.resize_epoch);
+        frame_stats.lap(FrameStats::Zone::ImGuiBegin);
         
         update_camera((float)delta);
         renderer.set_camera(active_camera());
+        frame_stats.lap(FrameStats::Zone::Camera);
+
+        // dd.fence_wait(renderer.in_flight_fences[renderer.current_frame]);
+        // renderer.acquire_frame();
+        // frame_stats.lap(FrameStats::Zone::GpuWait);
+        
         renderer.begin_frame(world);
+        frame_stats.lap(FrameStats::Zone::BeginFrame);
         
         render_path->build(renderer.graph);
         renderer.compile();
+        frame_stats.lap(FrameStats::Zone::GraphBuild);
 
         on_update((float)delta);
-        imgui.render();
+        frame_stats.lap(FrameStats::Zone::Update);
 
-        Error rec_err = Ok;
-        TaskSystem::Handle rec = tasks.dispatch([&]{ rec_err = renderer.record(); }, TaskSystem::Priority::High);
-        tasks.wait(rec);
+        frame_stats.draw();
+        frame_stats.lap(FrameStats::Zone::Overlay);
+
+        imgui.render();
+        frame_stats.lap(FrameStats::Zone::ImGuiRender);
+
+        Error rec_err = renderer.record();
         LUMEN_ERR_FAIL_COND_V(rec_err != Ok, (int)rec_err);
+        frame_stats.lap(FrameStats::Zone::Record);
         
         renderer.end_frame();
+        frame_stats.lap(FrameStats::Zone::SubmitPresent);
+
         imgui.end_frame(renderer.frame_number);
+        frame_stats.lap(FrameStats::Zone::EndFrame);
     }
 
     on_shutdown();

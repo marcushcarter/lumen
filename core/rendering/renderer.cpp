@@ -324,7 +324,7 @@ void Renderer::_frame_upload()
     dd->buffer_flush(cb, 0, sizeof(CameraUniform));
 }
 
-Error Renderer::begin_frame(const World& p_world)
+Error Renderer::acquire_frame()
 {
     using enum Error;
     
@@ -340,6 +340,21 @@ Error Renderer::begin_frame(const World& p_world)
 
     err = dd->fence_reset(in_flight_fences[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+
+    frame_acquired = true;
+    return Ok;
+}
+
+Error Renderer::begin_frame(const World& p_world)
+{
+    using enum Error;
+    
+    auto& sc = dd->swapchain;
+
+    if (!frame_acquired) {
+        Error err = acquire_frame();
+        LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    }
 
     _frame_build(p_world);
     _frame_upload();
@@ -419,6 +434,7 @@ Error Renderer::end_frame()
 
     current_frame = (current_frame + 1) % frame_count;
     frame_number++;
+    frame_acquired = false;
 
     return Ok;
 }

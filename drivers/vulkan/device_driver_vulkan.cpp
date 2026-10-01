@@ -1758,22 +1758,47 @@ Error DeviceDriverVulkan::command_buffer_end(VkCommandBuffer p_cmd_buffer)
 
 void DeviceDriverVulkan::command_render_set_viewport(VkCommandBuffer p_cmd, const std::vector<VkRect2D>& p_viewports)
 {
-    std::vector<VkViewport> viewports(p_viewports.size());
-    for (uint32_t i = 0; i < p_viewports.size(); i++) {
-        viewports[i] = {};
-        viewports[i].x = (float)p_viewports[i].offset.x;
-        viewports[i].y = (float)p_viewports[i].offset.y;
-        viewports[i].width = (float)p_viewports[i].extent.width;
-        viewports[i].height = (float)p_viewports[i].extent.height;
-        viewports[i].minDepth = 0.0f;
-        viewports[i].maxDepth = 1.0f;
+    // std::vector<VkViewport> viewports(p_viewports.size());
+    // for (uint32_t i = 0; i < p_viewports.size(); i++) {
+    //     viewports[i] = {};
+    //     viewports[i].x = (float)p_viewports[i].offset.x;
+    //     viewports[i].y = (float)p_viewports[i].offset.y;
+    //     viewports[i].width = (float)p_viewports[i].extent.width;
+    //     viewports[i].height = (float)p_viewports[i].extent.height;
+    //     viewports[i].minDepth = 0.0f;
+    //     viewports[i].maxDepth = 1.0f;
+    // }
+    // vkCmdSetViewport(p_cmd, 0, (uint32_t)viewports.size(), viewports.data());
+    _command_render_set_viewport(p_cmd, p_viewports.data(), (uint32_t)p_viewports.size());
+}
+
+void DeviceDriverVulkan::command_render_set_viewport(VkCommandBuffer p_cmd, std::initializer_list<VkRect2D> p_viewports)
+{
+    _command_render_set_viewport(p_cmd, p_viewports.begin(), (uint32_t)p_viewports.size());
+}
+
+void DeviceDriverVulkan::_command_render_set_viewport(VkCommandBuffer p_cmd, const VkRect2D* p_rects, uint32_t p_count)
+{
+    constexpr uint32_t BATCH = 16;
+    VkViewport viewports[BATCH];
+    for (uint32_t first = 0; first < p_count; first += BATCH) {
+        const uint32_t n = std::min(BATCH, p_count - first);
+        for (uint32_t i = 0; i < n; i++) {
+            const VkRect2D& r = p_rects[first + i];
+            viewports[i] = { (float)r.offset.x, (float)r.offset.y, (float)r.extent.width, (float)r.extent.height, 0.0f, 1.0f };
+        }
+        vkCmdSetViewport(p_cmd, first, n, viewports);
     }
-    vkCmdSetViewport(p_cmd, 0, (uint32_t)viewports.size(), viewports.data());
 }
 
 void DeviceDriverVulkan::command_render_set_scissor(VkCommandBuffer p_cmd, const std::vector<VkRect2D>& p_scissors)
 {
     vkCmdSetScissor(p_cmd, 0, (uint32_t)p_scissors.size(), p_scissors.data());
+}
+
+void DeviceDriverVulkan::command_render_set_scissor(VkCommandBuffer p_cmd, std::initializer_list<VkRect2D> p_scissors)
+{
+    vkCmdSetScissor(p_cmd, 0, (uint32_t)p_scissors.size(), p_scissors.begin());
 }
 
 void DeviceDriverVulkan::command_bind_push_constants(const VkCommandBuffer& p_cmd, uint32_t p_size, void* r_data, uint32_t p_offset)
@@ -1935,25 +1960,58 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
 	err = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface->surface, &present_modes_count, present_modes.data());
 	LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, Failed, "Couldn't get Vulkan surface present modes.");
 
-    VkPresentModeKHR present_mode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
-	std::string present_mode_name = "Enabled";
-    if (surface->vsync_enabled) {
-        present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
-		present_mode_name = "Mailbox";
-    } else {
-        present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-		present_mode_name = "Disabled";
-    }
+    // VkPresentModeKHR present_mode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
+	// std::string present_mode_name = "Enabled";
+    // if (surface->vsync_enabled) {
+    //     present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+	// 	present_mode_name = "Mailbox";
+    // } else {
+    //     present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+	// 	present_mode_name = "Disabled";
+    // }
 
-    bool present_mode_available = false;
-    for (auto mode : present_modes) {
-        if (mode == present_mode) present_mode_available = true;
-    }
+    // bool present_mode_available = false;
+    // for (auto mode : present_modes) {
+    //     if (mode == present_mode) present_mode_available = true;
+    // }
 
-	if (!present_mode_available) {
-		surface->vsync_enabled = true;
-		present_mode = VK_PRESENT_MODE_FIFO_KHR;
-	}
+	// if (!present_mode_available) {
+	// 	surface->vsync_enabled = true;
+	// 	present_mode = VK_PRESENT_MODE_FIFO_KHR;
+	// }
+
+    auto mode_name = [](VkPresentModeKHR p_mode) -> const char* {
+        switch (p_mode) {
+            case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
+            case VK_PRESENT_MODE_MAILBOX_KHR: return "MAILBOX";
+            case VK_PRESENT_MODE_FIFO_KHR: return "FIFO";
+            case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "FIFO_RELAXED";
+            default: return "OTHER";
+        }
+    };
+    auto supported = [&](VkPresentModeKHR p_mode) {
+        return std::find(present_modes.begin(), present_modes.end(), p_mode) != present_modes.end();
+    };
+
+    const VkPresentModeKHR uncapped_order[] = { VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR };
+    const VkPresentModeKHR synced_order[] = { VK_PRESENT_MODE_MAILBOX_KHR };
+    const VkPresentModeKHR* order = surface->vsync_enabled ? synced_order : uncapped_order;
+    const uint32_t order_count = surface->vsync_enabled ? 1u : 2u;
+
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    for (uint32_t i = 0; i < order_count; i++) {
+        if (supported(order[i])) { present_mode = order[i]; break; }
+    }
+    if (present_mode == VK_PRESENT_MODE_FIFO_KHR) surface->vsync_enabled = true;
+
+    char supported_str[96] = {};
+    size_t len = 0;
+    for (VkPresentModeKHR m : present_modes) {
+        if (len >= sizeof(supported_str)) break;
+        len += (size_t)std::snprintf(supported_str + len, sizeof(supported_str) - len, "%s ", mode_name(m));
+    }
+    log_write("Swapchain: present mode %s (supported: %s)", mode_name(present_mode), supported_str);
+
 
 	uint32_t desired_swapchain_images = std::max(p_desired_framebuffer_count, surface_capabilities.minImageCount);
 	if (surface_capabilities.maxImageCount > 0) {
@@ -2751,26 +2809,38 @@ void DeviceDriverVulkan::command_bind_pipeline(VkCommandBuffer p_cmd, const Pipe
     vkCmdBindPipeline(p_cmd, p_pipeline.bind_point, p_pipeline.pipeline);
 }
 
-void DeviceDriverVulkan::_command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset)
+void DeviceDriverVulkan::_command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const VkDescriptorSet* p_sets, uint32_t p_count, uint32_t p_first_set_index, uint32_t p_dynamic_offset)
 {
-    if (p_sets.empty()) return;
+    if (p_count == 0) return;
     const uint32_t* offsets = nullptr;
     uint32_t offset_count = 0;
     if (p_dynamic_offset != UINT32_MAX) {
         offsets = &p_dynamic_offset;
         offset_count = 1;
     }
-	vkCmdBindDescriptorSets(p_cmd, p_bind_point, bindless_heap.pipeline_layout, p_first_set_index, (uint32_t)p_sets.size(), p_sets.data(), offset_count, offsets);
+	vkCmdBindDescriptorSets(p_cmd, p_bind_point, bindless_heap.pipeline_layout, p_first_set_index, p_count, p_sets, offset_count, offsets);
 }
 
 void DeviceDriverVulkan::command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset)
 {
-    _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p_sets, p_first_set_index, p_dynamic_offset);
+    // _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p_sets, p_first_set_index, p_dynamic_offset);
+    _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p_sets.data(), (uint32_t)p_sets.size(), p_first_set_index, p_dynamic_offset);
 }
 
 void DeviceDriverVulkan::command_bind_compute_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset)
 {
-    _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p_sets, p_first_set_index, p_dynamic_offset);
+    // _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p_sets, p_first_set_index, p_dynamic_offset);
+    _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p_sets.data(), (uint32_t)p_sets.size(), p_first_set_index, p_dynamic_offset);
+}
+
+void DeviceDriverVulkan::command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, std::initializer_list<VkDescriptorSet> p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset)
+{
+    _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p_sets.begin(), (uint32_t)p_sets.size(), p_first_set_index, p_dynamic_offset);
+}
+
+void DeviceDriverVulkan::command_bind_compute_uniform_sets(VkCommandBuffer p_cmd, std::initializer_list<VkDescriptorSet> p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset)
+{
+    _command_bind_uniform_sets(p_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p_sets.begin(), (uint32_t)p_sets.size(), p_first_set_index, p_dynamic_offset);
 }
 
 void DeviceDriverVulkan::command_compute_dispatch(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups)

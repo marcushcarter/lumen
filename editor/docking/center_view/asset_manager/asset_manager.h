@@ -2,6 +2,7 @@
 #include <editor/docking/center_view/debug_tab.h>
 #include <editor/docking/center_view/asset_manager/asset_manager_list.h>
 #include <editor/docking/center_view/asset_manager/asset_manager_toolbar.h>
+#include <editor/docking/center_view/asset_manager/asset_dir_cache.h>
 #include <editor/editor_context.h>
 #include <IconsFontAwesome6.h>
 #include <filesystem>
@@ -16,6 +17,7 @@ struct AssetManagerDebugTab : DebugTab
 
     AssetBrowserList list;
     AssetBrowserToolbar toolbar;
+    AssetDirCache cache;
     
     void _draw_folder_node(const std::filesystem::path& dir, std::filesystem::path& selected, int depth);
     

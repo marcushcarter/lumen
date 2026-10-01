@@ -2,6 +2,7 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/render_graph_profiler.h>
 #include <core/base/error.h>
+#include <core/base/id_map.h>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -34,6 +35,7 @@ struct RenderGraph
     /***************/
     
     std::unordered_map<uint64_t, std::string> debug_names;
+    IdMap _named_ids;
     
     static uint64_t intern(std::string_view p_name);
     uint64_t intern_named(std::string_view p_name);
@@ -95,10 +97,10 @@ struct RenderGraph
     };
 
     std::vector<ImageResource> image_resources;
-    std::unordered_map<uint64_t, uint32_t> image_resource_map;
+    IdMap image_resource_map;
     std::vector<ImageBarrier> final_image_barriers;
     std::vector<ImageTransientPool> image_transient_pools;
-    std::unordered_map<uint64_t, VkFormat> declared_image_formats;
+    IdMap declared_image_formats;
 
     uint32_t image_peak_live = 0;
     uint32_t image_reuse_hits = 0;
@@ -158,7 +160,7 @@ struct RenderGraph
     };
     
     std::vector<BufferResource> buffer_resources;
-    std::unordered_map<uint64_t, uint32_t> buffer_resource_map;
+    IdMap buffer_resource_map;
     std::vector<BufferBarrier> final_buffer_barriers;
     std::vector<BufferTransientPool> buffer_transient_pools;
 
@@ -208,13 +210,6 @@ struct RenderGraph
         // void draw_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {
         //     graph->profiler.draw_begin(cmd, _name(p_name));
         //     dd->command_render_draw_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
-        //     ++draw_count;
-        //     graph->profiler.draw_end(cmd);
-        // }
-
-        // void draw_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride) {
-        //     graph->profiler.draw_begin(cmd, _name(p_name));
-        //     dd->command_render_draw_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
         //     ++draw_count;
         //     graph->profiler.draw_end(cmd);
         // }
@@ -279,6 +274,9 @@ struct RenderGraph
     };
 
     std::vector<Node> nodes;
+    uint32_t node_count = 0;
+
+    uint32_t _node_push(Pass* p_pass);
     
     /***************/
     /**** CACHE ****/
@@ -297,10 +295,19 @@ struct RenderGraph
     /**** GRAPH ****/
     /***************/
 
+    std::vector<int> _img_writer;
+    std::vector<int> _buf_writer;
+    std::vector<uint32_t> _worklist;
+    std::vector<uint8_t> _img_released;
+    std::unordered_map<uint64_t, std::vector<uint32_t>> _alias_free;
+    std::vector<VkImageMemoryBarrier2> _vk_image_barriers;
+    std::vector<VkBufferMemoryBarrier2> _vk_buffer_barriers;
+
     void begin(uint32_t p_current_frame);
     void add(Pass* p_pass);
     Error compile();
     void execute(VkCommandBuffer p_cmd);
+    void _emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageBarrier>& p_images, const std::vector<BufferBarrier>& p_buffers);
 };
     
 }

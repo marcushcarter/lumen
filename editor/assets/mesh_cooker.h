@@ -13,9 +13,9 @@ struct MeshCooker
         uint32_t dag_level = 2;
         float scale = 1.0f;
         uint32_t max_verts = 64;
-        uint32_t max_tris = 124;
+        uint32_t max_tris = 64;
         uint32_t group_size = 8;
-        uint32_t max_levels = 50;
+        uint32_t max_levels = 10;
     };
 
     // dag levels

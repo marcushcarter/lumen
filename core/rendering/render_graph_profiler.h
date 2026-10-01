@@ -1,6 +1,7 @@
 #pragma once
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/base/error.h>
+#include <core/base/id_map.h>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -33,6 +34,7 @@ struct RenderGraphProfiler
     /***************/
     
     std::unordered_map<uint64_t, std::string> name_table;
+    IdMap _named_ids;
     
     static uint64_t intern(std::string_view p_s);
     uint64_t intern_named(std::string_view p_s);
@@ -106,7 +108,8 @@ struct RenderGraphProfiler
         uint32_t open_draw = INVALID;
         uint32_t open_barrier = INVALID;
         uint32_t pass_ordinal = 0;
-        std::unordered_map<uint64_t, uint32_t> name_occurrence;
+        // std::unordered_map<uint64_t, uint32_t> name_occurrence;
+        IdMap name_occurrence;
         bool recorded = false;
         bool overflowed = false;
         

@@ -115,6 +115,7 @@ bool AssetBrowserList::_list_item(ImTextureID p_texture, const char* p_name, con
         if (entered || (ImGui::IsItemDeactivated() && !escaped)) {
             Paths::rename(p_path, rename_buf);
             _thumb_guids.clear();
+            if (_cache) _cache->request_refresh();
         }
         if (entered || escaped || ImGui::IsItemDeactivated()) rename_target.clear();
     } else {
@@ -145,98 +146,94 @@ bool AssetBrowserList::_list_item(ImTextureID p_texture, const char* p_name, con
     return double_clicked;
 }
 
-void AssetBrowserList::draw(EditorContext& ctx, std::filesystem::path& selected, const char* search_buf)
+void AssetBrowserList::draw(EditorContext& ctx, AssetDirCache& cache, std::filesystem::path& selected, const char* search_buf)
 {
+    _cache = &cache;
+
     const float min_gap = 16.0f;
     const float row_gap = 8.0f;
-    const float avail = ImGui::GetContentRegionAvail().x;
-
-    int columns = (int)((avail + min_gap) / (card_width + min_gap));
-    if (columns < 1) columns = 1;
-
-    float gap = min_gap;
-    if (columns > 1) gap = (avail - (float)columns * (float)card_width) / (float)(columns - 1);
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(min_gap, row_gap));
 
-    if (!selected.empty() && std::filesystem::exists(selected)) {
-        std::vector<std::filesystem::directory_entry> entries;
-        for (const auto& entry : std::filesystem::directory_iterator(selected)) entries.push_back(entry);
-        std::sort(entries.begin(), entries.end(),
-            [](const std::filesystem::directory_entry& a, const std::filesystem::directory_entry& b) {
-                const bool a_dir = a.is_directory();
-                const bool b_dir = b.is_directory();
-                if (a_dir != b_dir) return a_dir;
-                const std::string an = a.path().filename().string();
-                const std::string bn = b.path().filename().string();
-                return std::lexicographical_compare(an.begin(), an.end(), bn.begin(), bn.end(), [](unsigned char c1, unsigned char c2) { return std::tolower(c1) < std::tolower(c2); });
-            });
-
+    AssetDirCache::Dir* dir = selected.empty() ? nullptr : &cache.get(selected);
+    if (dir && dir->exists) {
         std::string query = search_buf;
         std::transform(query.begin(), query.end(), query.begin(), [](unsigned char c) { return (char)std::tolower(c); });
 
-        auto matches = [&](const std::filesystem::path& p) {
-            if (query.empty()) return true;
-            std::string hay = p.filename().string();
-            std::transform(hay.begin(), hay.end(), hay.begin(), [](unsigned char c){ return (char)std::tolower(c); });
-            return hay.find(query) != std::string::npos;
-        };
-
-        int i = 0;
-
-        for (const auto& entry : entries) {
-            if (!matches(entry.path())) continue;
-
-            const std::string name = entry.path().stem().string();
-            std::string type = entry.path().extension().string();
-            for (char& c : type) c = (char)toupper((unsigned char)c);
-
-            ImGui::PushID(i);
-            
-            const float progress = ctx.imports->progress(entry.path());
-
-            VkDescriptorSet set = VK_NULL_HANDLE;
-            if (!entry.is_directory()) {
-                VkImageView view = VK_NULL_HANDLE;
-                if (entry.path().extension() == ".ltexture" && ctx.renderer) {
-                    if (const LTexture* bt = ctx.renderer->textures.get(_resolve_texture_guid(entry.path()))) view = bt->image.image_view;
-                }
-                set = ctx.imgui->texture_cache.get(view);
-            }
-
-            const bool activated = _list_item((ImTextureID)set, name.c_str(), type.c_str(), entry.path(), progress);
-
-            if (entry.is_directory() && ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) Paths::move((const char*)payload->Data, entry.path());
-                ImGui::EndDragDropTarget();
-            }
-
-            if (activated && entry.is_directory()) selected = entry.path();
-
-            if (!rename_delete_request.empty()) {
-                std::filesystem::is_directory(rename_delete_request) ? _delete_folder(ctx, rename_delete_request) : _delete_asset(ctx, rename_delete_request);
-                rename_delete_request.clear();
-                _thumb_guids.clear();
-            }
-            
-            ImGui::PopID();
-            i++;
+        _visible.clear();
+        for (uint32_t k = 0; k < (uint32_t)dir->entries.size(); ++k) {
+            if (query.empty() || dir->entries[k].lower_name.find(query) != std::string::npos) _visible.push_back(k);
         }
 
-        std::vector<std::filesystem::path> pending = ctx.imports->pending_out(selected);
-        for (const auto& ppath : pending) {
-            if (!matches(ppath)) continue;
+        const bool importing = !ctx.imports->pending.empty();
+        std::filesystem::path open_request;
 
-            ImGui::PushID(i);
-            _list_item(0, ppath.stem().string().c_str(), "IMPORTING", ppath, ctx.imports->progress(ppath), true);
-            ImGui::PopID();
-            ++i;
+        ImGuiListClipper clipper;
+        clipper.Begin((int)_visible.size());
+        while (clipper.Step()) {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                AssetDirCache::Entry& e = dir->entries[_visible[row]];
+                ImGui::PushID(row);
+
+                const float progress = importing ? ctx.imports->progress(e.path) : -1.0f;
+
+                VkDescriptorSet set = VK_NULL_HANDLE;
+                if (!e.is_dir) {
+                    VkImageView view = VK_NULL_HANDLE;
+                    if (e.is_texture && ctx.renderer) {
+                        if (!e.guid_checked) {
+                            e.guid = _resolve_texture_guid(e.path);
+                            e.guid_checked = true;
+                        }
+                        if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = bt->image.image_view;
+                    }
+                    set = ctx.imgui->texture_cache.get(view);
+                }
+
+                const bool activated = _list_item((ImTextureID)set, e.name.c_str(), e.type.c_str(), e.path, progress);
+
+                if (e.is_dir && ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                        Paths::move((const char*)payload->Data, e.path);
+                        cache.request_refresh();
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                if (activated && e.is_dir) open_request = e.path;
+                ImGui::PopID();
+            }
+        }
+        clipper.End();
+
+        if (importing) {
+            int i = (int)_visible.size();
+            std::vector<std::filesystem::path> pending = ctx.imports->pending_out(selected);
+            for (const auto& ppath : pending) {
+                std::string lower = ppath.filename().string();
+                std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+                if (!query.empty() && lower.find(query) == std::string::npos) continue;
+
+                ImGui::PushID(i);
+                _list_item(0, ppath.stem().string().c_str(), "IMPORTING", ppath, ctx.imports->progress(ppath), true);
+                ImGui::PopID();
+                ++i;
+            }
+        }
+
+        if (!rename_delete_request.empty()) {
+            std::filesystem::is_directory(rename_delete_request) ? _delete_folder(ctx, rename_delete_request) : _delete_asset(ctx, rename_delete_request);
+            rename_delete_request.clear();
+            _thumb_guids.clear();
+            cache.request_refresh();
         }
 
         if (!cancel_request.empty()) {
             // ctx.imports->cancel(cancel_request);
             cancel_request.clear();
         }
+
+        if (!open_request.empty()) selected = open_request;
     }
     
     ImGui::PopStyleVar();

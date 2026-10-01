@@ -60,6 +60,7 @@ void RenderGraphProfiler::shutdown()
     stat_scratch.clear();
     occl_scratch.clear();
     name_table.clear();
+    _named_ids.clear();
     _clear_results();
     supported = false;
     stats_supported = false;
@@ -81,7 +82,7 @@ uint64_t RenderGraphProfiler::intern(std::string_view p_s)
 uint64_t RenderGraphProfiler::intern_named(std::string_view p_s)
 {
     uint64_t id = intern(p_s);
-    if (!name_table.contains(id)) name_table.emplace(id, std::string(p_s));
+    if (_named_ids.insert(id, 0)) name_table.emplace(id, std::string(p_s));
     return id;
 }
 
@@ -352,7 +353,11 @@ void RenderGraphProfiler::_leaf_begin(VkCommandBuffer p_cmd, std::string_view p_
 
     uint32_t occurrence;
     const uint64_t name_id = p_name.empty() ? 0 : intern_named(p_name);
-    if (name_id != 0) occurrence = s.name_occurrence[name_id]++;
+    if (name_id != 0) {
+        const uint32_t seen = s.name_occurrence.get(name_id);
+        occurrence = (seen == IdMap::NONE) ? 0 : seen;
+        s.name_occurrence.set(name_id, occurrence + 1);
+    }
     else occurrence = s.pass_ordinal;
 
     const uint64_t type_id = p_name.empty() ? 0 : intern_named(p_type);

@@ -1,5 +1,6 @@
 #pragma once
 #include <editor/editor_context.h>
+#include <editor/docking/center_view/asset_manager/asset_dir_cache.h>
 #include <core/rendering/render_graph_profiler.h>
 #include <imgui.h>
 #include <filesystem>
@@ -9,10 +10,7 @@
 namespace lumen {
 
 struct AssetBrowserList
-{
-    // float card_width = 150.0f;
-    // float card_height = 220.0f;
-    
+{    
     float card_width = 75.0f;
     float card_height = 110.0f;
 
@@ -26,10 +24,12 @@ struct AssetBrowserList
     void _delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder);
 
     std::unordered_map<std::filesystem::path, Guid> _thumb_guids;
+    std::vector<uint32_t> _visible;
+    AssetDirCache* _cache = nullptr;
     Guid _resolve_texture_guid(const std::filesystem::path& p_path);
 
     bool _list_item(ImTextureID p_texture, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress = 0.5, bool p_importing = false);
-    void draw(EditorContext& ctx, std::filesystem::path& selected, const char* search_buf);
+    void draw(EditorContext& ctx, AssetDirCache& cache, std::filesystem::path& selected, const char* search_buf);
 };
 
 }

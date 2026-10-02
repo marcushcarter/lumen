@@ -1077,8 +1077,7 @@ Error ClusterCullFeature::create_pipelines()
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    // pipeline_ci.cull_mode = VK_CULL_MODE_FRONT_BIT;
-    pipeline_ci.cull_mode = VK_CULL_MODE_NONE;
+    pipeline_ci.cull_mode = VK_CULL_MODE_FRONT_BIT;
     pipeline_ci.front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     pipeline_ci.depth_test = true;
     pipeline_ci.depth_write = true;

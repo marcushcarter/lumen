@@ -14,13 +14,14 @@ enum class DebugViewOp : uint32_t {
     MATERIAL_ID,
     VELOCITY,
     CLAY,
+    OVERDRAW,
 };
 
 enum class DebugViewInputs : uint32_t {
     NONE = 0,
     SOURCE = 1u << 0,
     VISBUF = 1u << 1,
-    // SHDMOD = 1u << 2,
+    DEPTH = 1u << 2,
 };
 
 constexpr DebugViewInputs operator|(DebugViewInputs a, DebugViewInputs b) { return (DebugViewInputs)((uint32_t)a | (uint32_t)b); }
@@ -52,6 +53,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     { "Triangles", DV_CAT_GEOMETRY, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF },
     { "Clusters", DV_CAT_GEOMETRY, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
     { "Instances", DV_CAT_GEOMETRY, nullptr, DebugViewOp::INSTANCES, DebugViewInputs::VISBUF },
+    { "Overdraw", DV_CAT_GEOMETRY, nullptr, DebugViewOp::OVERDRAW, DebugViewInputs::DEPTH },
     { "Material ID", DV_CAT_GEOMETRY, nullptr, DebugViewOp::MATERIAL_ID, DebugViewInputs::VISBUF },
 };
 static constexpr int DEBUG_VIEW_COUNT = (int)(sizeof(DEBUG_VIEWS) / sizeof(DEBUG_VIEWS[0]));

@@ -323,7 +323,10 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
             if (target >= 3)
                 n = meshopt_simplifyWithAttributes(simp.data(), gidx.data(), gidx.size(), &verts[0].p.x, verts.size(), sizeof(SrcVert), nullptr, 0, nullptr, 0, lock.data(), target, FLT_MAX, 0, &simp_err);
 
-            if (n < 3 || n >= gidx.size()) continue;
+            if (n < 3 || n >= gidx.size()) {
+                for (uint32_t ci : members) next.push_back(ci);
+                continue;
+            }
             simp.resize(n);
 
             const meshopt_Bounds gb = meshopt_computeSphereBounds(&child_spheres[0].x, child_spheres.size(), sizeof(vec4), &child_spheres[0].w, sizeof(vec4));

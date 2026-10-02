@@ -414,7 +414,7 @@ void ClusterCullFeature::_create_raster_emit_pass()
 
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("ClusterRetestArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        b.read_buffer("ClusterCullArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.write_buffer("ClusterOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterScatter", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
@@ -423,7 +423,7 @@ void ClusterCullFeature::_create_raster_emit_pass()
         auto vis = cl.graph->buffer("VisibleClusters");
         auto offsets = cl.graph->buffer("ClusterOffsets");
         auto scatter = cl.graph->buffer("ClusterScatter");
-        auto retest_args = cl.graph->buffer("ClusterRetestArgs");
+        auto cull_args = cl.graph->buffer("ClusterCullArgs");
 
         struct Push {
             VkDeviceAddress cluster_refs_addr;
@@ -438,7 +438,7 @@ void ClusterCullFeature::_create_raster_emit_pass()
 
         cl.dd->command_bind_pipeline(cl.cmd, raster_emit_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Raster emit 1", *retest_args);
+        cl.dispatch_indirect("Raster emit 1", *cull_args);
     };
 }
 

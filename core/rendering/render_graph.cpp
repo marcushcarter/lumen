@@ -790,6 +790,7 @@ Error RenderGraph::compile()
                 r.read = true;
                 int prod = buf_writer[a.resource_index];
                 if (prod >= 0) node.deps.push_back(prod);
+                else if (!a.is_write && r.kind == ResourceKind::Transient) log_write("RenderGraph: pass '%s' reads transient buffer '%s' before any pass writes it this frame.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
             }
             if (a.is_write) {
                 r.written = true;
@@ -802,7 +803,6 @@ Error RenderGraph::compile()
         if (r.read && !r.written && r.kind != ResourceKind::Imported) log_write("RenderGraph: '%s' read before write.", debug_names[r.name_id].c_str());
     }
 
-    // for (Node& node : nodes) node.culled = true;
     for (uint32_t n = 0; n < node_count; ++n) nodes[n].culled = true;
 
     std::vector<uint32_t>& worklist = _worklist;

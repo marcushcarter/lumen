@@ -54,7 +54,7 @@ struct ContextDriverVulkan
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         uint32_t width = 0;
         uint32_t height = 0;
-        VsyncMode vsync_mode = VsyncMode::Off;
+        VsyncMode vsync_mode = VsyncMode::OFF;
         VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
         bool needs_resize = false;
     };

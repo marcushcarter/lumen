@@ -21,7 +21,7 @@ Error ScreenshotFeature::create_resources()
         cl.dd->command_copy_image_to_buffer(cl.cmd, *bb, staging, bb->extent);
     };
 
-    return Error::Ok;
+    return Error::OK;
 };
 
 void ScreenshotFeature::destroy_resources()
@@ -102,7 +102,7 @@ void ScreenshotFeature::build(RenderGraph& g)
         ci.host_visible = true;
         staging = ctx->dd->buffer_create(ci);
         if (!staging.buffer) { log_write("Screenshot: staging alloc failed."); return; }
-    } else if (ctx->dd->buffer_ensure_capacity(staging, bytes) != Error::Ok) {
+    } else if (ctx->dd->buffer_ensure_capacity(staging, bytes) != Error::OK) {
         return;
     }
 

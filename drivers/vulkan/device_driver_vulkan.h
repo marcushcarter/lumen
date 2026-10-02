@@ -110,8 +110,8 @@ struct DeviceDriverVulkan
         VkImageAspectFlagBits aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
         uint32_t mip_levels = 1, layers = 1;
-        enum class Sizing { ViewportRelative, Fixed };
-        Sizing sizing = Sizing::ViewportRelative;
+        enum class Sizing { VIEWPORT_RELATIVE, FIXED };
+        Sizing sizing = Sizing::VIEWPORT_RELATIVE;
         float width_scale = 1.0f, height_scale = 1.0f;
         uint32_t fixed_width = 0, fixed_height = 0;
         VmaPool pool = nullptr;
@@ -425,10 +425,10 @@ struct DeviceDriverVulkan
     
     // ----- SHADER -----
     
-    enum class ShaderStage : uint8_t { Vertex, Fragment, Compute };
+    enum class ShaderStage : uint8_t { VERTEX, FRAGMENT, COMPUTE };
     
     struct ShaderCreateInfo {
-        ShaderStage stage = ShaderStage::Vertex;
+        ShaderStage stage = ShaderStage::VERTEX;
         const char* glsl = nullptr;
         size_t glsl_size = 0;
         const uint32_t* spirv = nullptr;
@@ -447,7 +447,7 @@ struct DeviceDriverVulkan
 
     // ----- PIPELINE -----
 
-    enum class BlendMode : uint8_t { None, Alpha, Additive, PremultipliedAlpha };
+    enum class BlendMode : uint8_t { NONE, ALPHA, ADDITIVE, PREMULTIPLIED_ALPHA };
 
     struct GraphicsPipelineCreateInfo {
         VkShaderModule vertex_shader = VK_NULL_HANDLE;

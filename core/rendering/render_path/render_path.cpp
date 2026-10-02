@@ -10,7 +10,7 @@ Error RenderPath::create_resources()
     created_count = 0;
     for (size_t i = 0; i < features.size(); ++i) {
         features[i]->ctx = &ctx;
-        if (Error e = features[i]->create_resources(); e != Ok) {
+        if (Error e = features[i]->create_resources(); e != OK) {
             destroy_resources();
             return e;
         }
@@ -22,12 +22,12 @@ Error RenderPath::create_resources()
     ctx.graph->begin(0);
 
     for (uint32_t i = 0; i < created_count; ++i) {
-        if (Error e = features[i]->create_pipelines(); e != Ok) {
+        if (Error e = features[i]->create_pipelines(); e != OK) {
             destroy_resources();
             return e;
         }
     }
-    return Ok;
+    return OK;
 }
 
 void RenderPath::destroy_resources()

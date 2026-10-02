@@ -16,7 +16,7 @@ namespace lumen {
 
 struct EditorApplication : Application
 {
-    enum class EditorMode { Edit, Play } mode = EditorMode::Edit;
+    enum class EditorMode { EDIT, PLAY } mode = EditorMode::EDIT;
 
     ProjectManager project_manager;
     Editor editor;
@@ -65,8 +65,8 @@ struct EditorApplication : Application
 
     bool wants_docking() const override { return true; }
     bool wants_custom_titlebar() const override { return false; }
-    bool should_tick_game() const override { return mode == EditorMode::Play && !paused; }
-    VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::On; }
+    bool should_tick_game() const override { return mode == EditorMode::PLAY && !paused; }
+    VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
     float fps_cap() const override { return (float)settings.fps_cap; }
     
     void update_camera(float p_dt) override;

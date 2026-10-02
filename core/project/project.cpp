@@ -25,11 +25,11 @@ Error Project::_ensure_layout(const std::filesystem::path& p_root)
         std::filesystem::create_directories(p_root / dir, ec);
         if (ec) {
             log_write("Project: failed to create '%s' (%s)", (p_root / dir).string().c_str(), ec.message().c_str());
-            return Failed;
+            return FAILED;
         }
     }
 
-    return Ok;
+    return OK;
 }
 
 std::filesystem::path Project::content_path(Guid p_guid) const
@@ -48,31 +48,31 @@ Error Project::load(const std::filesystem::path& p_root)
     std::filesystem::path file = p_root / FILE_NAME;
 
     std::ifstream in(file, std::ios::binary);
-    if (!in) { log_write("Project: no %s in %s", FILE_NAME, p_root.string().c_str()); return Failed; }
+    if (!in) { log_write("Project: no %s in %s", FILE_NAME, p_root.string().c_str()); return FAILED; }
 
     toml::table tbl;
     try {
         tbl = toml::parse(in);
     } catch (const toml::parse_error& e) {
         log_write("Project: failed to parse %s (%s)", file.string().c_str(), std::string(e.description()).c_str());
-        return Failed;
+        return FAILED;
     }
 
     const std::int64_t parsed_version = tbl.at_path("project.version").value_or(std::int64_t{0});
     if (parsed_version > static_cast<std::int64_t>(FORMAT_VERSION)) {
         log_write("Project: '%s' is format version %lld, this build supports %u.", file.string().c_str(), (long long)parsed_version, FORMAT_VERSION);
-        return Failed;
+        return FAILED;
     }
 
     settings.width  = tbl.at_path("window.width").value_or(settings.width);
     settings.height = tbl.at_path("window.height").value_or(settings.height);
 
-    if (Error e = _ensure_layout(p_root); e != Ok) return e;
+    if (Error e = _ensure_layout(p_root); e != OK) return e;
 
     _resolve_dirs(p_root);
     name = p_root.filename().string();
 
-    return Ok;
+    return OK;
 }
 
 void Project::unload()
@@ -85,11 +85,11 @@ void Project::unload()
 Error Project::save() const
 {
     using enum Error;
-    if (root.empty()) return Failed;
+    if (root.empty()) return FAILED;
 
     std::error_code ec;
     std::filesystem::create_directories(root / DIR_DATA, ec);
-    if (ec) return Failed;
+    if (ec) return FAILED;
 
     toml::table project;
     project.insert_or_assign("version", static_cast<std::int64_t>(FORMAT_VERSION));
@@ -104,10 +104,10 @@ Error Project::save() const
     out_tbl.insert_or_assign("window", std::move(window));
 
     std::ofstream out(root / FILE_NAME, std::ios::binary);
-    if (!out) return Failed;
+    if (!out) return FAILED;
     out << out_tbl << '\n';
 
-    return Ok;
+    return OK;
 }
 
 Error Project::create(const std::filesystem::path& p_root, std::string_view p_name)
@@ -117,10 +117,10 @@ Error Project::create(const std::filesystem::path& p_root, std::string_view p_na
     std::error_code ec;
     if (std::filesystem::exists(p_root / FILE_NAME, ec)) {
         log_write("Project: '%s' already contains a project.", p_root.string().c_str());
-        return Failed;
+        return FAILED;
     }
 
-    if (Error e = _ensure_layout(p_root); e != Ok) return e;
+    if (Error e = _ensure_layout(p_root); e != OK) return e;
 
     Project p;
     p._resolve_dirs(p_root);
@@ -135,24 +135,24 @@ Error Project::destroy(const std::filesystem::path& p_root)
 
     if (!std::filesystem::exists(p_root / FILE_NAME, ec) || ec) {
         log_write("Project: '%s' is not a Lumen project; refusing to delete.", p_root.string().c_str());
-        return Failed;
+        return FAILED;
     }
 
     std::filesystem::path target = std::filesystem::weakly_canonical(p_root, ec);
-    if (ec) return Failed;
+    if (ec) return FAILED;
     if (target == target.root_path()) {
         log_write("Project: refusing to remove filesystem root '%s'.", target.string().c_str());
-        return Failed;
+        return FAILED;
     }
 
     uintmax_t removed = std::filesystem::remove_all(target, ec);
     if (ec || removed == static_cast<uintmax_t>(-1)) {
         log_write("Project: failed to remove '%s' (%s)", target.string().c_str(), ec.message().c_str());
-        return Failed;
+        return FAILED;
     }
 
     log_write("Project destroyed: '%s' (%llu entries)", target.string().c_str(), (unsigned long long)removed);
-    return Ok;
+    return OK;
 }
 
 std::string Project::peek_name(const std::filesystem::path& p_root)

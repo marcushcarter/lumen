@@ -5,7 +5,7 @@ namespace lumen {
 
 struct OverlayBar
 {
-    enum class Align { Left, Right };
+    enum class Align { LEFT, RIGHT };
 
     ImVec2 origin;
     ImVec2 region;

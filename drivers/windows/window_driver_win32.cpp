@@ -41,7 +41,7 @@ Error WindowDriverWin32::initialize()
     wc.lpszClassName = LUMEN_WINDOW_CLASS;
     RegisterClassW(&wc);
 
-    return Ok;
+    return OK;
 }
 
 void WindowDriverWin32::shutdown()
@@ -73,12 +73,12 @@ Error WindowDriverWin32::window_create(const std::string& p_title, int p_width, 
         nullptr, nullptr, GetModuleHandleW(nullptr), this
     );
 
-    LUMEN_ERR_FAIL_COND_V_MSG(!window.hwnd, Failed, "Couldn't create Win32 window.");
+    LUMEN_ERR_FAIL_COND_V_MSG(!window.hwnd, FAILED, "Couldn't create Win32 window.");
 
     window.width = static_cast<uint32_t>(p_width);
     window.height = static_cast<uint32_t>(p_height);
 
-    return Ok;
+    return OK;
 }
 
 void WindowDriverWin32::window_bind()
@@ -136,31 +136,31 @@ void WindowDriverWin32::window_request_close()
 Error WindowDriverWin32::window_set_icon(HICON p_icon)
 {
     using enum Error;
-    LUMEN_ERR_FAIL_COND_V(!p_icon, Failed);
-    LUMEN_ERR_FAIL_COND_V(!window.hwnd, Failed);
+    LUMEN_ERR_FAIL_COND_V(!p_icon, FAILED);
+    LUMEN_ERR_FAIL_COND_V(!window.hwnd, FAILED);
     SendMessageW(window.hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(p_icon));
     SendMessageW(window.hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(p_icon));
-    return Ok;
+    return OK;
 }
 
 Error WindowDriverWin32::window_set_title(std::string_view p_title)
 {
     using enum Error;
-    if (!window.hwnd) return Failed;
+    if (!window.hwnd) return FAILED;
     int wide_len = MultiByteToWideChar(CP_UTF8, 0, p_title.data(), (int)p_title.size(), nullptr, 0);
-    if (wide_len <= 0) return Failed;
+    if (wide_len <= 0) return FAILED;
     std::wstring wide(wide_len, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, p_title.data(), (int)p_title.size(), wide.data(), wide_len);
-    return SetWindowTextW(window.hwnd, wide.c_str()) ? Ok : Failed;
+    return SetWindowTextW(window.hwnd, wide.c_str()) ? OK : FAILED;
 }
 
 Error WindowDriverWin32::window_set_titlebar_color(COLORREF p_color)
 {
     using enum Error;
-    LUMEN_ERR_FAIL_COND_V(!window.hwnd, Failed);
+    LUMEN_ERR_FAIL_COND_V(!window.hwnd, FAILED);
     HRESULT result = DwmSetWindowAttribute(window.hwnd, DWMWA_CAPTION_COLOR, &p_color, sizeof(p_color));
-    LUMEN_ERR_FAIL_COND_V_MSG(FAILED(result), Failed, "Failed to set Win32 window titlebar color - DWMWA_CAPTION_COLOR requires Windows 11 (build 22000+).");
-    return Ok;
+    LUMEN_ERR_FAIL_COND_V_MSG(FAILED(result), FAILED, "Failed to set Win32 window titlebar color - DWMWA_CAPTION_COLOR requires Windows 11 (build 22000+).");
+    return OK;
 }
 
 void WindowDriverWin32::window_set_size(int w, int h)

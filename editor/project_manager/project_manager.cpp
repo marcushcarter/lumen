@@ -20,7 +20,7 @@ Error ProjectManager::initialize()
 {
     using enum Error;
     load_recents();
-    return Ok;
+    return OK;
 }
 
 void ProjectManager::shutdown()

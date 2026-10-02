@@ -21,7 +21,7 @@ Error RenderGraph::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
 
     profiler.initialize(r_dd, p_frame_count);
 
-    return Ok;
+    return OK;
 }
 
 void RenderGraph::shutdown()
@@ -54,8 +54,8 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
 {
     using enum Error;
 
-    if (p_width == 0 || p_height == 0) return Ok;
-    if (p_width == width && p_height == height) return Ok;
+    if (p_width == 0 || p_height == 0) return OK;
+    if (p_width == width && p_height == height) return OK;
     width = p_width;
     height = p_height;
 
@@ -75,7 +75,7 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
         pool.free.clear();
     }
 
-    return Ok;
+    return OK;
 }
 
 void RenderGraph::framebuffers_flush()
@@ -140,7 +140,7 @@ void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVul
     uint64_t id = intern_named(p_name);
 
     ImageResource r{};
-    r.kind = ResourceKind::Imported;
+    r.kind = ResourceKind::IMPORTED;
     r.name_id = id;
     r.image = p_image; 
     r.final_layout = p_final_layout;
@@ -166,7 +166,7 @@ void RenderGraph::create_image(std::string_view p_name, const drivers::DeviceDri
     if (image_resource_map.contains(id)) return;
 
     ImageResource r{};
-    r.kind = ResourceKind::Transient;
+    r.kind = ResourceKind::TRANSIENT;
     r.name_id = id;
     r.image = nullptr;
     r.image_create_info = p_create_info;
@@ -197,7 +197,7 @@ uint64_t RenderGraph::_image_transient_key(const drivers::DeviceDriverVulkan::Im
 
 void RenderGraph::_image_resolve_extent(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_ci, uint32_t& r_w, uint32_t& r_h)
 {
-    if (p_ci.sizing == drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::Fixed) {
+    if (p_ci.sizing == drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED) {
         r_w = p_ci.fixed_width;
         r_h = p_ci.fixed_height;
         return;
@@ -242,7 +242,7 @@ void RenderGraph::_image_release_transients()
     if (image_transient_pools.empty()) return;
     ImageTransientPool& pool = image_transient_pools[current_frame];
     for (ImageResource& r : image_resources) {
-        if (r.kind != ResourceKind::Transient) continue;
+        if (r.kind != ResourceKind::TRANSIENT) continue;
         if (!r.image) continue;
 
         VkImage vk = r.transient_storage.image;
@@ -285,7 +285,7 @@ void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVu
     uint64_t id = intern_named(p_name);
 
     BufferResource r{};
-    r.kind = ResourceKind::Imported;
+    r.kind = ResourceKind::IMPORTED;
     r.name_id = id;
     r.buffer = p_buffer;
     r.final_stage = p_final_stage;
@@ -305,7 +305,7 @@ void RenderGraph::create_buffer(std::string_view p_name, const drivers::DeviceDr
     if (buffer_resource_map.contains(id)) return;
 
     BufferResource r{};
-    r.kind = ResourceKind::Transient;
+    r.kind = ResourceKind::TRANSIENT;
     r.name_id = id;
     r.buffer = nullptr;
     r.buffer_create_info = p_create_info;
@@ -366,7 +366,7 @@ void RenderGraph::_buffer_release_transients()
     if (buffer_transient_pools.empty()) return;
     BufferTransientPool& pool = buffer_transient_pools[current_frame];
     for (BufferResource& r : buffer_resources) {
-        if (r.kind != ResourceKind::Transient) continue;
+        if (r.kind != ResourceKind::TRANSIENT) continue;
         if (!r.buffer) continue;
 
         uint64_t key = _buffer_transient_key(r.transient_storage.usage, r.transient_storage.device_local, r.transient_storage.host_visible, r.transient_storage.cpu_read, r.transient_storage.capacity);
@@ -614,7 +614,7 @@ VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
         VkFormat fmt = VK_FORMAT_UNDEFINED;
         if (const uint32_t ri = image_resource_map.get(a.name_id); ri != IdMap::NONE) {
             const ImageResource& r = image_resources[ri];
-            fmt = (r.kind == ResourceKind::Transient) ? r.image_create_info.format : (r.image ? r.image->format : VK_FORMAT_UNDEFINED);
+            fmt = (r.kind == ResourceKind::TRANSIENT) ? r.image_create_info.format : (r.image ? r.image->format : VK_FORMAT_UNDEFINED);
         }
         if (fmt == VK_FORMAT_UNDEFINED) {
             if (const uint32_t f = declared_image_formats.get(a.name_id); f != IdMap::NONE) fmt = (VkFormat)f;
@@ -792,7 +792,7 @@ Error RenderGraph::compile()
                 r.read = true;
                 int prod = buf_writer[a.resource_index];
                 if (prod >= 0) node.deps.push_back(prod);
-                else if (!a.is_write && r.kind == ResourceKind::Transient) log_write("RenderGraph: pass '%s' reads transient buffer '%s' before any pass writes it this frame.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
+                else if (!a.is_write && r.kind == ResourceKind::TRANSIENT) log_write("RenderGraph: pass '%s' reads transient buffer '%s' before any pass writes it this frame.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
             }
             if (a.is_write) {
                 r.written = true;
@@ -802,7 +802,7 @@ Error RenderGraph::compile()
     }
 
     for (ImageResource& r : image_resources) {
-        if (r.read && !r.written && r.kind != ResourceKind::Imported) log_write("RenderGraph: '%s' read before write.", debug_names[r.name_id].c_str());
+        if (r.read && !r.written && r.kind != ResourceKind::IMPORTED) log_write("RenderGraph: '%s' read before write.", debug_names[r.name_id].c_str());
     }
 
     for (uint32_t n = 0; n < node_count; ++n) nodes[n].culled = true;
@@ -815,12 +815,12 @@ Error RenderGraph::compile()
         for (ImageAccess& a : nodes[n].image_accesses) {
             if (!a.is_write || a.resource_index < 0) continue;
             ImageResource& r = image_resources[a.resource_index];
-            if (r.kind == ResourceKind::Imported && r.final_layout != VK_IMAGE_LAYOUT_UNDEFINED) root = true;
+            if (r.kind == ResourceKind::IMPORTED && r.final_layout != VK_IMAGE_LAYOUT_UNDEFINED) root = true;
         }
         for (BufferAccess& a : nodes[n].buffer_accesses) {
             if (!a.is_write || a.resource_index < 0) continue;
             BufferResource& r = buffer_resources[a.resource_index];
-            if (r.kind == ResourceKind::Imported && r.final_access != 0) root = true;
+            if (r.kind == ResourceKind::IMPORTED && r.final_access != 0) root = true;
         }
 
         if (root) {
@@ -841,13 +841,13 @@ Error RenderGraph::compile()
         }
     }
 
-    for (ImageResource& r : image_resources) if (r.kind == ResourceKind::Transient) { r.first_use = -1; r.last_use = -1; }
+    for (ImageResource& r : image_resources) if (r.kind == ResourceKind::TRANSIENT) { r.first_use = -1; r.last_use = -1; }
     for (int n = 0; n < (int)node_count; ++n) {
         if (nodes[n].culled) continue;
         for (ImageAccess& a : nodes[n].image_accesses) {
             if (a.resource_index < 0) continue;
             ImageResource& r = image_resources[a.resource_index];
-            if (r.kind != ResourceKind::Transient) continue;
+            if (r.kind != ResourceKind::TRANSIENT) continue;
             if (r.first_use < 0) r.first_use = n;
             r.last_use = n;
         }
@@ -867,7 +867,7 @@ Error RenderGraph::compile()
             if (a.resource_index < 0) continue;
             ImageResource& r = image_resources[a.resource_index];
 
-            if (r.kind == ResourceKind::Transient && !r.image) {
+            if (r.kind == ResourceKind::TRANSIENT && !r.image) {
                 uint32_t w, h; _image_resolve_extent(r.image_create_info, w, h);
                 uint64_t key = _image_transient_key(r.image_create_info, VkExtent2D{ w, h });
                 auto it = _alias_free.find(key);
@@ -934,7 +934,7 @@ Error RenderGraph::compile()
         for (BufferAccess& a : node.buffer_accesses) {
             if (a.resource_index < 0) continue;
             BufferResource& r = buffer_resources[a.resource_index];
-            if (r.kind == ResourceKind::Transient && !r.buffer) _buffer_materialize_transient(r);
+            if (r.kind == ResourceKind::TRANSIENT && !r.buffer) _buffer_materialize_transient(r);
             if (!r.buffer) continue;
             auto& buf = *r.buffer;
 
@@ -984,7 +984,7 @@ Error RenderGraph::compile()
         for (ImageAccess& a : node.image_accesses) {
             if (a.resource_index < 0) continue;
             ImageResource& r = image_resources[a.resource_index];
-            if (r.kind != ResourceKind::Transient || !r.image) continue;
+            if (r.kind != ResourceKind::TRANSIENT || !r.image) continue;
             if (r.last_use != node_idx) continue;
             if (_img_released[a.resource_index]) continue;
             _img_released[a.resource_index] = 1;
@@ -1016,7 +1016,7 @@ Error RenderGraph::compile()
         img.state.access = r.final_access;
     }
 
-    return Ok;
+    return OK;
 }
 
 void RenderGraph::_emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageBarrier>& p_images, const std::vector<BufferBarrier>& p_buffers)

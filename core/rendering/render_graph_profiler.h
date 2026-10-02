@@ -45,7 +45,7 @@ struct RenderGraphProfiler
     /**** RESULTS ****/
     /*****************/
 
-    enum class MarkKind : uint8_t { Pass = 0, Draw = 1, Barrier = 2, Dispatch = 3, Transfer = 4 };
+    enum class MarkKind : uint8_t { PASS = 0, DRAW = 1, BARRIER = 2, DISPATCH = 3, TRANSFER = 4 };
 
     struct Timing {
         uint64_t key = 0;
@@ -58,7 +58,7 @@ struct RenderGraphProfiler
         double raw_ms = 0.0;
         uint32_t ordinal = 0;
         uint32_t parent = INVALID;
-        MarkKind kind = MarkKind::Pass;
+        MarkKind kind = MarkKind::PASS;
         uint32_t draw_count = 0;
 
         uint64_t vertices = 0;
@@ -91,7 +91,7 @@ struct RenderGraphProfiler
         uint32_t draw_count = 0;
         uint32_t ordinal = 0;
         uint32_t parent = INVALID;
-        MarkKind kind = MarkKind::Pass;
+        MarkKind kind = MarkKind::PASS;
         
         uint32_t instances  = 0;
         uint32_t stat_query = INVALID;

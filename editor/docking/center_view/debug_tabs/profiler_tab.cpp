@@ -40,7 +40,7 @@ void ProfilerDebugTab::_draw_info(EditorContext& ctx, bool frozen)
     if (selected_draw->parent != RenderGraphProfiler::INVALID && selected_draw->parent < results.size()) {
         const char* sel_pass = results[selected_draw->parent].name;
         for (const RenderGraphProfiler::Timing& t : results) {
-            if (t.kind != RenderGraphProfiler::MarkKind::Draw) continue;
+            if (t.kind != RenderGraphProfiler::MarkKind::DRAW) continue;
             if (t.parent == RenderGraphProfiler::INVALID || t.parent >= results.size()) continue;
             if (std::strcmp(results[t.parent].name, sel_pass) != 0) continue;
             if (std::strcmp(t.name, selected_draw->name) != 0) continue;
@@ -92,8 +92,8 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
     selected_pass = nullptr;
     selected_draw = nullptr;
     for (const RenderGraphProfiler::Timing& t : src) {
-        if (sel_pass_key && t.kind == RenderGraphProfiler::MarkKind::Pass && t.key == sel_pass_key) selected_pass = &t;
-        if (sel_draw_key && t.kind == RenderGraphProfiler::MarkKind::Draw && t.key == sel_draw_key) selected_draw = &t;
+        if (sel_pass_key && t.kind == RenderGraphProfiler::MarkKind::PASS && t.key == sel_pass_key) selected_pass = &t;
+        if (sel_draw_key && t.kind == RenderGraphProfiler::MarkKind::DRAW && t.key == sel_draw_key) selected_draw = &t;
     }
     
     ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -114,7 +114,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         float frame_cursor = 0.0f;
         for (size_t i = 0; i < n; ++i) {
             const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind == RenderGraphProfiler::MarkKind::Pass || t.parent == RenderGraphProfiler::INVALID) {
+            if (t.kind == RenderGraphProfiler::MarkKind::PASS || t.parent == RenderGraphProfiler::INVALID) {
                 start[i] = frame_cursor + (float)t.gap_ms;
                 frame_cursor = start[i] + (float)t.gpu_ms;
             } else {
@@ -205,7 +205,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
 
         if (follow && sel_name[0]) {
             for (size_t i = 0; i < n; ++i) {
-                if (src[i].kind != RenderGraphProfiler::MarkKind::Pass) continue;
+                if (src[i].kind != RenderGraphProfiler::MarkKind::PASS) continue;
                 if (std::strcmp(src[i].name ? src[i].name : "", sel_name) != 0) continue;
                 float target_start = start[i];
                 float target_range = std::max((float)src[i].gpu_ms, MIN_RANGE_MS);
@@ -333,7 +333,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
             };
 
             for (const RenderGraphProfiler::Timing& t : src) {
-                if (t.kind != RenderGraphProfiler::MarkKind::Pass && t.kind != RenderGraphProfiler::MarkKind::Barrier) continue;
+                if (t.kind != RenderGraphProfiler::MarkKind::PASS && t.kind != RenderGraphProfiler::MarkKind::BARRIER) continue;
                 const char* cat = t.category ? t.category : "";
                 const float span = (float)(t.gap_ms + t.gpu_ms);
                 if (run_cat && std::strcmp(run_cat, cat) == 0) { run_ms += span; continue; }
@@ -348,7 +348,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         // Passes.
         for (size_t i = 0; i < n; ++i) {
             const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind != RenderGraphProfiler::MarkKind::Pass) continue;
+            if (t.kind != RenderGraphProfiler::MarkKind::PASS) continue;
 
             bool bar_hovered = false;
             ImVec2 x = bar(start[i], (float)t.gpu_ms, y_pass0, y_pass1, imgui_rg_category_u32(t.category), &bar_hovered);
@@ -386,7 +386,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         // Draw calls + compute dispatches.
         for (size_t i = 0; i < n; ++i) {
             const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind != RenderGraphProfiler::MarkKind::Draw && t.kind != RenderGraphProfiler::MarkKind::Dispatch && t.kind != RenderGraphProfiler::MarkKind::Transfer) continue;
+            if (t.kind != RenderGraphProfiler::MarkKind::DRAW && t.kind != RenderGraphProfiler::MarkKind::DISPATCH && t.kind != RenderGraphProfiler::MarkKind::TRANSFER) continue;
 
             const uint32_t p = t.parent;
             if (p == RenderGraphProfiler::INVALID) continue;
@@ -418,11 +418,11 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
             if (bar_hovered) {
                 ImGui::BeginTooltip();
 
-                const bool is_graphics = t.kind == RenderGraphProfiler::MarkKind::Draw;
+                const bool is_graphics = t.kind == RenderGraphProfiler::MarkKind::DRAW;
                 if (named) {
                     imgui_title("%s · %s", t.name, t.type);
                 } else {
-                    const char* k = t.kind == RenderGraphProfiler::MarkKind::Dispatch ? "Dispatch" : t.kind == RenderGraphProfiler::MarkKind::Transfer ? "Transfer" : "Draw";
+                    const char* k = t.kind == RenderGraphProfiler::MarkKind::DISPATCH ? "Dispatch" : t.kind == RenderGraphProfiler::MarkKind::TRANSFER ? "Transfer" : "Draw";
                     imgui_title("%s %u", k, t.ordinal);
                 }
                 imgui_property_row("Time", "%.0f µs", t.gpu_ms*1000.0);
@@ -452,7 +452,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         // Barriers.
         for (size_t i = 0; i < n; ++i) {
             const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind != RenderGraphProfiler::MarkKind::Barrier) continue;
+            if (t.kind != RenderGraphProfiler::MarkKind::BARRIER) continue;
             if (t.gpu_ms <= 0.0) continue;
 
             bool bar_hovered = false;

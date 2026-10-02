@@ -28,7 +28,7 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
         uint32_t live_count = 0;
         uint64_t live_bytes = 0;
         for (const RenderGraph::ImageResource& r : graph->image_resources) {
-            if (r.kind != RenderGraph::ResourceKind::Transient) continue;
+            if (r.kind != RenderGraph::ResourceKind::TRANSIENT) continue;
             if (!r.image) continue;
             ++live_count;
             live_bytes += r.image->mem_req.size;
@@ -47,7 +47,7 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
                 ImGui::TableHeadersRow();
                 uint32_t shown = 0;
                 for (const RenderGraph::ImageResource& r : graph->image_resources) {
-                    if (r.kind != RenderGraph::ResourceKind::Transient || !r.image) continue;
+                    if (r.kind != RenderGraph::ResourceKind::TRANSIENT || !r.image) continue;
                     if (shown++ >= max_rows) continue;
                     auto it = graph->debug_names.find(r.name_id);
                     const char* name = (it != graph->debug_names.end()) ? it->second.c_str() : "<unnamed>";
@@ -80,7 +80,7 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
         uint32_t live_count = 0;
         uint64_t live_logical = 0, live_capacity = 0;
         for (const RenderGraph::BufferResource& r : graph->buffer_resources) {
-            if (r.kind != RenderGraph::ResourceKind::Transient || !r.buffer) continue;
+            if (r.kind != RenderGraph::ResourceKind::TRANSIENT || !r.buffer) continue;
             ++live_count;
             live_logical  += r.transient_storage.size;
             live_capacity += r.transient_storage.capacity;
@@ -99,7 +99,7 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
                 ImGui::TableHeadersRow();
                 uint32_t shown = 0;
                 for (const RenderGraph::BufferResource& r : graph->buffer_resources) {
-                    if (r.kind != RenderGraph::ResourceKind::Transient || !r.buffer) continue;
+                    if (r.kind != RenderGraph::ResourceKind::TRANSIENT || !r.buffer) continue;
                     if (shown++ >= max_rows) continue;
                     auto it = graph->debug_names.find(r.name_id);
                     const char* name = (it != graph->debug_names.end()) ? it->second.c_str() : "<unnamed>";

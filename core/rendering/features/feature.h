@@ -13,8 +13,8 @@ struct Feature
     std::string category = "?";
     bool enabled = true;
 
-    virtual Error create_resources() { return Error::Ok; };
-    virtual Error create_pipelines() { return Error::Ok; }
+    virtual Error create_resources() { return Error::OK; };
+    virtual Error create_pipelines() { return Error::OK; }
     virtual void destroy_resources() {}
     virtual void build(RenderGraph& g) = 0;
     

@@ -18,7 +18,7 @@ Error ImGuiFeature::create_resources()
         ctx->imgui->record_commands(cl.cmd);
     };
 
-    return Error::Ok;
+    return Error::OK;
 };
 
 void ImGuiFeature::build(RenderGraph& g)

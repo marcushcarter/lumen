@@ -3,7 +3,7 @@
 #include <core/io/embedded_resource.h>
 
 namespace lumen {
-    
+
 Error EditorResources::initialize(drivers::DeviceDriverVulkan& r_dd)
 {
     using enum Error;
@@ -34,7 +34,7 @@ Error EditorResources::initialize(drivers::DeviceDriverVulkan& r_dd)
         eula_text.erase(std::remove(eula_text.begin(), eula_text.end(), '\r'), eula_text.end());
     }
 
-    return Ok;
+    return OK;
 }
 
 void EditorResources::shutdown()

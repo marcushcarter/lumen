@@ -12,12 +12,12 @@ Error GameApplication::on_init()
 
     // Error err = project_load(Paths::executable_dir());
     Error err = project_load("D:/TestLumen");
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     win32.window_set_title(project.name);
     win32.window_set_size(project.settings.width, project.settings.height);
     
-    return Ok;
+    return OK;
 }
 
 void GameApplication::on_update(float p_dt)

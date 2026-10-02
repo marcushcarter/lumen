@@ -9,9 +9,9 @@ namespace lumen {
 
 enum class Error 
 {
-    Ok,
-    Failed,
-    Max
+    OK,
+    FAILED,
+    MAX
 };
 
 extern const char *error_names[];

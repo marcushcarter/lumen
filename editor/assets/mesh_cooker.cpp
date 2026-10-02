@@ -374,7 +374,7 @@ Error MeshCooker::_cook(const Job& p_job)
     const aiScene* scene = importer.ReadFile(p_job.source.string(), flags);
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode || scene->mNumMeshes == 0) {
         log_write("MeshCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
-        return Failed;
+        return FAILED;
     }
     
     report(0.3f);
@@ -386,7 +386,7 @@ Error MeshCooker::_cook(const Job& p_job)
         case 1: ok = _load_clustered(scene, p_job.settings, src); break;
         default: ok = _load_clustered_dag(scene, p_job.settings, src); break;
     }
-    if (!ok) { log_write("MeshCooker: %s produced no geometry", p_job.source.string().c_str()); return Failed; }
+    if (!ok) { log_write("MeshCooker: %s produced no geometry", p_job.source.string().c_str()); return FAILED; }
 
     report(0.8f);
 
@@ -420,13 +420,13 @@ Error MeshCooker::_cook(const Job& p_job)
     ah.magic = BCON_MAGIC;
     ah.version = LASSET_VERSION;
     ah.guid = p_job.guid;
-    ah.type = AssetType::Mesh;
+    ah.type = AssetType::MESH;
     ah.payload_size = (uint32_t)(sizeof(ph) + vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
 
     std::error_code ec;
     std::filesystem::create_directories(p_job.content_bin.parent_path(), ec);
     std::ofstream f(p_job.content_bin, std::ios::binary | std::ios::trunc);
-    if (!f) { return Failed; }
+    if (!f) { return FAILED; }
     f.write(reinterpret_cast<const char*>(&ah), sizeof(ah));
     f.write(reinterpret_cast<const char*>(&ph), sizeof(ph));
     f.write(reinterpret_cast<const char*>(src.vertices.data()), vtx_bytes);
@@ -444,8 +444,8 @@ Error MeshCooker::_cook(const Job& p_job)
         { "asset", toml::table{
             { "version", static_cast<int64_t>(LASSET_VERSION) },
             { "guid", p_job.guid.to_string() },
-            { "type", static_cast<int64_t>(AssetType::Mesh) } }},
-        { std::string(asset_type_section(AssetType::Mesh)), toml::table{
+            { "type", static_cast<int64_t>(AssetType::MESH) } }},
+        { std::string(asset_type_section(AssetType::MESH)), toml::table{
             { "path", p_job.source.generic_string() },
             { "vertices", static_cast<int64_t>(0) },
             { "triangles", static_cast<int64_t>(0) },
@@ -455,10 +455,10 @@ Error MeshCooker::_cook(const Job& p_job)
             }},
     };
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
-    if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return Failed;
+    if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;
 
     report(1.0f);
-    return Ok;
+    return OK;
 }
 
 Error MeshCooker::import(const Project& p_project, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, Guid& r_guid, const CookSettings& p_settings)
@@ -468,10 +468,10 @@ Error MeshCooker::import(const Project& p_project, const std::filesystem::path& 
     job.source = p_src;
     job.dst_lmesh = p_dst;
     job.settings = p_settings;
-    if (AssetImportTracker::resolve_import(p_project, AssetType::Mesh, p_dst, job.guid, job.content_bin) != Ok) return Failed;
-    if (_cook(job) != Ok) return Failed;
+    if (AssetImportTracker::resolve_import(p_project, AssetType::MESH, p_dst, job.guid, job.content_bin) != OK) return FAILED;
+    if (_cook(job) != OK) return FAILED;
     r_guid = job.guid;
-    return Ok;   
+    return OK;   
 }
 
 void MeshCooker::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const MeshCooker::CookSettings& p_settings)
@@ -480,13 +480,13 @@ void MeshCooker::import_async(EditorContext& ctx, const std::filesystem::path& p
     job.source = p_src;
     job.dst_lmesh = p_dst;
     job.settings = p_settings;
-    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::Mesh, p_dst, job.guid, job.content_bin) != Error::Ok) {
+    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::MESH, p_dst, job.guid, job.content_bin) != Error::OK) {
         log_write("Mesh import failed: %s", p_src.string().c_str());
         return;
     }
     job.progress = ctx.imports->add(p_dst, job.guid, job.content_bin);
     ctx.tasks->dispatch([job]{
-        if (MeshCooker::_cook(job) != Error::Ok && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
+        if (MeshCooker::_cook(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
     });
 }
 

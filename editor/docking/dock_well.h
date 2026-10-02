@@ -9,7 +9,7 @@ namespace lumen {
 
 struct DockWell
 {
-    DockZone zone = DockZone::RightBottom;
+    DockZone zone = DockZone::RIGHT_BOTTOM;
     std::vector<Panel*> panels;
     std::string active_name;
 

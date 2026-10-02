@@ -90,8 +90,8 @@ void TaskSystem::_worker_loop()
 TaskSystem::Handle TaskSystem::dispatch(std::function<void()> fn, Priority p)
 {
     Handle counter = std::make_shared<std::atomic<uint32_t>>(1);
-    Task t{ std::move(fn), counter, p == Priority::Normal };
-    { std::lock_guard lock(mutex); (p == Priority::High ? high : normal).push_back(std::move(t)); }   // push t
+    Task t{ std::move(fn), counter, p == Priority::NORMAL };
+    { std::lock_guard lock(mutex); (p == Priority::HIGH ? high : normal).push_back(std::move(t)); }   // push t
     cv.notify_one();
     return counter;
 }

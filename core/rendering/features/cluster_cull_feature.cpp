@@ -999,9 +999,9 @@ Error ClusterCullFeature::create_resources()
     stats_written.assign(ctx->dd->frame_count, 0);
     for (drivers::DeviceDriverVulkan::Buffer& b : stats_readback) {
         b = ctx->dd->buffer_create({ .size = sizeof(CullStats), .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = false, .host_visible = true, .cpu_read = true, .pool = ctx->dd->readback_pool, .name = "cluster_cull_stats" });
-        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::Failed, "ClusterCullFeature: stats readback allocation failed.");
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "ClusterCullFeature: stats readback allocation failed.");
     }
-    return Error::Ok;
+    return Error::OK;
 };
 
 Error ClusterCullFeature::create_pipelines()
@@ -1010,56 +1010,56 @@ Error ClusterCullFeature::create_pipelines()
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_INSTANCE_CULL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/instance_cull.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/instance_cull.comp" });
     instance_cull_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/instance_cull"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_REFS_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_refs_args.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_refs_args.comp" });
     cluster_refs_args_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_refs_args"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_REFS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_refs.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_refs.comp" });
     cluster_refs_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_refs"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_CULL_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_cull_args.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_cull_args.comp" });
     cluster_cull_args_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_cull_args"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_CULL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_cull.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_cull.comp" });
     cluster_cull_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_cull"});
     ctx->dd->shader_free(cs);
     }
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_COUNT_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_count.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_count.comp" });
     raster_count_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/raster_count"});
     ctx->dd->shader_free(cs);
     }
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_SUM_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_sum.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_sum.comp" });
     raster_sum_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/raster_sum"});
     ctx->dd->shader_free(cs);
     }
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_EMIT_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_emit.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_emit.comp" });
     raster_emit_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/raster_emit"});
     ctx->dd->shader_free(cs);
     }
@@ -1068,8 +1068,8 @@ Error ClusterCullFeature::create_pipelines()
     VkRenderPass rp = ctx->graph->acquire_render_pass(raster_visibility_pass);
     EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_VISIBILITY_VERT");
     EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_VISIBILITY_FRAG");
-    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Vertex,   .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
-    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Fragment, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "raster_visibility_fs" });
+    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX,   .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
+    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "raster_visibility_fs" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1085,40 +1085,40 @@ Error ClusterCullFeature::create_pipelines()
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_HIZ_BUILD_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/hiz_build.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/hiz_build.comp" });
     hiz_build_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/hiz_build"});
     ctx->dd->shader_free(cs);
     }
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_HIZ_TAIL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/hiz_tail.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/hiz_tail.comp" });
     hiz_tail_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/hiz_tail"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_RETEST_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_retest_args.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_retest_args.comp" });
     cluster_retest_args_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_retest_args"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_RETEST_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_retest.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_retest.comp" });
     cluster_retest_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_retest"});
     ctx->dd->shader_free(cs);
     }
     
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_MATERIAL_RESOLVE_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/material_resolve.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/material_resolve.comp" });
     material_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/material_resolve"});
     ctx->dd->shader_free(cs);
     }
 
-    return Ok;
+    return OK;
 }
 
 void ClusterCullFeature::destroy_resources()

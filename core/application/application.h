@@ -73,7 +73,7 @@ struct Application
     virtual bool wants_docking() const { return false; }
     virtual bool wants_custom_titlebar() const { return false; }
     virtual bool should_tick_game() const { return !paused; }
-    virtual VsyncMode vsync_mode() const { return VsyncMode::Off; }
+    virtual VsyncMode vsync_mode() const { return VsyncMode::OFF; }
     virtual float fps_cap() const { return 0.0f; }
     
     virtual void update_camera(float p_dt) { (void)p_dt; }

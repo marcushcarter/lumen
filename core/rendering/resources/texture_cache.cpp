@@ -10,7 +10,7 @@ Error TextureCache::initialize(drivers::DeviceDriverVulkan& r_dd)
 {
     using enum Error;
     dd = &r_dd;
-    return Ok;
+    return OK;
 }
 
 uint32_t TextureCache::load(Guid p_guid, const std::filesystem::path& p_path)
@@ -33,7 +33,7 @@ uint32_t TextureCache::load(Guid p_guid, const std::filesystem::path& p_path)
 
     LAssetHeader ah{};
     std::memcpy(&ah, bytes.data(), sizeof(ah));
-    if (ah.magic != BCON_MAGIC || ah.version != LASSET_VERSION || ah.type != AssetType::Texture) {
+    if (ah.magic != BCON_MAGIC || ah.version != LASSET_VERSION || ah.type != AssetType::TEXTURE) {
         log_write("TextureCache: bad asset header %s", p_path.string().c_str());
         return UINT32_MAX;
     }

@@ -10,8 +10,8 @@ Error FrameLimiter::initialize()
     QueryPerformanceFrequency(&f);
     qpc_freq = f.QuadPart;
     timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-    LUMEN_ERR_FAIL_COND_V_MSG(!timer, Failed, "FrameLimiter: high resolution waitable timer unavailable.");
-    return Ok;
+    LUMEN_ERR_FAIL_COND_V_MSG(!timer, FAILED, "FrameLimiter: high resolution waitable timer unavailable.");
+    return OK;
 }
 
 void FrameLimiter::shutdown()

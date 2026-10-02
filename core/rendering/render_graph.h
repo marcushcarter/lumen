@@ -45,14 +45,14 @@ struct RenderGraph
     /**** RESOURCES ****/
     /*******************/
     
-    enum class ResourceKind { Imported, Transient };
+    enum class ResourceKind { IMPORTED, TRANSIENT };
 
     void release_transients();
     
     // ----- IMAGE -----
 
     struct ImageResource {
-        ResourceKind kind = ResourceKind::Imported;
+        ResourceKind kind = ResourceKind::IMPORTED;
         uint64_t name_id = 0;
 
         drivers::DeviceDriverVulkan::Image* image = nullptr;
@@ -123,7 +123,7 @@ struct RenderGraph
     // ----- BUFFER -----
 
     struct BufferResource {
-        ResourceKind kind = ResourceKind::Imported;
+        ResourceKind kind = ResourceKind::IMPORTED;
         uint64_t name_id = 0;
 
         drivers::DeviceDriverVulkan::Buffer* buffer = nullptr;

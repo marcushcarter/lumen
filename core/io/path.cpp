@@ -48,10 +48,10 @@ Error Paths::set_hidden(const std::filesystem::path& p_path, bool p_hidden)
 {
     using enum Error;
     DWORD attrs = GetFileAttributesW(p_path.c_str());
-    if (attrs == INVALID_FILE_ATTRIBUTES) return Failed;
+    if (attrs == INVALID_FILE_ATTRIBUTES) return FAILED;
     DWORD next = p_hidden ? (attrs | FILE_ATTRIBUTE_HIDDEN) : (attrs & ~FILE_ATTRIBUTE_HIDDEN);
-    if (next == attrs) return Ok;
-    return SetFileAttributesW(p_path.c_str(), next) ? Ok : Failed;
+    if (next == attrs) return OK;
+    return SetFileAttributesW(p_path.c_str(), next) ? OK : FAILED;
 }
 
 void Paths::reveal_in_explorer(const std::filesystem::path& p_path)

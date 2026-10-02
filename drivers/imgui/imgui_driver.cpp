@@ -43,10 +43,10 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
     pool_ci.pPoolSizes = pool_sizes;
 
     VkResult err = vkCreateDescriptorPool(device, &pool_ci, nullptr, &descriptor_pool);
-    LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, Failed,
+    LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED,
         "Failed to initialize ImGui descriptor pool.");
 
-    LUMEN_ERR_FAIL_COND_V_MSG(!ImGui_ImplWin32_Init(p_create_info.hwnd), Failed,
+    LUMEN_ERR_FAIL_COND_V_MSG(!ImGui_ImplWin32_Init(p_create_info.hwnd), FAILED,
         "Failed to initialize ImGui Win32 backend.");
 
     ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
@@ -75,11 +75,11 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
     init_info.PipelineInfoMain.Subpass = p_create_info.subpass;
     init_info.CheckVkResultFn = [](VkResult err){ if(err) fprintf(stderr, "[Lumen] Vulkan error in ImGui backend: %d\n", err); };
 
-    LUMEN_ERR_FAIL_COND_V_MSG(!ImGui_ImplVulkan_Init(&init_info), Failed, "Failed to initialize ImGui Vulkan backend.");
+    LUMEN_ERR_FAIL_COND_V_MSG(!ImGui_ImplVulkan_Init(&init_info), FAILED, "Failed to initialize ImGui Vulkan backend.");
 
     texture_cache.initialize(p_create_info.sampler);
 
-    return Ok;
+    return OK;
 }
 
 void ImGuiDriver::shutdown()

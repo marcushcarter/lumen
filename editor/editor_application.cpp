@@ -32,13 +32,13 @@ Error EditorApplication::on_init()
     win32.window_set_title("Lumen Editor");
 
     err = resources.initialize(dd);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = win32.window_set_icon(EmbeddedResource::load_icon(L"LUMEN_ICON"));
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     ImVec4 titlebar = ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg];
     err = win32.window_set_titlebar_color(RGB((BYTE)(titlebar.x * 255), (BYTE)(titlebar.y * 255), (BYTE)(titlebar.z * 255)));
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     ImGuiIO& io = ImGui::GetIO();
     {
@@ -65,14 +65,14 @@ Error EditorApplication::on_init()
     // popups.register_popup(std::make_unique<AboutLumenPopup>());
 
     err = project_manager.initialize();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = editor.initialize();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     _load_state();
     settings.theme.apply();
 
-    return Ok;
+    return OK;
 }
 
 void EditorApplication::on_shutdown()
@@ -99,11 +99,11 @@ void EditorApplication::on_update(float p_dt)
             LAssetHeader ah{};
             if (!read_asset_header(c.content_bin, ah)) continue;
             switch (ah.type) {
-                case AssetType::Texture:
+                case AssetType::TEXTURE:
                     renderer.textures.unload(c.guid);
                     renderer.textures.load(c.guid, c.content_bin);
                     break;
-                case AssetType::Mesh:
+                case AssetType::MESH:
                     renderer.geometry.unload(c.guid);
                     renderer.geometry.load(c.guid, c.content_bin);
                     break;
@@ -124,7 +124,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     using enum Error;
     
     Error err = project_load(p_root);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     render_path_request(new EditorRenderPath());
     project_manager.add_recent(project.root, project.name);
@@ -132,7 +132,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     active_tab = 1;
     pending_tab = active_tab;
 
-    return Ok;
+    return OK;
 }
 
 void EditorApplication::close_project()
@@ -635,8 +635,8 @@ EditorContext EditorApplication::_make_context()
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};
     
-    ctx.pie_is_playing = [this]{ return mode == EditorMode::Play; };
-    ctx.pie_toggle_play = [this]{ mode = (mode == EditorMode::Play) ? EditorMode::Edit : EditorMode::Play; paused = false; renderer.camera_cut(); };
+    ctx.pie_is_playing = [this]{ return mode == EditorMode::PLAY; };
+    ctx.pie_toggle_play = [this]{ mode = (mode == EditorMode::PLAY) ? EditorMode::EDIT : EditorMode::PLAY; paused = false; renderer.camera_cut(); };
     ctx.pie_is_paused = [this]{ return paused; };
     ctx.pie_toggle_pause = [this]{ paused = !paused; };
     
@@ -645,15 +645,15 @@ EditorContext EditorApplication::_make_context()
 
 void EditorApplication::update_camera(float p_dt)
 {
-    if (mode == EditorMode::Edit) editor_camera.update(p_dt);
-    if (mode == EditorMode::Play) {
+    if (mode == EditorMode::EDIT) editor_camera.update(p_dt);
+    if (mode == EditorMode::PLAY) {
         
     }
 }
 
 const Camera& EditorApplication::active_camera() const
 {
-    if (mode == EditorMode::Edit) return editor_camera.camera;
+    if (mode == EditorMode::EDIT) return editor_camera.camera;
     return *world.active_camera;
 }
 

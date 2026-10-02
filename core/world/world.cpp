@@ -7,7 +7,7 @@ Error World::initialize()
 {
     using enum Error;
     
-    return Ok;
+    return OK;
 }
 
 void World::shutdown()
@@ -21,7 +21,7 @@ Error World::load()
 {
     using enum Error;
     
-    return Ok;
+    return OK;
 }
 
 void World::unload()

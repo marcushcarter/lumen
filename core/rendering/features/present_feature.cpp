@@ -30,7 +30,7 @@ Error PresentFeature::create_resources()
         cl.draw("blit", 3);
     };
 
-    return Error::Ok;
+    return Error::OK;
 };
 
 Error PresentFeature::create_pipelines()
@@ -39,8 +39,8 @@ Error PresentFeature::create_pipelines()
 
     EmbeddedResource::Blob blit_vert_blob = EmbeddedResource::load(L"SHADERS_PRESENT_BLIT_VERT");
     EmbeddedResource::Blob blit_frag_blob = EmbeddedResource::load(L"SHADERS_PRESENT_BLIT_FRAG");
-    VkShaderModule blit_vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Vertex, .glsl = (const char*)blit_vert_blob.data, .glsl_size = blit_vert_blob.size, .name = "present/blit.vert" });
-    VkShaderModule blit_fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Fragment, .glsl = (const char*)blit_frag_blob.data, .glsl_size = blit_frag_blob.size, .name = "present/blit.frag" });
+    VkShaderModule blit_vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)blit_vert_blob.data, .glsl_size = blit_vert_blob.size, .name = "present/blit.vert" });
+    VkShaderModule blit_fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)blit_frag_blob.data, .glsl_size = blit_frag_blob.size, .name = "present/blit.frag" });
 
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = blit_vs;
@@ -53,7 +53,7 @@ Error PresentFeature::create_pipelines()
     ctx->dd->shader_free(blit_vs);
     ctx->dd->shader_free(blit_fs);
 
-    return Error::Ok;
+    return Error::OK;
 }
 
 void PresentFeature::destroy_resources()

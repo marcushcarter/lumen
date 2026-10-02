@@ -95,7 +95,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
     char view_btn[128];
     snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", DEBUG_VIEWS[selected_view].name);
 
-    left_overlay.begin(pos, size, OverlayBar::Align::Left);
+    left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
     if (left_overlay.begin_menu(view_btn)) {
         int i = 0;
         while (i < DEBUG_VIEW_COUNT) {
@@ -118,7 +118,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
     }
     left_overlay.end();
 
-    right_overlay.begin(pos, size, OverlayBar::Align::Right);
+    right_overlay.begin(pos, size, OverlayBar::Align::RIGHT);
     if (right_overlay.begin_menu(ICON_FA_BARS)) {
         ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
         if (ctx.render_path) {

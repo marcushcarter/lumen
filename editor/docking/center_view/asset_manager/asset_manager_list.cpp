@@ -17,8 +17,8 @@ void AssetBrowserList::_delete_content(EditorContext& ctx, const std::filesystem
 
     if (ctx.renderer) {
         switch (info.type) {
-            case AssetType::Texture: ctx.renderer->textures.unload(info.guid); break;
-            case AssetType::Mesh: ctx.renderer->geometry.unload(info.guid); break;
+            case AssetType::TEXTURE: ctx.renderer->textures.unload(info.guid); break;
+            case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); break;
             default: break;
         }
     }
@@ -48,7 +48,7 @@ Guid AssetBrowserList::_resolve_texture_guid(const std::filesystem::path& p_path
 {
     if (auto it = _thumb_guids.find(p_path); it != _thumb_guids.end()) return it->second;
     AssetInfo info = read_asset_info(p_path);
-    if (!info.valid() || info.type != AssetType::Texture) return Guid{};
+    if (!info.valid() || info.type != AssetType::TEXTURE) return Guid{};
     _thumb_guids.emplace(p_path, info.guid);
     return info.guid;
 }

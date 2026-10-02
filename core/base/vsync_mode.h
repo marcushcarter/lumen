@@ -4,7 +4,7 @@
 
 namespace lumen {
 
-enum class VsyncMode : uint8_t { Off, Fast, On };
+enum class VsyncMode : uint8_t { OFF, FAST, ON };
 
 inline constexpr const char* VSYNC_MODE_NAMES[] = { "Off", "Fast", "On" };
 

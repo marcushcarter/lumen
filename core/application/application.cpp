@@ -17,20 +17,20 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     cpu_profiler().initialize();
 
     err = win32.initialize();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     err = win32.window_create(p_create_info.window_title, p_create_info.width, p_create_info.height, wants_custom_titlebar());
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     win32.window_bind();
 
     err = cd.full_initialize_windows(win32.window.hwnd);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = dd.initialize(cd, cd.optimal_device_index, 3);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = renderer.initialize(dd, profiling);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     drivers::ImGuiDriverCreateInfo imgui_ci{};
     imgui_ci.hwnd = win32.window.hwnd;
@@ -45,25 +45,25 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     imgui_ci.ini_path = p_create_info.ini_path;
     imgui_ci.enable_docking = wants_docking();
     err = imgui.initialize(imgui_ci);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     render_path = create_render_path();
     render_path->ctx = renderer.make_context();
     render_path->ctx.imgui = &imgui;
     err = render_path->create_resources();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     tasks.start(std::max(1u, std::thread::hardware_concurrency() - 1u), 1);
     
     err = on_init();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     frame_stats.initialize(win32.window.hwnd);
     err = frame_limiter.initialize();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     win32.window_show();
-    return Ok;
+    return OK;
 }
 
 void Application::shutdown()
@@ -104,16 +104,16 @@ Error Application::_frame()
     _apply_pending_render_path();
     cd.surface_set_vsync_mode(vsync_mode());
     cd.surface_set_size(win32.window.width, win32.window.height);
-    const bool swapchain_ok = dd.swapchain_update() == Ok;
+    const bool swapchain_ok = dd.swapchain_update() == OK;
     if (swapchain_ok) renderer.apply_pending_size();
     cpu.zone_end();
-    if (!swapchain_ok) return Ok;
+    if (!swapchain_ok) return OK;
 
     cpu.zone_begin("Wait GPU + Acquire", CpuProfiler::FLAG_WAIT);
     Error err = renderer.acquire_frame();
     cpu.zone_end();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
-    if (!renderer.frame_acquired) return Ok;
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    if (!renderer.frame_acquired) return OK;
 
     auto now = std::chrono::steady_clock::now();
     double delta = std::chrono::duration<double>(now - last_time).count();
@@ -149,18 +149,18 @@ Error Application::_frame()
     cpu.zone_begin("Record");
     err = renderer.record();
     cpu.zone_end();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Submit + Present");
     err = renderer.end_frame();
     cpu.zone_end();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("End Frame");
     imgui.end_frame(renderer.frame_number);
     cpu.zone_end();
 
-    return Ok;
+    return OK;
 }
 
 int Application::run()
@@ -186,7 +186,7 @@ int Application::run()
             continue;
         }
 
-        if (_frame() != Ok) break;
+        if (_frame() != OK) break;
     }
 
     on_shutdown();
@@ -198,13 +198,13 @@ Error Application::project_load(const std::filesystem::path &p_root)
 {
     using enum Error;
     Error err = project.load(p_root);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = renderer.load(project.content_dir);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = world.load();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());
-    return Ok;
+    return OK;
 }
 
 void Application::project_unload()
@@ -241,7 +241,7 @@ void Application::_apply_pending_render_path()
     pending_render_path = nullptr;
     render_path->ctx = renderer.make_context();
     render_path->ctx.imgui = &imgui;
-    if (render_path->create_resources() != Ok)
+    if (render_path->create_resources() != OK)
         log_write("Application: render path create_resources failed.");
 }
 

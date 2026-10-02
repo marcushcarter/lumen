@@ -48,13 +48,13 @@ Error AssetImportTracker::resolve_import(const Project& p_project, AssetType p_t
     std::error_code ec;
     if (std::filesystem::exists(p_dest, ec)) {
         AssetInfo existing = read_asset_info(p_dest);
-        if (!existing.valid() || existing.type != p_type) return Failed;
+        if (!existing.valid() || existing.type != p_type) return FAILED;
         r_guid = existing.guid;
     } else {
         r_guid = Guid::generate();
     }
     r_content_bin = p_project.content_path(r_guid);
-    return Ok;
+    return OK;
 }
 
 }

@@ -155,7 +155,7 @@ Error DebugViewFeature::create_resources()
 {
     _create_overdraw_raster_passes();
     _create_viewport_resolve_pass();
-    return Error::Ok;
+    return Error::OK;
 };
 
 Error DebugViewFeature::create_pipelines()
@@ -164,7 +164,7 @@ Error DebugViewFeature::create_pipelines()
 
     {
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_EDITOR_DEBUG_VIEW_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Compute, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/debug_view.comp" });
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/debug_view.comp" });
     viewport_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "editor/debug_view"});
     ctx->dd->shader_free(cs);
     }
@@ -174,8 +174,8 @@ Error DebugViewFeature::create_pipelines()
     VkRenderPass rp = ctx->graph->acquire_render_pass(overdraw_raster_pass);
     EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_VISIBILITY_VERT");
     EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_EDITOR_OVERDRAW_FRAG");
-    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Vertex, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
-    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::Fragment, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "editor/overdraw.frag" });
+    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
+    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "editor/overdraw.frag" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -184,13 +184,13 @@ Error DebugViewFeature::create_pipelines()
     pipeline_ci.depth_test = true;
     pipeline_ci.depth_write = true;
     pipeline_ci.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL;
-    pipeline_ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::Additive };
+    pipeline_ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::ADDITIVE };
     pipeline_ci.name = "editor/overdraw_raster";
     overdraw_raster_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
     ctx->dd->shader_free(vs); ctx->dd->shader_free(fs);
     }
     
-    return Ok;
+    return OK;
 }
 
 void DebugViewFeature::destroy_resources()

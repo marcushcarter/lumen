@@ -28,7 +28,7 @@ void OverlayBar::begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_
     margin = p_margin;
     spacing = p_spacing;
     row_y = origin.y + margin;
-    cursor_x = (align == Align::Left) ? origin.x + margin : origin.x + region.x - margin;
+    cursor_x = (align == Align::LEFT) ? origin.x + margin : origin.x + region.x - margin;
 
     ImVec4 ac = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
     ac.w = 130.0f / 255.0f;
@@ -48,7 +48,7 @@ bool OverlayBar::_emit(const char* p_label, ImVec2 p_size, bool p_active)
     if (h <= 0.0f) h = ImGui::GetFrameHeight();
 
     float x;
-    if (align == Align::Left) {
+    if (align == Align::LEFT) {
         x = cursor_x;
         cursor_x += w + spacing;
     } else {
@@ -82,7 +82,7 @@ bool OverlayBar::toggle(const char* p_label, bool& p_active, ImVec2 p_size)
 bool OverlayBar::combo(const char* p_id, const char* p_preview, float p_width)
 {
     float x;
-    if (align == Align::Left) {
+    if (align == Align::LEFT) {
         x = cursor_x;
         cursor_x += p_width + spacing;
     } else {
@@ -112,7 +112,7 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
     if (h <= 0.0f) h = ImGui::GetFrameHeight();
 
     float x;
-    if (align == Align::Left) {
+    if (align == Align::LEFT) {
         x = cursor_x;
         cursor_x += w + spacing;
     } else {
@@ -134,7 +134,7 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
     const ImVec2 bmax = ImGui::GetItemRectMax();
     if (clicked) ImGui::OpenPopup(p_label);
 
-    const bool right = align == Align::Right;
+    const bool right = align == Align::RIGHT;
     const ImVec2 anchor(right ? bmax.x : bmin.x, bmax.y + 2.0f);
     ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, 0.0f));
     const float max_h = std::max(origin.y + region.y - margin - anchor.y, ImGui::GetFrameHeight() * 4.0f);
@@ -153,7 +153,7 @@ void OverlayBar::end_menu()
 
 void OverlayBar::gap(float p_w)
 {
-    if (align == Align::Left) cursor_x += p_w;
+    if (align == Align::LEFT) cursor_x += p_w;
     else cursor_x -= p_w;
 }
 

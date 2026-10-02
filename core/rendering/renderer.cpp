@@ -31,7 +31,7 @@ Error Renderer::_create_dynamic_buffers()
         camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
     }
 
-    return Ok;
+    return OK;
 }
 
 void Renderer::_destroy_dynamic_buffers()
@@ -69,22 +69,22 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     images_in_flight.assign(dd->swapchain.images.size(), VK_NULL_HANDLE);
 
     Error err = textures.initialize(r_dd);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = geometry.initialize(r_dd, frame_count);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = graph.initialize(r_dd, frame_count);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     graph.declare_image_format("Backbuffer", dd->swapchain.format);
 
     err = _create_dynamic_buffers();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     set_size(1, 1);
     pending_width = width;
     pending_height = height;
 
-    return Ok;
+    return OK;
 }
 
 void Renderer::shutdown()
@@ -113,11 +113,11 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
     using enum Error;
     
     Error err = geometry.allocate();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     hiz_reset_pending = true;
 
     std::error_code ec;
-    if (!std::filesystem::exists(p_content_dir, ec)) return Ok;
+    if (!std::filesystem::exists(p_content_dir, ec)) return OK;
 
     for (auto it = std::filesystem::recursive_directory_iterator(p_content_dir, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
@@ -126,10 +126,10 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
         LAssetHeader ah{};
         if (!read_asset_header(path, ah)) continue;
         switch (ah.type) {
-            case AssetType::Texture:
+            case AssetType::TEXTURE:
                 textures.load(ah.guid, path);
                 break;
-            case AssetType::Mesh:
+            case AssetType::MESH:
                 geometry.load(ah.guid, path);
                 break;
             default:
@@ -160,7 +160,7 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
     //     }
     // }
 
-    return Ok;
+    return OK;
 }
 
 void Renderer::unload()
@@ -186,7 +186,7 @@ void Renderer::_create_hiz_pyramid(uint32_t p_width, uint32_t p_height)
     ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
     ci.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     ci.mip_levels = mips;
-    ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::Fixed;
+    ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
     ci.fixed_width = hw;
     ci.fixed_height = hh;
     ci.pool = dd->image_persistent_pool;
@@ -206,8 +206,8 @@ Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
 {
     using enum Error;
 
-    if (p_width == 0 || p_height == 0) return Ok;
-    if (p_width == width && p_height == height) return Ok;
+    if (p_width == 0 || p_height == 0) return OK;
+    if (p_width == width && p_height == height) return OK;
     width = p_width;
     height = p_height;
     resize_epoch++;
@@ -215,12 +215,12 @@ Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
     dd->device_wait_idle();
 
     Error err = graph.set_size(p_width, p_height);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     _destroy_hiz_pyramid();
     _create_hiz_pyramid(p_width, p_height);
 
-    return Ok;
+    return OK;
 }
 
 void Renderer::request_size(uint32_t p_width, uint32_t p_height)
@@ -231,7 +231,7 @@ void Renderer::request_size(uint32_t p_width, uint32_t p_height)
 
 Error Renderer::apply_pending_size()
 {
-    if (pending_width == 0 || pending_height == 0) return Error::Ok;
+    if (pending_width == 0 || pending_height == 0) return Error::OK;
     return set_size(pending_width, pending_height);
 }
 
@@ -375,14 +375,14 @@ Error Renderer::acquire_frame()
     cpu.zone_begin("Frame Fence", CpuProfiler::FLAG_WAIT);
     Error err = dd->fence_wait(in_flight_fences[current_frame]);
     cpu.zone_end();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Swapchain Acquire", CpuProfiler::FLAG_WAIT);
     err = dd->swapchain_acquire_next_image(image_available_semaphores[current_frame]);
     cpu.zone_end();
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    if (sc.image_index == UINT32_MAX) return Ok;
+    if (sc.image_index == UINT32_MAX) return OK;
 
     if (images_in_flight[sc.image_index] != VK_NULL_HANDLE) {
         cpu.zone_begin("Image Fence", CpuProfiler::FLAG_WAIT);
@@ -392,10 +392,10 @@ Error Renderer::acquire_frame()
     images_in_flight[sc.image_index] = in_flight_fences[current_frame];
 
     err = dd->fence_reset(in_flight_fences[current_frame]);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     frame_acquired = true;
-    return Ok;
+    return OK;
 }
 
 Error Renderer::begin_frame(const World& p_world)
@@ -407,8 +407,8 @@ Error Renderer::begin_frame(const World& p_world)
 
     if (!frame_acquired) {
         Error err = acquire_frame();
-        LUMEN_ERR_FAIL_COND_V(err != Ok, err);
-        LUMEN_ERR_FAIL_COND_V(!frame_acquired, Failed);
+        LUMEN_ERR_FAIL_COND_V(err != OK, err);
+        LUMEN_ERR_FAIL_COND_V(!frame_acquired, FAILED);
     }
 
     geometry.begin_frame(frame_number, current_frame);
@@ -430,7 +430,7 @@ Error Renderer::begin_frame(const World& p_world)
     graph.import_buffer("Instances", &instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
 
-    return Ok;
+    return OK;
 }
 
 void Renderer::compile()
@@ -445,9 +445,9 @@ Error Renderer::record()
     using enum Error;
 
     Error err = dd->command_pool_reset(command_pools[current_frame]);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = dd->command_buffer_begin(command_buffers[current_frame], VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     VkCommandBuffer cmd = command_buffers[current_frame];
 
@@ -459,9 +459,9 @@ Error Renderer::record()
     cpu_profiler().zone_end();
     
     err = dd->command_buffer_end(command_buffers[current_frame]);
-    LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    return Ok;
+    return OK;
 }
 
 Error Renderer::end_frame()
@@ -486,7 +486,7 @@ Error Renderer::end_frame()
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
     cpu.zone_end();
     if (result != VK_SUCCESS) log_write("Renderer: vkQueueSubmit returned %d", (int)result);
-    LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, Failed, "Failed to submit Vulkan queue");
+    LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "Failed to submit Vulkan queue");
 
     VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     present_info.waitSemaphoreCount = 1;
@@ -502,14 +502,14 @@ Error Renderer::end_frame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         dd->swapchain.surface->needs_resize = true;
     } else {
-        LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, Failed, "Failed to present Vulkan queue");
+        LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "Failed to present Vulkan queue");
     }
 
     current_frame = (current_frame + 1) % frame_count;
     frame_number++;
     frame_acquired = false;
 
-    return Ok;
+    return OK;
 }
 
 RenderContext Renderer::make_context()

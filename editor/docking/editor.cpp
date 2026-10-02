@@ -14,15 +14,15 @@ Error Editor::initialize()
 {
     using enum Error;
     center_view.initialize();
-    right_top.zone = DockZone::RightTop;
-    right_bottom.zone = DockZone::RightBottom;
+    right_top.zone = DockZone::RIGHT_TOP;
+    right_bottom.zone = DockZone::RIGHT_BOTTOM;
 
     // panels.push_back(std::make_unique<WorldPanel>());
 
     // panels.push_back(std::make_unique<DetailsPanel>());
     panels.push_back(std::make_unique<WorldSettingsPanel>());
 
-    return Ok;
+    return OK;
 }
 
 void Editor::shutdown()
@@ -79,9 +79,9 @@ void Editor::on_update(EditorContext& ctx, float)
     right_bottom.panels.clear();
     for (auto& p : panels) {
         switch (p->zone) {
-            case DockZone::RightTop: right_top.panels.push_back(p.get());    break;
-            case DockZone::RightBottom: right_bottom.panels.push_back(p.get()); break;
-            case DockZone::Left: break;
+            case DockZone::RIGHT_TOP: right_top.panels.push_back(p.get());    break;
+            case DockZone::RIGHT_BOTTOM: right_bottom.panels.push_back(p.get()); break;
+            case DockZone::LEFT: break;
         }
     }
 

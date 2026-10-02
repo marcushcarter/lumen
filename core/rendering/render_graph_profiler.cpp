@@ -20,7 +20,7 @@ Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_
         supported = false;
         active = prev_active = false;
         log_write("RenderGraphProfiler: GPU timing unsupported (validBits=%u, period=%f).", valid_bits, period_ns);
-        return Ok;
+        return OK;
     }
 
     supported = true;
@@ -44,7 +44,7 @@ Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_
     raw_scratch.resize(CAPACITY);
     stat_scratch.resize(static_cast<size_t>(CAPACITY) * STAT_COUNT);
     occl_scratch.resize(CAPACITY);
-    return Ok;
+    return OK;
 }
 
 void RenderGraphProfiler::shutdown()
@@ -135,7 +135,7 @@ void RenderGraphProfiler::_resolve()
     if (!s.recorded) return;
     if (s.query_count < 2 || s.marks.empty()) { results.clear(); total_ms = 0.0; total_draws = 0; return; }
 
-    if (dd->query_pool_get_results(s.pool, 0, s.query_count, raw_scratch.data()) != Ok) return;
+    if (dd->query_pool_get_results(s.pool, 0, s.query_count, raw_scratch.data()) != OK) return;
 
     last_query_count = s.query_count;
     last_stat_count = s.stat_count;
@@ -145,7 +145,7 @@ void RenderGraphProfiler::_resolve()
     if (have_stats) {
         Error e1 = dd->query_pool_get_results(s.stat_pool, 0, s.stat_count, stat_scratch.data(), STAT_COUNT);
         Error e2 = dd->query_pool_get_results(s.occl_pool, 0, s.occl_count, occl_scratch.data(), 1);
-        if (e1 != Ok || e2 != Ok) have_stats = false;
+        if (e1 != OK || e2 != OK) have_stats = false;
     }
 
     results.clear();
@@ -172,14 +172,14 @@ void RenderGraphProfiler::_resolve()
             acc.dur += smoothing * (dur - acc.dur);
         }
 
-        if (m.kind == MarkKind::Pass || m.kind == MarkKind::Barrier) sum += acc.gap + acc.dur;
-        if (m.kind == MarkKind::Draw) draws++;
+        if (m.kind == MarkKind::PASS || m.kind == MarkKind::BARRIER) sum += acc.gap + acc.dur;
+        if (m.kind == MarkKind::DRAW) draws++;
 
         Timing t;
         t.key = m.key;
         t.name = (m.name_id != 0) ? name_of(m.name_id) : "";
         t.type = (m.type_id != 0) ? name_of(m.type_id) : "";
-        t.category = (m.kind == MarkKind::Pass || m.kind == MarkKind::Barrier) ? name_of(m.cat_id) : "";
+        t.category = (m.kind == MarkKind::PASS || m.kind == MarkKind::BARRIER) ? name_of(m.cat_id) : "";
         t.gap_ms = acc.gap;
         t.gpu_ms = acc.dur;
         t.raw_gap_ms = gap;
@@ -189,7 +189,7 @@ void RenderGraphProfiler::_resolve()
         t.parent = m.parent;
         t.kind = m.kind;
 
-        if (m.kind == MarkKind::Draw && have_stats && m.stat_query != INVALID) {
+        if (m.kind == MarkKind::DRAW && have_stats && m.stat_query != INVALID) {
             const uint64_t* st = &stat_scratch[static_cast<size_t>(m.stat_query) * STAT_COUNT];
             t.vertices = st[0];
             t.primitives = st[1];
@@ -197,7 +197,7 @@ void RenderGraphProfiler::_resolve()
         }
         t.instances = m.instances;
 
-        if (m.kind == MarkKind::Draw && m.parent < results.size()) {
+        if (m.kind == MarkKind::DRAW && m.parent < results.size()) {
             Timing& p = results[m.parent];
             p.vertices += t.vertices;
             p.primitives += t.primitives;
@@ -277,7 +277,7 @@ void RenderGraphProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_n
     m.cat_id = intern_named(p_category);
     m.key = m.name_id;
     m.lead_query = s.last_boundary;
-    m.kind = MarkKind::Pass;
+    m.kind = MarkKind::PASS;
 
     uint32_t ts;
     if (_write_boundary(p_cmd, ts)) {
@@ -320,7 +320,7 @@ void RenderGraphProfiler::sync_begin(VkCommandBuffer p_cmd, std::string_view p_n
     m.key = m.name_id ^ 0xBA4713219876BEEFull;
     m.lead_query = s.last_boundary;
     m.parent = INVALID;
-    m.kind = MarkKind::Barrier;
+    m.kind = MarkKind::BARRIER;
 
     uint32_t ts;
     if (_write_boundary(p_cmd, ts)) {
@@ -415,7 +415,7 @@ void RenderGraphProfiler::_leaf_end(VkCommandBuffer p_cmd)
 
 void RenderGraphProfiler::draw_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type, uint32_t p_instances)
 {
-    _leaf_begin(p_cmd, p_name, p_type, MarkKind::Draw, p_instances, true);
+    _leaf_begin(p_cmd, p_name, p_type, MarkKind::DRAW, p_instances, true);
 }
 
 void RenderGraphProfiler::draw_end(VkCommandBuffer p_cmd)
@@ -425,7 +425,7 @@ void RenderGraphProfiler::draw_end(VkCommandBuffer p_cmd)
 
 void RenderGraphProfiler::dispatch_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type)
 {
-    _leaf_begin(p_cmd, p_name, p_type, MarkKind::Dispatch, 0, false);
+    _leaf_begin(p_cmd, p_name, p_type, MarkKind::DISPATCH, 0, false);
 }
 
 void RenderGraphProfiler::dispatch_end(VkCommandBuffer p_cmd)
@@ -435,7 +435,7 @@ void RenderGraphProfiler::dispatch_end(VkCommandBuffer p_cmd)
 
 void RenderGraphProfiler::transfer_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type)
 {
-    _leaf_begin(p_cmd, p_name, p_type, MarkKind::Transfer, 0, false);
+    _leaf_begin(p_cmd, p_name, p_type, MarkKind::TRANSFER, 0, false);
 }
 
 void RenderGraphProfiler::transfer_end(VkCommandBuffer p_cmd)

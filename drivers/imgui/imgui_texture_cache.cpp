@@ -7,7 +7,7 @@ Error ImGuiTextureCache::initialize(VkSampler p_sampler)
 {
     using enum Error;
     sampler = p_sampler;
-    return Ok;
+    return OK;
 }
 
 void ImGuiTextureCache::shutdown()

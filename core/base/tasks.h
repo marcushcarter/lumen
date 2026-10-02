@@ -15,7 +15,7 @@ struct TaskSystem
 { 
     using Handle = std::shared_ptr<std::atomic<uint32_t>>;
 
-    enum class Priority { High = 0, Normal = 1 }; 
+    enum class Priority { HIGH = 0, NORMAL = 1 }; 
 
     struct Task {
         std::function<void()> fn;
@@ -41,7 +41,7 @@ struct TaskSystem
     void _worker_loop();
     uint32_t _normal_cap() const;
 
-    Handle dispatch(std::function<void()> fn, Priority p = Priority::Normal);
+    Handle dispatch(std::function<void()> fn, Priority p = Priority::NORMAL);
     void parallel_for(uint32_t p_count, std::function<uint32_t(uint32_t)>& fn);
     void wait(const Handle& handle);
 };

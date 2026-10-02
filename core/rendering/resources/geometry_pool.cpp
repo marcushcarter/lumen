@@ -33,12 +33,12 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     address_buffers.resize(frame_count);
     for (Buffer& b : address_buffers) {
         b = dd->buffer_create({ .size = sizeof(GeometryAddresses), .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "geo_addresses" });
-        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Failed, "GeometryPool: address buffer allocation failed.");
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "GeometryPool: address buffer allocation failed.");
         const GeometryAddresses zero{};
         dd->buffer_update(b, &zero, sizeof(zero));
         dd->buffer_flush(b, 0, sizeof(zero));
     }
-    return Ok;
+    return OK;
 }
 
 void GeometryPool::shutdown()
@@ -50,10 +50,10 @@ void GeometryPool::shutdown()
 
 Error GeometryPool::allocate()
 {
-    if (allocated) return Error::Ok;
+    if (allocated) return Error::OK;
     clear();
     allocated = true;
-    return Error::Ok;
+    return Error::OK;
 }
 
 void GeometryPool::free()
@@ -114,9 +114,9 @@ Error GeometryPool::_arena_create(Arena& r_arena, uint32_t p_capacity)
 {
     using enum Error;
     r_arena.buffer = dd->buffer_create({ .size = (VkDeviceSize)p_capacity * r_arena.stride, .usage = r_arena.usage, .device_local = true, .pool = dd->buffer_geometry_pool, .name = r_arena.name });
-    LUMEN_ERR_FAIL_COND_V_MSG(!r_arena.buffer.buffer, Failed, "GeometryPool: arena allocation failed.");
+    LUMEN_ERR_FAIL_COND_V_MSG(!r_arena.buffer.buffer, FAILED, "GeometryPool: arena allocation failed.");
     r_arena.capacity = p_capacity;
-    return Ok;
+    return OK;
 }
 
 uint32_t GeometryPool::_grow_target(ArenaKind p_kind, uint64_t p_min) const
@@ -131,29 +131,29 @@ Error GeometryPool::_arena_grow(ArenaKind p_kind, uint32_t p_capacity, uint32_t 
 {
     using enum Error;
     Arena& a = arenas[p_kind];
-    if (p_capacity <= a.capacity) return Ok;
+    if (p_capacity <= a.capacity) return OK;
 
     Buffer old = a.buffer;
     const uint32_t old_capacity = a.capacity;
-    if (_arena_create(a, p_capacity) != Ok) {
+    if (_arena_create(a, p_capacity) != OK) {
         a.buffer = old;
         a.capacity = old_capacity;
-        return Failed;
+        return FAILED;
     }
 
     if (p_live && old.buffer) {
         const drivers::DeviceDriverVulkan::BufferCopy copy{ &old, &a.buffer, (VkDeviceSize)p_live * a.stride, 0, 0 };
-        if (dd->buffer_copy_batch(&copy, 1) != Ok) {
+        if (dd->buffer_copy_batch(&copy, 1) != OK) {
             dd->buffer_free(a.buffer);
             a.buffer = old;
             a.capacity = old_capacity;
-            return Failed;
+            return FAILED;
         }
     }
 
     _retire_buffer(old);
     log_write("GeometryPool: %s -> %u elements (%s)", a.name, p_capacity, fmt_bytes(a.buffer.capacity));
-    return Ok;
+    return OK;
 }
 
 uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint32_t p_count)
@@ -167,8 +167,8 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
     if (capacity == 0) return RangeAllocator::INVALID;
 
     const uint32_t live = r_alloc.extent();
-    if (p_kind == ARENA_INDICES && _arena_grow(ARENA_TRI_SLOTS, capacity, live) != Error::Ok) return RangeAllocator::INVALID;
-    if (_arena_grow(p_kind, capacity, live) != Error::Ok) return RangeAllocator::INVALID;
+    if (p_kind == ARENA_INDICES && _arena_grow(ARENA_TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (_arena_grow(p_kind, capacity, live) != Error::OK) return RangeAllocator::INVALID;
 
     r_alloc.grow(capacity);
     return r_alloc.allocate(p_count);
@@ -233,7 +233,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
 
     LAssetHeader ah{};
     std::memcpy(&ah, bytes.data(), sizeof(ah));
-    if (ah.magic != BCON_MAGIC || ah.version != LASSET_VERSION || ah.type != AssetType::Mesh) return fail("bad asset header");
+    if (ah.magic != BCON_MAGIC || ah.version != LASSET_VERSION || ah.type != AssetType::MESH) return fail("bad asset header");
 
     LMeshPayloadHeader ph{};
     std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
@@ -260,7 +260,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     if (id == INVALID_MESH) return fail("mesh table full");
     if (id >= arenas[ARENA_MESHES].capacity) {
         const uint32_t capacity = _grow_target(ARENA_MESHES, (uint64_t)id + 1);
-        if (capacity == 0 || _arena_grow(ARENA_MESHES, capacity, (uint32_t)meshes.size()) != Error::Ok) return fail("mesh table growth failed");
+        if (capacity == 0 || _arena_grow(ARENA_MESHES, capacity, (uint32_t)meshes.size()) != Error::OK) return fail("mesh table growth failed");
     }
 
     MeshRanges r;
@@ -375,7 +375,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     add(ARENA_BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
     add(ARENA_MESHES, id, &m, sizeof(LMesh));
 
-    if (dd->buffer_upload_batch(uploads, upload_count) != Error::Ok) {
+    if (dd->buffer_upload_batch(uploads, upload_count) != Error::OK) {
         _release(r);
         return fail("upload failed");
     }

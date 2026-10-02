@@ -47,16 +47,13 @@ struct Theme
     
     static const char* theme_preset_name(int i);
     static int theme_preset_index(std::string_view n);
-
-    // Error load();
-    // Error save();
 };
 
 struct EditorSettings
 {
     Theme theme;
-    VsyncMode vsync_mode = VsyncMode::Off;
-    int fps_cap = 0;
+    VsyncMode vsync_mode = VsyncMode::FAST;
+    int fps_cap = 120;
 };
 
 }

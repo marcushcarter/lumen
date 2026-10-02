@@ -10,7 +10,7 @@ const char *error_names[] = {
 	"Failed",
 };
 
-static_assert(std::size(error_names) == static_cast<size_t>(Error::Max));
+static_assert(std::size(error_names) == static_cast<size_t>(Error::MAX));
 
 LogSink& log_sink() {
     static LogSink instance;

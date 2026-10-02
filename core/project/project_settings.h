@@ -1,4 +1,5 @@
 #pragma once
+#include <core/base/vsync_mode.h>
 #include <cstdint>
 #include <string>
 #include <filesystem>

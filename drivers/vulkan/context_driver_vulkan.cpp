@@ -127,8 +127,8 @@ Error ContextDriverVulkan::_initialize_instance()
     using enum Error;
 
     // if (p_validation) {
-    //     Error err = _find_validation_layers();
-    //     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+        Error err = _find_validation_layers();
+        LUMEN_ERR_FAIL_COND_V(err != Ok, err);
     // }
 
     // Instance
@@ -323,10 +323,11 @@ void ContextDriverVulkan::surface_set_size(uint32_t p_width, uint32_t p_height)
 	surface.needs_resize = true;
 }
 
-void ContextDriverVulkan::surface_set_vsync(bool p_vsync_enabled)
+void ContextDriverVulkan::surface_set_vsync_mode(VsyncMode p_mode)
 {
-	surface.vsync_enabled = p_vsync_enabled;
-	surface.needs_resize = true;
+    if (surface.vsync_mode == p_mode) return;
+    surface.vsync_mode = p_mode;
+    surface.needs_resize = true;
 }
 
 static void resolve_queue_families(VkPhysicalDevice p_device, VkSurfaceKHR p_surface, const std::vector<VkQueueFamilyProperties>& p_queue_properties, int& r_graphics, int& r_present, int& r_transfer, int& r_compute)

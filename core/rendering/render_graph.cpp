@@ -78,6 +78,12 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
     return Ok;
 }
 
+void RenderGraph::framebuffers_flush()
+{
+    for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
+    framebuffer_cache.clear();
+}
+
 /***************/
 /**** NAMES ****/
 /***************/

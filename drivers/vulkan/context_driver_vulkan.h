@@ -1,6 +1,7 @@
 #pragma once
 #include <drivers/vulkan/lumen_vulkan.h>
 #include <core/base/error.h>
+#include <core/base/vsync_mode.h>
 #include <windows.h>
 #include <unordered_map>
 #include <unordered_set>
@@ -53,7 +54,8 @@ struct ContextDriverVulkan
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         uint32_t width = 0;
         uint32_t height = 0;
-        bool vsync_enabled = false;
+        VsyncMode vsync_mode = VsyncMode::Off;
+        VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
         bool needs_resize = false;
     };
 
@@ -61,7 +63,7 @@ struct ContextDriverVulkan
 
     Error surface_create(HWND p_hwnd);
     void surface_set_size(uint32_t p_width, uint32_t p_height);
-    void surface_set_vsync(bool p_vsync_enabled);
+    void surface_set_vsync_mode(VsyncMode p_mode);
 
     int optimal_device_index = -1;
     uint32_t graphics_queue_family = 0;

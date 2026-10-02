@@ -344,6 +344,7 @@ struct DeviceDriverVulkan
         std::vector<VkFramebuffer> framebuffers;
         std::vector<VkSemaphore> present_semaphores;
         uint32_t image_index = 0;
+        uint64_t generation = 0;
     };
 
     Swapchain swapchain;
@@ -541,4 +542,4 @@ struct DeviceDriverVulkan
     GpuDescription gpu_describe() const;
 };
 
-}
+}

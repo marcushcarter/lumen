@@ -179,6 +179,11 @@ void EditorApplication::_load_state()
     settings.theme.text = from_toml(tbl.at_path("theme.text"), settings.theme.text);
     settings.theme.use_system_accent = tbl.at_path("theme.use_system_accent").value_or(settings.theme.use_system_accent);
 
+    settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
+    settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
+    float sp = (float)tbl.at_path("display.screen_percentage").value_or((double)editor.center_view.screen_percentage);
+    editor.center_view.screen_percentage = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
+
     if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
 
     // viewport resolution
@@ -201,9 +206,11 @@ void EditorApplication::_save_state()
 
     toml::table window;
     window.insert_or_assign("custom_titlebar", static_cast<bool>(win32.window.custom_titlebar));
-    
-    toml::table viewport;
-    viewport.insert_or_assign("screen_percentage", (double)editor.center_view.screen_percentage);
+
+    toml::table display;
+    display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
+    display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
+    display.insert_or_assign("screen_percentage", (double)editor.center_view.screen_percentage);
     
     toml::table debugger;
     debugger.insert_or_assign("profiler_enabled", static_cast<bool>(renderer.graph.profiler.enabled));
@@ -229,7 +236,7 @@ void EditorApplication::_save_state()
     toml::table root;
     root.insert_or_assign("theme", std::move(theme));
     root.insert_or_assign("window", std::move(window));
-    root.insert_or_assign("window", std::move(viewport));
+    root.insert_or_assign("display", std::move(display));
     root.insert_or_assign("debugger", std::move(debugger));
     root.insert_or_assign("layout", std::move(layout));
     root.insert_or_assign("panels", std::move(panels));
@@ -543,6 +550,13 @@ void EditorApplication::_titlebar_editor_menu()
         // if (ImGui::MenuItem("World Settings")) popups.open("World Settings");
         // if (ImGui::MenuItem("Keyboard Shortcuts")) {}
         // if (ImGui::MenuItem("Plugins")) {}
+
+        if (ImGui::BeginMenu("Display")) {
+            int vsync = (int)settings.vsync_mode;
+            if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, 3)) settings.vsync_mode = (VsyncMode)vsync;
+            ImGui::DragInt("FPS Cap", &settings.fps_cap, 1.0f, 0, 1000, settings.fps_cap == 0 ? "Unlimited" : "%d", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::EndMenu();
+        }
         
         if (ImGui::MenuItem("Open Editor Data Folder")) Paths::reveal_in_explorer(Paths::roaming_data());
         

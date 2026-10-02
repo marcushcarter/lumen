@@ -57,7 +57,11 @@ static int run_app()
     auto app = create_application(info, ini_storage);
 
     app->initialize(info);
-    return app->run();
+    int i = app->run();
+
+    while(true){}
+
+    return i;
 }
 
 #if defined(LUMEN_CONSOLE)

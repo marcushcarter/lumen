@@ -35,6 +35,7 @@ struct Renderer
     std::vector<VkSemaphore> image_available_semaphores;
     std::vector<VkFence> in_flight_fences;
     std::vector<VkFence> images_in_flight;
+    uint64_t swapchain_generation = 0;
     std::vector<drivers::DeviceDriverVulkan::CommandPool> command_pools;
     std::vector<VkCommandBuffer> command_buffers;
 
@@ -100,4 +101,4 @@ struct Renderer
     RenderContext make_context();
 };
 
-}
+}

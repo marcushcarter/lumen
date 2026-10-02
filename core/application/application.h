@@ -9,9 +9,11 @@
 #include <core/base/tasks.h>
 #include <core/base/error.h>
 #include <core/application/frame_stats.h>
+#include <core/application/frame_limiter.h>
 #include <string>
 #include <filesystem>
 #include <functional>
+#include <chrono>
 
 namespace lumen {
 
@@ -46,9 +48,13 @@ struct Application
     Project project;
 
     FrameStats frame_stats;
+    FrameLimiter frame_limiter;
+    std::chrono::steady_clock::time_point last_time;
 
     Error initialize(const ApplicationCreateInfo& p_initialize_info);
     void shutdown();
+
+    Error _frame();
     int run();
 
     Error project_load(const std::filesystem::path &p_root);
@@ -64,6 +70,8 @@ struct Application
     virtual bool wants_docking() const { return false; }
     virtual bool wants_custom_titlebar() const { return false; }
     virtual bool should_tick_game() const { return !paused; }
+    virtual VsyncMode vsync_mode() const { return VsyncMode::Off; }
+    virtual float fps_cap() const { return 0.0f; }
     
     virtual void update_camera(float p_dt) { (void)p_dt; }
     virtual const Camera& active_camera() const { return *world.active_camera; }

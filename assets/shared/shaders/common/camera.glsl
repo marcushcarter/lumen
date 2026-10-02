@@ -11,6 +11,7 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     vec4 frustum_planes[6];
     float near_z;
     float far_z;
+    float tan_half_fov_y;
 };
 
 #endif

@@ -1973,16 +1973,21 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
         return std::find(present_modes.begin(), present_modes.end(), p_mode) != present_modes.end();
     };
 
-    const VkPresentModeKHR uncapped_order[] = { VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR };
-    const VkPresentModeKHR synced_order[] = { VK_PRESENT_MODE_MAILBOX_KHR };
-    const VkPresentModeKHR* order = surface->vsync_enabled ? synced_order : uncapped_order;
-    const uint32_t order_count = surface->vsync_enabled ? 1u : 2u;
+    const VkPresentModeKHR off_order[] = { VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR };
+    const VkPresentModeKHR fast_order[] = { VK_PRESENT_MODE_MAILBOX_KHR };
+    const VkPresentModeKHR* order = nullptr;
+    uint32_t order_count = 0;
+    switch (surface->vsync_mode) {
+        case VsyncMode::Off: order = off_order; order_count = 2; break;
+        case VsyncMode::Fast: order = fast_order; order_count = 1; break;
+        case VsyncMode::On: break;
+    }
 
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
     for (uint32_t i = 0; i < order_count; i++) {
         if (supported(order[i])) { present_mode = order[i]; break; }
     }
-    if (present_mode == VK_PRESENT_MODE_FIFO_KHR) surface->vsync_enabled = true;
+    surface->present_mode = present_mode;
 
     char supported_str[96] = {};
     size_t len = 0;
@@ -2073,6 +2078,7 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
 		swapchain.present_semaphores.push_back(semaphore);
 	}
 
+    swapchain.generation++;
     swapchain.surface->needs_resize = false;
     return Ok;
 }
@@ -2088,15 +2094,19 @@ Error DeviceDriverVulkan::swapchain_acquire_next_image(VkSemaphore p_signal_sema
     using enum Error;
 
     VkResult err = vkAcquireNextImageKHR(device, swapchain.swapchain, UINT64_MAX, p_signal_semaphore, VK_NULL_HANDLE, &swapchain.image_index);
-    if (err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR) {
-        log_write("NEEDS_RESIZE from acquire OUT_OF_DATE or SUBOPTIMAL_KHR");
+    if (err == VK_ERROR_OUT_OF_DATE_KHR) {
+        swapchain.image_index = UINT32_MAX;
         swapchain.surface->needs_resize = true;
         return Ok;
     }
+    if (err == VK_SUBOPTIMAL_KHR) {
+        swapchain.surface->needs_resize = true;
+        return Ok;
+    }
+    if (err != VK_SUCCESS) swapchain.image_index = UINT32_MAX;
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, Failed, "Couldn't get next Vulkan swapchain image.");
     
     return Ok;
-    
 }
 
 Error DeviceDriverVulkan::swapchain_update()

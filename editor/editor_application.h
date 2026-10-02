@@ -66,6 +66,8 @@ struct EditorApplication : Application
     bool wants_docking() const override { return true; }
     bool wants_custom_titlebar() const override { return false; }
     bool should_tick_game() const override { return mode == EditorMode::Play && !paused; }
+    VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::On; }
+    float fps_cap() const override { return (float)settings.fps_cap; }
     
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
@@ -73,4 +75,4 @@ struct EditorApplication : Application
     RenderPath* create_render_path() override { return new ProjectManagerRenderPath(); }
 };
 
-}
+}

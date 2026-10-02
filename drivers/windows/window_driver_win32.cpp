@@ -334,9 +334,9 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
                 if (window->custom_titlebar && window->has_ctrls) {
                     const long BW = 46, MH = 34;
                     long right = (long)LOWORD(p_lparam);
-                    window->ctrl_min   = { right - BW*3, 0, right - BW*2, MH };
-                    window->ctrl_max   = { right - BW*2, 0, right - BW*1, MH };
-                    window->ctrl_close = { right - BW*1, 0, right,        MH };
+                    window->ctrl_min = { right - BW*3, 0, right - BW*2, MH };
+                    window->ctrl_max = { right - BW*2, 0, right - BW*1, MH };
+                    window->ctrl_close = { right - BW*1, 0, right, MH };
                 }
             }
             return 0;

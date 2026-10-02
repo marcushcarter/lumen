@@ -1,4 +1,5 @@
 #pragma once
+#include <core/base/vsync_mode.h>
 #include <imgui.h>
 #include <string>
 #include <iterator>
@@ -54,6 +55,8 @@ struct Theme
 struct EditorSettings
 {
     Theme theme;
+    VsyncMode vsync_mode = VsyncMode::Off;
+    int fps_cap = 0;
 };
 
 }

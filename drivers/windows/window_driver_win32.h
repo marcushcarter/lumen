@@ -1,6 +1,7 @@
 #pragma once
 #include <core/base/error.h>
 #include <windows.h>
+#include <functional>
 #include <string>
 #include <vector>
 

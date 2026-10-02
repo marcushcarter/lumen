@@ -303,6 +303,7 @@ void Renderer::_frame_build(const World& p_world)
     extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
     frame.camera.near_z = active_camera.near_z;
     frame.camera.far_z = active_camera.far_z;
+    frame.camera.tan_half_fov_y = std::tan(active_camera.fov_y * 0.5f);
     frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
     
     camera_cut_pending = false;
@@ -331,6 +332,12 @@ Error Renderer::acquire_frame()
     
     auto& sc = dd->swapchain;
     CpuProfiler& cpu = cpu_profiler();
+
+    if (sc.generation != swapchain_generation) {
+        swapchain_generation = sc.generation;
+        graph.framebuffers_flush();
+        images_in_flight.assign(sc.images.size(), VK_NULL_HANDLE);
+    }
     
     cpu.zone_begin("Frame Fence", CpuProfiler::FLAG_WAIT);
     Error err = dd->fence_wait(in_flight_fences[current_frame]);
@@ -341,6 +348,8 @@ Error Renderer::acquire_frame()
     err = dd->swapchain_acquire_next_image(image_available_semaphores[current_frame]);
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+
+    if (sc.image_index == UINT32_MAX) return Ok;
 
     if (images_in_flight[sc.image_index] != VK_NULL_HANDLE) {
         cpu.zone_begin("Image Fence", CpuProfiler::FLAG_WAIT);
@@ -366,6 +375,7 @@ Error Renderer::begin_frame(const World& p_world)
     if (!frame_acquired) {
         Error err = acquire_frame();
         LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+        LUMEN_ERR_FAIL_COND_V(!frame_acquired, Failed);
     }
 
     cpu.zone_begin("Scene Gather");
@@ -440,6 +450,7 @@ Error Renderer::end_frame()
     cpu.zone_begin("Queue Submit");
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
     cpu.zone_end();
+    if (result != VK_SUCCESS) log_write("Renderer: vkQueueSubmit returned %d", (int)result);
     LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, Failed, "Failed to submit Vulkan queue");
 
     VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };

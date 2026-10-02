@@ -29,6 +29,7 @@ struct RenderGraph
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t frame_count);
     void shutdown();
     Error set_size(uint32_t p_width, uint32_t p_height);
+    void framebuffers_flush();
 
     /***************/
     /**** NAMES ****/

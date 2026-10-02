@@ -72,7 +72,6 @@ Error Project::load(const std::filesystem::path& p_root)
     _resolve_dirs(p_root);
     name = p_root.filename().string();
 
-    log_write("Project loaded: %s (%s)", name.c_str(), root.string().c_str());
     return Ok;
 }
 

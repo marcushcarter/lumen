@@ -6,10 +6,6 @@
 
 #include "common/geometry.glsl"
 
-// Single-workgroup exclusive scan over the dense per-cluster_id count buffer.
-// One dispatch of one workgroup, so the cross-tile carry needs no device-wide
-// sync (forward progress is guaranteed within a workgroup). Cost is
-// O(cluster_head) — proportional to loaded geometry, not the visible set.
 #define WG_SIZE 256u
 layout(local_size_x = 256) in;
 
@@ -25,7 +21,7 @@ layout(buffer_reference, scalar) readonly buffer CountBuffer { uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer OffsetBuffer { uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer DrawCmdBuffer { DrawIndexedIndirectCommand cmds[]; };
 layout(buffer_reference, scalar) writeonly buffer DrawMetaBuffer { uint base[]; };
-layout(buffer_reference, scalar) buffer DrawCountBuffer { uint value; };
+layout(buffer_reference, scalar) writeonly buffer DrawCountBuffer { uint value; };
 
 layout(push_constant) uniform Push {
     GeometryBuffer geometry;
@@ -37,39 +33,36 @@ layout(push_constant) uniform Push {
     uint cluster_count;
 } pc;
 
-shared uint s_scan[WG_SIZE];
+shared uvec2 s_scan[WG_SIZE];
 
 void main() {
     uint lid = gl_LocalInvocationID.x;
 
-    if (lid == 0u) pc.draw_count.value = 0u;
-    barrier();
-
-    uint carry = 0u;
+    uint carry_inst = 0u;
+    uint carry_draw = 0u;
     uint tiles = (pc.cluster_count + WG_SIZE - 1u) / WG_SIZE;
 
     for (uint t = 0u; t < tiles; t++) {
         uint cid = t * WG_SIZE + lid;
         uint c = (cid < pc.cluster_count) ? pc.counts.data[cid] : 0u;
+        uvec2 v = uvec2(c, c > 0u ? 1u : 0u);
 
-        s_scan[lid] = c;
+        s_scan[lid] = v;
         barrier();
         for (uint off = 1u; off < WG_SIZE; off <<= 1u) {
-            uint v = (lid >= off) ? s_scan[lid - off] : 0u;
+            uvec2 a = (lid >= off) ? s_scan[lid - off] : uvec2(0u);
             barrier();
-            s_scan[lid] += v;
+            s_scan[lid] += a;
             barrier();
         }
 
-        uint inclusive = s_scan[lid];
-        uint exclusive = carry + inclusive - c;
+        uvec2 exclusive = uvec2(carry_inst, carry_draw) + s_scan[lid] - v;
 
         if (cid < pc.cluster_count) {
-            pc.offsets.data[cid] = exclusive;
+            pc.offsets.data[cid] = exclusive.x;
 
             if (c > 0u) {
                 Cluster cluster = pc.geometry.clusters.data[cid];
-                uint draw = atomicAdd(pc.draw_count.value, 1u);
 
                 DrawIndexedIndirectCommand cmd;
                 cmd.index_count = cluster.index_count;
@@ -77,12 +70,16 @@ void main() {
                 cmd.first_index = cluster.index_base;
                 cmd.vertex_offset = 0;
                 cmd.first_instance = 0u;
-                pc.draw_cmds.cmds[draw] = cmd;
-                pc.draw_meta.base[draw] = exclusive;
+                pc.draw_cmds.cmds[exclusive.y] = cmd;
+                pc.draw_meta.base[exclusive.y] = exclusive.x;
             }
         }
 
-        carry += s_scan[WG_SIZE - 1u];
+        uvec2 total = s_scan[WG_SIZE - 1u];
+        carry_inst += total.x;
+        carry_draw += total.y;
         barrier();
     }
+
+    if (lid == 0u) pc.draw_count.value = carry_draw;
 }

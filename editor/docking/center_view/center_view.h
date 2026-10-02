@@ -17,6 +17,7 @@ struct CenterView
     int selected_view = 0;
     float split_ratio = 0.66f;
     float screen_percentage = 1.0f;
+    float item_w = 210.0f;
 
     void initialize();
 

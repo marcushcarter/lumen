@@ -160,6 +160,7 @@ void EditorApplication::_load_state()
         editor.split_y = (float)lv["split_y"].value_or((double)editor.split_y);
         editor.center_view.split_ratio = (float)lv["center_split"].value_or((double)editor.center_view.split_ratio);
         editor.center_view.debugger.collapsed = lv["center_collapsed"].value_or(editor.center_view.debugger.collapsed);
+        editor.right_collapsed = lv["right_collapsed"].value_or(editor.right_collapsed);
         editor.center_view.debugger.active = (int)lv["center_tab"].value_or((int64_t)editor.center_view.debugger.active);
         editor.right_top.active_name = lv["active_top"].value_or(std::string{});
         editor.right_bottom.active_name = lv["active_bottom"].value_or(std::string{});
@@ -185,8 +186,6 @@ void EditorApplication::_load_state()
     editor.center_view.screen_percentage = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
 
     if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
-
-    // viewport resolution
 
     renderer.graph.profiler.enabled = tbl.at_path("debugger.profiler_enabled").value_or(renderer.graph.profiler.enabled);
 
@@ -221,6 +220,7 @@ void EditorApplication::_save_state()
     layout.insert_or_assign("split_y", (double)editor.split_y);
     layout.insert_or_assign("center_split", (double)editor.center_view.split_ratio);
     layout.insert_or_assign("center_collapsed", (bool)editor.center_view.debugger.collapsed);
+    layout.insert_or_assign("right_collapsed", (bool)editor.right_collapsed);
     layout.insert_or_assign("center_tab", (int64_t)editor.center_view.debugger.active);
     layout.insert_or_assign("active_top", editor.right_top.active_name);
     layout.insert_or_assign("active_bottom", editor.right_bottom.active_name);

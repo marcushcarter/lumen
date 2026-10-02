@@ -22,9 +22,8 @@ struct Editor
 
     float split_x = 0.8f;
     float split_y = 0.5f;
+    bool right_collapsed = false;
     float bar_h = 36.0f;
-
-    // EditorSettingsPopup settings_popup;
 
     template <class T, class... A>
     T* add_panel(A&&... a) {

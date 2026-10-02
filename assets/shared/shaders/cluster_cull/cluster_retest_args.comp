@@ -6,18 +6,14 @@ layout(local_size_x = 1) in;
 
 layout(buffer_reference, scalar) readonly buffer ClusterRetestBuffer { uint count; uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
-layout(buffer_reference, scalar) writeonly buffer HiZCounter { uint value; };
 
 layout(push_constant) uniform Push {
     ClusterRetestBuffer cluster_retest;
     IndirectDispatch retest_args;
-    HiZCounter hiz_counter;
 } pc;
 
 void main() {
     pc.retest_args.x = (pc.cluster_retest.count + 63u) / 64u;
     pc.retest_args.y = 1u;
     pc.retest_args.z = 1u;
-
-    pc.hiz_counter.value = 0u;
 }

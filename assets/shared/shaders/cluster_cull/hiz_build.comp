@@ -1,0 +1,58 @@
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D u_storage_r32f[];
+
+layout(push_constant) uniform Push {
+    ivec2 depth_size;
+    uint depth_index;
+    uint mips;
+    uint mip_slot[7];
+} pc;
+
+const uint TILE = 64u;
+const float NEUTRAL = 3.402823466e38;
+
+shared float s_mip[TILE * TILE + (TILE / 2u) * (TILE / 2u)];
+
+float depth_at(ivec2 p) { return texelFetch(u_textures[pc.depth_index], p, 0).r; }
+
+void main() {
+    uint lid = gl_LocalInvocationIndex;
+    ivec2 tile = ivec2(gl_WorkGroupID.xy);
+
+    for (uint i = lid; i < TILE * TILE; i += 256u) {
+        ivec2 t = tile * int(TILE) + ivec2(i % TILE, i / TILE);
+        ivec2 s = t * 2;
+        float d = NEUTRAL;
+        if (s.x < pc.depth_size.x && s.y < pc.depth_size.y) {
+            ivec2 s1 = min(s + 1, pc.depth_size - 1);
+            d = min(min(depth_at(s), depth_at(ivec2(s1.x, s.y))), min(depth_at(ivec2(s.x, s1.y)), depth_at(s1)));
+        }
+        s_mip[i] = d;
+        imageStore(u_storage_r32f[pc.mip_slot[0]], t, vec4(d));
+    }
+    barrier();
+
+    uint src = 0u;
+    uint dst = TILE * TILE;
+    uint dim = TILE / 2u;
+    for (uint m = 1u; m < 7u && m < pc.mips; m++) {
+        uint sdim = dim * 2u;
+        for (uint i = lid; i < dim * dim; i += 256u) {
+            uint x = i % dim;
+            uint y = i / dim;
+            uint s = src + (y * 2u) * sdim + x * 2u;
+            float v = min(min(s_mip[s], s_mip[s + 1u]), min(s_mip[s + sdim], s_mip[s + sdim + 1u]));
+            s_mip[dst + i] = v;
+            imageStore(u_storage_r32f[pc.mip_slot[m]], tile * int(dim) + ivec2(x, y), vec4(v));
+        }
+        barrier();
+        uint tmp = src; src = dst; dst = tmp;
+        dim >>= 1u;
+    }
+}

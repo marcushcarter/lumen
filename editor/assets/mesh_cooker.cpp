@@ -56,10 +56,17 @@ static i16vec2 _oct_encode(vec3 n)
     return i16vec2((int16_t)glm::round(e.x * 32767.0f), (int16_t)glm::round(e.y * 32767.0f));
 }
 
+static const SkinVertex SKIN_RIGID = { u8vec4(0), u8vec4(255, 0, 0, 0) };
+
 void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, uint32_t& r_bone_base)
 {
     const aiMatrix4x4 world = p_parent * p_node->mTransformation;
-    const aiMatrix3x3 nrm_mtx(world);
+
+    const aiMatrix3x3 lin(world);
+    const float det = lin.Determinant();
+    aiMatrix3x3 nrm_mtx = lin;
+    if (std::abs(det) > 1e-12f) nrm_mtx.Inverse().Transpose();
+    const bool mirrored = det < 0.0f;
 
     for (uint32_t i = 0; i < p_node->mNumMeshes; i++) {
         const aiMesh* mesh = p_scene->mMeshes[p_node->mMeshes[i]];
@@ -76,7 +83,7 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
         }
 
         const bool mesh_skinned = mesh->mNumBones > 0;
-        if (mesh_skinned || !r_skin.empty()) r_skin.resize(r_verts.size());
+        if (mesh_skinned || !r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
 
         if (mesh_skinned) {
             std::vector<vec4>  acc_w(mesh->mNumVertices, vec4(0.0f));
@@ -106,7 +113,10 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
                 wv = sum > 0.0f ? wv / sum : vec4(1.0f, 0.0f, 0.0f, 0.0f);
                 SkinVertex sv{};
                 sv.joints  = u8vec4((uint8_t)glm::min(acc_j[vi].x, 255u), (uint8_t)glm::min(acc_j[vi].y, 255u), (uint8_t)glm::min(acc_j[vi].z, 255u), (uint8_t)glm::min(acc_j[vi].w, 255u));
-                sv.weights = u8vec4((uint8_t)glm::round(wv.x * 255.0f), (uint8_t)glm::round(wv.y * 255.0f), (uint8_t)glm::round(wv.z * 255.0f), (uint8_t)glm::round(wv.w * 255.0f));
+                int q[4], q_sum = 0, q_max = 0;
+                for (int k = 0; k < 4; k++) { q[k] = (int)glm::round(wv[k] * 255.0f); q_sum += q[k]; if (q[k] > q[q_max]) q_max = k; }
+                q[q_max] += 255 - q_sum;
+                sv.weights = u8vec4((uint8_t)q[0], (uint8_t)q[1], (uint8_t)q[2], (uint8_t)q[3]);
                 r_skin[base + vi] = sv;
             }
 
@@ -117,8 +127,8 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
             const aiFace& face = mesh->mFaces[fi];
             if (face.mNumIndices != 3) continue;
             r_indices.push_back(base + face.mIndices[0]);
-            r_indices.push_back(base + face.mIndices[1]);
-            r_indices.push_back(base + face.mIndices[2]);
+            r_indices.push_back(base + face.mIndices[mirrored ? 2 : 1]);
+            r_indices.push_back(base + face.mIndices[mirrored ? 1 : 2]);
         }
     }
 
@@ -130,15 +140,15 @@ bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::v
 {
     uint32_t bone_base = 0;
     _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), r_verts, r_indices, r_skin, bone_base);
-    if (!r_skin.empty()) r_skin.resize(r_verts.size());
+    if (!r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
     return !r_verts.empty() && !r_indices.empty();
 }
 
-void _pack_vertices(const std::vector<SrcVert>& p_verts, MeshSource& r_src)
+void _pack_vertices(std::vector<SrcVert>& r_verts, MeshSource& r_src)
 {
-    vec3 pmin = p_verts[0].p, pmax = p_verts[0].p;
-    vec2 uvmin = p_verts[0].uv, uvmax = p_verts[0].uv;
-    for (const SrcVert& v : p_verts) {
+    vec3 pmin = r_verts[0].p, pmax = r_verts[0].p;
+    vec2 uvmin = r_verts[0].uv, uvmax = r_verts[0].uv;
+    for (const SrcVert& v : r_verts) {
         pmin = glm::min(pmin, v.p); pmax = glm::max(pmax, v.p);
         uvmin = glm::min(uvmin, v.uv); uvmax = glm::max(uvmax, v.uv);
     }
@@ -147,8 +157,8 @@ void _pack_vertices(const std::vector<SrcVert>& p_verts, MeshSource& r_src)
     const vec3 inv_pext = vec3(pextent.x > 0.0f ? 1.0f / pextent.x : 0.0f, pextent.y > 0.0f ? 1.0f / pextent.y : 0.0f, pextent.z > 0.0f ? 1.0f / pextent.z : 0.0f);
     const vec2 inv_uvext = vec2(uvextent.x > 0.0f ? 1.0f / uvextent.x : 0.0f, uvextent.y > 0.0f ? 1.0f / uvextent.y : 0.0f);
 
-    r_src.vertices.reserve(p_verts.size());
-    for (const SrcVert& v : p_verts) {
+    r_src.vertices.reserve(r_verts.size());
+    for (SrcVert& v : r_verts) {
         const vec3 np = clamp((v.p - pmin) * inv_pext, 0.0f, 1.0f);
         const vec2 nu = clamp((v.uv - uvmin) * inv_uvext, 0.0f, 1.0f);
         const float nl = length(v.n);
@@ -158,6 +168,8 @@ void _pack_vertices(const std::vector<SrcVert>& p_verts, MeshSource& r_src)
         out.normal = _oct_encode(nrm);
         out.uv = u16vec2((uint16_t)glm::round(nu.x * 65535.0f), (uint16_t)glm::round(nu.y * 65535.0f));
         r_src.vertices.push_back(out);
+
+        v.p = pmin + (vec3(out.position) / 65535.0f) * pextent;
     }
 
     r_src.pos_min = pmin;
@@ -197,7 +209,7 @@ std::pair<uint32_t, uint32_t> _build_meshlets(const std::vector<SrcVert>& p_vert
     return { begin, (uint32_t)r_src.clusters.size() };
 }
 
-void _finalize(MeshSource& r_src)
+void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
 {
     const uint32_t tri_count = (uint32_t)r_src.indices.size() / 3;
     r_src.tri_slots.assign(tri_count, 0u);
@@ -205,7 +217,7 @@ void _finalize(MeshSource& r_src)
 
     const vec3 pmin = r_src.pos_min;
     const vec3 pmax = r_src.pos_min + r_src.pos_extent;
-    r_src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, tri_count });
+    r_src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, p_lod0_tri_count });
 }
 
 bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
@@ -222,7 +234,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     const vec4 sphere = r_src.bounds_sphere;
     r_src.clusters.push_back(Cluster{ 0u, (uint32_t)r_src.indices.size(), sphere, CLUSTER_GROUP_NONE, CLUSTER_GROUP_NONE });
 
-    _finalize(r_src);
+    _finalize(r_src, (uint32_t)r_src.indices.size() / 3);
     return true;
 }
 
@@ -243,7 +255,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     if (_build_meshlets(verts, indices, CLUSTER_GROUP_NONE, p_settings, flat, r_src).first == (uint32_t)r_src.clusters.size()) return false;
 
     r_src.indices = std::move(flat);
-    _finalize(r_src);
+    _finalize(r_src, (uint32_t)r_src.indices.size() / 3);
     return true;
 }
 
@@ -264,6 +276,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     flat.reserve(indices.size() * 2);
 
     std::pair<uint32_t, uint32_t> lvl0 = _build_meshlets(verts, indices, CLUSTER_GROUP_NONE, p_settings, flat, r_src);
+    const uint32_t lod0_tri_count = (uint32_t)flat.size() / 3;
     std::vector<uint32_t> cur;
     for (uint32_t c = lvl0.first; c < lvl0.second; c++) cur.push_back(c);
 
@@ -345,7 +358,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     }
 
     r_src.indices = std::move(flat);
-    _finalize(r_src);
+    _finalize(r_src, lod0_tri_count);
     return true;
 }
 

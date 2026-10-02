@@ -1,0 +1,47 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 1, r32f) uniform image2D u_storage_r32f[];
+
+layout(push_constant) uniform Push {
+    uint mips;
+    uint _pad;
+    ivec2 size6;
+    uint mip_slot[16];
+} pc;
+
+const uint MAX_DIM = 64u;
+const float NEUTRAL = 3.402823466e38;
+
+shared float s_mip[MAX_DIM * MAX_DIM + (MAX_DIM / 2u) * (MAX_DIM / 2u)];
+
+void main() {
+    uint lid = gl_LocalInvocationIndex;
+    ivec2 ssize = pc.size6;
+
+    for (uint i = lid; i < uint(ssize.x * ssize.y); i += 256u)
+        s_mip[i] = imageLoad(u_storage_r32f[pc.mip_slot[6]], ivec2(int(i) % ssize.x, int(i) / ssize.x)).r;
+    barrier();
+
+    uint src = 0u;
+    uint dst = MAX_DIM * MAX_DIM;
+    for (uint m = 7u; m < pc.mips; m++) {
+        ivec2 dsize = max(ssize >> 1, ivec2(1));
+        for (uint i = lid; i < uint(dsize.x * dsize.y); i += 256u) {
+            ivec2 d = ivec2(int(i) % dsize.x, int(i) / dsize.x);
+            ivec2 lo = d * 2;
+            ivec2 hi = min(mix(lo + 1, ssize - 1, equal(d, dsize - 1)), ssize - 1);
+            float v = NEUTRAL;
+            for (int y = lo.y; y <= hi.y; y++)
+                for (int x = lo.x; x <= hi.x; x++)
+                    v = min(v, s_mip[src + uint(y * ssize.x + x)]);
+            s_mip[dst + i] = v;
+            imageStore(u_storage_r32f[pc.mip_slot[m]], d, vec4(v));
+        }
+        barrier();
+        uint tmp = src; src = dst; dst = tmp;
+        ssize = dsize;
+    }
+}

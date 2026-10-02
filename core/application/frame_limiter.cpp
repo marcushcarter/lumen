@@ -30,6 +30,7 @@ int64_t FrameLimiter::_now() const
 void FrameLimiter::wait(float p_fps)
 {
     if (p_fps <= 0.0f) return;
+    if (p_fps < MIN_FPS) p_fps = MIN_FPS;
     const int64_t period = (int64_t)((double)qpc_freq / (double)p_fps);
     const int64_t spin = qpc_freq * SPIN_US / 1'000'000;
     int64_t now = _now();

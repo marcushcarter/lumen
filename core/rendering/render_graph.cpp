@@ -135,7 +135,7 @@ RenderGraph::ImageResource* RenderGraph::image_resource_by_id(uint64_t p_name_id
     return i == IdMap::NONE ? nullptr : &image_resources[i];
 }
 
-void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access)
+void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve)
 {
     uint64_t id = intern_named(p_name);
 
@@ -146,10 +146,12 @@ void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVul
     r.final_layout = p_final_layout;
     r.final_stage = p_final_stage;
     r.final_access = p_final_access;
-
-    p_image->state.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    p_image->state.stage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    p_image->state.access = 0;
+    
+    if (!p_preserve) {
+        p_image->state.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        p_image->state.stage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        p_image->state.access = 0;
+    }
 
     declared_image_formats.set(id, (uint32_t)p_image->format);
 

@@ -13,9 +13,9 @@ struct EditorRenderPath;
 struct EditorSettings;
 struct EditorResources;
 struct AssetImportTracker;
-// struct PopupManager;
 struct ProjectManager;
 struct Editor;
+struct ProfilingSettings;
 
 struct EditorContext
 {
@@ -25,6 +25,7 @@ struct EditorContext
     EditorRenderPath* render_path = nullptr;
     Project* project = nullptr;
     TaskSystem* tasks = nullptr;
+    ProfilingSettings* profiling = nullptr;
     
     EditorSettings* settings = nullptr;
     EditorResources* resources = nullptr;
@@ -32,7 +33,6 @@ struct EditorContext
     
     ProjectManager* project_manager = nullptr;
     Editor* editor = nullptr;
-    // PopupManager* popups = nullptr;
         
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;
@@ -43,4 +43,4 @@ struct EditorContext
     std::function<void()> pie_toggle_pause;
 };
 
-}
+}

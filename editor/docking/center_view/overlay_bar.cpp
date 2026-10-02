@@ -2,6 +2,7 @@
 #include <drivers/imgui/imgui_helpers.h>
 #include <imgui.h>
 #include <cstdio>
+#include <algorithm>
 
 namespace lumen {
 
@@ -11,6 +12,12 @@ static void overlay_push_style()
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(60, 62, 66, 190));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(80, 82, 88, 220));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 999.0f);
+}
+
+static void overlay_pop_style()
+{
+    ImGui::PopStyleVar(1);
+    ImGui::PopStyleColor(3);
 }
 
 void OverlayBar::begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_margin, float p_spacing)
@@ -26,14 +33,11 @@ void OverlayBar::begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_
     ImVec4 ac = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
     ac.w = 130.0f / 255.0f;
     active_col = ImGui::GetColorU32(ac);
-
-    overlay_push_style();
 }
 
 void OverlayBar::end()
 {
-    ImGui::PopStyleVar(1);
-    ImGui::PopStyleColor(3);
+
 }
 
 bool OverlayBar::_emit(const char* p_label, ImVec2 p_size, bool p_active)
@@ -93,9 +97,10 @@ bool OverlayBar::combo(const char* p_id, const char* p_preview, float p_width)
     ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(28, 28, 30, 130));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(60, 62, 66, 190));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(80, 82, 88, 220));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(24, 24, 26, 255));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 999.0f);
     const bool open = ImGui::BeginCombo(p_id, p_preview, ImGuiComboFlags_HeightLargest);
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(1);
+    ImGui::PopStyleColor(3);
     return open;
 }
 
@@ -118,36 +123,32 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
 
     ImGui::SetCursorScreenPos(ImVec2(x, row_y));
 
+    overlay_push_style();
     int pushed = 0;
     if (ImGui::IsPopupOpen(p_label)) { ImGui::PushStyleColor(ImGuiCol_Button, active_col); ++pushed; }
     const bool clicked = ImGui::Button(p_label, ImVec2(w, h));
     if (pushed) ImGui::PopStyleColor(pushed);
+    overlay_pop_style();
 
     const ImVec2 bmin = ImGui::GetItemRectMin();
     const ImVec2 bmax = ImGui::GetItemRectMax();
     if (clicked) ImGui::OpenPopup(p_label);
 
-    ImGui::SetNextWindowPos(ImVec2(bmin.x, bmax.y + 2.0f));
+    const bool right = align == Align::Right;
+    const ImVec2 anchor(right ? bmax.x : bmin.x, bmax.y + 2.0f);
+    ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, 0.0f));
+    const float max_h = std::max(origin.y + region.y - margin - anchor.y, ImGui::GetFrameHeight() * 4.0f);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, max_h));
 
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(24, 24, 26, 255));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(60, 62, 66, 190));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(80, 82, 88, 220));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
-
-    if (ImGui::BeginPopup(p_label)) {
-        return true;
-    }
-
+    const bool open = ImGui::BeginPopup(p_label);
     ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
-    return false;
+    return open;
 }
 
 void OverlayBar::end_menu()
 {
     ImGui::EndPopup();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
 }
 
 void OverlayBar::gap(float p_w)

@@ -2,6 +2,7 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/base/error.h>
 #include <core/base/id_map.h>
+#include <core/base/profiling.h>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -21,9 +22,8 @@ struct RenderGraphProfiler
     /***************/
     
     drivers::DeviceDriverVulkan* dd = nullptr;
+    const ProfilingSettings* settings = nullptr;
     
-    bool enabled = false;
-    bool stats_enabled = false;
     bool frozen = false;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);

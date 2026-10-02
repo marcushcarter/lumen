@@ -3,19 +3,20 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_samplerless_texture_functions : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
 
 #include "common/geometry.glsl"
 #include "common/camera.glsl"
 #include "common/instances.glsl"
+#include "common/hiz.glsl"
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0) uniform texture2D u_textures[];
-
 layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
-layout(buffer_reference, scalar) buffer VisibleClusterBuffer { uint count; uint data[]; };
-layout(buffer_reference, scalar) buffer ClusterRetestBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) buffer ClusterListBuffer { uint count; uint data[]; };
 
 layout(push_constant) uniform Push {
     CameraBuffer camera;
@@ -23,38 +24,47 @@ layout(push_constant) uniform Push {
     InstanceBuffer instances;
     TransformBuffer transforms;
     ClusterRefsBuffer cluster_refs;
-    VisibleClusterBuffer visible_clusters;
-    ClusterRetestBuffer cluster_retest;
+    ClusterListBuffer visible_clusters;
+    ClusterListBuffer cluster_retest;
     uint hiz_index;
-    float px_per_unit;
+    uint hiz_mips;
+    uint hiz_enabled;
+    uint _pad;
+    vec2 screen_size;
 } pc;
-
-bool cull_occlusion(vec3 center_ws, float radius_ws) {
-    return false;
-}
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    if (id >= pc.cluster_refs.count) return;
+    bool valid = id < pc.cluster_refs.count;
 
-    uvec2 ref = pc.cluster_refs.data[id];
-    uint instance_id = ref.x;
-    uint cluster_id = ref.y;
+    bool occluded = false;
+    if (valid && pc.hiz_enabled != 0u) {
+        uvec2 ref = pc.cluster_refs.data[id];
+        Instance instance = pc.instances.data[ref.x];
+        mat4 model = pc.transforms.data[instance.transform_id].prev_mtx;
+        Cluster cluster = pc.geometry.clusters.data[ref.y];
 
-    Instance instance = pc.instances.data[instance_id];
-    mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
-    Cluster cluster = pc.geometry.clusters.data[cluster_id];
-
-    float scale = max(length(model[0].xyz), max(length(model[1].xyz), length(model[2].xyz)));
-    vec3 center = (model * vec4(cluster.cull_sphere.xyz, 1.0)).xyz;
-    float radius = cluster.cull_sphere.w * scale;
-
-    if (cull_occlusion(center, radius)) {
-        uint slot = atomicAdd(pc.cluster_retest.count, 1u);
-        pc.cluster_retest.data[slot] = id;
-        return;
+        float scale = max(length(model[0].xyz), max(length(model[1].xyz), length(model[2].xyz)));
+        vec3 center = (model * vec4(cluster.cull_sphere.xyz, 1.0)).xyz;
+        occluded = hiz_occluded(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, center, cluster.cull_sphere.w * scale);
     }
 
-    uint slot = atomicAdd(pc.visible_clusters.count, 1u);
-    pc.visible_clusters.data[slot] = id;
+    bool to_visible = valid && !occluded;
+    bool to_retest = valid && occluded;
+
+    uvec4 vb = subgroupBallot(to_visible);
+    uvec4 rb = subgroupBallot(to_retest);
+    uint vn = subgroupBallotBitCount(vb);
+    uint rn = subgroupBallotBitCount(rb);
+    uint vbase = 0u;
+    uint rbase = 0u;
+    if (subgroupElect()) {
+        if (vn > 0u) vbase = atomicAdd(pc.visible_clusters.count, vn);
+        if (rn > 0u) rbase = atomicAdd(pc.cluster_retest.count, rn);
+    }
+    vbase = subgroupBroadcastFirst(vbase);
+    rbase = subgroupBroadcastFirst(rbase);
+
+    if (to_visible) pc.visible_clusters.data[vbase + subgroupBallotExclusiveBitCount(vb)] = id;
+    if (to_retest) pc.cluster_retest.data[rbase + subgroupBallotExclusiveBitCount(rb)] = id;
 }

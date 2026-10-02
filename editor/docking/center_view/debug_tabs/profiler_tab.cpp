@@ -523,9 +523,14 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
     
     ImGui::BeginChild("Right", ImVec2(right_width, avail.y), ImGuiChildFlags_Borders);
     {
+        ProfilingSettings& prof = *ctx.profiling;
         ImGui::BeginDisabled(!profiler.supported);
-        ImGui::Checkbox("Enable Profiling", &profiler.enabled);
+        ImGui::Checkbox("Enable GPU Profiling", &prof.gpu);
         ImGui::EndDisabled();
+        ImGui::BeginDisabled(!prof.gpu || !profiler.stats_supported);
+        ImGui::Checkbox("Enable Pipeline Statistics", &prof.gpu_pipeline_stats);
+        ImGui::EndDisabled();
+
 
         imgui_title("Legend");
         imgui_property_row_value_aligned("Pan Area", "ALT + Mouse");

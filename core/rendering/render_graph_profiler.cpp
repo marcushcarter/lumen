@@ -1,4 +1,5 @@
 #include <core/rendering/render_graph_profiler.h>
+#include <core/base/cpu_profiler.h>
 #include <algorithm>
 
 namespace lumen {
@@ -17,7 +18,7 @@ Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_
     uint32_t valid_bits = dd->timestamp_valid_bits(dd->cd->graphics_queue_family);
     if (valid_bits == 0 || period_ns == 0.0) {
         supported = false;
-        enabled = active = prev_active = false;
+        active = prev_active = false;
         log_write("RenderGraphProfiler: GPU timing unsupported (validBits=%u, period=%f).", valid_bits, period_ns);
         return Ok;
     }
@@ -64,8 +65,8 @@ void RenderGraphProfiler::shutdown()
     _clear_results();
     supported = false;
     stats_supported = false;
-    enabled = active = prev_active = false;
-    stats_enabled = stats_active = false;
+    active = prev_active = false;
+    stats_active = false;
 }
 
 /***************/
@@ -214,13 +215,15 @@ void RenderGraphProfiler::_resolve()
 void RenderGraphProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
 {
     slot = p_slot;
-    stats_enabled = enabled;
 
+    CpuProfiler& cpu = cpu_profiler();
+    cpu.zone_begin("GPU Profiler Resolve");
     _resolve();
+    cpu.zone_end();
 
     prev_active = active;
-    active = supported && enabled;
-    stats_active = active && stats_supported && stats_enabled;
+    active = supported && settings && settings->gpu_on();
+    stats_active = active && stats_supported && settings->gpu_pipeline_stats_on();
 
     if (prev_active && !active) {
         _clear_results();

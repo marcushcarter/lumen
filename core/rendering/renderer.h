@@ -42,7 +42,9 @@ struct Renderer
     Error _create_dynamic_buffers();
     void _destroy_dynamic_buffers();
 
-    Error initialize(drivers::DeviceDriverVulkan& r_dd);
+    const ProfilingSettings* profiling = nullptr;
+
+    Error initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling);
     void shutdown();
     
     /*****************/
@@ -79,6 +81,8 @@ struct Renderer
 
     Camera active_camera;
     bool camera_cut_pending = true;
+
+    bool hiz_reset_pending = true;
 
     void set_camera(const Camera& p_camera) { active_camera = p_camera; }
     void camera_cut() { camera_cut_pending = true; }

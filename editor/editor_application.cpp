@@ -187,8 +187,6 @@ void EditorApplication::_load_state()
 
     if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
 
-    renderer.graph.profiler.enabled = tbl.at_path("debugger.profiler_enabled").value_or(renderer.graph.profiler.enabled);
-
     settings.theme.apply();
 }
 
@@ -211,9 +209,6 @@ void EditorApplication::_save_state()
     display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
     display.insert_or_assign("screen_percentage", (double)editor.center_view.screen_percentage);
     
-    toml::table debugger;
-    debugger.insert_or_assign("profiler_enabled", static_cast<bool>(renderer.graph.profiler.enabled));
-
     toml::table layout;
     layout.insert_or_assign("version", (int64_t)Editor::VERSION);
     layout.insert_or_assign("split_x", (double)editor.split_x);
@@ -237,7 +232,6 @@ void EditorApplication::_save_state()
     root.insert_or_assign("theme", std::move(theme));
     root.insert_or_assign("window", std::move(window));
     root.insert_or_assign("display", std::move(display));
-    root.insert_or_assign("debugger", std::move(debugger));
     root.insert_or_assign("layout", std::move(layout));
     root.insert_or_assign("panels", std::move(panels));
 
@@ -551,13 +545,6 @@ void EditorApplication::_titlebar_editor_menu()
         // if (ImGui::MenuItem("Keyboard Shortcuts")) {}
         // if (ImGui::MenuItem("Plugins")) {}
 
-        if (ImGui::BeginMenu("Display")) {
-            int vsync = (int)settings.vsync_mode;
-            if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, 3)) settings.vsync_mode = (VsyncMode)vsync;
-            ImGui::DragInt("FPS Cap", &settings.fps_cap, 1.0f, 0, 1000, settings.fps_cap == 0 ? "Unlimited" : "%d", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::EndMenu();
-        }
-        
         if (ImGui::MenuItem("Open Editor Data Folder")) Paths::reveal_in_explorer(Paths::roaming_data());
         
         ImGui::EndMenu();
@@ -568,6 +555,12 @@ void EditorApplication::_titlebar_editor_menu()
         ImGui::Separator();
 
         editor.draw_menu();
+        if (ImGui::BeginMenu("Display")) {
+            int vsync = (int)settings.vsync_mode;
+            if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, 3)) settings.vsync_mode = (VsyncMode)vsync;
+            ImGui::DragInt("FPS Cap", &settings.fps_cap, 1.0f, 0, 1000, settings.fps_cap == 0 ? "Unlimited" : "%d", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::EndMenu();
+        }
         
         ImGui::Separator();
         
@@ -630,6 +623,7 @@ EditorContext EditorApplication::_make_context()
     ctx.render_path = static_cast<EditorRenderPath*>(render_path);
     ctx.project = &project;
     ctx.tasks = &tasks;
+    ctx.profiling = &profiling;
     
     ctx.settings = &settings;
     ctx.resources = &resources;
@@ -637,7 +631,6 @@ EditorContext EditorApplication::_make_context()
     
     ctx.project_manager = &project_manager;
     ctx.editor = &editor;
-    // ctx.popups = &popups;
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};

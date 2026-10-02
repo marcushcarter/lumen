@@ -6,6 +6,7 @@ struct RenderGraph;
 struct FrameData;
 struct TextureCache;
 struct GeometryPool;
+struct ProfilingSettings;
 namespace drivers { struct DeviceDriverVulkan; struct ImGuiDriver; }
 
 struct RenderContext
@@ -16,6 +17,7 @@ struct RenderContext
     TextureCache* textures = nullptr;
     GeometryPool* geometry = nullptr;
     FrameData* frame = nullptr;
+    const ProfilingSettings* profiling = nullptr;
 };
 
 }

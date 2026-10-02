@@ -8,6 +8,7 @@
 #include <core/world/world.h>
 #include <core/base/tasks.h>
 #include <core/base/error.h>
+#include <core/base/profiling.h>
 #include <core/application/frame_stats.h>
 #include <core/application/frame_limiter.h>
 #include <string>
@@ -39,6 +40,8 @@ struct Application
     std::function<void()> pending_transition;
 
     TaskSystem tasks;
+
+    ProfilingSettings profiling;
 
     drivers::ImGuiDriver imgui;
 

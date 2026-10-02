@@ -120,9 +120,11 @@ void CenterView::_draw_scene(EditorContext& ctx)
 
     right_overlay.begin(pos, size, OverlayBar::Align::Right);
     if (right_overlay.begin_menu(ICON_FA_BARS)) {
-        ImGui::SeparatorText("VIEWPORT OPTIONS");
-        ImGui::Separator();
-        ImGui::SliderFloat("Screen Percentage", &screen_percentage, 0.01f, 1.0f);
+        ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
+        if (ctx.render_path) {
+            ClusterCullFeature& cc = ctx.render_path->cluster_cull;
+            ImGui::Checkbox("Occlusion Culling", &cc.occlusion);
+        }
         right_overlay.end_menu();
     }
     right_overlay.end();

@@ -110,7 +110,7 @@ struct RenderGraph
     drivers::DeviceDriverVulkan::Image* image(std::string_view p_name);
     ImageResource* image_resource(std::string_view p_name);
     ImageResource* image_resource_by_id(uint64_t p_name_id);
-    void import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access);
+    void import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve = false);
     
     void create_image(std::string_view p_name, const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info);
     uint64_t _image_transient_key(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info, VkExtent2D p_extent);

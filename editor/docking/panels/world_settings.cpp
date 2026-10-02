@@ -1,6 +1,9 @@
 #include <editor/docking/panels/world_settings.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
+#include <core/rendering/render_path/editor_render_path.h>
+#include <editor/editor_context.h>
+#include <core/base/profiling.h>
 #include <imgui.h>
 
 namespace lumen {
@@ -21,6 +24,22 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
     ImGui::DragFloat("LOD Bias", &ctx.renderer->lod_bias, 0.01f, 0.01f, 1.f);
     ImGui::SameLine();
     if (ImGui::Button("Reset##LOD Bias")) ctx.renderer->lod_bias = 0.6f;
+
+    if (!ctx.render_path) return;
+    ClusterCullFeature& cc = ctx.render_path->cluster_cull;
+    const ClusterCullFeature::CullStats& s = cc.stats;
+    const uint32_t occluded = s.retest - s.phase2_visible;
+
+    ImGui::Text("HiZ: %s", !cc.occlusion ? "off" : !cc.hiz_ok ? "unavailable" : cc.hiz_use_prev ? "active" : "warming up");
+    if (!ctx.profiling || !ctx.profiling->cull_stats_on()) {
+        ImGui::TextDisabled("Enable pipeline statistics in the GPU profiler to see counts.");
+        return;
+    }
+    ImGui::Text("After LOD + frustum: %u", s.refs);
+    ImGui::Text("Phase 1 drawn: %u", s.phase1_visible);
+    ImGui::Text("Phase 1 deferred: %u", s.retest);
+    ImGui::Text("Phase 2 drawn: %u", s.phase2_visible);
+    ImGui::Text("Occluded: %u (%.1f%%)", occluded, s.refs ? 100.0f * (float)occluded / (float)s.refs : 0.0f);
 }
 
 }

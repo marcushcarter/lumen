@@ -29,7 +29,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = dd.initialize(cd, cd.optimal_device_index, 3);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
 
-    err = renderer.initialize(dd);
+    err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
 
     drivers::ImGuiDriverCreateInfo imgui_ci{};

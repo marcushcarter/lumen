@@ -15,6 +15,7 @@ struct FrameData
     uint32_t cluster_ref_capacity = 0;
 
     float px_per_unit = 1.0f;
+    bool hiz_history_valid = false;
 
     CameraUniform camera{};
 

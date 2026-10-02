@@ -43,11 +43,13 @@ void Renderer::_destroy_dynamic_buffers()
     }
 }
 
-Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd)
+Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling)
 {
     using enum Error;
 
     dd = &r_dd;
+    profiling = &p_profiling;
+    graph.profiler.settings = &p_profiling;
     frame_count = dd->frame_count;
     current_frame = 0;
 
@@ -112,6 +114,7 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
     
     Error err = geometry.allocate();
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
+    hiz_reset_pending = true;
 
     std::error_code ec;
     if (!std::filesystem::exists(p_content_dir, ec)) return Ok;
@@ -164,6 +167,7 @@ void Renderer::unload()
 {
     textures.clear();
     geometry.free();
+    hiz_reset_pending = true;
 }
 
 /****************/
@@ -172,14 +176,14 @@ void Renderer::unload()
 
 void Renderer::_create_hiz_pyramid(uint32_t p_width, uint32_t p_height)
 {
-    uint32_t hw = (p_width + 1) / 2;
-    uint32_t hh = (p_height + 1) / 2;
+    const uint32_t hw = (((p_width + 1) / 2) + 63u) & ~63u;
+    const uint32_t hh = (((p_height + 1) / 2) + 63u) & ~63u;
     uint32_t mips = 1, m = std::max(hw, hh);
     while (m > 1) { m >>= 1; mips++; }
 
     drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
-    ci.format = VK_FORMAT_R16_SFLOAT;
-    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ci.format = VK_FORMAT_R32_SFLOAT;
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
     ci.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     ci.mip_levels = mips;
     ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::Fixed;
@@ -189,9 +193,7 @@ void Renderer::_create_hiz_pyramid(uint32_t p_width, uint32_t p_height)
     ci.name = "hiz_pyramid";
     hiz_pyramid = dd->image_create_dedicated(ci, { hw, hh });
 
-    VkClearColorValue far_clear{};
-    far_clear.float32[0] = 0.0f;
-    dd->image_clear(hiz_pyramid, far_clear);
+    hiz_reset_pending = true;
 }
 
 void Renderer::_destroy_hiz_pyramid()
@@ -279,7 +281,7 @@ void Renderer::_frame_build(const World& p_world)
     // }
     // frame.instance_count = (uint32_t)frame.instances_scratch.size();
 
-    const int GRID = 1;
+    const int GRID = 11;
     for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
         if (geometry.mesh_guids[i] == Guid{}) continue;
         const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
@@ -294,8 +296,36 @@ void Renderer::_frame_build(const World& p_world)
             }
         }
     }
-    frame.instance_count = (uint32_t)frame.instances_scratch.size();
     
+    // constexpr uint32_t COLS = 5;
+    // constexpr uint32_t ROWS = 33;
+    // constexpr uint32_t MAX_LIVE = 16;
+    // static_assert(COLS * ROWS <= MAX_INSTANCES, "test layout exceeds MAX_INSTANCES");
+    // uint32_t live[MAX_LIVE];
+    // uint32_t live_count = 0;
+    // float spacing = 0.0f;
+    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size() && live_count < MAX_LIVE; i++) {
+    //     if (geometry.mesh_guids[i] == Guid{}) continue;
+    //     live[live_count++] = i;
+    //     spacing = std::max(spacing, geometry.meshes[i].bounds_sphere.w * 2.2f);
+    // }
+    // if (live_count > 0) {
+    //     const float half_width = (float)(COLS - 1) * 0.5f * spacing;
+    //     for (uint32_t r = 0; r < ROWS; r++) {
+    //         for (uint32_t c = 0; c < COLS; c++) {
+    //             const uint32_t mesh_id = live[(r + c) % live_count];
+    //             const vec4 bs = geometry.meshes[mesh_id].bounds_sphere;
+    //             const vec3 pos = vec3((float)c * spacing - half_width - bs.x, 0.0f, -(float)(r + 1) * spacing - bs.z);
+    //             const mat4 model = translate(mat4(1.0f), pos);
+    //             frame.instances_scratch.push_back(Instance{ mesh_id, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+    //             frame.transforms_scratch.push_back(Transform{ model, model });
+    //             frame.cluster_ref_capacity += geometry.meshes[mesh_id].cluster_count;
+    //         }
+    //     }
+    // }
+
+    frame.instance_count = (uint32_t)frame.instances_scratch.size();
+
     const float aspect = height ? (float)width / (float)height : 1.0f;
     const mat4 prev_vp = frame.camera.curr_view_proj;
     frame.camera.curr_view_proj = active_camera.view_proj(aspect);
@@ -306,8 +336,10 @@ void Renderer::_frame_build(const World& p_world)
     frame.camera.far_z = active_camera.far_z;
     frame.camera.tan_half_fov_y = std::tan(active_camera.fov_y * 0.5f);
     frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
+    frame.hiz_history_valid = !camera_cut_pending && !hiz_reset_pending;
     
     camera_cut_pending = false;
+    hiz_reset_pending = false;
 }
 
 void Renderer::_frame_upload()
@@ -391,10 +423,9 @@ Error Renderer::begin_frame(const World& p_world)
 
     graph.begin(current_frame);
     graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_image("HiZ", &hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    graph.import_image("HiZ", &hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
 
     graph.import_buffer("Camera", &camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    // graph.import_buffer("Geometry", &geometry.address_buffer, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
@@ -489,6 +520,7 @@ RenderContext Renderer::make_context()
     ctx.textures = &textures;
     ctx.geometry = &geometry;
     ctx.frame = &frame;
+    ctx.profiling = profiling;
     return ctx;
 }
 

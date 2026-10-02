@@ -8,6 +8,7 @@ namespace lumen {
 struct FrameLimiter
 {
     static constexpr int64_t SPIN_US = 500;
+    static constexpr float MIN_FPS = 30.0f;
 
     HANDLE timer = nullptr;
     int64_t qpc_freq = 0;

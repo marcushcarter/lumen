@@ -1378,12 +1378,11 @@ Error DeviceDriverVulkan::buffer_upload_batch(const BufferUpload* p_uploads, uin
 
     for (uint32_t i = 0; i < p_count; i++) command_copy_buffer(cmd, staging, *p_uploads[i].dst, p_uploads[i].size, src_offsets[i], p_uploads[i].offset);
 
-    // Make the transfer writes available/visible to later shader reads on this queue.
     VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
     mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
     VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mb;
@@ -1428,7 +1427,7 @@ Error DeviceDriverVulkan::buffer_copy_batch(const BufferCopy* p_copies, uint32_t
     mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    mb.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
     VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mb;

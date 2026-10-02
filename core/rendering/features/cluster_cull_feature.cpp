@@ -204,7 +204,7 @@ void ClusterCullFeature::_create_cluster_cull_args_pass()
         b.create_buffer("HiZCounter", counter_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo counts_ci{};
-        counts_ci.size = (VkDeviceSize)(ctx->geometry->cluster_head ? ctx->geometry->cluster_head : 1u) * sizeof(uint32_t);
+        counts_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         counts_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         counts_ci.device_local = true;
         b.create_buffer("ClusterCounts", counts_ci);
@@ -340,7 +340,7 @@ void ClusterCullFeature::_create_raster_sum_pass()
     raster_sum_pass.category = "ClusterCull";
     raster_sum_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo offsets_ci{};
-        offsets_ci.size = (VkDeviceSize)(ctx->geometry->cluster_head ? ctx->geometry->cluster_head : 1u) * sizeof(uint32_t);
+        offsets_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         offsets_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         offsets_ci.device_local = true;
         b.create_buffer("ClusterOffsets", offsets_ci);
@@ -393,7 +393,7 @@ void ClusterCullFeature::_create_raster_sum_pass()
         pc.draw_cmds_addr = draw_cmds->device_address;
         pc.draw_meta_addr = draw_meta->device_address;
         pc.draw_count_addr = draw_count->device_address;
-        pc.cluster_count = ctx->geometry->cluster_head;
+        pc.cluster_count = ctx->geometry->cluster_extent;
 
         cl.dd->command_bind_pipeline(cl.cmd, raster_sum_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -503,7 +503,7 @@ void ClusterCullFeature::_create_raster_visibility_pass()
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_bind_pipeline(cl.cmd, raster_visibility_pipe);
-        cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw_indexed_indirect_count("Cluster raster visibility", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
     };
@@ -558,7 +558,7 @@ void ClusterCullFeature::_create_cluster_retest_args_pass()
         b.create_buffer("ClusterRetestArgs", args_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo counts_ci{};
-        counts_ci.size = (VkDeviceSize)(ctx->geometry->cluster_head ? ctx->geometry->cluster_head : 1u) * sizeof(uint32_t);
+        counts_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         counts_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         counts_ci.device_local = true;
         b.create_buffer("ClusterCounts2", counts_ci);
@@ -681,7 +681,7 @@ void ClusterCullFeature::_create_raster_sum_2_pass()
     raster_sum_pass_2.category = "ClusterCull";
     raster_sum_pass_2.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo offsets_ci{};
-        offsets_ci.size = (VkDeviceSize)(ctx->geometry->cluster_head ? ctx->geometry->cluster_head : 1u) * sizeof(uint32_t);
+        offsets_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         offsets_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         offsets_ci.device_local = true;
         b.create_buffer("ClusterOffsets2", offsets_ci);
@@ -735,7 +735,7 @@ void ClusterCullFeature::_create_raster_sum_2_pass()
         pc.draw_cmds_addr = draw_cmds->device_address;
         pc.draw_meta_addr = draw_meta->device_address;
         pc.draw_count_addr = draw_count->device_address;
-        pc.cluster_count = ctx->geometry->cluster_head;
+        pc.cluster_count = ctx->geometry->cluster_extent;
 
         cl.dd->command_bind_pipeline(cl.cmd, raster_sum_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -834,7 +834,7 @@ void ClusterCullFeature::_create_raster_visibility_2_pass()
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_bind_pipeline(cl.cmd, raster_visibility_pipe);
-        cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw_indexed_indirect_count("Cluster raster visibility 2", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
     };

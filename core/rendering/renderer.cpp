@@ -68,7 +68,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd)
 
     Error err = textures.initialize(r_dd);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
-    err = geometry.initialize(r_dd);
+    err = geometry.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != Ok, err);
 
     err = graph.initialize(r_dd, frame_count);
@@ -88,6 +88,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd)
 void Renderer::shutdown()
 {
     unload();
+    geometry.shutdown();
     
     graph.shutdown();
 
@@ -378,6 +379,8 @@ Error Renderer::begin_frame(const World& p_world)
         LUMEN_ERR_FAIL_COND_V(!frame_acquired, Failed);
     }
 
+    geometry.begin_frame(frame_number, current_frame);
+
     cpu.zone_begin("Scene Gather");
     _frame_build(p_world);
     cpu.zone_end();
@@ -391,7 +394,8 @@ Error Renderer::begin_frame(const World& p_world)
     graph.import_image("HiZ", &hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
     graph.import_buffer("Camera", &camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Geometry", &geometry.address_buffer, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    // graph.import_buffer("Geometry", &geometry.address_buffer, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
 

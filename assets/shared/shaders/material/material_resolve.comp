@@ -9,6 +9,7 @@
 #include "common/geometry.glsl"
 #include "common/camera.glsl"
 #include "common/instances.glsl"
+#include "common/gbuffer.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -16,6 +17,7 @@ layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 
 layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
+layout(set = 0, binding = 1, rgb10_a2) uniform image2D u_storage_rgb10a2[];
 layout(set = 0, binding = 1, rg16)  uniform image2D u_storage_rg16[];
 layout(set = 0, binding = 1, rg16f) uniform image2D u_storage_rg16f[];
 
@@ -46,7 +48,7 @@ void main() {
     float depth = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
 
     if (depth == 0.0) {
-        imageStore(u_storage_rgba8[nonuniformEXT(pc.albedo_slot)], coord, vec4(0));
+        imageStore(u_storage_rgb10a2[nonuniformEXT(pc.albedo_slot)], coord, vec4(0.0));
         imageStore(u_storage_rg16[nonuniformEXT(pc.normal_slot)], coord, vec4(0.0));
         imageStore(u_storage_rgba8[nonuniformEXT(pc.material_slot)], coord, vec4(0.0));
         imageStore(u_storage_rg16f[nonuniformEXT(pc.motion_slot)], coord, vec4(0.0));
@@ -59,8 +61,8 @@ void main() {
     // uint h = v.x * 2654435761u;
     // vec3 dbg = vec3(float(h & 0xffu), float((h >> 8) & 0xffu), float((h >> 16) & 0xffu)) / 255.0;
 
-    imageStore(u_storage_rgba8[nonuniformEXT(pc.albedo_slot)], coord, vec4(1));
+    imageStore(u_storage_rgb10a2[nonuniformEXT(pc.albedo_slot)], coord, gbuffer_encode_albedo(vec3(depth), 0u));
     imageStore(u_storage_rg16[nonuniformEXT(pc.normal_slot)], coord, vec4(0.5, 0.5, 0.0, 0.0));
-    imageStore(u_storage_rgba8[nonuniformEXT(pc.material_slot)], coord, vec4(0.5, 0.0, 1.0, 0.0));
+    imageStore(u_storage_rgba8[nonuniformEXT(pc.material_slot)], coord, gbuffer_encode_material(0.5, 0.0, 1.0, 0u));
     imageStore(u_storage_rg16f[nonuniformEXT(pc.motion_slot)], coord, vec4(0.0));
 }

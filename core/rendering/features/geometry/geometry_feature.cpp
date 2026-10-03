@@ -860,7 +860,7 @@ void GeometryFeature::_create_material_resolve_pass()
 
         drivers::DeviceDriverVulkan::ImageCreateInfo albedo_ci{};
         albedo_ci.name = "G_Albedo";
-        albedo_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        albedo_ci.format = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
         albedo_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Albedo", albedo_ci);
 

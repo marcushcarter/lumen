@@ -15,6 +15,7 @@ enum class DebugViewOp : uint32_t {
     VELOCITY,
     CLAY,
     OVERDRAW,
+    ALBEDO,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -40,11 +41,11 @@ static constexpr const char* DV_CAT_GEOMETRY = ICON_FA_IMAGE "  Geometry Visuali
 
 static constexpr DebugView DEBUG_VIEWS[] = {
     // { ICON_FA_LIGHTBULB "  Lit", "", "G_Albedo", DebugViewOp::COPY, DebugViewInputs::SOURCE },
-    { ICON_FA_IMAGE "  Unlit", "", "G_Albedo", DebugViewOp::COPY, DebugViewInputs::SOURCE },
+    { ICON_FA_IMAGE "  Unlit", "", "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
     // { ICON_FA_IMAGE "  Clay", "", "G_Albedo", DebugViewOp::CLAY, DebugViewInputs::SOURCE },
     { ICON_FA_IMAGE "  Clay", "", nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
     
-    { "Base Color", DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::COPY, DebugViewInputs::SOURCE },
+    { "Base Color", DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
     { "World Normal", DV_CAT_BUFFERS, "G_Depth", DebugViewOp::NORMAL, DebugViewInputs::SOURCE },
     // { "World Normal", DV_CAT_BUFFERS, "G_Depth", DebugViewOp::NORMAL, DebugViewInputs::SOURCE },
     { "Velocity", DV_CAT_BUFFERS, "G_Motion", DebugViewOp::VELOCITY, DebugViewInputs::SOURCE },

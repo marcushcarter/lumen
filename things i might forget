@@ -1,0 +1,7 @@
+GBUFFER
+
+Normal RG16UNORM - normal oct encoded xy
+Albedo RGB10A2 - base color xyz
+Material RGBA8UNORM - 
+Custom RGBA8UNORM - assigned channels xyzw
+Velocity RG16SFLOAT - 

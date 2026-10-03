@@ -11,5 +11,6 @@ const uint OP_MATERIAL_ID = 6u;
 const uint OP_VELOCITY = 7u;
 const uint OP_CLAY = 8u;
 const uint OP_OVERDRAW = 9u;
+const uint OP_ALBEDO = 10u;
 
 #endif

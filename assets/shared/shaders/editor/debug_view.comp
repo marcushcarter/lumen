@@ -6,6 +6,7 @@
 
 #include "common/camera.glsl"
 #include "common/instances.glsl"
+#include "common/gbuffer.glsl"
 #include "editor/debug_op.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -153,6 +154,11 @@ void main() {
 
     if (pc.op == OP_COPY) {
         color = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb;
+    } else if (pc.op == OP_ALBEDO) {
+        vec3 albedo;
+        uint flags;
+        gbuffer_decode_albedo(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), albedo, flags);
+        color = albedo;
     } else if (pc.op == OP_CLAY) {
         color = vec3(0.24);
         float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;

@@ -236,6 +236,11 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     
     LUMEN_ERR_FAIL_COND_V_MSG(!physical_device_features.shaderStorageImageExtendedFormats, FAILED, "GPU lacks shaderStorageImageExtendedFormats, required for r16f Hi-Z and rg16 G-buffer storage.");
 
+    VkFormatProperties rgb10a2_props{};
+    vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_A2B10G10R10_UNORM_PACK32, &rgb10a2_props);
+    LUMEN_ERR_FAIL_COND_V_MSG(!(rgb10a2_props.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT), FAILED, "GPU lacks A2B10G10R10_UNORM storage support, required for G_Albedo.");
+
+
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_1.storageBuffer16BitAccess, FAILED, "GPU lacks storageBuffer16BitAccess, required for 16-bit vertex data.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_1.shaderDrawParameters, FAILED, "GPU lacks shaderDrawParameters, required for gl_DrawID in indirect draws.");
 

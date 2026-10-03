@@ -1,4 +1,4 @@
-#include <core/rendering/features/cluster_cull_feature.h>
+#include <core/rendering/features/geometry/geometry_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/base/profiling.h>
@@ -11,10 +11,14 @@ namespace lumen {
 
 using namespace glm;
 
-void ClusterCullFeature::_create_clear_visible_pass()
+/******************/
+/**** CLUSTERS ****/
+/******************/
+
+void GeometryFeature::_create_clear_visible_pass()
 {
     clear_visible_pass.name = "ClearVisibleInstances";
-    clear_visible_pass.category = "ClusterCull";
+    clear_visible_pass.category = PASS_CATEGORY_CULLING;
     clear_visible_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
         visible_ci.size = (VkDeviceSize)(ctx->frame->instance_count + 1) * sizeof(uint32_t);
@@ -29,10 +33,10 @@ void ClusterCullFeature::_create_clear_visible_pass()
     };
 }
 
-void ClusterCullFeature::_create_instance_cull_pass()
+void GeometryFeature::_create_instance_cull_pass()
 {
     instance_cull_pass.name = "InstanceCull";
-    instance_cull_pass.category = "ClusterCull";
+    instance_cull_pass.category = PASS_CATEGORY_CULLING;
     instance_cull_pass.setup = [](RenderGraph::Builder& b) {        
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
@@ -68,11 +72,11 @@ void ClusterCullFeature::_create_instance_cull_pass()
     };    
 }
 
-void ClusterCullFeature::_create_cluster_refs_args_pass()
+void GeometryFeature::_create_cluster_expand_args_pass()
 {
-    cluster_refs_args_pass.name = "ClusterRefsArgs";
-    cluster_refs_args_pass.category = "ClusterCull";
-    cluster_refs_args_pass.setup = [this](RenderGraph::Builder& b) {
+    cluster_expand_args_pass.name = "ClusterExpandArgs";
+    cluster_expand_args_pass.category = PASS_CATEGORY_CULLING;
+    cluster_expand_args_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo args_ci{};
         args_ci.size = sizeof(IndirectDispatch);
         args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -98,7 +102,7 @@ void ClusterCullFeature::_create_cluster_refs_args_pass()
         b.write_buffer("ClusterExpandArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    cluster_refs_args_pass.execute = [this](RenderGraph::CommandList& cl) {
+    cluster_expand_args_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto geometry = cl.graph->buffer("Geometry");
         auto inst = cl.graph->buffer("Instances");
         auto vis_inst = cl.graph->buffer("VisibleInstances");
@@ -121,17 +125,17 @@ void ClusterCullFeature::_create_cluster_refs_args_pass()
         pc.expand_addr = expand_args->device_address;
         pc.cluster_refs_addr = cluster_refs->device_address;
 
-        cl.dd->command_bind_pipeline(cl.cmd, cluster_refs_args_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, cluster_expand_args_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Cluster refs args", 1);
+        cl.dispatch("Cluster expand args", 1);
     };
 }
 
-void ClusterCullFeature::_create_cluster_refs_pass()
+void GeometryFeature::_create_cluster_expand_pass()
 {
-    cluster_refs_pass.name = "ClusterRefs";
-    cluster_refs_pass.category = "ClusterCull";
-    cluster_refs_pass.setup = [this](RenderGraph::Builder& b) {
+    cluster_expand_pass.name = "ClusterExpand";
+    cluster_expand_pass.category = PASS_CATEGORY_CULLING;
+    cluster_expand_pass.setup = [this](RenderGraph::Builder& b) {
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -141,7 +145,7 @@ void ClusterCullFeature::_create_cluster_refs_pass()
         b.read_buffer("ClusterExpandArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    cluster_refs_pass.execute = [this](RenderGraph::CommandList& cl) {
+    cluster_expand_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
         auto inst = cl.graph->buffer("Instances");
@@ -170,16 +174,16 @@ void ClusterCullFeature::_create_cluster_refs_pass()
         pc.cluster_refs_addr = cluster_refs->device_address;
         pc.px_per_unit = ctx->frame->px_per_unit;
 
-        cl.dd->command_bind_pipeline(cl.cmd, cluster_refs_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, cluster_expand_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Cluster refs expand", *expand_args);
+        cl.dispatch_indirect("Cluster expand", *expand_args);
     };
 }
 
-void ClusterCullFeature::_create_cluster_cull_args_pass()
+void GeometryFeature::_create_cluster_cull_args_pass()
 {
     cluster_cull_args_pass.name = "ClusterCullArgs";
-    cluster_cull_args_pass.category = "ClusterCull";
+    cluster_cull_args_pass.category = PASS_CATEGORY_CULLING;
     cluster_cull_args_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo args_ci{};
         args_ci.size = sizeof(IndirectDispatch);
@@ -242,10 +246,10 @@ void ClusterCullFeature::_create_cluster_cull_args_pass()
     };
 }
 
-void ClusterCullFeature::_create_cluster_cull_pass()
+void GeometryFeature::_create_cluster_cull_pass()
 {
     cluster_cull_pass.name = "ClusterCull";
-    cluster_cull_pass.category = "ClusterCull";
+    cluster_cull_pass.category = PASS_CATEGORY_CULLING;
     cluster_cull_pass.setup = [this](RenderGraph::Builder& b) {
         b.read_image("HiZ", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
@@ -291,17 +295,17 @@ void ClusterCullFeature::_create_cluster_cull_pass()
     };
 }
 
-void ClusterCullFeature::_create_raster_count_pass()
+void GeometryFeature::_create_draw_count_pass()
 {
-    raster_count_pass.name = "RasterCount1";
-    raster_count_pass.category = "ClusterCull";
-    raster_count_pass.setup = [this](RenderGraph::Builder& b) {
+    draw_count_pass.name = "DrawCount1";
+    draw_count_pass.category = PASS_CATEGORY_RASTER;
+    draw_count_pass.setup = [this](RenderGraph::Builder& b) {
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterCullArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.write_buffer("ClusterCounts", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    raster_count_pass.execute = [this](RenderGraph::CommandList& cl) {
+    draw_count_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto refs = cl.graph->buffer("ClusterRefs");
         auto vis = cl.graph->buffer("VisibleClusters");
         auto counts = cl.graph->buffer("ClusterCounts");
@@ -316,17 +320,17 @@ void ClusterCullFeature::_create_raster_count_pass()
         pc.visible_clusters_addr = vis->device_address;
         pc.counts_addr = counts->device_address;
 
-        cl.dd->command_bind_pipeline(cl.cmd, raster_count_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, draw_count_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Raster count 1", *cull_args);
+        cl.dispatch_indirect("Draw count 1", *cull_args);
     };
 }
 
-void ClusterCullFeature::_create_raster_sum_pass()
+void GeometryFeature::_create_draw_build_pass()
 {
-    raster_sum_pass.name = "RasterSum1";
-    raster_sum_pass.category = "ClusterCull";
-    raster_sum_pass.setup = [this](RenderGraph::Builder& b) {
+    draw_build_pass.name = "DrawBuild1";
+    draw_build_pass.category = PASS_CATEGORY_RASTER;
+    draw_build_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo offsets_ci{};
         offsets_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         offsets_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -349,22 +353,22 @@ void ClusterCullFeature::_create_raster_sum_pass()
         drawcount_ci.size = sizeof(uint32_t);
         drawcount_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         drawcount_ci.device_local = true;
-        b.create_buffer("RasterDrawCount", drawcount_ci);
+        b.create_buffer("ClusterDrawCount", drawcount_ci);
 
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("ClusterCounts", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_buffer("ClusterOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterDrawCmds", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterDrawMeta", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("RasterDrawCount", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("ClusterDrawCount", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    raster_sum_pass.execute = [this](RenderGraph::CommandList& cl) {
+    draw_build_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto geometry = cl.graph->buffer("Geometry");
         auto counts = cl.graph->buffer("ClusterCounts");
         auto offsets = cl.graph->buffer("ClusterOffsets");
         auto draw_cmds = cl.graph->buffer("ClusterDrawCmds");
         auto draw_meta = cl.graph->buffer("ClusterDrawMeta");
-        auto draw_count = cl.graph->buffer("RasterDrawCount");
+        auto draw_count = cl.graph->buffer("ClusterDrawCount");
 
         struct Push {
             VkDeviceAddress geometry_addr;
@@ -383,17 +387,17 @@ void ClusterCullFeature::_create_raster_sum_pass()
         pc.draw_count_addr = draw_count->device_address;
         pc.cluster_count = ctx->geometry->cluster_extent;
 
-        cl.dd->command_bind_pipeline(cl.cmd, raster_sum_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, draw_build_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Prefix sum", 1);
+        cl.dispatch("Draw build 1", 1);
     };
 }
 
-void ClusterCullFeature::_create_raster_emit_pass()
+void GeometryFeature::_create_draw_scatter_pass()
 {
-    raster_emit_pass.name = "RasterEmit1";
-    raster_emit_pass.category = "ClusterCull";
-    raster_emit_pass.setup = [this](RenderGraph::Builder& b) {
+    draw_scatter_pass.name = "DrawScatter1";
+    draw_scatter_pass.category = PASS_CATEGORY_RASTER;
+    draw_scatter_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo scatter_ci{};
         scatter_ci.size = (VkDeviceSize)ctx->frame->cluster_ref_capacity * sizeof(uint32_t);
         scatter_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -406,7 +410,7 @@ void ClusterCullFeature::_create_raster_emit_pass()
         b.write_buffer("ClusterOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterScatter", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    raster_emit_pass.execute = [this](RenderGraph::CommandList& cl) {
+    draw_scatter_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto refs = cl.graph->buffer("ClusterRefs");
         auto vis = cl.graph->buffer("VisibleClusters");
         auto offsets = cl.graph->buffer("ClusterOffsets");
@@ -424,17 +428,17 @@ void ClusterCullFeature::_create_raster_emit_pass()
         pc.offsets_addr = offsets->device_address;
         pc.scatter_addr = scatter->device_address;
 
-        cl.dd->command_bind_pipeline(cl.cmd, raster_emit_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, draw_scatter_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Raster emit 1", *cull_args);
+        cl.dispatch_indirect("Draw scatter 1", *cull_args);
     };
 }
 
-void ClusterCullFeature::_create_raster_visibility_pass()
+void GeometryFeature::_create_visbuffer_pass()
 {
-    raster_visibility_pass.name = "ClusterRaster1";
-    raster_visibility_pass.category = "ClusterCull";
-    raster_visibility_pass.setup = [this](RenderGraph::Builder& b) {
+    visbuffer_pass.name = "Visbuffer1";
+    visbuffer_pass.category = PASS_CATEGORY_RASTER;
+    visbuffer_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::ImageCreateInfo depth_ci{};
         depth_ci.format = VK_FORMAT_D32_SFLOAT;
         depth_ci.usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -450,7 +454,7 @@ void ClusterCullFeature::_create_raster_visibility_pass()
         b.color_attachment("G_Visibility", VK_ATTACHMENT_LOAD_OP_CLEAR, VkClearValue{.color = {.uint32 = {0u, 0u, 0u, 0u}}});      
         b.depth_attachment("G_Depth", VK_ATTACHMENT_LOAD_OP_CLEAR, [] { VkClearValue v{}; v.depthStencil = { 0.0f, 0 }; return v; }());
         b.read_buffer("ClusterDrawCmds", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-        b.read_buffer("RasterDrawCount", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        b.read_buffer("ClusterDrawCount", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -459,7 +463,7 @@ void ClusterCullFeature::_create_raster_visibility_pass()
         b.read_buffer("ClusterScatter", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterDrawMeta", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
-    raster_visibility_pass.execute = [this](RenderGraph::CommandList& cl) {
+    visbuffer_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto vis = cl.graph->image("G_Visibility");
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
@@ -469,7 +473,7 @@ void ClusterCullFeature::_create_raster_visibility_pass()
         auto scatter = cl.graph->buffer("ClusterScatter");
         auto draw_meta = cl.graph->buffer("ClusterDrawMeta");
         auto draw_cmds = cl.graph->buffer("ClusterDrawCmds");
-        auto draw_count = cl.graph->buffer("RasterDrawCount");
+        auto draw_count = cl.graph->buffer("ClusterDrawCount");
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -490,17 +494,17 @@ void ClusterCullFeature::_create_raster_visibility_pass()
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
-        cl.dd->command_bind_pipeline(cl.cmd, raster_visibility_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.draw_indexed_indirect_count("Cluster raster visibility", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
+        cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
-void ClusterCullFeature::_create_hiz_passes(RenderGraph::Pass& r_build, RenderGraph::Pass& r_tail, const char* p_build_name, const char* p_tail_name)
+void GeometryFeature::_create_hiz_passes(RenderGraph::Pass& r_build, RenderGraph::Pass& r_tail, const char* p_build_name, const char* p_tail_name)
 {
     r_build.name = p_build_name;
-    r_build.category = "ClusterCull";
+    r_build.category = PASS_CATEGORY_CULLING;
     r_build.setup = [](RenderGraph::Builder& b) {
         b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image("HiZ", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -527,7 +531,7 @@ void ClusterCullFeature::_create_hiz_passes(RenderGraph::Pass& r_build, RenderGr
     };
 
     r_tail.name = p_tail_name;
-    r_tail.category = "ClusterCull";
+    r_tail.category = PASS_CATEGORY_CULLING;
     r_tail.setup = [](RenderGraph::Builder& b) {
         b.write_image("HiZ", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
@@ -552,10 +556,10 @@ void ClusterCullFeature::_create_hiz_passes(RenderGraph::Pass& r_build, RenderGr
     };
 }
 
-void ClusterCullFeature::_create_cluster_retest_args_pass()
+void GeometryFeature::_create_cluster_retest_args_pass()
 {
     cluster_retest_args_pass.name = "ClusterRetestArgs";
-    cluster_retest_args_pass.category = "ClusterCull";
+    cluster_retest_args_pass.category = PASS_CATEGORY_CULLING;
     cluster_retest_args_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo args_ci{};
         args_ci.size = sizeof(IndirectDispatch);
@@ -593,10 +597,10 @@ void ClusterCullFeature::_create_cluster_retest_args_pass()
     };
 }
 
-void ClusterCullFeature::_create_cluster_retest_pass()
+void GeometryFeature::_create_cluster_retest_pass()
 {
     cluster_retest_pass.name = "ClusterRetest";
-    cluster_retest_pass.category = "ClusterCull";
+    cluster_retest_pass.category = PASS_CATEGORY_CULLING;
     cluster_retest_pass.setup = [this](RenderGraph::Builder& b) {
         b.read_image("HiZ", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
@@ -641,17 +645,17 @@ void ClusterCullFeature::_create_cluster_retest_pass()
     };
 }
 
-void ClusterCullFeature::_create_raster_count_2_pass()
+void GeometryFeature::_create_draw_count_2_pass()
 {
-    raster_count_pass_2.name = "RasterCount2";
-    raster_count_pass_2.category = "ClusterCull";
-    raster_count_pass_2.setup = [this](RenderGraph::Builder& b) {
+    draw_count_pass_2.name = "DrawCount2";
+    draw_count_pass_2.category = PASS_CATEGORY_RASTER;
+    draw_count_pass_2.setup = [this](RenderGraph::Builder& b) {
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("VisibleClusters2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterRetestArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.write_buffer("ClusterCounts2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    raster_count_pass_2.execute = [this](RenderGraph::CommandList& cl) {
+    draw_count_pass_2.execute = [this](RenderGraph::CommandList& cl) {
         auto refs = cl.graph->buffer("ClusterRefs");
         auto vis = cl.graph->buffer("VisibleClusters2");
         auto counts = cl.graph->buffer("ClusterCounts2");
@@ -666,17 +670,17 @@ void ClusterCullFeature::_create_raster_count_2_pass()
         pc.visible_clusters_addr = vis->device_address;
         pc.counts_addr = counts->device_address;
 
-        cl.dd->command_bind_pipeline(cl.cmd, raster_count_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, draw_count_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Raster count 1", *retest_args);
+        cl.dispatch_indirect("Draw count 2", *retest_args);
     };
 }
 
-void ClusterCullFeature::_create_raster_sum_2_pass()
+void GeometryFeature::_create_draw_build_2_pass()
 {
-    raster_sum_pass_2.name = "RasterSum2";
-    raster_sum_pass_2.category = "ClusterCull";
-    raster_sum_pass_2.setup = [this](RenderGraph::Builder& b) {
+    draw_build_pass_2.name = "DrawBuild2";
+    draw_build_pass_2.category = PASS_CATEGORY_RASTER;
+    draw_build_pass_2.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo offsets_ci{};
         offsets_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         offsets_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -699,23 +703,23 @@ void ClusterCullFeature::_create_raster_sum_2_pass()
         drawcount_ci.size = sizeof(uint32_t);
         drawcount_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         drawcount_ci.device_local = true;
-        b.create_buffer("RasterDrawCount2", drawcount_ci);
+        b.create_buffer("ClusterDrawCount2", drawcount_ci);
     
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("ClusterCounts2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_buffer("ClusterOffsets2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterDrawCmds2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterDrawMeta2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("RasterDrawCount2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("ClusterDrawCount2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     
     };
-    raster_sum_pass_2.execute = [this](RenderGraph::CommandList& cl) {
+    draw_build_pass_2.execute = [this](RenderGraph::CommandList& cl) {
         auto geometry = cl.graph->buffer("Geometry");
         auto counts = cl.graph->buffer("ClusterCounts2");
         auto offsets = cl.graph->buffer("ClusterOffsets2");
         auto draw_cmds = cl.graph->buffer("ClusterDrawCmds2");
         auto draw_meta = cl.graph->buffer("ClusterDrawMeta2");
-        auto draw_count = cl.graph->buffer("RasterDrawCount2");
+        auto draw_count = cl.graph->buffer("ClusterDrawCount2");
 
         struct Push {
             VkDeviceAddress geometry_addr;
@@ -734,17 +738,17 @@ void ClusterCullFeature::_create_raster_sum_2_pass()
         pc.draw_count_addr = draw_count->device_address;
         pc.cluster_count = ctx->geometry->cluster_extent;
 
-        cl.dd->command_bind_pipeline(cl.cmd, raster_sum_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, draw_build_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Prefix sum 2", 1);
+        cl.dispatch("Draw build 2", 1);
     };
 }
 
-void ClusterCullFeature::_create_raster_emit_2_pass()
+void GeometryFeature::_create_draw_scatter_2_pass()
 {
-    raster_emit_pass_2.name = "RasterEmit2";
-    raster_emit_pass_2.category = "ClusterCull";
-    raster_emit_pass_2.setup = [this](RenderGraph::Builder& b) {
+    draw_scatter_pass_2.name = "DrawScatter2";
+    draw_scatter_pass_2.category = PASS_CATEGORY_RASTER;
+    draw_scatter_pass_2.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo scatter_ci{};
         scatter_ci.size = (VkDeviceSize)ctx->frame->cluster_ref_capacity * sizeof(uint32_t);
         scatter_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -758,7 +762,7 @@ void ClusterCullFeature::_create_raster_emit_2_pass()
         b.write_buffer("ClusterScatter2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     
     };
-    raster_emit_pass_2.execute = [this](RenderGraph::CommandList& cl) {
+    draw_scatter_pass_2.execute = [this](RenderGraph::CommandList& cl) {
         auto refs = cl.graph->buffer("ClusterRefs");
         auto vis = cl.graph->buffer("VisibleClusters2");
         auto offsets = cl.graph->buffer("ClusterOffsets2");
@@ -776,21 +780,21 @@ void ClusterCullFeature::_create_raster_emit_2_pass()
         pc.offsets_addr = offsets->device_address;
         pc.scatter_addr = scatter->device_address;
 
-        cl.dd->command_bind_pipeline(cl.cmd, raster_emit_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, draw_scatter_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Raster emit 2", *retest_args);
+        cl.dispatch_indirect("Draw scatter 2", *retest_args);
     };
 }
 
-void ClusterCullFeature::_create_raster_visibility_2_pass()
+void GeometryFeature::_create_visbuffer_2_pass()
 {
-    raster_visibility_pass_2.name = "ClusterRaster2";
-    raster_visibility_pass_2.category = "ClusterCull";
-    raster_visibility_pass_2.setup = [this](RenderGraph::Builder& b) {
+    visbuffer_pass_2.name = "Visbuffer2";
+    visbuffer_pass_2.category = PASS_CATEGORY_RASTER;
+    visbuffer_pass_2.setup = [this](RenderGraph::Builder& b) {
         b.color_attachment("G_Visibility", VK_ATTACHMENT_LOAD_OP_LOAD);
         b.depth_attachment("G_Depth", VK_ATTACHMENT_LOAD_OP_LOAD);
         b.read_buffer("ClusterDrawCmds2", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-        b.read_buffer("RasterDrawCount2", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        b.read_buffer("ClusterDrawCount2", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -799,7 +803,7 @@ void ClusterCullFeature::_create_raster_visibility_2_pass()
         b.read_buffer("ClusterScatter2", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterDrawMeta2", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
-    raster_visibility_pass_2.execute = [this](RenderGraph::CommandList& cl) {
+    visbuffer_pass_2.execute = [this](RenderGraph::CommandList& cl) {
         auto vis = cl.graph->image("G_Visibility");
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
@@ -809,7 +813,7 @@ void ClusterCullFeature::_create_raster_visibility_2_pass()
         auto scatter = cl.graph->buffer("ClusterScatter2");
         auto draw_meta = cl.graph->buffer("ClusterDrawMeta2");
         auto draw_cmds = cl.graph->buffer("ClusterDrawCmds2");
-        auto draw_count = cl.graph->buffer("RasterDrawCount2");
+        auto draw_count = cl.graph->buffer("ClusterDrawCount2");
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -830,17 +834,21 @@ void ClusterCullFeature::_create_raster_visibility_2_pass()
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
-        cl.dd->command_bind_pipeline(cl.cmd, raster_visibility_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.draw_indexed_indirect_count("Cluster raster visibility 2", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
+        cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
-void ClusterCullFeature::_create_material_resolve_pass()
+/******************/
+/**** MATERIAL ****/
+/******************/
+
+void GeometryFeature::_create_material_resolve_pass()
 {
     material_resolve_pass.name = "MaterialResolve";
-    material_resolve_pass.category = "Material";
+    material_resolve_pass.category = PASS_CATEGORY_MATERIAL;
     material_resolve_pass.never_cull = true;
     material_resolve_pass.setup = [this](RenderGraph::Builder& b) {
         
@@ -944,10 +952,14 @@ void ClusterCullFeature::_create_material_resolve_pass()
     };
 }
 
-void ClusterCullFeature::_create_stats_pass()
+/*******************/
+/**** PROFILING ****/
+/*******************/
+
+void GeometryFeature::_create_stats_pass()
 {
     stats_pass.name = "ClusterCullStats";
-    stats_pass.category = "ClusterCull";
+    stats_pass.category = PASS_CATEGORY_PROFILING;
     stats_pass.never_cull = true;
     stats_pass.setup = [](RenderGraph::Builder& b) {
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
@@ -972,25 +984,29 @@ void ClusterCullFeature::_create_stats_pass()
     };
 }
 
-Error ClusterCullFeature::create_resources()
+/**************/
+/**** BASE ****/
+/**************/
+
+Error GeometryFeature::create_resources()
 {
     _create_clear_visible_pass();
     _create_instance_cull_pass();
-    _create_cluster_refs_args_pass();
-    _create_cluster_refs_pass();
+    _create_cluster_expand_args_pass();
+    _create_cluster_expand_pass();
     _create_cluster_cull_args_pass();
     _create_cluster_cull_pass();
-    _create_raster_count_pass();
-    _create_raster_sum_pass();
-    _create_raster_emit_pass();
-    _create_raster_visibility_pass();
+    _create_draw_count_pass();
+    _create_draw_build_pass();
+    _create_draw_scatter_pass();
+    _create_visbuffer_pass();
     _create_hiz_passes(hiz_build_pass, hiz_tail_pass, "HiZBuild1", "HiZTail1");
     _create_cluster_retest_args_pass();
     _create_cluster_retest_pass();
-    _create_raster_count_2_pass();
-    _create_raster_sum_2_pass();
-    _create_raster_emit_2_pass();
-    _create_raster_visibility_2_pass();
+    _create_draw_count_2_pass();
+    _create_draw_build_2_pass();
+    _create_draw_scatter_2_pass();
+    _create_visbuffer_2_pass();
     _create_hiz_passes(hiz_build_pass_2, hiz_tail_pass_2, "HiZBuild2", "HiZTail2");
     _create_material_resolve_pass();
     _create_stats_pass();
@@ -999,77 +1015,77 @@ Error ClusterCullFeature::create_resources()
     stats_written.assign(ctx->dd->frame_count, 0);
     for (drivers::DeviceDriverVulkan::Buffer& b : stats_readback) {
         b = ctx->dd->buffer_create({ .size = sizeof(CullStats), .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = false, .host_visible = true, .cpu_read = true, .pool = ctx->dd->readback_pool, .name = "cluster_cull_stats" });
-        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "ClusterCullFeature: stats readback allocation failed.");
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "GeometryFeature: stats readback allocation failed.");
     }
     return Error::OK;
 };
 
-Error ClusterCullFeature::create_pipelines()
+Error GeometryFeature::create_pipelines()
 {
     using enum Error;
 
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_INSTANCE_CULL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/instance_cull.comp" });
-    instance_cull_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/instance_cull"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_INSTANCE_CULL_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/instance_cull.comp" });
+    instance_cull_pipe = ctx->dd->compute_pipeline_create({cs, "culling/instance_cull"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_REFS_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_refs_args.comp" });
-    cluster_refs_args_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_refs_args"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_EXPAND_ARGS_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_expand_args.comp" });
+    cluster_expand_args_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_expand_args"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_REFS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_refs.comp" });
-    cluster_refs_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_refs"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_EXPAND_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_expand.comp" });
+    cluster_expand_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_expand"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_CULL_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_cull_args.comp" });
-    cluster_cull_args_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_cull_args"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_CULL_ARGS_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_cull_args.comp" });
+    cluster_cull_args_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_cull_args"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_CULL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_cull.comp" });
-    cluster_cull_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_cull"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_CULL_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_cull.comp" });
+    cluster_cull_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_cull"});
     ctx->dd->shader_free(cs);
     }
 
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_COUNT_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_count.comp" });
-    raster_count_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/raster_count"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_RASTER_DRAW_COUNT_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "raster/draw_count.comp" });
+    draw_count_pipe = ctx->dd->compute_pipeline_create({cs, "raster/draw_count"});
     ctx->dd->shader_free(cs);
     }
 
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_SUM_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_sum.comp" });
-    raster_sum_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/raster_sum"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_RASTER_DRAW_BUILD_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "raster/draw_build.comp" });
+    draw_build_pipe = ctx->dd->compute_pipeline_create({cs, "raster/draw_build"});
     ctx->dd->shader_free(cs);
     }
 
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_EMIT_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/raster_emit.comp" });
-    raster_emit_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/raster_emit"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_RASTER_DRAW_SCATTER_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "raster/draw_scatter.comp" });
+    draw_scatter_pipe = ctx->dd->compute_pipeline_create({cs, "raster/draw_scatter"});
     ctx->dd->shader_free(cs);
     }
 
     {
-    VkRenderPass rp = ctx->graph->acquire_render_pass(raster_visibility_pass);
-    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_VISIBILITY_VERT");
-    EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_VISIBILITY_FRAG");
-    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX,   .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
-    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "raster_visibility_fs" });
+    VkRenderPass rp = ctx->graph->acquire_render_pass(visbuffer_pass);
+    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_VERT");
+    EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_FRAG");
+    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX,   .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster/visbuffer.vert" });
+    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "raster/visbuffer.frag" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1078,60 +1094,60 @@ Error ClusterCullFeature::create_pipelines()
     pipeline_ci.depth_test = true;
     pipeline_ci.depth_write = true;
     pipeline_ci.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL;
-    pipeline_ci.name = "raster_visibility_pipeline";
-    raster_visibility_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
+    pipeline_ci.name = "raster/visbuffer";
+    visbuffer_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
     ctx->dd->shader_free(vs); ctx->dd->shader_free(fs);
     }
 
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_HIZ_BUILD_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/hiz_build.comp" });
-    hiz_build_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/hiz_build"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_HIZ_BUILD_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/hiz_build.comp" });
+    hiz_build_pipe = ctx->dd->compute_pipeline_create({cs, "culling/hiz_build"});
     ctx->dd->shader_free(cs);
     }
 
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_HIZ_TAIL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/hiz_tail.comp" });
-    hiz_tail_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/hiz_tail"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_HIZ_TAIL_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/hiz_tail.comp" });
+    hiz_tail_pipe = ctx->dd->compute_pipeline_create({cs, "culling/hiz_tail"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_RETEST_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_retest_args.comp" });
-    cluster_retest_args_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_retest_args"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_RETEST_ARGS_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_retest_args.comp" });
+    cluster_retest_args_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_retest_args"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_CLUSTER_RETEST_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/cluster_retest.comp" });
-    cluster_retest_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/cluster_retest"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_RETEST_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_retest.comp" });
+    cluster_retest_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_retest"});
     ctx->dd->shader_free(cs);
     }
     
     {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_MATERIAL_RESOLVE_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "cluster_cull/material_resolve.comp" });
-    material_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "cluster_cull/material_resolve"});
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_MATERIAL_MATERIAL_RESOLVE_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "material/material_resolve.comp" });
+    material_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "material/material_resolve"});
     ctx->dd->shader_free(cs);
     }
 
     return OK;
 }
 
-void ClusterCullFeature::destroy_resources()
+void GeometryFeature::destroy_resources()
 {
     ctx->dd->pipeline_free(instance_cull_pipe);
-    ctx->dd->pipeline_free(cluster_refs_args_pipe);
-    ctx->dd->pipeline_free(cluster_refs_pipe);
+    ctx->dd->pipeline_free(cluster_expand_args_pipe);
+    ctx->dd->pipeline_free(cluster_expand_pipe);
     ctx->dd->pipeline_free(cluster_cull_args_pipe);
     ctx->dd->pipeline_free(cluster_cull_pipe);
-    ctx->dd->pipeline_free(raster_count_pipe);
-    ctx->dd->pipeline_free(raster_sum_pipe);
-    ctx->dd->pipeline_free(raster_emit_pipe);
-    ctx->dd->pipeline_free(raster_visibility_pipe);
+    ctx->dd->pipeline_free(draw_count_pipe);
+    ctx->dd->pipeline_free(draw_build_pipe);
+    ctx->dd->pipeline_free(draw_scatter_pipe);
+    ctx->dd->pipeline_free(visbuffer_pipe);
     ctx->dd->pipeline_free(hiz_build_pipe);
     ctx->dd->pipeline_free(hiz_tail_pipe);
     ctx->dd->pipeline_free(cluster_retest_args_pipe);
@@ -1142,7 +1158,7 @@ void ClusterCullFeature::destroy_resources()
     stats_written.clear();
 }
 
-void ClusterCullFeature::build(RenderGraph& g)
+void GeometryFeature::build(RenderGraph& g)
 {
     if (!enabled || !ctx->geometry->allocated) {
         hiz_history = false;
@@ -1166,24 +1182,24 @@ void ClusterCullFeature::build(RenderGraph& g)
 
     g.add(&clear_visible_pass);
     g.add(&instance_cull_pass);
-    g.add(&cluster_refs_args_pass);
-    g.add(&cluster_refs_pass);
+    g.add(&cluster_expand_args_pass);
+    g.add(&cluster_expand_pass);
     g.add(&cluster_cull_args_pass);
     g.add(&cluster_cull_pass);
-    g.add(&raster_count_pass);
-    g.add(&raster_sum_pass);
-    g.add(&raster_emit_pass);
-    g.add(&raster_visibility_pass);
+    g.add(&draw_count_pass);
+    g.add(&draw_build_pass);
+    g.add(&draw_scatter_pass);
+    g.add(&visbuffer_pass);
     if (occlusion && hiz_ok) {
         g.add(&hiz_build_pass);
         g.add(&hiz_tail_pass);
     }
     g.add(&cluster_retest_args_pass);
     g.add(&cluster_retest_pass);
-    g.add(&raster_count_pass_2);
-    g.add(&raster_sum_pass_2);
-    g.add(&raster_emit_pass_2);
-    g.add(&raster_visibility_pass_2);
+    g.add(&draw_count_pass_2);
+    g.add(&draw_build_pass_2);
+    g.add(&draw_scatter_pass_2);
+    g.add(&visbuffer_pass_2);
     if (occlusion && hiz_ok) {
         g.add(&hiz_build_pass_2);
         g.add(&hiz_tail_pass_2);

@@ -1,6 +1,6 @@
 #pragma once
 #include <core/rendering/render_path/scene_render_path.h>
-#include <core/rendering/features/present_feature.h>
+#include <core/rendering/features/present/present_feature.h>
 
 namespace lumen {
 

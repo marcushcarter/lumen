@@ -1,6 +1,7 @@
 #pragma once
 #include <core/rendering/render_context.h>
 #include <core/rendering/render_graph.h>
+#include <core/rendering/pass_category.h>
 #include <core/base/error.h>
 #include <string>
 

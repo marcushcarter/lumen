@@ -1,4 +1,5 @@
 #include <drivers/imgui/imgui_helpers.h>
+#include <core/rendering/pass_category.h>
 #include <imgui_internal.h>
 #include <cstdarg>
 #include <cstdio>
@@ -105,10 +106,14 @@ ImU32 imgui_rg_category_u32(const char* cat, float alpha)
 {
     ImVec4 c(0.70f, 0.70f, 0.70f, alpha);
     if (cat && cat[0]) {
-        uint64_t h = 1469598103934665603ull;
-        for (const char* p = cat; *p; ++p) { h ^= (uint8_t)*p; h *= 1099511628211ull; }
-        c = (ImVec4)ImColor::HSV((float)(h % 360) / 360.0f, 0.55f, 0.95f);
-        c.w = alpha;
+        if (const PassCategory* pc = pass_category_find(cat)) {
+            c = ImVec4(pc->r / 255.0f, pc->g / 255.0f, pc->b / 255.0f, alpha);
+        } else {
+            uint64_t h = 1469598103934665603ull;
+            for (const char* p = cat; *p; ++p) { h ^= (uint8_t)*p; h *= 1099511628211ull; }
+            c = (ImVec4)ImColor::HSV((float)(h % 360) / 360.0f, 0.55f, 0.95f);
+            c.w = alpha;
+        }
     }
     return ImGui::GetColorU32(c);
 }

@@ -1,15 +1,15 @@
 #pragma once
 #include <core/rendering/render_path/render_path.h>
-#include <core/rendering/features/cluster_cull_feature.h>
+#include <core/rendering/features/geometry/geometry_feature.h>
 
 namespace lumen {
 
 struct SceneRenderPath : RenderPath
 {
-    ClusterCullFeature cluster_cull;
+    GeometryFeature geometry;
     
     SceneRenderPath() {
-        features.push_back(&cluster_cull);
+        features.push_back(&geometry);
     }
 };
     

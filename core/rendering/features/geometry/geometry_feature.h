@@ -3,8 +3,12 @@
 
 namespace lumen {
 
-struct ClusterCullFeature : Feature
-{    
+struct GeometryFeature : Feature
+{
+    /******************/
+    /**** CLUSTERS ****/
+    /******************/
+
     static constexpr uint32_t HIZ_TILE = 64;
     static constexpr uint32_t HIZ_TILE_MIPS = 7;
     static constexpr uint32_t HIZ_TAIL_MAX = 64;
@@ -25,9 +29,86 @@ struct ClusterCullFeature : Feature
         float screen_size[2];
     };
 
+    bool occlusion = true;
     bool hiz_history = false;
     bool hiz_use_prev = false;
     bool hiz_ok = false;
+
+    RenderGraph::Pass clear_visible_pass;
+    RenderGraph::Pass instance_cull_pass;
+    RenderGraph::Pass cluster_expand_args_pass;
+    RenderGraph::Pass cluster_expand_pass;
+    RenderGraph::Pass cluster_cull_args_pass;
+    RenderGraph::Pass cluster_cull_pass;
+    RenderGraph::Pass draw_count_pass;
+    RenderGraph::Pass draw_build_pass;
+    RenderGraph::Pass draw_scatter_pass;
+    RenderGraph::Pass visbuffer_pass;
+    RenderGraph::Pass hiz_build_pass;
+    RenderGraph::Pass hiz_tail_pass;
+    RenderGraph::Pass cluster_retest_args_pass;
+    RenderGraph::Pass cluster_retest_pass;
+    RenderGraph::Pass draw_count_pass_2;
+    RenderGraph::Pass draw_build_pass_2;
+    RenderGraph::Pass draw_scatter_pass_2;
+    RenderGraph::Pass visbuffer_pass_2;
+    RenderGraph::Pass hiz_build_pass_2;
+    RenderGraph::Pass hiz_tail_pass_2;
+
+    drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
+    drivers::DeviceDriverVulkan::Pipeline cluster_expand_args_pipe;
+    drivers::DeviceDriverVulkan::Pipeline cluster_expand_pipe;
+    drivers::DeviceDriverVulkan::Pipeline cluster_cull_args_pipe;
+    drivers::DeviceDriverVulkan::Pipeline cluster_cull_pipe;
+    drivers::DeviceDriverVulkan::Pipeline draw_count_pipe;
+    drivers::DeviceDriverVulkan::Pipeline draw_build_pipe;
+    drivers::DeviceDriverVulkan::Pipeline draw_scatter_pipe;
+    drivers::DeviceDriverVulkan::Pipeline visbuffer_pipe;
+    drivers::DeviceDriverVulkan::Pipeline hiz_build_pipe;
+    drivers::DeviceDriverVulkan::Pipeline hiz_tail_pipe;
+    drivers::DeviceDriverVulkan::Pipeline cluster_retest_args_pipe;
+    drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
+
+    void _create_clear_visible_pass();
+    void _create_instance_cull_pass();
+    void _create_cluster_expand_args_pass();
+    void _create_cluster_expand_pass();
+    void _create_cluster_cull_args_pass();
+    void _create_cluster_cull_pass();
+    void _create_draw_count_pass();
+    void _create_draw_build_pass();
+    void _create_draw_scatter_pass();
+    void _create_visbuffer_pass();
+    void _create_hiz_passes(RenderGraph::Pass& r_build, RenderGraph::Pass& r_tail, const char* p_build_name, const char* p_tail_name);
+    void _create_cluster_retest_args_pass();
+    void _create_cluster_retest_pass();
+    void _create_draw_count_2_pass();
+    void _create_draw_build_2_pass();
+    void _create_draw_scatter_2_pass();
+    void _create_visbuffer_2_pass();
+
+    /*****************/
+    /**** TERRAIN ****/
+    /*****************/
+
+    // frustum + density + prev occlusion cull
+    // raster visbuffer 1
+    // restest occlusion
+    // raster visbuffer 2
+
+    /******************/
+    /**** MATERIAL ****/
+    /******************/
+
+    RenderGraph::Pass material_resolve_pass;
+
+    drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
+
+    void _create_material_resolve_pass();
+    
+    /**************/
+    /**** BASE ****/
+    /**************/
 
     struct CullStats {
         uint32_t refs;
@@ -36,69 +117,17 @@ struct ClusterCullFeature : Feature
         uint32_t phase2_visible;
     };
 
-    bool occlusion = true;
     CullStats stats{};
     std::vector<drivers::DeviceDriverVulkan::Buffer> stats_readback;
     std::vector<uint8_t> stats_written;
 
     RenderGraph::Pass stats_pass;
 
-    RenderGraph::Pass clear_visible_pass;
-    RenderGraph::Pass instance_cull_pass;
-    RenderGraph::Pass cluster_refs_args_pass;
-    RenderGraph::Pass cluster_refs_pass;
-    RenderGraph::Pass cluster_cull_args_pass;
-    RenderGraph::Pass cluster_cull_pass;
-    RenderGraph::Pass raster_count_pass;
-    RenderGraph::Pass raster_sum_pass;
-    RenderGraph::Pass raster_emit_pass;
-    RenderGraph::Pass raster_visibility_pass;
-    RenderGraph::Pass hiz_build_pass;
-    RenderGraph::Pass hiz_tail_pass;
-    RenderGraph::Pass cluster_retest_args_pass;
-    RenderGraph::Pass cluster_retest_pass;
-    RenderGraph::Pass raster_count_pass_2;
-    RenderGraph::Pass raster_sum_pass_2;
-    RenderGraph::Pass raster_emit_pass_2;
-    RenderGraph::Pass raster_visibility_pass_2;
-    RenderGraph::Pass hiz_build_pass_2;
-    RenderGraph::Pass hiz_tail_pass_2;
-    RenderGraph::Pass material_resolve_pass;
-
-    drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_refs_args_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_refs_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_cull_args_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_cull_pipe;
-    drivers::DeviceDriverVulkan::Pipeline raster_count_pipe;
-    drivers::DeviceDriverVulkan::Pipeline raster_sum_pipe;
-    drivers::DeviceDriverVulkan::Pipeline raster_emit_pipe;
-    drivers::DeviceDriverVulkan::Pipeline raster_visibility_pipe;
-    drivers::DeviceDriverVulkan::Pipeline hiz_build_pipe;
-    drivers::DeviceDriverVulkan::Pipeline hiz_tail_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_retest_args_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
-    drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
-
-    void _create_clear_visible_pass();
-    void _create_instance_cull_pass();
-    void _create_cluster_refs_args_pass();
-    void _create_cluster_refs_pass();
-    void _create_cluster_cull_args_pass();
-    void _create_cluster_cull_pass();
-    void _create_raster_count_pass();
-    void _create_raster_sum_pass();
-    void _create_raster_emit_pass();
-    void _create_raster_visibility_pass();
-    void _create_hiz_passes(RenderGraph::Pass& r_build, RenderGraph::Pass& r_tail, const char* p_build_name, const char* p_tail_name);
-    void _create_cluster_retest_args_pass();
-    void _create_cluster_retest_pass();
-    void _create_raster_count_2_pass();
-    void _create_raster_sum_2_pass();
-    void _create_raster_emit_2_pass();
-    void _create_raster_visibility_2_pass();
-    void _create_material_resolve_pass();
     void _create_stats_pass();
+
+    /*******************/
+    /**** LIFECYCLE ****/
+    /*******************/
 
     Error create_resources() override;
     Error create_pipelines() override;

@@ -1,4 +1,4 @@
-#include <core/rendering/features/present_feature.h>
+#include <core/rendering/features/present/present_feature.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/io/embedded_resource.h>
 
@@ -7,7 +7,7 @@ namespace lumen {
 Error PresentFeature::create_resources()
 {   
     present_pass.name = "Blit";
-    present_pass.category = "Present";
+    present_pass.category = PASS_CATEGORY_PRESENT;
     present_pass.setup = [](RenderGraph::Builder& b) {
         b.color_attachment("Backbuffer", VK_ATTACHMENT_LOAD_OP_CLEAR, { { 0.1f, 0.1f, 0.1f, 1.0f } });
         b.read_image("G_Albedo", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);

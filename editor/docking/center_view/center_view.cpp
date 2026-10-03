@@ -4,7 +4,7 @@
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_graph.h>
 #include <core/rendering/render_path/editor_render_path.h>
-#include <core/rendering/features/debug_view.h>
+#include <core/rendering/features/editor/debug_view.h>
 #include <IconsFontAwesome6.h>
 #include <imgui_internal.h>
 #include <cstring>
@@ -122,8 +122,8 @@ void CenterView::_draw_scene(EditorContext& ctx)
     if (right_overlay.begin_menu(ICON_FA_BARS)) {
         ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
         if (ctx.render_path) {
-            ClusterCullFeature& cc = ctx.render_path->cluster_cull;
-            ImGui::Checkbox("Occlusion Culling", &cc.occlusion);
+            GeometryFeature& geo = ctx.render_path->geometry;
+            ImGui::Checkbox("Occlusion Culling", &geo.occlusion);
         }
         right_overlay.end_menu();
     }

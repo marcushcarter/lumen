@@ -22,6 +22,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = win32.window_create(p_create_info.window_title, p_create_info.width, p_create_info.height, wants_custom_titlebar());
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     win32.window_bind();
+    win32.window_set_minimum_size(900, 600);
 
     err = cd.full_initialize_windows(win32.window.hwnd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);

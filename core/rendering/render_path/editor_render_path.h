@@ -1,8 +1,8 @@
 #pragma once
 #include <core/rendering/render_path/scene_render_path.h>
-#include <core/rendering/features/debug_view_feature.h>
-#include <core/rendering/features/imgui_feature.h>
-#include <core/rendering/features/screenshot_feature.h>
+#include <core/rendering/features/editor/debug_view_feature.h>
+#include <core/rendering/features/present/imgui_feature.h>
+#include <core/rendering/features/present/screenshot_feature.h>
 
 namespace lumen {
 

@@ -172,6 +172,12 @@ void WindowDriverWin32::window_set_size(int w, int h)
     SetWindowPos(window.hwnd, nullptr, 0, 0, rect.right - rect.left, rect.bottom - rect.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+void WindowDriverWin32::window_set_minimum_size(int w, int h)
+{
+    window.min_width = w;
+    window.min_height = h;
+}
+
 void WindowDriverWin32::window_minimize()
 {
     if (window.hwnd) ShowWindow(window.hwnd, SW_MINIMIZE);
@@ -315,6 +321,18 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
             if (over_widget) return HTCLIENT;
             if (cursor.y < window->titlebar_height) return HTCAPTION;
             return HTCLIENT;
+        }
+
+        case WM_GETMINMAXINFO: {
+            if (window && (window->min_width > 0 || window->min_height > 0)) {
+                RECT r{ 0, 0, window->min_width, window->min_height };
+                if (!window->custom_titlebar) AdjustWindowRectEx(&r, (DWORD)GetWindowLongPtrW(p_hwnd, GWL_STYLE), FALSE, (DWORD)GetWindowLongPtrW(p_hwnd, GWL_EXSTYLE));
+                MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(p_lparam);
+                mmi->ptMinTrackSize.x = r.right - r.left;
+                mmi->ptMinTrackSize.y = r.bottom - r.top;
+                return 0;
+            }
+            break;
         }
 
         case WM_CLOSE: {

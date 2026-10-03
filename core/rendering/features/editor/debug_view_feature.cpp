@@ -1,5 +1,5 @@
-#include <core/rendering/features/debug_view_feature.h>
-#include <core/rendering/features/debug_view.h>
+#include <core/rendering/features/editor/debug_view_feature.h>
+#include <core/rendering/features/editor/debug_view.h>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/io/embedded_resource.h>
@@ -7,7 +7,7 @@
 namespace lumen {
 
 static constexpr const char* OVERDRAW_DRAW_CMDS[2] = { "ClusterDrawCmds", "ClusterDrawCmds2" };
-static constexpr const char* OVERDRAW_DRAW_COUNT[2] = { "RasterDrawCount", "RasterDrawCount2" };
+static constexpr const char* OVERDRAW_DRAW_COUNT[2] = { "ClusterDrawCount", "ClusterDrawCount2" };
 static constexpr const char* OVERDRAW_DRAW_META[2] = { "ClusterDrawMeta", "ClusterDrawMeta2" };
 static constexpr const char* OVERDRAW_SCATTER[2] = { "ClusterScatter", "ClusterScatter2" };
 
@@ -72,12 +72,12 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
 void DebugViewFeature::_create_overdraw_raster_passes()
 {
     overdraw_raster_pass.name = "OverdrawRaster1";
-    overdraw_raster_pass.category = "Editor";
+    overdraw_raster_pass.category = PASS_CATEGORY_EDITOR;
     overdraw_raster_pass.setup = [this](RenderGraph::Builder& b) { _overdraw_raster_setup(b, 0); };
     overdraw_raster_pass.execute = [this](RenderGraph::CommandList& cl) { _overdraw_raster_execute(cl, 0); };
 
     overdraw_raster_pass_2.name = "OverdrawRaster2";
-    overdraw_raster_pass_2.category = "Editor";
+    overdraw_raster_pass_2.category = PASS_CATEGORY_EDITOR;
     overdraw_raster_pass_2.setup = [this](RenderGraph::Builder& b) { _overdraw_raster_setup(b, 1); };
     overdraw_raster_pass_2.execute = [this](RenderGraph::CommandList& cl) { _overdraw_raster_execute(cl, 1); };
 }
@@ -85,7 +85,7 @@ void DebugViewFeature::_create_overdraw_raster_passes()
 void DebugViewFeature::_create_viewport_resolve_pass()
 {
     viewport_resolve_pass.name = "ViewportResolve";
-    viewport_resolve_pass.category = "Editor";
+    viewport_resolve_pass.category = PASS_CATEGORY_EDITOR;
     viewport_resolve_pass.setup = [this](RenderGraph::Builder& b) {
         const DebugView& d = DEBUG_VIEWS[view];
 
@@ -172,9 +172,9 @@ Error DebugViewFeature::create_pipelines()
     {
     ctx->graph->declare_image_format("G_Depth", VK_FORMAT_D32_SFLOAT);
     VkRenderPass rp = ctx->graph->acquire_render_pass(overdraw_raster_pass);
-    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_CLUSTER_CULL_RASTER_VISIBILITY_VERT");
+    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_VERT");
     EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_EDITOR_OVERDRAW_FRAG");
-    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster_visibility_vs" });
+    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster/visbuffer.vert" });
     VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "editor/overdraw.frag" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
@@ -202,7 +202,7 @@ void DebugViewFeature::destroy_resources()
 void DebugViewFeature::build(RenderGraph& g)
 {
     if (!enabled) return;
-    overdraw_active = DEBUG_VIEWS[view].op == DebugViewOp::OVERDRAW && g.buffer_resource("RasterDrawCount2");
+    overdraw_active = DEBUG_VIEWS[view].op == DebugViewOp::OVERDRAW && g.buffer_resource("ClusterDrawCount2");
     if (overdraw_active) {
         g.add(&overdraw_raster_pass);
         g.add(&overdraw_raster_pass_2);

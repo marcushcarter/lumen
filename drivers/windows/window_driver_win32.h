@@ -27,6 +27,8 @@ struct WindowDriverWin32
         bool close_requested = false;
         uint32_t width = 0;
         uint32_t height = 0;
+        int min_width = 0;
+        int min_height = 0;
 
         bool custom_titlebar = false;
         int  titlebar_height = 0;
@@ -53,6 +55,7 @@ struct WindowDriverWin32
     Error window_set_titlebar_color(COLORREF p_color);
 
     void window_set_size(int w, int h);
+    void window_set_minimum_size(int w, int h);
     void window_minimize();
     void window_toggle_maximize();
     bool window_is_maximized();

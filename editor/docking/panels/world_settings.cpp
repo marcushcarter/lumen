@@ -26,11 +26,11 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
     if (ImGui::Button("Reset##LOD Bias")) ctx.renderer->lod_bias = 0.6f;
 
     if (!ctx.render_path) return;
-    ClusterCullFeature& cc = ctx.render_path->cluster_cull;
-    const ClusterCullFeature::CullStats& s = cc.stats;
+    GeometryFeature& geo = ctx.render_path->geometry;
+    const GeometryFeature::CullStats& s = geo.stats;
     const uint32_t occluded = s.retest - s.phase2_visible;
 
-    ImGui::Text("HiZ: %s", !cc.occlusion ? "off" : !cc.hiz_ok ? "unavailable" : cc.hiz_use_prev ? "active" : "warming up");
+    ImGui::Text("HiZ: %s", !geo.occlusion ? "off" : !geo.hiz_ok ? "unavailable" : geo.hiz_use_prev ? "active" : "warming up");
     if (!ctx.profiling || !ctx.profiling->cull_stats_on()) {
         ImGui::TextDisabled("Enable pipeline statistics in the GPU profiler to see counts.");
         return;

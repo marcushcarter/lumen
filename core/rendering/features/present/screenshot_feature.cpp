@@ -1,4 +1,4 @@
-#include <core/rendering/features/screenshot_feature.h>
+#include <core/rendering/features/present/screenshot_feature.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/io/image_io.h>
 #include <core/io/path.h>
@@ -11,7 +11,7 @@ namespace lumen {
 Error ScreenshotFeature::create_resources()
 {
     screenshot_pass.name = "Screenshot";
-    screenshot_pass.category = "Present";
+    screenshot_pass.category = PASS_CATEGORY_PRESENT;
     screenshot_pass.never_cull = true;
     screenshot_pass.setup = [](RenderGraph::Builder& b) {
         b.read_image("Backbuffer", VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);

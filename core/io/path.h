@@ -15,6 +15,7 @@ struct Paths
     static std::filesystem::path pipeline_cache();
 
     static std::filesystem::path screenshots();
+    static std::filesystem::path logs();
 
     static std::filesystem::path executable_dir();
 

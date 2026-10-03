@@ -41,8 +41,10 @@ static int run_app()
     std::string ini_storage;
     auto app = create_application(info, ini_storage);
 
-    app->initialize(info);
-    return app->run();
+    lumen::Error err = app->initialize(info);
+    if (err == lumen::Error::OK) err = app->run();
+    if (err != lumen::Error::OK) app->report_fatal_error(err);
+    return err == lumen::Error::OK ? 0 : 1;
 }
 
 int main()

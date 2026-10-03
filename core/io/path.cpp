@@ -35,6 +35,7 @@ std::filesystem::path Paths::roaming_data(std::wstring_view p_subpath) { return 
 std::filesystem::path Paths::shader_cache() { return local_data(L"shader_cache"); }
 std::filesystem::path Paths::pipeline_cache() { return local_data(L"pipeline_cache"); }
 std::filesystem::path Paths::screenshots() { return roaming_data(L"screenshots"); }
+std::filesystem::path Paths::logs() { return roaming_data(L"logs"); }
 
 std::filesystem::path Paths::executable_dir()
 {
@@ -54,16 +55,83 @@ Error Paths::set_hidden(const std::filesystem::path& p_path, bool p_hidden)
     return SetFileAttributesW(p_path.c_str(), next) ? OK : FAILED;
 }
 
+static bool _select_in_open_explorer(const std::filesystem::path& p_dir, const std::filesystem::path& p_file)
+{
+    IShellWindows* windows = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&windows)))) return false;
+
+    bool found = false;
+    long count = 0;
+    windows->get_Count(&count);
+
+    for (long i = 0; i < count && !found; ++i) {
+        VARIANT index{};
+        index.vt = VT_I4;
+        index.lVal = i;
+
+        IDispatch* disp = nullptr;
+        if (windows->Item(index, &disp) != S_OK || !disp) continue;
+
+        IServiceProvider* sp = nullptr;
+        IShellBrowser* browser = nullptr;
+        IShellView* view = nullptr;
+        IFolderView* folder_view = nullptr;
+        IShellItem* folder = nullptr;
+        PWSTR folder_path = nullptr;
+
+        if (SUCCEEDED(disp->QueryInterface(IID_PPV_ARGS(&sp))) &&
+            SUCCEEDED(sp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) &&
+            SUCCEEDED(browser->QueryActiveShellView(&view)) &&
+            SUCCEEDED(view->QueryInterface(IID_PPV_ARGS(&folder_view))) &&
+            SUCCEEDED(folder_view->GetFolder(IID_PPV_ARGS(&folder))) &&
+            SUCCEEDED(folder->GetDisplayName(SIGDN_FILESYSPATH, &folder_path))) {
+
+            std::error_code ec;
+            if (std::filesystem::equivalent(folder_path, p_dir, ec)) {
+                found = true;
+                if (!p_file.empty()) {
+                    PIDLIST_ABSOLUTE pidl = nullptr;
+                    if (SUCCEEDED(SHParseDisplayName(p_file.c_str(), nullptr, &pidl, 0, nullptr))) {
+                        view->SelectItem(ILFindLastID(pidl), SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_ENSUREVISIBLE | SVSI_FOCUSED);
+                        CoTaskMemFree(pidl);
+                    }
+                }
+            }
+        }
+
+        if (folder_path) CoTaskMemFree(folder_path);
+        if (folder) folder->Release();
+        if (folder_view) folder_view->Release();
+        if (view) view->Release();
+        if (browser) browser->Release();
+        if (sp) sp->Release();
+        disp->Release();
+    }
+
+    windows->Release();
+    return found;
+}
+
 void Paths::reveal_in_explorer(const std::filesystem::path& p_path)
 {
     std::filesystem::path native = p_path;
     native.make_preferred();
 
-    if (std::filesystem::is_directory(p_path)) {
-        ShellExecuteW(nullptr, L"open", native.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    const bool is_dir = std::filesystem::is_directory(p_path);
+    const std::filesystem::path dir = is_dir ? native : native.parent_path();
+
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const bool needs_uninit = SUCCEEDED(init);
+    const bool com_ok = SUCCEEDED(init) || init == RPC_E_CHANGED_MODE;
+    const bool reused = com_ok && _select_in_open_explorer(dir, is_dir ? std::filesystem::path() : native);
+    if (needs_uninit) CoUninitialize();
+    if (reused) return;
+
+    if (is_dir) {
+        ShellExecuteW(nullptr, L"open", native.c_str(), nullptr, nullptr, SW_SHOWNOACTIVATE);
     } else {
         std::wstring arg = L"/select,\"" + native.wstring() + L"\"";
-        ShellExecuteW(nullptr, nullptr, L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+        ShellExecuteW(nullptr, nullptr, L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNOACTIVATE);
     }
 }
 

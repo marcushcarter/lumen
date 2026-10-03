@@ -483,8 +483,12 @@ struct DeviceDriverVulkan
         VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     };
 
+    uint32_t pipeline_failures = 0;
+
     VkPipelineColorBlendAttachmentState _blend_state(BlendMode p_mode);
 
+    Pipeline _graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci);
+    Pipeline _compute_pipeline_create(const ComputePipelineCreateInfo& p_ci);
     Pipeline graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci);
     Pipeline compute_pipeline_create(const ComputePipelineCreateInfo& p_ci);
     void pipeline_free(Pipeline& r_pipeline);

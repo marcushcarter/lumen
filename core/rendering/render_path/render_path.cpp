@@ -21,11 +21,17 @@ Error RenderPath::create_resources()
     for (Feature* f : features) f->build(*ctx.graph);
     ctx.graph->begin(0);
 
+    const uint32_t failures_before = ctx.dd->pipeline_failures;
     for (uint32_t i = 0; i < created_count; ++i) {
         if (Error e = features[i]->create_pipelines(); e != OK) {
             destroy_resources();
             return e;
         }
+    }
+    if (ctx.dd->pipeline_failures != failures_before) {
+        log_write("RenderPath: %u pipeline(s) failed to create.", ctx.dd->pipeline_failures - failures_before);
+        destroy_resources();
+        return FAILED;
     }
     return OK;
 }

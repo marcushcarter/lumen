@@ -2652,7 +2652,7 @@ VkPipelineColorBlendAttachmentState DeviceDriverVulkan::_blend_state(BlendMode p
     return s;
 }
 
-DeviceDriverVulkan::Pipeline DeviceDriverVulkan::graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci)
+DeviceDriverVulkan::Pipeline DeviceDriverVulkan::_graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci)
 {
     using enum Error;
 
@@ -2764,7 +2764,7 @@ DeviceDriverVulkan::Pipeline DeviceDriverVulkan::graphics_pipeline_create(const 
     return pipeline;
 }
 
-DeviceDriverVulkan::Pipeline DeviceDriverVulkan::compute_pipeline_create(const ComputePipelineCreateInfo& p_ci)
+DeviceDriverVulkan::Pipeline DeviceDriverVulkan::_compute_pipeline_create(const ComputePipelineCreateInfo& p_ci)
 {
     using enum Error;
 
@@ -2785,6 +2785,20 @@ DeviceDriverVulkan::Pipeline DeviceDriverVulkan::compute_pipeline_create(const C
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, {}, "Couldn't create Vulkan compute pipeline.");
 
     set_object_name(VK_OBJECT_TYPE_PIPELINE, (uint64_t)pipeline.pipeline, p_ci.name);
+    return pipeline;
+}
+
+DeviceDriverVulkan::Pipeline DeviceDriverVulkan::graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci)
+{
+    Pipeline pipeline = _graphics_pipeline_create(p_ci);
+    if (!pipeline.pipeline) pipeline_failures++;
+    return pipeline;
+}
+
+DeviceDriverVulkan::Pipeline DeviceDriverVulkan::compute_pipeline_create(const ComputePipelineCreateInfo& p_ci)
+{
+    Pipeline pipeline = _compute_pipeline_create(p_ci);
+    if (!pipeline.pipeline) pipeline_failures++;
     return pipeline;
 }
 

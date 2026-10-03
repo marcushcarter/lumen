@@ -58,13 +58,14 @@ struct Application
     void shutdown();
 
     Error _frame();
-    int run();
+    Error run();
+    void report_fatal_error(Error p_error);
 
     Error project_load(const std::filesystem::path &p_root);
     void project_unload();
     
     void render_path_request(RenderPath* p_next);
-    void _apply_pending_render_path();
+    Error _apply_pending_render_path();
 
     virtual Error on_init() = 0;
     virtual void on_update(float p_dt) = 0;

@@ -1,8 +1,10 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/render_path.h>
+#include <core/io/path.h>
 #include <core/version.h>
 #include <windows.h>
 #include <chrono>
+#include <fstream>
 #include <iostream>
 
 namespace lumen {
@@ -102,7 +104,11 @@ Error Application::_frame()
     frame_stats.update(cpu);
 
     cpu.zone_begin("Swapchain");
-    _apply_pending_render_path();
+    Error err = _apply_pending_render_path();
+    if (err != OK) {
+        cpu.zone_end();
+        return err;
+    }
     cd.surface_set_vsync_mode(vsync_mode());
     cd.surface_set_size(win32.window.width, win32.window.height);
     const bool swapchain_ok = dd.swapchain_update() == OK;
@@ -111,7 +117,7 @@ Error Application::_frame()
     if (!swapchain_ok) return OK;
 
     cpu.zone_begin("Wait GPU + Acquire", CpuProfiler::FLAG_WAIT);
-    Error err = renderer.acquire_frame();
+    err = renderer.acquire_frame();
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     if (!renderer.frame_acquired) return OK;
@@ -164,13 +170,14 @@ Error Application::_frame()
     return OK;
 }
 
-int Application::run()
+Error Application::run()
 {
     using enum Error;
 
     CpuProfiler& cpu = cpu_profiler();
     last_time = std::chrono::steady_clock::now();
 
+    Error err = OK;
     while (!win32.window_should_close()) {
         const float cap = fps_cap();
         if (cap > 0.0f) {
@@ -187,12 +194,35 @@ int Application::run()
             continue;
         }
 
-        if (_frame() != OK) break;
+        err = _frame();
+        if (err != OK) break;
     }
 
     on_shutdown();
     shutdown();
-    return 0;
+    return err;
+}
+
+void Application::report_fatal_error(Error p_error)
+{
+    log_write("[Lumen] Fatal error: %s", error_names[static_cast<size_t>(p_error)]);
+
+    const std::filesystem::path dir = Paths::logs();
+    if (dir.empty()) return;
+
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    wchar_t name[64];
+    swprintf_s(name, L"crash_%04hu-%02hu-%02hu_%02hu-%02hu-%02hu.txt", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    const std::filesystem::path file = dir / name;
+
+    const std::string text = log_sink().to_string();
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    if (!out) return;
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.close();
+
+    Paths::reveal_in_explorer(file);
 }
 
 Error Application::project_load(const std::filesystem::path &p_root)
@@ -222,10 +252,10 @@ void Application::render_path_request(RenderPath* p_next)
     pending_render_path = p_next;
 }
 
-void Application::_apply_pending_render_path()
+Error Application::_apply_pending_render_path()
 {
     using enum Error;
-    if (!pending_render_path) return;
+    if (!pending_render_path) return OK;
 
     dd.device_wait_idle();
 
@@ -242,8 +272,9 @@ void Application::_apply_pending_render_path()
     pending_render_path = nullptr;
     render_path->ctx = renderer.make_context();
     render_path->ctx.imgui = &imgui;
-    if (render_path->create_resources() != OK)
-        log_write("Application: render path create_resources failed.");
+    Error err = render_path->create_resources();
+    LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Application: render path create_resources failed.");
+    return OK;
 }
 
 }

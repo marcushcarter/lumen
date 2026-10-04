@@ -30,8 +30,6 @@ struct Renderer
     uint32_t current_frame = 0;
     uint64_t frame_number = 0;
 
-    float lod_bias = 1.0f;
-
     std::vector<VkSemaphore> image_available_semaphores;
     std::vector<VkFence> in_flight_fences;
     std::vector<VkFence> images_in_flight;
@@ -78,6 +76,7 @@ struct Renderer
     /****************/
 
     FrameData frame;
+    float lod_bias = 1.0f;
 
     Camera active_camera;
     bool camera_cut_pending = true;

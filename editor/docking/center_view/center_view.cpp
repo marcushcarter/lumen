@@ -103,7 +103,6 @@ void CenterView::_draw_scene(EditorContext& ctx)
     const DebugView& cur = DEBUG_VIEWS[selected_view];
     const char* btn_icon = cur.category ? cur.category->icon : cur.icon;
     char view_btn[128];
-    // snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", DEBUG_VIEWS[selected_view].name);
     if (btn_icon) snprintf(view_btn, sizeof(view_btn), "%s  %s###ViewMode", btn_icon, cur.name);
     else snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", cur.name);
 
@@ -112,18 +111,14 @@ void CenterView::_draw_scene(EditorContext& ctx)
         int i = 0;
         while (i < DEBUG_VIEW_COUNT) {
             const DebugView& d = DEBUG_VIEWS[i];
-            // if (d.category[0] == '\0') { _view_item(d.name, i); i++; continue; }
             if (!d.category) { _view_item(d.icon, d.name, i); i++; continue; }
 
             int j = i;
             bool active = false;
-            // while (j < DEBUG_VIEW_COUNT && strcmp(DEBUG_VIEWS[j].category, d.category) == 0) {
             while (j < DEBUG_VIEW_COUNT && DEBUG_VIEWS[j].category == d.category) {
                 if (j == selected_view) active = true;
                 j++;
             }
-            // if (_view_submenu(d.category, active)) {
-            //     for (int k = i; k < j; k++) _view_item(DEBUG_VIEWS[k].name, k);
             if (_view_submenu(*d.category, active)) {
                 for (int k = i; k < j; k++) _view_item(nullptr, DEBUG_VIEWS[k].name, k);
                 ImGui::EndMenu();
@@ -137,9 +132,12 @@ void CenterView::_draw_scene(EditorContext& ctx)
     right_overlay.begin(pos, size, OverlayBar::Align::RIGHT);
     if (right_overlay.begin_menu(ICON_FA_BARS)) {
         ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
+        ImGui::SliderFloat("LOD Bias", &ctx.renderer->lod_bias, 0.25f, 4.0f);
         if (ctx.render_path) {
             GeometryFeature& geo = ctx.render_path->geometry;
             ImGui::Checkbox("Occlusion Culling", &geo.occlusion);
+            ImGui::Checkbox("Contribution Culling", &geo.contribution_culling);
+            ImGui::SliderFloat("Min Screen Radius (px)", &geo.contribution_px, 0.25f, 8.0f);
         }
         right_overlay.end_menu();
     }

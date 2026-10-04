@@ -19,7 +19,15 @@ layout(push_constant) uniform Push {
     TransformBuffer transforms;
     VisibleInstanceBuffer visible_instances;
     uint instance_count;
+    float px_per_unit;
+    float min_screen_radius_px;
 } pc;
+
+bool contribution_cull(vec3 p_center, float p_radius) {
+    float d = length(p_center - pc.camera.position.xyz);
+    if (d <= p_radius) return false;
+    return p_radius * pc.px_per_unit / d < pc.min_screen_radius_px;
+}
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
@@ -34,6 +42,7 @@ void main() {
     float radius = mesh.bounds_sphere.w * scale;
 
     if (frustum_cull_sphere(pc.camera, center, radius)) return;
+    if (contribution_cull(center, radius)) return;
     
     uint slot = atomicAdd(pc.visible_instances.count, 1u);
     pc.visible_instances.data[slot] = id;

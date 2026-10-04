@@ -58,6 +58,8 @@ void GeometryFeature::_create_instance_cull_pass()
             VkDeviceAddress transforms_addr;
             VkDeviceAddress visible_addr;
             uint32_t instance_count;
+            float px_per_unit;
+            float min_screen_radius_px;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -65,6 +67,8 @@ void GeometryFeature::_create_instance_cull_pass()
         pc.transforms_addr = tranforms->device_address;
         pc.visible_addr = visible->device_address;
         pc.instance_count = ctx->frame->instance_count;
+        pc.px_per_unit = ctx->frame->px_per_unit;
+        pc.min_screen_radius_px = contribution_culling ? contribution_px : 0.0f;
 
         cl.dd->command_bind_pipeline(cl.cmd, instance_cull_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);

@@ -30,6 +30,8 @@ struct GeometryFeature : Feature
     };
 
     bool occlusion = true;
+    bool contribution_culling = true;
+    float contribution_px = 1.0f;
     bool hiz_history = false;
     bool hiz_use_prev = false;
     bool hiz_ok = false;

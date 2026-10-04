@@ -14,4 +14,12 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     float tan_half_fov_y;
 };
 
+bool frustum_cull_sphere(CameraBuffer p_camera, vec3 p_center, float p_radius) {
+    for (int i = 0; i < 6; i++) {
+        vec4 pl = p_camera.frustum_planes[i];
+        if (dot(pl.xyz, p_center) + pl.w < -p_radius) return true;
+    }
+    return false;
+}
+
 #endif

@@ -44,7 +44,7 @@ void main() {
         mat4 model = pc.transforms.data[instance.transform_id].prev_mtx;
         Cluster cluster = pc.geometry.clusters.data[ref.y];
 
-        float scale = max(length(model[0].xyz), max(length(model[1].xyz), length(model[2].xyz)));
+        float scale = transform_max_scale(model);
         vec3 center = (model * vec4(cluster.cull_sphere.xyz, 1.0)).xyz;
         occluded = hiz_occluded(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, center, cluster.cull_sphere.w * scale);
     }

@@ -1,13 +1,7 @@
 #ifndef GBUFFER_GLSL
 #define GBUFFER_GLSL
 
-vec3 linear_to_srgb(vec3 c) {
-    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, greaterThan(c, vec3(0.0031308)));
-}
-
-vec3 srgb_to_linear(vec3 c) {
-    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), greaterThan(c, vec3(0.04045)));
-}
+#include "common/color.glsl"
 
 vec4 gbuffer_encode_albedo(vec3 albedo, uint flags) {
     return vec4(linear_to_srgb(clamp(albedo, 0.0, 1.0)), float(flags & 3u) / 3.0);

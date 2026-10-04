@@ -18,4 +18,8 @@ struct Transform {
 layout(buffer_reference, scalar) readonly buffer InstanceBuffer { Instance data[]; };
 layout(buffer_reference, scalar) readonly buffer TransformBuffer { Transform data[]; };
 
+float transform_max_scale(mat4 m) {
+    return max(length(m[0].xyz), max(length(m[1].xyz), length(m[2].xyz)));
+}
+
 #endif

@@ -21,14 +21,6 @@ layout(push_constant) uniform Push {
     uint instance_count;
 } pc;
 
-bool cull_frustum(vec3 center_ws, float radius_ws) {
-    for (int i = 0; i < 6; i++) {
-        vec4 pl = pc.camera.frustum_planes[i];
-        if (dot(pl.xyz, center_ws) + pl.w < -radius_ws) return true;
-    }
-    return false;
-}
-
 void main() {
     uint id = gl_GlobalInvocationID.x;
     if (id >= pc.instance_count) return;
@@ -38,10 +30,10 @@ void main() {
     Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
 
     vec3 center = (model * vec4(mesh.bounds_sphere.xyz, 1.0)).xyz;
-    float scale = max(length(model[0].xyz), max(length(model[1].xyz), length(model[2].xyz)));
+    float scale = transform_max_scale(model);
     float radius = mesh.bounds_sphere.w * scale;
 
-    if (cull_frustum(center, radius)) return;
+    if (frustum_cull_sphere(pc.camera, center, radius)) return;
     
     uint slot = atomicAdd(pc.visible_instances.count, 1u);
     pc.visible_instances.data[slot] = id;

@@ -2,6 +2,7 @@
 #include <core/rendering/render_path/render_path.h>
 #include <core/io/path.h>
 #include <core/version.h>
+#include <drivers/windows/dialogs_win32.h>
 #include <windows.h>
 #include <chrono>
 #include <fstream>
@@ -31,6 +32,14 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
 
     err = dd.initialize(cd, cd.optimal_device_index, 3);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
+    if (!dd.capabilities.mesh.mesh_shader) {
+        const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
+            L"Lumen will use its compatibility geometry path instead. Everything still works, but performance may differ from GPUs with mesh shader support.\n\n"
+            L"If your GPU is recent, updating your graphics driver may enable support.";
+        drivers::Win32Dialogs::warning(L"Lumen", L"Mesh shaders not supported", body.c_str(), false);
+    }
+
 
     err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);

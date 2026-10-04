@@ -152,7 +152,7 @@ Error GeometryPool::_arena_grow(ArenaKind p_kind, uint32_t p_capacity, uint32_t 
     }
 
     _retire_buffer(old);
-    log_write("GeometryPool: %s -> %u elements (%s)", a.name, p_capacity, fmt_bytes(a.buffer.capacity));
+    // log_write("GeometryPool: %s -> %u elements (%s)", a.name, p_capacity, fmt_bytes(a.buffer.capacity));
     return OK;
 }
 
@@ -392,7 +392,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     }
     by_guid.emplace(p_guid, id);
 
-    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
+    // log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
     return id;
 }
 

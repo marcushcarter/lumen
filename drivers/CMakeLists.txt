@@ -22,4 +22,5 @@ PUBLIC
     IconFontCppHeaders
     toml
     dwmapi
+    comctl32
 )

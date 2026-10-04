@@ -11,6 +11,8 @@ struct Win32Dialogs
     static std::vector<std::wstring> open_files(const wchar_t* p_filter);
 
     static std::wstring open_folder(const wchar_t* p_title);
+
+    static bool warning(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, bool p_dont_show_option);
 };
 
 }

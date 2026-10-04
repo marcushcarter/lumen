@@ -40,6 +40,7 @@ Error DeviceDriverVulkan::_initialize_device_extensions()
     _register_requested_device_extension(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME, false);
     _register_requested_device_extension(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME, false);
     _register_requested_device_extension(VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME, false);
+    _register_requested_device_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME, false);
 
 #ifdef LUMEN_EDITOR
     _register_requested_device_extension(VK_EXT_DEBUG_MARKER_EXTENSION_NAME, false);
@@ -163,18 +164,74 @@ Error DeviceDriverVulkan::_check_device_features()
 
 void DeviceDriverVulkan::_check_subgroup_capabilities()
 {
-    VkPhysicalDeviceSubgroupProperties subgroup_properties{};
-    subgroup_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    // VkPhysicalDeviceSubgroupProperties subgroup_properties{};
+    // subgroup_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    //
+    // VkPhysicalDeviceProperties2 properties2{};
+    // properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    // properties2.pNext = &subgroup_properties;
+    //
+    // vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+    //
+    // subgroup_capabilities.size = subgroup_properties.subgroupSize;
+    // subgroup_capabilities.supported_stages = subgroup_properties.supportedStages;
+    // subgroup_capabilities.supported_operations = subgroup_properties.supportedOperations;
 
-    VkPhysicalDeviceProperties2 properties2{};
-    properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    properties2.pNext = &subgroup_properties;
+    VkPhysicalDeviceVulkan13Features features_1_3{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    features2.pNext = &features_1_3;
+    vkGetPhysicalDeviceFeatures2(physical_device, &features2);
 
+    VkPhysicalDeviceVulkan13Properties properties_1_3{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES };
+    VkPhysicalDeviceVulkan11Properties properties_1_1{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES };
+    VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+    properties2.pNext = &properties_1_1;
+    properties_1_1.pNext = &properties_1_3;
     vkGetPhysicalDeviceProperties2(physical_device, &properties2);
 
-    subgroup_capabilities.size = subgroup_properties.subgroupSize;
-    subgroup_capabilities.supported_stages = subgroup_properties.supportedStages;
-    subgroup_capabilities.supported_operations = subgroup_properties.supportedOperations;
+    Capabilities::Subgroup& subgroup = capabilities.subgroup;
+    subgroup.size = properties_1_1.subgroupSize;
+    subgroup.min_size = properties_1_3.minSubgroupSize;
+    subgroup.max_size = properties_1_3.maxSubgroupSize;
+    subgroup.supported_stages = properties_1_1.subgroupSupportedStages;
+    subgroup.supported_operations = properties_1_1.subgroupSupportedOperations;
+    subgroup.required_size_stages = properties_1_3.requiredSubgroupSizeStages;
+    subgroup.size_control = features_1_3.subgroupSizeControl == VK_TRUE;
+    subgroup.compute_full = features_1_3.computeFullSubgroups == VK_TRUE;
+}
+
+void DeviceDriverVulkan::_check_mesh_shading_capabilities()
+{
+    capabilities.mesh = {};
+
+    if (!enabled_device_extension_names.contains(VK_EXT_MESH_SHADER_EXTENSION_NAME)) return;
+
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+    VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    features2.pNext = &mesh_features;
+    vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+
+    // extension exposed but the feature isn't, don't enable a dead extension
+    if (!mesh_features.meshShader) {
+        enabled_device_extension_names.erase(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+        return;
+    }
+
+    VkPhysicalDeviceMeshShaderPropertiesEXT mesh_properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
+    VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+    properties2.pNext = &mesh_properties;
+    vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+
+    Capabilities::MeshShading& mesh = capabilities.mesh;
+    mesh.mesh_shader = true;
+    mesh.task_shader = mesh_features.taskShader == VK_TRUE;
+    mesh.max_output_vertices = mesh_properties.maxMeshOutputVertices;
+    mesh.max_output_primitives = mesh_properties.maxMeshOutputPrimitives;
+    mesh.max_workgroup_invocations = mesh_properties.maxMeshWorkGroupInvocations;
+    mesh.preferred_workgroup_invocations = mesh_properties.maxPreferredMeshWorkGroupInvocations;
+    mesh.max_task_payload_size = mesh_properties.maxTaskPayloadSize;
+    mesh.prefers_local_invocation_vertex_output = mesh_properties.prefersLocalInvocationVertexOutput == VK_TRUE;
+    mesh.prefers_local_invocation_primitive_output = mesh_properties.prefersLocalInvocationPrimitiveOutput == VK_TRUE;
 }
 
 Error DeviceDriverVulkan::_check_device_capabilities()
@@ -182,6 +239,13 @@ Error DeviceDriverVulkan::_check_device_capabilities()
     using enum Error;
 
     _check_subgroup_capabilities();
+    _check_mesh_shading_capabilities();
+
+    // log_write("Subgroup size %u (%u-%u), mesh shading: %s",
+    //     capabilities.subgroup.size,
+    //     capabilities.subgroup.min_size,
+    //     capabilities.subgroup.max_size,
+    //     capabilities.mesh.mesh_shader ? "supported" : "not supported");
 
     return OK;
 }
@@ -259,9 +323,19 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     
     void* create_info_next = nullptr;
 
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+    if (capabilities.mesh.mesh_shader) {
+        mesh_features.meshShader = VK_TRUE;
+        mesh_features.taskShader = capabilities.mesh.task_shader;
+        mesh_features.pNext = create_info_next;
+        create_info_next = &mesh_features;
+    }
+
     VkPhysicalDeviceVulkan13Features features_1_3{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
     features_1_3.dynamicRendering = VK_TRUE;
     features_1_3.synchronization2 = VK_TRUE;
+    features_1_3.subgroupSizeControl = capabilities.subgroup.size_control;
+    features_1_3.computeFullSubgroups = capabilities.subgroup.compute_full;
     features_1_3.pNext = create_info_next;
     create_info_next = &features_1_3;
 
@@ -296,144 +370,144 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
 	// shader_features.pNext = create_info_next;
 	// create_info_next = &shader_features;
 
-// 	VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {};
-// 	if (buffer_device_address_support) {
-// 		buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
-// 		buffer_device_address_features.pNext = create_info_next;
-// 		buffer_device_address_features.bufferDeviceAddress = buffer_device_address_support;
-// 		create_info_next = &buffer_device_address_features;
-// 	}
+    // 	VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {};
+    // 	if (buffer_device_address_support) {
+    // 		buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+    // 		buffer_device_address_features.pNext = create_info_next;
+    // 		buffer_device_address_features.bufferDeviceAddress = buffer_device_address_support;
+    // 		create_info_next = &buffer_device_address_features;
+    // 	}
 
-// 	VkPhysicalDeviceVulkanMemoryModelFeaturesKHR vulkan_memory_model_features = {};
-// 	if (vulkan_memory_model_support && vulkan_memory_model_device_scope_support) {
-// 		vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES_KHR;
-// 		vulkan_memory_model_features.pNext = create_info_next;
-// 		vulkan_memory_model_features.vulkanMemoryModel = vulkan_memory_model_support;
-// 		vulkan_memory_model_features.vulkanMemoryModelDeviceScope = vulkan_memory_model_device_scope_support;
-// 		create_info_next = &vulkan_memory_model_features;
-// 	}
+    // 	VkPhysicalDeviceVulkanMemoryModelFeaturesKHR vulkan_memory_model_features = {};
+    // 	if (vulkan_memory_model_support && vulkan_memory_model_device_scope_support) {
+    // 		vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES_KHR;
+    // 		vulkan_memory_model_features.pNext = create_info_next;
+    // 		vulkan_memory_model_features.vulkanMemoryModel = vulkan_memory_model_support;
+    // 		vulkan_memory_model_features.vulkanMemoryModelDeviceScope = vulkan_memory_model_device_scope_support;
+    // 		create_info_next = &vulkan_memory_model_features;
+    // 	}
 
-// 	VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsr_features = {};
-// 	if (fsr_capabilities.pipeline_supported || fsr_capabilities.primitive_supported || fsr_capabilities.attachment_supported) {
-// 		fsr_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
-// 		fsr_features.pNext = create_info_next;
-// 		fsr_features.pipelineFragmentShadingRate = fsr_capabilities.pipeline_supported;
-// 		fsr_features.primitiveFragmentShadingRate = fsr_capabilities.primitive_supported;
-// 		fsr_features.attachmentFragmentShadingRate = fsr_capabilities.attachment_supported;
-// 		create_info_next = &fsr_features;
-// 	}
+    // 	VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsr_features = {};
+    // 	if (fsr_capabilities.pipeline_supported || fsr_capabilities.primitive_supported || fsr_capabilities.attachment_supported) {
+    // 		fsr_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+    // 		fsr_features.pNext = create_info_next;
+    // 		fsr_features.pipelineFragmentShadingRate = fsr_capabilities.pipeline_supported;
+    // 		fsr_features.primitiveFragmentShadingRate = fsr_capabilities.primitive_supported;
+    // 		fsr_features.attachmentFragmentShadingRate = fsr_capabilities.attachment_supported;
+    // 		create_info_next = &fsr_features;
+    // 	}
 
-// 	VkPhysicalDeviceFragmentDensityMapFeaturesEXT fdm_features = {};
-// 	if (fdm_capabilities.attachment_supported || fdm_capabilities.dynamic_attachment_supported || fdm_capabilities.non_subsampled_images_supported) {
-// 		fdm_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT;
-// 		fdm_features.pNext = create_info_next;
-// 		fdm_features.fragmentDensityMap = fdm_capabilities.attachment_supported;
-// 		fdm_features.fragmentDensityMapDynamic = fdm_capabilities.dynamic_attachment_supported;
-// 		fdm_features.fragmentDensityMapNonSubsampledImages = fdm_capabilities.non_subsampled_images_supported;
-// 		create_info_next = &fdm_features;
-// 	}
+    // 	VkPhysicalDeviceFragmentDensityMapFeaturesEXT fdm_features = {};
+    // 	if (fdm_capabilities.attachment_supported || fdm_capabilities.dynamic_attachment_supported || fdm_capabilities.non_subsampled_images_supported) {
+    // 		fdm_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT;
+    // 		fdm_features.pNext = create_info_next;
+    // 		fdm_features.fragmentDensityMap = fdm_capabilities.attachment_supported;
+    // 		fdm_features.fragmentDensityMapDynamic = fdm_capabilities.dynamic_attachment_supported;
+    // 		fdm_features.fragmentDensityMapNonSubsampledImages = fdm_capabilities.non_subsampled_images_supported;
+    // 		create_info_next = &fdm_features;
+    // 	}
 
-// 	VkPhysicalDeviceFragmentDensityMapOffsetFeaturesQCOM fdm_offset_features = {};
-// 	if (fdm_capabilities.offset_supported) {
-// 		fdm_offset_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM;
-// 		fdm_offset_features.pNext = create_info_next;
-// 		fdm_offset_features.fragmentDensityMapOffset = VK_TRUE;
-// 		create_info_next = &fdm_offset_features;
-// 	}
+    // 	VkPhysicalDeviceFragmentDensityMapOffsetFeaturesQCOM fdm_offset_features = {};
+    // 	if (fdm_capabilities.offset_supported) {
+    // 		fdm_offset_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM;
+    // 		fdm_offset_features.pNext = create_info_next;
+    // 		fdm_offset_features.fragmentDensityMapOffset = VK_TRUE;
+    // 		create_info_next = &fdm_offset_features;
+    // 	}
 
-// 	VkPhysicalDevicePipelineCreationCacheControlFeatures pipeline_cache_control_features = {};
-// 	if (pipeline_cache_control_support) {
-// 		pipeline_cache_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES;
-// 		pipeline_cache_control_features.pNext = create_info_next;
-// 		pipeline_cache_control_features.pipelineCreationCacheControl = pipeline_cache_control_support;
-// 		create_info_next = &pipeline_cache_control_features;
-// 	}
+    // 	VkPhysicalDevicePipelineCreationCacheControlFeatures pipeline_cache_control_features = {};
+    // 	if (pipeline_cache_control_support) {
+    // 		pipeline_cache_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES;
+    // 		pipeline_cache_control_features.pNext = create_info_next;
+    // 		pipeline_cache_control_features.pipelineCreationCacheControl = pipeline_cache_control_support;
+    // 		create_info_next = &pipeline_cache_control_features;
+    // 	}
 
-// 	VkPhysicalDeviceFaultFeaturesEXT device_fault_features = {};
-// 	if (device_fault_support) {
-// 		device_fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
-// 		device_fault_features.pNext = create_info_next;
-// 		create_info_next = &device_fault_features;
-// 	}
+    // 	VkPhysicalDeviceFaultFeaturesEXT device_fault_features = {};
+    // 	if (device_fault_support) {
+    // 		device_fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+    // 		device_fault_features.pNext = create_info_next;
+    // 		create_info_next = &device_fault_features;
+    // 	}
 
-// #if defined(VK_TRACK_DEVICE_MEMORY)
-// 	VkDeviceDeviceMemoryReportCreateInfoEXT memory_report_info = {};
-// 	if (device_memory_report_support) {
-// 		memory_report_info.sType = VK_STRUCTURE_TYPE_DEVICE_DEVICE_MEMORY_REPORT_CREATE_INFO_EXT;
-// 		memory_report_info.pfnUserCallback = ContextDriverVulkan::memory_report_callback;
-// 		memory_report_info.pNext = create_info_next;
-// 		memory_report_info.flags = 0;
-// 		memory_report_info.pUserData = this;
+    // #if defined(VK_TRACK_DEVICE_MEMORY)
+    // 	VkDeviceDeviceMemoryReportCreateInfoEXT memory_report_info = {};
+    // 	if (device_memory_report_support) {
+    // 		memory_report_info.sType = VK_STRUCTURE_TYPE_DEVICE_DEVICE_MEMORY_REPORT_CREATE_INFO_EXT;
+    // 		memory_report_info.pfnUserCallback = ContextDriverVulkan::memory_report_callback;
+    // 		memory_report_info.pNext = create_info_next;
+    // 		memory_report_info.flags = 0;
+    // 		memory_report_info.pUserData = this;
 
-// 		create_info_next = &memory_report_info;
-// 	}
-// #endif
+    // 		create_info_next = &memory_report_info;
+    // 	}
+    // #endif
 
-// 	VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {};
-// 	if (acceleration_structure_capabilities.acceleration_structure_support) {
-// 		acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-// 		acceleration_structure_features.pNext = create_info_next;
-// 		acceleration_structure_features.accelerationStructure = acceleration_structure_capabilities.acceleration_structure_support;
-// 		create_info_next = &acceleration_structure_features;
-// 	}
+    // 	VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {};
+    // 	if (acceleration_structure_capabilities.acceleration_structure_support) {
+    // 		acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    // 		acceleration_structure_features.pNext = create_info_next;
+    // 		acceleration_structure_features.accelerationStructure = acceleration_structure_capabilities.acceleration_structure_support;
+    // 		create_info_next = &acceleration_structure_features;
+    // 	}
 
-// 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_pipeline_features = {};
-// 	if (raytracing_capabilities.raytracing_pipeline_support) {
-// 		raytracing_pipeline_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-// 		raytracing_pipeline_features.pNext = create_info_next;
-// 		raytracing_pipeline_features.rayTracingPipeline = raytracing_capabilities.raytracing_pipeline_support;
-// 		create_info_next = &raytracing_pipeline_features;
-// 	}
+    // 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_pipeline_features = {};
+    // 	if (raytracing_capabilities.raytracing_pipeline_support) {
+    // 		raytracing_pipeline_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+    // 		raytracing_pipeline_features.pNext = create_info_next;
+    // 		raytracing_pipeline_features.rayTracingPipeline = raytracing_capabilities.raytracing_pipeline_support;
+    // 		create_info_next = &raytracing_pipeline_features;
+    // 	}
 
-// 	VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features = {};
-// 	if (raytracing_capabilities.validation) {
-// 		raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
-// 		raytracing_validation_features.pNext = create_info_next;
-// 		raytracing_validation_features.rayTracingValidation = raytracing_capabilities.validation;
-// 		create_info_next = &raytracing_validation_features;
-// 	}
+    // 	VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features = {};
+    // 	if (raytracing_capabilities.validation) {
+    // 		raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
+    // 		raytracing_validation_features.pNext = create_info_next;
+    // 		raytracing_validation_features.rayTracingValidation = raytracing_capabilities.validation;
+    // 		create_info_next = &raytracing_validation_features;
+    // 	}
 
-// 	VkPhysicalDeviceVulkan11Features vulkan_1_1_features = {};
-// 	VkPhysicalDevice16BitStorageFeaturesKHR storage_features = {};
-// 	VkPhysicalDeviceMultiviewFeatures multiview_features = {};
-// 	const bool enable_1_2_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_2;
-// 	if (enable_1_2_features) {
-// 		// In Vulkan 1.2 and newer we use a newer struct to enable various features.
-// 		vulkan_1_1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-// 		vulkan_1_1_features.pNext = create_info_next;
-// 		vulkan_1_1_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
-// 		vulkan_1_1_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
-// 		vulkan_1_1_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
-// 		vulkan_1_1_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
-// 		vulkan_1_1_features.multiview = multiview_capabilities.is_supported;
-// 		vulkan_1_1_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
-// 		vulkan_1_1_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
-// 		vulkan_1_1_features.variablePointersStorageBuffer = 0;
-// 		vulkan_1_1_features.variablePointers = 0;
-// 		vulkan_1_1_features.protectedMemory = 0;
-// 		vulkan_1_1_features.samplerYcbcrConversion = 0;
-// 		vulkan_1_1_features.shaderDrawParameters = 0;
-// 		create_info_next = &vulkan_1_1_features;
-// 	} else {
-// 		// On Vulkan 1.0 and 1.1 we use our older structs to initialize these features.
-// 		storage_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR;
-// 		storage_features.pNext = create_info_next;
-// 		storage_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
-// 		storage_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
-// 		storage_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
-// 		storage_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
-// 		create_info_next = &storage_features;
+    // 	VkPhysicalDeviceVulkan11Features vulkan_1_1_features = {};
+    // 	VkPhysicalDevice16BitStorageFeaturesKHR storage_features = {};
+    // 	VkPhysicalDeviceMultiviewFeatures multiview_features = {};
+    // 	const bool enable_1_2_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_2;
+    // 	if (enable_1_2_features) {
+    // 		// In Vulkan 1.2 and newer we use a newer struct to enable various features.
+    // 		vulkan_1_1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    // 		vulkan_1_1_features.pNext = create_info_next;
+    // 		vulkan_1_1_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
+    // 		vulkan_1_1_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
+    // 		vulkan_1_1_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
+    // 		vulkan_1_1_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
+    // 		vulkan_1_1_features.multiview = multiview_capabilities.is_supported;
+    // 		vulkan_1_1_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
+    // 		vulkan_1_1_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
+    // 		vulkan_1_1_features.variablePointersStorageBuffer = 0;
+    // 		vulkan_1_1_features.variablePointers = 0;
+    // 		vulkan_1_1_features.protectedMemory = 0;
+    // 		vulkan_1_1_features.samplerYcbcrConversion = 0;
+    // 		vulkan_1_1_features.shaderDrawParameters = 0;
+    // 		create_info_next = &vulkan_1_1_features;
+    // 	} else {
+    // 		// On Vulkan 1.0 and 1.1 we use our older structs to initialize these features.
+    // 		storage_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR;
+    // 		storage_features.pNext = create_info_next;
+    // 		storage_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
+    // 		storage_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
+    // 		storage_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
+    // 		storage_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
+    // 		create_info_next = &storage_features;
 
-// 		const bool enable_1_1_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_1;
-// 		if (enable_1_1_features) {
-// 			multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
-// 			multiview_features.pNext = create_info_next;
-// 			multiview_features.multiview = multiview_capabilities.is_supported;
-// 			multiview_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
-// 			multiview_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
-// 			create_info_next = &multiview_features;
-// 		}
-// 	}
+    // 		const bool enable_1_1_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_1;
+    // 		if (enable_1_1_features) {
+    // 			multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
+    // 			multiview_features.pNext = create_info_next;
+    // 			multiview_features.multiview = multiview_capabilities.is_supported;
+    // 			multiview_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
+    // 			multiview_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
+    // 			create_info_next = &multiview_features;
+    // 		}
+    // 	}
 
     VkDeviceCreateInfo device_ci{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     device_ci.pNext = create_info_next;
@@ -453,7 +527,17 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
 		}
 	}
 
-    // Set PFN_Functions
+    functions = {};
+    if (capabilities.mesh.mesh_shader) {
+        functions.CmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT"));
+        functions.CmdDrawMeshTasksIndirectEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
+        functions.CmdDrawMeshTasksIndirectCountEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectCountEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectCountEXT"));
+        if (!functions.CmdDrawMeshTasksEXT || !functions.CmdDrawMeshTasksIndirectEXT || !functions.CmdDrawMeshTasksIndirectCountEXT) {
+            log_write("VK_EXT_mesh_shader entry points failed to load, disabling mesh shading.");
+            capabilities.mesh = {};
+            functions = {};
+        }
+    }
 
     return OK;
 }
@@ -1838,6 +1922,21 @@ void DeviceDriverVulkan::command_render_draw_indirect(VkCommandBuffer p_cmd, con
 void DeviceDriverVulkan::command_render_draw_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride)
 {
     vkCmdDrawIndirectCount(p_cmd, p_indirect_buffer.buffer, p_offset, p_count_buffer.buffer, p_count_buffer_offset, p_max_draw_count, p_stride);
+}
+
+void DeviceDriverVulkan::command_render_draw_mesh_tasks(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups)
+{
+    functions.CmdDrawMeshTasksEXT(p_cmd, p_x_groups, p_y_groups, p_z_groups);
+}
+
+void DeviceDriverVulkan::command_render_draw_mesh_tasks_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
+{
+    functions.CmdDrawMeshTasksIndirectEXT(p_cmd, p_indirect_buffer.buffer, p_offset, p_draw_count, p_stride);
+}
+
+void DeviceDriverVulkan::command_render_draw_mesh_tasks_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride)
+{
+    functions.CmdDrawMeshTasksIndirectCountEXT(p_cmd, p_indirect_buffer.buffer, p_offset, p_count_buffer.buffer, p_count_buffer_offset, p_max_draw_count, p_stride);
 }
 
 /*******************/

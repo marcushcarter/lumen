@@ -1,6 +1,7 @@
 #include <drivers/windows/dialogs_win32.h>
 #include <windows.h>
 #include <commdlg.h>
+#include <commctrl.h>
 #include <shobjidl.h>
 #include <filesystem>
 
@@ -91,6 +92,28 @@ std::wstring Win32Dialogs::open_folder(const wchar_t* p_title)
     }
     if (needs_uninit) CoUninitialize();
     return result;
+}
+
+bool Win32Dialogs::warning(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, bool p_dont_show_option)
+{
+    TASKDIALOGCONFIG config{};
+    config.cbSize = sizeof(config);
+    config.hwndParent = GetActiveWindow();
+    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.dwCommonButtons = TDCBF_OK_BUTTON;
+    config.pszWindowTitle = p_title;
+    config.pszMainIcon = TD_WARNING_ICON;
+    config.pszMainInstruction = p_heading;
+    config.pszContent = p_body;
+    if (p_dont_show_option) config.pszVerificationText = L"Don't show this again";
+
+    BOOL dont_show = FALSE;
+    HRESULT hr = TaskDialogIndirect(&config, nullptr, nullptr, &dont_show);
+    if (FAILED(hr)) {
+        MessageBoxW(config.hwndParent, p_body, p_title, MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+        return false;
+    }
+    return dont_show == TRUE;
 }
 
 }

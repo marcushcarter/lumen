@@ -24,10 +24,38 @@ struct DeviceDriverVulkan
 		VkQueue queue = VK_NULL_HANDLE;
 	};
 
-    struct SubgroupCapabilities {
-        uint32_t size = 0;
-        VkShaderStageFlags supported_stages = 0;
-        VkSubgroupFeatureFlags supported_operations = 0;
+    struct Capabilities {
+        struct Subgroup {
+            uint32_t size = 0;
+            uint32_t min_size = 0;
+            uint32_t max_size = 0;
+            VkShaderStageFlags supported_stages = 0;
+            VkSubgroupFeatureFlags supported_operations = 0;
+            VkShaderStageFlags required_size_stages = 0;
+            bool size_control = false;
+            bool compute_full = false;
+        };
+
+        struct MeshShading {
+            bool mesh_shader = false;
+            bool task_shader = false;
+            uint32_t max_output_vertices = 0;
+            uint32_t max_output_primitives = 0;
+            uint32_t max_workgroup_invocations = 0;
+            uint32_t preferred_workgroup_invocations = 0;
+            uint32_t max_task_payload_size = 0;
+            bool prefers_local_invocation_vertex_output = false;
+            bool prefers_local_invocation_primitive_output = false;
+        };
+
+        Subgroup subgroup;
+        MeshShading mesh;
+    };
+    
+    struct Functions {
+        PFN_vkCmdDrawMeshTasksEXT CmdDrawMeshTasksEXT = nullptr;
+        PFN_vkCmdDrawMeshTasksIndirectEXT CmdDrawMeshTasksIndirectEXT = nullptr;
+        PFN_vkCmdDrawMeshTasksIndirectCountEXT CmdDrawMeshTasksIndirectCountEXT = nullptr;
     };
 
     VkDevice device = VK_NULL_HANDLE;
@@ -42,7 +70,8 @@ struct DeviceDriverVulkan
     std::unordered_map<std::string, bool> requested_device_extensions;
     std::unordered_set<std::string> enabled_device_extension_names;
     std::vector<std::vector<Queue>> queue_families;
-    SubgroupCapabilities subgroup_capabilities;
+    Capabilities capabilities;
+    Functions functions;
 
     bool memory_budget_enabled() const;
 
@@ -54,7 +83,9 @@ struct DeviceDriverVulkan
     Error _add_queue_create_info(std::vector<VkDeviceQueueCreateInfo> &r_queue_create_info);
     Error _initialize_device(const std::vector<VkDeviceQueueCreateInfo> &p_queue_create_info);
     Error _initialize_allocator();
+
     void _check_subgroup_capabilities();
+    void _check_mesh_shading_capabilities();
 
     Error initialize(ContextDriverVulkan& r_cd, uint32_t p_device_index, uint32_t p_frame_count);
     void shutdown();
@@ -329,6 +360,9 @@ struct DeviceDriverVulkan
 	void command_render_draw_indexed_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
 	void command_render_draw_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
 	void command_render_draw_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
+    void command_render_draw_mesh_tasks(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups);
+    void command_render_draw_mesh_tasks_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
+    void command_render_draw_mesh_tasks_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
 
     /*******************/
     /**** SWAPCHAIN ****/

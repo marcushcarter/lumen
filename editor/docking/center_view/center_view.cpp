@@ -17,45 +17,53 @@ void CenterView::initialize()
     debugger.initialize();
 }
 
-static void _view_row_decor(ImDrawList* dl, ImVec2 p, float h, const char* text, bool filled)
+static void _view_row_decor(ImDrawList* dl, ImVec2 p, float h, const char* p_icon, const char* p_text, bool p_filled)
 {
     const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
     const float cy = p.y + h * 0.5f;
     const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
     dl->AddCircle(ImVec2(p.x + 12.0f, cy), 5.0f, col, 20, 1.5f);
-    if (filled) dl->AddCircleFilled(ImVec2(p.x + 12.0f, cy), 2.5f, col, 20);
-    dl->AddText(ImVec2(p.x + 28.0f, ty), col, text);
+    if (p_filled) dl->AddCircleFilled(ImVec2(p.x + 12.0f, cy), 2.5f, col, 20);
+
+    float tx = p.x + 28.0f;
+    if (p_icon) {
+        const float slot = ImGui::GetFontSize() * 1.4f;
+        const float iw = ImGui::CalcTextSize(p_icon).x;
+        dl->AddText(ImVec2(tx + (slot - iw) * 0.5f, ty), col, p_icon);
+        tx += slot + 4.0f;
+    }
+    dl->AddText(ImVec2(tx, ty), col, p_text);
 }
 
-bool CenterView::_view_item(const char* p_name, int p_id)
+bool CenterView::_view_item(const char* p_icon, const char* p_name, int p_id)
 {
     ImGui::PushID(p_id);
     const bool sel = (selected_view == p_id);
     const float h = ImGui::GetFrameHeight();
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::Selectable("##vi", sel, 0, ImVec2(item_w, h));
-    _view_row_decor(ImGui::GetWindowDrawList(), p, h, p_name, sel);
+    _view_row_decor(ImGui::GetWindowDrawList(), p, h, p_icon, p_name, sel);
     if (clicked) selected_view = p_id;
     ImGui::PopID();
     return clicked;
 }
 
-bool CenterView::_view_submenu(const char* p_category, bool p_active)
+bool CenterView::_view_submenu(const DebugViewCategory& p_category, bool p_active)
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = ImGui::GetCurrentWindow();
-    const ImGuiID popup_id = window->GetID(p_category);
+    const ImGuiID popup_id = window->GetID(p_category.name);
     bool open = ImGui::IsPopupOpen(popup_id, ImGuiPopupFlags_None);
 
     const float h = ImGui::GetFrameHeight();
     const ImVec2 p = ImGui::GetCursorScreenPos();
 
-    ImGui::PushID(p_category);
+    ImGui::PushID(p_category.name);
     ImGui::Selectable("##cat", open, ImGuiSelectableFlags_NoAutoClosePopups, ImVec2(item_w, h));
     ImGui::PopID();
     const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
 
-    _view_row_decor(window->DrawList, p, h, p_category, p_active);
+    _view_row_decor(window->DrawList, p, h, p_category.icon, p_category.name, p_active);
     ImGui::RenderArrow(window->DrawList, ImVec2(p.x + item_w - g.FontSize - 4.0f, p.y + (h - g.FontSize) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), ImGuiDir_Right);
 
     if (hovered && !open) {
@@ -68,7 +76,7 @@ bool CenterView::_view_submenu(const char* p_category, bool p_active)
     if (!open) return false;
 
     ImGui::SetNextWindowPos(ImVec2(p.x, p.y - g.Style.WindowPadding.y), ImGuiCond_Always);
-    return ImGui::BeginPopupMenuEx(popup_id, p_category, ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus);
+    return ImGui::BeginPopupMenuEx(popup_id, p_category.name, ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus);
 }
 
 void CenterView::_draw_scene(EditorContext& ctx)
@@ -92,24 +100,32 @@ void CenterView::_draw_scene(EditorContext& ctx)
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(25, 25, 25, 255));
     }
 
+    const DebugView& cur = DEBUG_VIEWS[selected_view];
+    const char* btn_icon = cur.category ? cur.category->icon : cur.icon;
     char view_btn[128];
-    snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", DEBUG_VIEWS[selected_view].name);
+    // snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", DEBUG_VIEWS[selected_view].name);
+    if (btn_icon) snprintf(view_btn, sizeof(view_btn), "%s  %s###ViewMode", btn_icon, cur.name);
+    else snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", cur.name);
 
     left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
     if (left_overlay.begin_menu(view_btn)) {
         int i = 0;
         while (i < DEBUG_VIEW_COUNT) {
             const DebugView& d = DEBUG_VIEWS[i];
-            if (d.category[0] == '\0') { _view_item(d.name, i); i++; continue; }
+            // if (d.category[0] == '\0') { _view_item(d.name, i); i++; continue; }
+            if (!d.category) { _view_item(d.icon, d.name, i); i++; continue; }
 
             int j = i;
             bool active = false;
-            while (j < DEBUG_VIEW_COUNT && strcmp(DEBUG_VIEWS[j].category, d.category) == 0) {
+            // while (j < DEBUG_VIEW_COUNT && strcmp(DEBUG_VIEWS[j].category, d.category) == 0) {
+            while (j < DEBUG_VIEW_COUNT && DEBUG_VIEWS[j].category == d.category) {
                 if (j == selected_view) active = true;
                 j++;
             }
-            if (_view_submenu(d.category, active)) {
-                for (int k = i; k < j; k++) _view_item(DEBUG_VIEWS[k].name, k);
+            // if (_view_submenu(d.category, active)) {
+            //     for (int k = i; k < j; k++) _view_item(DEBUG_VIEWS[k].name, k);
+            if (_view_submenu(*d.category, active)) {
+                for (int k = i; k < j; k++) _view_item(nullptr, DEBUG_VIEWS[k].name, k);
                 ImGui::EndMenu();
             }
             i = j;

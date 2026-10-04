@@ -43,7 +43,7 @@ struct Cluster {
 struct ClusterGroup {
     vec4 sphere;
     float error;
-    uint32_t _pad;
+    uint32_t level;
 };
 
 struct LMeshPayloadHeader {

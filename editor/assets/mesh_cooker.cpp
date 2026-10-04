@@ -344,7 +344,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
 
             const meshopt_Bounds gb = meshopt_computeSphereBounds(&child_spheres[0].x, child_spheres.size(), sizeof(vec4), &child_spheres[0].w, sizeof(vec4));
             const uint32_t gid = (uint32_t)r_src.groups.size();
-            r_src.groups.push_back(ClusterGroup{ vec4(gb.center[0], gb.center[1], gb.center[2], gb.radius), child_err + simp_err * scale, 0u });
+            r_src.groups.push_back(ClusterGroup{ vec4(gb.center[0], gb.center[1], gb.center[2], gb.radius), child_err + simp_err * scale, L });
 
             for (uint32_t ci : members) r_src.clusters[ci].parent_group = gid;
 

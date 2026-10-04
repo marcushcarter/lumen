@@ -35,7 +35,7 @@ struct Cluster {
 struct ClusterGroup {
     vec4 sphere;
     float error;
-    uint _pad;
+    uint level;
 };
 
 struct Mesh {

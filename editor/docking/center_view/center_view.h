@@ -8,6 +8,8 @@
 
 namespace lumen {
 
+struct DebugViewCategory;
+
 struct CenterView
 {
     Debugger debugger;
@@ -17,12 +19,12 @@ struct CenterView
     int selected_view = 0;
     float split_ratio = 0.66f;
     float screen_percentage = 1.0f;
-    float item_w = 210.0f;
+    float item_w = 240.0f;
 
     void initialize();
 
-    bool _view_item(const char* p_name, int p_id);
-    bool _view_submenu(const char* p_category, bool p_active);
+    bool _view_item(const char* p_icon, const char* p_name, int p_id);
+    bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     void _draw_scene(EditorContext& ctx);
     void draw(EditorContext& ctx);
 };

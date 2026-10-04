@@ -281,7 +281,7 @@ void Renderer::_frame_build(const World& p_world)
     // }
     // frame.instance_count = (uint32_t)frame.instances_scratch.size();
 
-    const int GRID = 11;
+    const int GRID = 1;
     for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
         if (geometry.mesh_guids[i] == Guid{}) continue;
         const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;

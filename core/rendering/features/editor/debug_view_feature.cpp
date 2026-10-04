@@ -129,11 +129,13 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             uint32_t src_index;
             uint32_t out_slot;
             uint32_t op, width, height;
+            float px_per_unit;
         } pc{};
         pc.out_slot = out->bindless_storage;
         pc.op = (uint32_t)d.op;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
+        pc.px_per_unit = ctx->frame->px_per_unit;
 
         pc.camera_addr = cl.graph->buffer("Camera")->device_address;
 

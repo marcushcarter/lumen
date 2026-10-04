@@ -8,6 +8,7 @@
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/gbuffer.glsl"
+#include "common/lod.glsl"
 #include "editor/debug_op.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -31,6 +32,7 @@ layout(push_constant) uniform Push {
     uint op;
     uint width;
     uint height;
+    float px_per_unit;
 } pc;
 
 const float EDGE_SCALE = 2.5;
@@ -133,8 +135,6 @@ vec3 hash_color(uint k) {
 }
 uint hash2(uint a, uint b) { return (a * 2654435761u) ^ (b * 2246822519u); }
 
-const float OVERDRAW_SCALE = 0.15;
-
 vec3 color_map_inferno(float t) {
     const vec3 c0 = vec3(0.0002189403691192265, 0.001651004631001012, -0.01948089843709184);
     const vec3 c1 = vec3(0.1065134194856116, 0.5639564367884091, 3.932712388889277);
@@ -177,6 +177,88 @@ float wire_distance(ivec2 coord, ivec2 size, uvec2 v, uvec2 ref) {
     return min(wire_edge_distance(a, b, p), min(wire_edge_distance(b, c, p), wire_edge_distance(c, a, p)));
 }
 
+uint cluster_lod_level(uint cluster_id) {
+    Cluster c = pc.geometry.clusters.data[cluster_id];
+    return c.self_group == 0xffffffffu ? 0u : pc.geometry.groups.data[c.self_group].level;
+}
+
+const vec3 CLUSTER_ERROR_LEAF_COLOR = vec3(0.5);
+const vec3 CLUSTER_ERROR_OVER_COLOR = vec3(1.0, 0.0, 1.0);
+
+const float TRI_DENSITY_LOG2_MIN = -2.0;
+const float TRI_DENSITY_LOG2_MAX = 6.0;
+
+float triangle_pixel_area(ivec2 size, uvec2 v, uvec2 ref) {
+    Instance inst = pc.instances.data[ref.x];
+    Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+    Cluster cluster = pc.geometry.clusters.data[ref.y];
+    mat4 mvp = pc.camera.curr_view_proj * pc.transforms.data[inst.transform_id].curr_mtx;
+    uint i = cluster.index_base + v.y * 3u;
+    vec2 fsize = vec2(size);
+    vec3 a = wire_vertex(i + 0u, mesh, mvp, fsize);
+    vec3 b = wire_vertex(i + 1u, mesh, mvp, fsize);
+    vec3 c = wire_vertex(i + 2u, mesh, mvp, fsize);
+    if (a.z <= 0.0 || b.z <= 0.0 || c.z <= 0.0) return 3.402823e38;
+    vec2 p0 = a.xy / a.z;
+    vec2 p1 = b.xy / b.z;
+    vec2 p2 = c.xy / c.z;
+    return 0.5 * abs((p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y));
+}
+
+const uint LOD_HEAT_MAX_LEVEL = 9u;
+
+const vec3 VIRIDIS_LUT[17] = vec3[17](
+    vec3(0.2670, 0.0049, 0.3294),
+    vec3(0.2823, 0.0950, 0.4173),
+    vec3(0.2788, 0.1755, 0.4834),
+    vec3(0.2590, 0.2515, 0.5247),
+    vec3(0.2297, 0.3224, 0.5457),
+    vec3(0.1994, 0.3876, 0.5546),
+    vec3(0.1727, 0.4488, 0.5579),
+    vec3(0.1490, 0.5081, 0.5573),
+    vec3(0.1276, 0.5669, 0.5506),
+    vec3(0.1206, 0.6258, 0.5335),
+    vec3(0.1579, 0.6838, 0.5017),
+    vec3(0.2461, 0.7389, 0.4520),
+    vec3(0.3692, 0.7889, 0.3829),
+    vec3(0.5160, 0.8312, 0.2943),
+    vec3(0.6785, 0.8637, 0.1895),
+    vec3(0.8456, 0.8873, 0.0997),
+    vec3(0.9932, 0.9062, 0.1439)
+);
+
+vec3 color_map_viridis(float t) {
+    float x = clamp(t, 0.0, 1.0) * 16.0;
+    uint i = min(uint(x), 15u);
+    return srgb_to_linear(mix(VIRIDIS_LUT[i], VIRIDIS_LUT[i + 1u], x - float(i)));
+}
+
+const vec3 HEAT_LUT[17] = vec3[17](
+    vec3(0.0800, 0.2000, 0.6200),
+    vec3(0.0876, 0.2985, 0.6579),
+    vec3(0.0952, 0.3970, 0.6958),
+    vec3(0.1027, 0.4955, 0.7336),
+    vec3(0.1103, 0.5939, 0.7715),
+    vec3(0.1179, 0.6924, 0.8094),
+    vec3(0.2373, 0.7377, 0.7382),
+    vec3(0.4002, 0.7623, 0.6245),
+    vec3(0.5630, 0.7870, 0.5109),
+    vec3(0.7259, 0.8116, 0.3973),
+    vec3(0.8888, 0.8362, 0.2836),
+    vec3(0.9671, 0.7893, 0.2103),
+    vec3(0.9376, 0.6515, 0.1882),
+    vec3(0.9082, 0.5136, 0.1662),
+    vec3(0.8788, 0.3757, 0.1441),
+    vec3(0.8494, 0.2379, 0.1221),
+    vec3(0.8200, 0.1000, 0.1000)
+);
+
+vec3 color_map_heat(float t) {
+    float x = clamp(t, 0.0, 1.0) * 16.0;
+    uint i = min(uint(x), 15u);
+    return srgb_to_linear(mix(HEAT_LUT[i], HEAT_LUT[i + 1u], x - float(i)));
+}
+
 void main() {
     uvec2 px = gl_GlobalInvocationID.xy;
     ivec2 size  = ivec2(pc.width, pc.height);
@@ -205,18 +287,6 @@ void main() {
         color = vec3(0.24);
         float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
         if (d != 0.0) color = clay_shade(clay_normal(coord, size), view_pos_at(coord, size));
-    } else if (pc.op == OP_NORMAL) {
-        vec3 n = view_normal_from_depth(coord, size);
-        n.y = -n.y;
-        color = n * 0.5 + 0.5;
-    } else if (pc.op == OP_VELOCITY) {
-        vec2 m = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg;
-        const float SCALE = 40.0;
-        float speed = length(m) * SCALE;
-        float hue = atan(m.y, m.x) / 6.2831853 + 0.5;
-        color = hsv2rgb(vec3(hue, 1.0, clamp(speed, 0.0, 1.0)));
-    } else if (pc.op == OP_DEPTH) {
-        color = vec3(linearize_depth(coord));
     } else if (pc.op == OP_TRIANGLES) {
         uvec2 v, ref;
         color = vec3(0);
@@ -233,17 +303,65 @@ void main() {
         uvec2 v, ref;
         color = vec3(0);
         if (sample_vis(coord, v, ref)) color = mix(hash_color(pc.instances.data[ref.x].mesh_id + 1u), vec3(1.0), sobel_depth_edge(coord, size));
+    } else if (pc.op == OP_LOD_LEVEL) {
+        uvec2 v, ref;
+        color = vec3(0);
+        if (sample_vis(coord, v, ref)) {
+            uint level = min(cluster_lod_level(ref.y), LOD_HEAT_MAX_LEVEL);
+            vec3 base = CLUSTER_ERROR_LEAF_COLOR;
+            if (level > 0u) {
+                float t = float(level - 1u) / float(max(LOD_HEAT_MAX_LEVEL - 1u, 1u));
+                base = color_map_viridis(1.0 - t);
+            }
+            color = mix(base, vec3(0.0), sobel_depth_edge(coord, size));
+        }
+    } else if (pc.op == OP_CLUSTER_ERROR) {
+        uvec2 v, ref;
+        color = vec3(0);
+        if (sample_vis(coord, v, ref)) {
+            Cluster c = pc.geometry.clusters.data[ref.y];
+            vec3 base = CLUSTER_ERROR_LEAF_COLOR;
+            if (c.self_group != CLUSTER_GROUP_NONE) {
+                mat4 model = pc.transforms.data[pc.instances.data[ref.x].transform_id].curr_mtx;
+                float t = lod_self_error_px(pc.geometry, c, model, lod_max_scale(model), pc.camera.position.xyz, pc.px_per_unit) / LOD_THRESHOLD_PX;
+                base = t > 1.0 ? CLUSTER_ERROR_OVER_COLOR : color_map_viridis(1.0 - t);
+            }
+            color = mix(base, vec3(0.0), sobel_depth_edge(coord, size));
+        }
+    } else if (pc.op == OP_TRIANGLE_DENSITY) {
+        uvec2 v, ref;
+        color = vec3(0);
+        if (sample_vis(coord, v, ref)) {
+            float area = max(triangle_pixel_area(size, v, ref), 1e-6);
+            float t = clamp((log2(area) - TRI_DENSITY_LOG2_MIN) / (TRI_DENSITY_LOG2_MAX - TRI_DENSITY_LOG2_MIN), 0.0, 1.0);
+            color = color_map_heat(1.0 - t);
+        }
     } else if (pc.op == OP_OVERDRAW) {
-        const float TARGET = 2.0;
-        const float T_GOOD_LO = 0.12;
-        const float T_GOOD_HI = 0.28;
-        const float HEAT_SCALE = 0.25;
         float n = floor(imageLoad(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord).r * 255.0 + 0.5);
         float t = 0.0;
-        if (n > TARGET) t = T_GOOD_HI + (1.0 - T_GOOD_HI) * (1.0 - exp2(-(n - TARGET) * HEAT_SCALE));
-        else if (n > 0.0) t = mix(T_GOOD_LO, T_GOOD_HI, (n - 1.0) / max(TARGET - 1.0, 1.0));
-        color = color_map_inferno(t);
+        if (n > 2.0) t = 0.28 + (1.0 - 0.28) * (1.0 - exp2(-(n - 2.0) * 0.25));
+        else if (n > 0.0) t = mix(0.12, 0.28, (n - 1.0) / max(2.0 - 1.0, 1.0));
+        color = n > 0.0 ? color_map_heat(t) : vec3(0.0);
         color = mix(color, vec3(1.0), sobel_depth_edge(coord, size));
+    } else if (pc.op == OP_DEPTH_NORMAL) {
+        vec3 n = view_normal_from_depth(coord, size);
+        n.y = -n.y;
+        color = n * 0.5 + 0.5;
+    } else if (pc.op == OP_WORLD_NORMAL) {
+        color = vec3(0);
+        float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
+        if (d != 0.0) {
+            vec3 n = gbuffer_decode_normal(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg);
+            color = srgb_to_linear(n * 0.5 + 0.5);
+        }
+    } else if (pc.op == OP_VELOCITY) {
+        vec2 m = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg;
+        const float SCALE = 40.0;
+        float speed = length(m) * SCALE;
+        float hue = atan(m.y, m.x) / 6.2831853 + 0.5;
+        color = hsv2rgb(vec3(hue, 1.0, clamp(speed, 0.0, 1.0)));
+    } else if (pc.op == OP_DEPTH) {
+        color = vec3(linearize_depth(coord));
     }
 
     imageStore(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord, vec4(color, 1.0));

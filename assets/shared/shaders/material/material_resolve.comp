@@ -62,7 +62,7 @@ void main() {
     // vec3 dbg = vec3(float(h & 0xffu), float((h >> 8) & 0xffu), float((h >> 16) & 0xffu)) / 255.0;
 
     imageStore(u_storage_rgb10a2[nonuniformEXT(pc.albedo_slot)], coord, gbuffer_encode_albedo(vec3(depth), 0u));
-    imageStore(u_storage_rg16[nonuniformEXT(pc.normal_slot)], coord, vec4(0.5, 0.5, 0.0, 0.0));
+    imageStore(u_storage_rg16[nonuniformEXT(pc.normal_slot)], coord, vec4(gbuffer_encode_normal(vec3(0.0, 0.0, 1.0)), 0.0, 0.0));
     imageStore(u_storage_rgba8[nonuniformEXT(pc.material_slot)], coord, gbuffer_encode_material(0.5, 0.0, 1.0, 0u));
     imageStore(u_storage_rg16f[nonuniformEXT(pc.motion_slot)], coord, vec4(0.0));
 }

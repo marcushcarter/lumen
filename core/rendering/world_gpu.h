@@ -7,6 +7,7 @@ namespace lumen {
 using namespace glm;
 
 static constexpr uint32_t MAX_INSTANCES = 64u * 1024;
+static constexpr uint32_t MAX_CLUSTER_REFS = (1u << 22) - 1;
 
 struct CameraUniform {
     mat4 prev_view_proj;

@@ -16,6 +16,7 @@ layout(local_size_x = 64) in;
 layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint count; uint data[]; };
 layout(buffer_reference, scalar) readonly buffer OffsetBuffer { uint data[]; };
 layout(buffer_reference, scalar) buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) buffer ClusterRetestBuffer { uint count; uint data[]; };
 
 layout(push_constant) uniform Push {
     CameraBuffer camera;
@@ -25,7 +26,10 @@ layout(push_constant) uniform Push {
     VisibleInstanceBuffer visible_instances;
     OffsetBuffer offsets;
     ClusterRefsBuffer cluster_refs;
+    ClusterRetestBuffer cluster_retest;
     float px_per_unit;
+    uint late;
+    uint ref_capacity;
 } pc;
 
 bool _keep(Cluster cluster, mat4 model, float scale, vec3 cam, float ppu) {
@@ -72,5 +76,18 @@ void main() {
         if (subgroupElect()) base = atomicAdd(pc.cluster_refs.count, cnt);
         base = subgroupBroadcastFirst(base);
     }
-    if (keep) pc.cluster_refs.data[base + my] = uvec2(instance_id, cluster_id);
+
+    bool written = keep && base + my < pc.ref_capacity;
+    if (written) pc.cluster_refs.data[base + my] = uvec2(instance_id, cluster_id);
+
+    if (pc.late != 0u) {
+        uvec4 wb = subgroupBallot(written);
+        uint wn = subgroupBallotBitCount(wb);
+        uint rbase = 0u;
+        if (wn > 0u) {
+            if (subgroupElect()) rbase = atomicAdd(pc.cluster_retest.count, wn);
+            rbase = subgroupBroadcastFirst(rbase);
+        }
+        if (written) pc.cluster_retest.data[rbase + subgroupBallotExclusiveBitCount(wb)] = base + my;
+    }
 }

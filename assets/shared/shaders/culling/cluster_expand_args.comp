@@ -20,6 +20,7 @@ layout(push_constant) uniform Push {
     OffsetBuffer offsets;
     IndirectDispatch expand_args;
     ClusterRefsCount cluster_refs;
+    uint append;
 } pc;
 
 shared uint s_scan[WG];
@@ -63,6 +64,6 @@ void main() {
         pc.expand_args.x = (carry + 63u) / 64u;
         pc.expand_args.y = 1u;
         pc.expand_args.z = 1u;
-        pc.cluster_refs.count = 0u;
+        if (pc.append == 0u) pc.cluster_refs.count = 0u;
     }
 }

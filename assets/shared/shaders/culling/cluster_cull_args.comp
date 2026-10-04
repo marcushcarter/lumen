@@ -4,11 +4,10 @@
 
 layout(local_size_x = 1) in;
 
-layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; };
+layout(buffer_reference, scalar) buffer ClusterRefsBuffer { uint count; uint requested; };
 layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
 layout(buffer_reference, scalar) writeonly buffer VisibleClusterBuffer { uint count; };
 layout(buffer_reference, scalar) writeonly buffer ClusterRetestBuffer { uint count; };
-layout(buffer_reference, scalar) writeonly buffer HiZCounter { uint value; };
 
 layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
@@ -16,16 +15,20 @@ layout(push_constant) uniform Push {
     VisibleClusterBuffer visible_clusters;
     VisibleClusterBuffer visible_clusters2;
     ClusterRetestBuffer cluster_retest;
-    HiZCounter hiz_counter;
+    uint ref_capacity;
 } pc;
 
 void main() {
-    pc.cull_args.x = (pc.cluster_refs.count + 63u) / 64u;
+    uint requested = pc.cluster_refs.count;
+    uint count = min(requested, pc.ref_capacity);
+    pc.cluster_refs.requested = requested;
+    pc.cluster_refs.count = count;
+
+    pc.cull_args.x = (count + 63u) / 64u;
     pc.cull_args.y = 1u;
     pc.cull_args.z = 1u;
 
     pc.visible_clusters.count = 0u;
     pc.visible_clusters2.count = 0u;
     pc.cluster_retest.count = 0u;
-    pc.hiz_counter.value = 0u;
 }

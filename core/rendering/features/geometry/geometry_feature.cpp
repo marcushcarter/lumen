@@ -3,6 +3,7 @@
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/base/profiling.h>
 #include <core/io/embedded_resource.h>
+#include <drivers/vulkan/device_driver_vulkan.h>
 #include <glm/glm.hpp>
 #include <cstring>
 #include <algorithm>
@@ -25,31 +26,49 @@ void GeometryFeature::_create_clear_visible_pass()
         visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         visible_ci.device_local = true;
         b.create_buffer("VisibleInstances", visible_ci);
+        b.create_buffer("OccludedInstances", visible_ci);
+        b.create_buffer("VisibleInstances2", visible_ci);
         b.write_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        b.write_buffer("OccludedInstances", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        b.write_buffer("VisibleInstances2", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     };
     clear_visible_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto visible = cl.graph->buffer("VisibleInstances");
+        auto occluded = cl.graph->buffer("OccludedInstances");
+        auto visible2 = cl.graph->buffer("VisibleInstances2");
         cl.fill_buffer("Clear visible instances", *visible, 0, 0, sizeof(uint32_t));
+        cl.fill_buffer("Clear occluded instances", *occluded, 0, 0, sizeof(uint32_t));
+        cl.fill_buffer("Clear visible instances 2", *visible2, 0, 0, sizeof(uint32_t));
     };
 }
 
-void GeometryFeature::_create_instance_cull_pass()
+void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool p_late)
 {
-    instance_cull_pass.name = "InstanceCull";
-    instance_cull_pass.category = PASS_CATEGORY_CULLING;
-    instance_cull_pass.setup = [](RenderGraph::Builder& b) {        
+    r_pass.name = p_late ? "InstanceCull2" : "InstanceCull";
+    r_pass.category = PASS_CATEGORY_CULLING;
+    r_pass.setup = [p_late](RenderGraph::Builder& b) {
+        b.read_image("HiZ", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.write_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        if (p_late) {
+            b.read_buffer("OccludedInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            b.write_buffer("VisibleInstances2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        } else {
+            b.write_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+            b.write_buffer("OccludedInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        }
     };
-    instance_cull_pass.execute = [this](RenderGraph::CommandList& cl) {
+    r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
         auto inst = cl.graph->buffer("Instances");
-        auto tranforms = cl.graph->buffer("Transforms");
-        auto visible = cl.graph->buffer("VisibleInstances");
+        auto transforms = cl.graph->buffer("Transforms");
+        auto visible = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances");
+        auto occluded = cl.graph->buffer("OccludedInstances");
+        auto hiz = cl.graph->image("HiZ");
+        auto depth = cl.graph->image("G_Depth");
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -57,59 +76,75 @@ void GeometryFeature::_create_instance_cull_pass()
             VkDeviceAddress instances_addr;
             VkDeviceAddress transforms_addr;
             VkDeviceAddress visible_addr;
+            VkDeviceAddress occluded_addr;
             uint32_t instance_count;
             float px_per_unit;
             float min_screen_radius_px;
+            uint32_t hiz_index;
+            uint32_t hiz_mips;
+            uint32_t hiz_enabled;
+            uint32_t phase;
+            uint32_t _pad;
+            float screen_size[2];
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
         pc.instances_addr = inst->device_address;
-        pc.transforms_addr = tranforms->device_address;
+        pc.transforms_addr = transforms->device_address;
         pc.visible_addr = visible->device_address;
+        pc.occluded_addr = occluded->device_address;
         pc.instance_count = ctx->frame->instance_count;
         pc.px_per_unit = ctx->frame->px_per_unit;
         pc.min_screen_radius_px = contribution_culling ? contribution_px : 0.0f;
+        pc.hiz_index = hiz->bindless_sampled;
+        pc.hiz_mips = hiz->mip_levels;
+        pc.hiz_enabled = p_late ? ((occlusion && hiz_ok) ? 1u : 0u) : (hiz_use_prev ? 1u : 0u);
+        pc.phase = p_late ? 1u : 0u;
+        pc.screen_size[0] = (float)depth->extent.width;
+        pc.screen_size[1] = (float)depth->extent.height;
 
         cl.dd->command_bind_pipeline(cl.cmd, instance_cull_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Instance cull", (ctx->frame->instance_count + 63) / 64);
-    };    
+        cl.dispatch(p_late ? "Instance cull 2" : "Instance cull", (ctx->frame->instance_count + 63) / 64);
+    };
 }
 
-void GeometryFeature::_create_cluster_expand_args_pass()
+void GeometryFeature::_create_cluster_expand_args_pass(RenderGraph::Pass& r_pass, bool p_late)
 {
-    cluster_expand_args_pass.name = "ClusterExpandArgs";
-    cluster_expand_args_pass.category = PASS_CATEGORY_CULLING;
-    cluster_expand_args_pass.setup = [this](RenderGraph::Builder& b) {
-        drivers::DeviceDriverVulkan::BufferCreateInfo args_ci{};
-        args_ci.size = sizeof(IndirectDispatch);
-        args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        args_ci.device_local = true;
-        b.create_buffer("ClusterExpandArgs", args_ci);
+    r_pass.name = p_late ? "ClusterExpandArgs2" : "ClusterExpandArgs";
+    r_pass.category = PASS_CATEGORY_CULLING;
+    r_pass.setup = [this, p_late](RenderGraph::Builder& b) {
+        if (!p_late) {
+            drivers::DeviceDriverVulkan::BufferCreateInfo args_ci{};
+            args_ci.size = sizeof(IndirectDispatch);
+            args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            args_ci.device_local = true;
+            b.create_buffer("ClusterExpandArgs", args_ci);
 
-        drivers::DeviceDriverVulkan::BufferCreateInfo refs_ci{};
-        refs_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
-        refs_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-        refs_ci.device_local = true;
-        b.create_buffer("ClusterRefs", refs_ci);
+            drivers::DeviceDriverVulkan::BufferCreateInfo refs_ci{};
+            refs_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
+            refs_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            refs_ci.device_local = true;
+            b.create_buffer("ClusterRefs", refs_ci);
 
-        drivers::DeviceDriverVulkan::BufferCreateInfo off_ci{};
-        off_ci.size = (VkDeviceSize)(ctx->frame->instance_count + 1) * sizeof(uint32_t);
-        off_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-        off_ci.device_local = true;
-        b.create_buffer("ClusterExpandOffsets", off_ci);
+            drivers::DeviceDriverVulkan::BufferCreateInfo off_ci{};
+            off_ci.size = (VkDeviceSize)(ctx->frame->instance_count + 1) * sizeof(uint32_t);
+            off_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            off_ci.device_local = true;
+            b.create_buffer("ClusterExpandOffsets", off_ci);
+        }
 
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_buffer("ClusterExpandOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterExpandArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        if (!p_late) b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    cluster_expand_args_pass.execute = [this](RenderGraph::CommandList& cl) {
+    r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
         auto geometry = cl.graph->buffer("Geometry");
         auto inst = cl.graph->buffer("Instances");
-        auto vis_inst = cl.graph->buffer("VisibleInstances");
+        auto vis_inst = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances");
         auto offsets = cl.graph->buffer("ClusterExpandOffsets");
         auto expand_args = cl.graph->buffer("ClusterExpandArgs");
         auto cluster_refs = cl.graph->buffer("ClusterRefs");
@@ -121,6 +156,7 @@ void GeometryFeature::_create_cluster_expand_args_pass()
             VkDeviceAddress offsets_addr;
             VkDeviceAddress expand_addr;
             VkDeviceAddress cluster_refs_addr;
+            uint32_t append;
         } pc;
         pc.geometry_addr = geometry->device_address;
         pc.instances_addr = inst->device_address;
@@ -128,33 +164,35 @@ void GeometryFeature::_create_cluster_expand_args_pass()
         pc.offsets_addr = offsets->device_address;
         pc.expand_addr = expand_args->device_address;
         pc.cluster_refs_addr = cluster_refs->device_address;
+        pc.append = p_late ? 1u : 0u;
 
         cl.dd->command_bind_pipeline(cl.cmd, cluster_expand_args_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Cluster expand args", 1);
+        cl.dispatch(p_late ? "Cluster expand args 2" : "Cluster expand args", 1);
     };
 }
 
-void GeometryFeature::_create_cluster_expand_pass()
+void GeometryFeature::_create_cluster_expand_pass(RenderGraph::Pass& r_pass, bool p_late)
 {
-    cluster_expand_pass.name = "ClusterExpand";
-    cluster_expand_pass.category = PASS_CATEGORY_CULLING;
-    cluster_expand_pass.setup = [this](RenderGraph::Builder& b) {
+    r_pass.name = p_late ? "ClusterExpand2" : "ClusterExpand";
+    r_pass.category = PASS_CATEGORY_CULLING;
+    r_pass.setup = [p_late](RenderGraph::Builder& b) {
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterExpandOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterExpandArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        if (p_late) b.write_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    cluster_expand_pass.execute = [this](RenderGraph::CommandList& cl) {
+    r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
         auto inst = cl.graph->buffer("Instances");
         auto transforms = cl.graph->buffer("Transforms");
-        auto visible = cl.graph->buffer("VisibleInstances");
+        auto visible = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances");
         auto offsets = cl.graph->buffer("ClusterExpandOffsets");
         auto expand_args = cl.graph->buffer("ClusterExpandArgs");
         auto cluster_refs = cl.graph->buffer("ClusterRefs");
@@ -167,7 +205,10 @@ void GeometryFeature::_create_cluster_expand_pass()
             VkDeviceAddress visible_addr;
             VkDeviceAddress offsets_addr;
             VkDeviceAddress cluster_refs_addr;
+            VkDeviceAddress cluster_retest_addr;
             float px_per_unit;
+            uint32_t late;
+            uint32_t ref_capacity;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -176,11 +217,14 @@ void GeometryFeature::_create_cluster_expand_pass()
         pc.visible_addr = visible->device_address;
         pc.offsets_addr = offsets->device_address;
         pc.cluster_refs_addr = cluster_refs->device_address;
+        pc.cluster_retest_addr = p_late ? cl.graph->buffer("ClusterRetest")->device_address : 0;
         pc.px_per_unit = ctx->frame->px_per_unit;
+        pc.late = p_late ? 1u : 0u;
+        pc.ref_capacity = ctx->frame->cluster_ref_capacity;
 
         cl.dd->command_bind_pipeline(cl.cmd, cluster_expand_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect("Cluster expand", *expand_args);
+        cl.dispatch_indirect(p_late ? "Cluster expand 2" : "Cluster expand", *expand_args);
     };
 }
 
@@ -214,7 +258,7 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         counts_ci.device_local = true;
         b.create_buffer("ClusterCounts", counts_ci);
         
-        b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterCullArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("VisibleClusters2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -235,12 +279,14 @@ void GeometryFeature::_create_cluster_cull_args_pass()
             VkDeviceAddress vis_clus_addr;
             VkDeviceAddress vis_clus2_addr;
             VkDeviceAddress retest_addr;
+            uint32_t ref_capacity;
         } pc;
         pc.cluster_refs_addr = cluster_refs->device_address;
         pc.cull_addr = cull_args->device_address;
         pc.vis_clus_addr = vis_clus->device_address;
         pc.vis_clus2_addr = vis_clus2->device_address;
         pc.retest_addr = retest->device_address;
+        pc.ref_capacity = ctx->frame->cluster_ref_capacity;
 
         cl.fill_buffer("Clear cluster counts", *counts, 0);
 
@@ -342,13 +388,13 @@ void GeometryFeature::_create_draw_build_pass()
         b.create_buffer("ClusterOffsets", offsets_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo cmds_ci{};
-        cmds_ci.size = (VkDeviceSize)ctx->frame->cluster_ref_capacity * sizeof(VkDrawIndexedIndirectCommand);
+        cmds_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(VkDrawIndexedIndirectCommand);
         cmds_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         cmds_ci.device_local = true;
         b.create_buffer("ClusterDrawCmds", cmds_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo meta_ci{};
-        meta_ci.size = (VkDeviceSize)ctx->frame->cluster_ref_capacity * sizeof(uint32_t);
+        meta_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         meta_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         meta_ci.device_local = true;
         b.create_buffer("ClusterDrawMeta", meta_ci);
@@ -501,7 +547,7 @@ void GeometryFeature::_create_visbuffer_pass()
         cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
+        cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
@@ -692,13 +738,13 @@ void GeometryFeature::_create_draw_build_2_pass()
         b.create_buffer("ClusterOffsets2", offsets_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo cmds_ci{};
-        cmds_ci.size = (VkDeviceSize)ctx->frame->cluster_ref_capacity * sizeof(VkDrawIndexedIndirectCommand);
+        cmds_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(VkDrawIndexedIndirectCommand);
         cmds_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         cmds_ci.device_local = true;
         b.create_buffer("ClusterDrawCmds2", cmds_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo meta_ci{};
-        meta_ci.size = (VkDeviceSize)ctx->frame->cluster_ref_capacity * sizeof(uint32_t);
+        meta_ci.size = (VkDeviceSize)(ctx->geometry->cluster_extent ? ctx->geometry->cluster_extent : 1u) * sizeof(uint32_t);
         meta_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         meta_ci.device_local = true;
         b.create_buffer("ClusterDrawMeta2", meta_ci);
@@ -841,7 +887,7 @@ void GeometryFeature::_create_visbuffer_2_pass()
         cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
+        cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
@@ -970,11 +1016,14 @@ void GeometryFeature::_create_stats_pass()
         b.read_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         b.read_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         b.read_buffer("VisibleClusters2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.read_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.read_buffer("OccludedInstances", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.read_buffer("VisibleInstances2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
     };
     stats_pass.execute = [this](RenderGraph::CommandList& cl) {
         const drivers::DeviceDriverVulkan::Buffer& dst = stats_readback[cl.graph->current_frame];
-        const char* src_names[4] = { "ClusterRefs", "VisibleClusters", "ClusterRetest", "VisibleClusters2" };
-        for (uint32_t i = 0; i < 4; i++) cl.dd->command_copy_buffer(cl.cmd, *cl.graph->buffer(src_names[i]), dst, sizeof(uint32_t), 0, i * sizeof(uint32_t));
+        const char* src_names[7] = { "ClusterRefs", "VisibleClusters", "ClusterRetest", "VisibleClusters2", "VisibleInstances", "OccludedInstances", "VisibleInstances2" };
+        for (uint32_t i = 0; i < 7; i++) cl.dd->command_copy_buffer(cl.cmd, *cl.graph->buffer(src_names[i]), dst, sizeof(uint32_t), 0, i * sizeof(uint32_t));
 
         VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
         mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
@@ -995,9 +1044,9 @@ void GeometryFeature::_create_stats_pass()
 Error GeometryFeature::create_resources()
 {
     _create_clear_visible_pass();
-    _create_instance_cull_pass();
-    _create_cluster_expand_args_pass();
-    _create_cluster_expand_pass();
+    _create_instance_cull_pass(instance_cull_pass, false);
+    _create_cluster_expand_args_pass(cluster_expand_args_pass, false);
+    _create_cluster_expand_pass(cluster_expand_pass, false);
     _create_cluster_cull_args_pass();
     _create_cluster_cull_pass();
     _create_draw_count_pass();
@@ -1005,6 +1054,9 @@ Error GeometryFeature::create_resources()
     _create_draw_scatter_pass();
     _create_visbuffer_pass();
     _create_hiz_passes(hiz_build_pass, hiz_tail_pass, "HiZBuild1", "HiZTail1");
+    _create_instance_cull_pass(instance_cull_pass_2, true);
+    _create_cluster_expand_args_pass(cluster_expand_args_pass_2, true);
+    _create_cluster_expand_pass(cluster_expand_pass_2, true);
     _create_cluster_retest_args_pass();
     _create_cluster_retest_pass();
     _create_draw_count_2_pass();
@@ -1184,26 +1236,46 @@ void GeometryFeature::build(RenderGraph& g)
     hiz_use_prev = occlusion && hiz_ok && hiz_history && ctx->frame->hiz_history_valid;
     hiz_history = occlusion && hiz_ok;
 
+    bool ms_active = mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
+    bool task_active = ms_active && task_shading && ctx->dd->capabilities.mesh.task_shader;
+
     g.add(&clear_visible_pass);
     g.add(&instance_cull_pass);
     g.add(&cluster_expand_args_pass);
     g.add(&cluster_expand_pass);
     g.add(&cluster_cull_args_pass);
     g.add(&cluster_cull_pass);
-    g.add(&draw_count_pass);
-    g.add(&draw_build_pass);
-    g.add(&draw_scatter_pass);
-    g.add(&visbuffer_pass);
+    if (task_active) {
+
+    } if (ms_active) {
+
+    } else {
+        g.add(&draw_count_pass);
+        g.add(&draw_build_pass);
+        g.add(&draw_scatter_pass);
+        g.add(&visbuffer_pass);
+    }
     if (occlusion && hiz_ok) {
         g.add(&hiz_build_pass);
         g.add(&hiz_tail_pass);
     }
+    if (hiz_use_prev) {
+        g.add(&instance_cull_pass_2);
+        g.add(&cluster_expand_args_pass_2);
+        g.add(&cluster_expand_pass_2);
+    }
     g.add(&cluster_retest_args_pass);
     g.add(&cluster_retest_pass);
-    g.add(&draw_count_pass_2);
-    g.add(&draw_build_pass_2);
-    g.add(&draw_scatter_pass_2);
-    g.add(&visbuffer_pass_2);
+    if (task_active) {
+
+    } if (ms_active) {
+
+    } else {
+        g.add(&draw_count_pass_2);
+        g.add(&draw_build_pass_2);
+        g.add(&draw_scatter_pass_2);
+        g.add(&visbuffer_pass_2);   
+    }
     if (occlusion && hiz_ok) {
         g.add(&hiz_build_pass_2);
         g.add(&hiz_tail_pass_2);

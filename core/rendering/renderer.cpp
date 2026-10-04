@@ -137,28 +137,35 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
         }
     }
 
-    // frame.reset();
-    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-    //     for (int j=0; j<10000; j++) {
-    //         frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-    //         frame.transforms_scratch.push_back(Transform{ translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)), translate(mat4(1.0f), glm::vec3(j, 0.0f, 0.0f)) });
-    //         // frame.transforms_scratch.push_back(Transform{ mat4(1.0f), grid_transform(j) });
-    //         frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-    //     }
-    // }
-    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
+    frame.reset();
+    const int GRID = 155;
+    for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
+        if (geometry.mesh_guids[i] == Guid{}) continue;
+        const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
+        const float half = (GRID - 1) * 0.5f * spacing;
+        for (int gz = 0; gz < GRID; gz++) {
+            for (int gx = 0; gx < GRID; gx++) {
+                const vec3 pos = vec3(gx * spacing - half, 0.0f, gz * spacing - half);
+                const mat4 model = translate(mat4(1.0f), pos);
+                frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+                frame.transforms_scratch.push_back(Transform{ model, model });
+                frame.cluster_ref_capacity = (uint32_t)std::min<uint64_t>((uint64_t)frame.cluster_ref_capacity + geometry.meshes[i].cluster_count, MAX_CLUSTER_REFS);
+            }
+        }
+    }
+    frame.instance_count = (uint32_t)frame.instances_scratch.size();
 
-    // for (uint32_t i = 0; i < frame_count; i++) {
-    //     if (frame.instance_count != 0) {
-    //         drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[i];
-    //         dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-    //         dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
+    for (uint32_t i = 0; i < frame_count; i++) {
+        if (frame.instance_count != 0) {
+            drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[i];
+            dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
+            dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
 
-    //         drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[i];
-    //         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    //         dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    //     }
-    // }
+            drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[i];
+            dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
+            dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
+        }
+    }
 
     return OK;
 }
@@ -271,60 +278,23 @@ void Renderer::_frame_build(const World& p_world)
 {
     (void)p_world;
 
-    frame.reset();
-
+    // frame.reset();
+    // const int GRID = 99;
     // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
     //     if (geometry.mesh_guids[i] == Guid{}) continue;
-    //     frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-    //     frame.transforms_scratch.push_back(Transform{ mat4(1.0f), mat4(1.0f) });
-    //     frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-    // }
-    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
-
-    const int GRID = 11;
-    for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-        if (geometry.mesh_guids[i] == Guid{}) continue;
-        const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
-        const float half = (GRID - 1) * 0.5f * spacing;
-        for (int gz = 0; gz < GRID; gz++) {
-            for (int gx = 0; gx < GRID; gx++) {
-                const vec3 pos = vec3(gx * spacing - half, 0.0f, gz * spacing - half);
-                const mat4 model = translate(mat4(1.0f), pos);
-                frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-                frame.transforms_scratch.push_back(Transform{ model, model });
-                frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-            }
-        }
-    }
-    
-    // constexpr uint32_t COLS = 5;
-    // constexpr uint32_t ROWS = 33;
-    // constexpr uint32_t MAX_LIVE = 16;
-    // static_assert(COLS * ROWS <= MAX_INSTANCES, "test layout exceeds MAX_INSTANCES");
-    // uint32_t live[MAX_LIVE];
-    // uint32_t live_count = 0;
-    // float spacing = 0.0f;
-    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size() && live_count < MAX_LIVE; i++) {
-    //     if (geometry.mesh_guids[i] == Guid{}) continue;
-    //     live[live_count++] = i;
-    //     spacing = std::max(spacing, geometry.meshes[i].bounds_sphere.w * 2.2f);
-    // }
-    // if (live_count > 0) {
-    //     const float half_width = (float)(COLS - 1) * 0.5f * spacing;
-    //     for (uint32_t r = 0; r < ROWS; r++) {
-    //         for (uint32_t c = 0; c < COLS; c++) {
-    //             const uint32_t mesh_id = live[(r + c) % live_count];
-    //             const vec4 bs = geometry.meshes[mesh_id].bounds_sphere;
-    //             const vec3 pos = vec3((float)c * spacing - half_width - bs.x, 0.0f, -(float)(r + 1) * spacing - bs.z);
+    //     const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
+    //     const float half = (GRID - 1) * 0.5f * spacing;
+    //     for (int gz = 0; gz < GRID; gz++) {
+    //         for (int gx = 0; gx < GRID; gx++) {
+    //             const vec3 pos = vec3(gx * spacing - half, 0.0f, gz * spacing - half);
     //             const mat4 model = translate(mat4(1.0f), pos);
-    //             frame.instances_scratch.push_back(Instance{ mesh_id, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
+    //             frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
     //             frame.transforms_scratch.push_back(Transform{ model, model });
-    //             frame.cluster_ref_capacity += geometry.meshes[mesh_id].cluster_count;
+    //             frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
     //         }
     //     }
     // }
-
-    frame.instance_count = (uint32_t)frame.instances_scratch.size();
+    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
 
     const float aspect = height ? (float)width / (float)height : 1.0f;
     const mat4 prev_vp = frame.camera.curr_view_proj;
@@ -344,15 +314,15 @@ void Renderer::_frame_build(const World& p_world)
 
 void Renderer::_frame_upload()
 {
-    if (frame.instance_count != 0) {
-        drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
-        dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-        dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
+    // if (frame.instance_count != 0) {
+    //     drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
+    //     dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
+    //     dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
 
-        drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
-        dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-        dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    }
+    //     drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
+    //     dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
+    //     dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
+    // }
     
     drivers::DeviceDriverVulkan::Buffer& cb = camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));

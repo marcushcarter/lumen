@@ -31,6 +31,9 @@ struct GeometryFeature : Feature
 
     bool occlusion = true;
     bool contribution_culling = true;
+    bool mesh_shading = true;
+    bool task_shading = true;
+
     float contribution_px = 1.0f;
     bool hiz_history = false;
     bool hiz_use_prev = false;
@@ -48,6 +51,9 @@ struct GeometryFeature : Feature
     RenderGraph::Pass visbuffer_pass;
     RenderGraph::Pass hiz_build_pass;
     RenderGraph::Pass hiz_tail_pass;
+    RenderGraph::Pass instance_cull_pass_2;
+    RenderGraph::Pass cluster_expand_args_pass_2;
+    RenderGraph::Pass cluster_expand_pass_2;
     RenderGraph::Pass cluster_retest_args_pass;
     RenderGraph::Pass cluster_retest_pass;
     RenderGraph::Pass draw_count_pass_2;
@@ -72,9 +78,9 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
 
     void _create_clear_visible_pass();
-    void _create_instance_cull_pass();
-    void _create_cluster_expand_args_pass();
-    void _create_cluster_expand_pass();
+    void _create_instance_cull_pass(RenderGraph::Pass& r_pass, bool p_late);
+    void _create_cluster_expand_args_pass(RenderGraph::Pass& r_pass, bool p_late);
+    void _create_cluster_expand_pass(RenderGraph::Pass& r_pass, bool p_late);
     void _create_cluster_cull_args_pass();
     void _create_cluster_cull_pass();
     void _create_draw_count_pass();
@@ -111,12 +117,15 @@ struct GeometryFeature : Feature
     /**************/
     /**** BASE ****/
     /**************/
-
+    
     struct CullStats {
         uint32_t refs;
         uint32_t phase1_visible;
         uint32_t retest;
         uint32_t phase2_visible;
+        uint32_t instances_visible;
+        uint32_t instances_occluded;
+        uint32_t instances_recovered;
     };
 
     CullStats stats{};

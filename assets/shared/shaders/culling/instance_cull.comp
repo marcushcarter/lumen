@@ -3,24 +3,40 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
 
 #include "common/geometry.glsl"
 #include "common/camera.glsl"
 #include "common/instances.glsl"
+#include "common/hiz.glsl"
 
 layout(local_size_x = 64) in;
 
-layout(buffer_reference, scalar) buffer VisibleInstanceBuffer { uint count; uint data[]; };
+#define INSTANCE_CULL_EARLY 0u
+#define INSTANCE_CULL_LATE 1u
+
+layout(buffer_reference, scalar) buffer InstanceListBuffer { uint count; uint data[]; };
 
 layout(push_constant) uniform Push {
     CameraBuffer camera;
     GeometryBuffer geometry;
     InstanceBuffer instances;
     TransformBuffer transforms;
-    VisibleInstanceBuffer visible_instances;
+    InstanceListBuffer visible_instances;
+    InstanceListBuffer occluded_instances;
     uint instance_count;
     float px_per_unit;
     float min_screen_radius_px;
+    uint hiz_index;
+    uint hiz_mips;
+    uint hiz_enabled;
+    uint phase;
+    uint _pad;
+    vec2 screen_size;
+
 } pc;
 
 bool contribution_cull(vec3 p_center, float p_radius) {
@@ -31,19 +47,48 @@ bool contribution_cull(vec3 p_center, float p_radius) {
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    if (id >= pc.instance_count) return;
+    bool late = pc.phase == INSTANCE_CULL_LATE;
+    uint count = late ? pc.occluded_instances.count : pc.instance_count;
+    bool valid = id < count;
 
-    Instance instance = pc.instances.data[id];
-    mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
-    Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
+    uint instance_id = 0u;
+    bool to_visible = false;
+    bool to_occluded = false;
 
-    vec3 center = (model * vec4(mesh.bounds_sphere.xyz, 1.0)).xyz;
-    float scale = transform_max_scale(model);
-    float radius = mesh.bounds_sphere.w * scale;
+    if (valid) {
+        instance_id = late ? pc.occluded_instances.data[id] : id;
+        Instance instance = pc.instances.data[instance_id];
+        mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
+        Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
 
-    if (frustum_cull_sphere(pc.camera, center, radius)) return;
-    if (contribution_cull(center, radius)) return;
-    
-    uint slot = atomicAdd(pc.visible_instances.count, 1u);
-    pc.visible_instances.data[slot] = id;
+        vec3 center = (model * vec4(mesh.bounds_sphere.xyz, 1.0)).xyz;
+        float scale = transform_max_scale(model);
+        float radius = mesh.bounds_sphere.w * scale;
+
+        if (late) {
+            to_visible = pc.hiz_enabled == 0u || !hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, mesh.pos_min, mesh.pos_extent);
+        } else if (!frustum_cull_sphere(pc.camera, center, radius) && !contribution_cull(center, radius)) {
+            if (pc.hiz_enabled != 0u) {
+                mat4 prev_model = pc.transforms.data[instance.transform_id].prev_mtx;
+                to_occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, prev_model, mesh.pos_min, mesh.pos_extent);
+            }
+            to_visible = !to_occluded;
+        }
+    }
+
+    uvec4 vb = subgroupBallot(to_visible);
+    uvec4 ob = subgroupBallot(to_occluded);
+    uint vn = subgroupBallotBitCount(vb);
+    uint on = subgroupBallotBitCount(ob);
+    uint vbase = 0u;
+    uint obase = 0u;
+    if (subgroupElect()) {
+        if (vn > 0u) vbase = atomicAdd(pc.visible_instances.count, vn);
+        if (on > 0u) obase = atomicAdd(pc.occluded_instances.count, on);
+    }
+    vbase = subgroupBroadcastFirst(vbase);
+    obase = subgroupBroadcastFirst(obase);
+
+    if (to_visible) pc.visible_instances.data[vbase + subgroupBallotExclusiveBitCount(vb)] = instance_id;
+    if (to_occluded) pc.occluded_instances.data[obase + subgroupBallotExclusiveBitCount(ob)] = instance_id;
 }

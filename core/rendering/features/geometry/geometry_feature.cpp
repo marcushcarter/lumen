@@ -544,10 +544,17 @@ void GeometryFeature::_create_visbuffer_pass()
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
+
+        if (!ctx->geometry->index_buffer().buffer) return;
         cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
+
+        // cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
+        // cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
+        // cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+        // cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
@@ -884,10 +891,17 @@ void GeometryFeature::_create_visbuffer_2_pass()
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
+
+        if (!ctx->geometry->index_buffer().buffer) return;
         cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
+
+        // cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
+        // cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
+        // cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+        // cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 

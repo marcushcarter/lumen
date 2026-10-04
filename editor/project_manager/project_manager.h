@@ -23,8 +23,9 @@ struct ProjectManager
     int  sort_index = 0;
     char filter_buf[128] = {};
 
-    // NewProjectPopup new_project_popup;
-    // DeleteProjectPopup delete_project_popup;
+    bool new_project_request = false;
+    char new_project_name[128] = {};
+    char new_project_location[512] = {};
 
     Error initialize();
     void shutdown();

@@ -1,6 +1,7 @@
 #include <editor/project_manager/project_manager.h>
 // #include <editor/popup/popup_manager.h>
 // #include <editor/popup/project/delete_project.h>
+#include <drivers/windows/dialogs_win32.h>
 #include <drivers/toml/toml_helpers.h>
 #include <core/project/project.h>
 #include <core/io/path.h>
@@ -211,7 +212,7 @@ void ProjectManager::_draw_list(EditorContext& ctx)
     ImGui::Dummy(ImVec2(0, row_pad));
     ImGui::PopStyleVar();
 }
-
+// editor/project_manager/project_manager.cpp, line 215
 void ProjectManager::on_update(EditorContext& ctx)
 {
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -221,6 +222,7 @@ void ProjectManager::on_update(EditorContext& ctx)
     
     // if (ImGui::Button("New Project")) ctx.popups->open("New Project");
     // if (ImGui::Button("New Project")) new_project_popup.open();
+    if (ImGui::Button("New Project")) new_project_request = true;
     ImGui::SameLine();
 
     const float sort_w = 160.0f;
@@ -278,8 +280,53 @@ void ProjectManager::on_update(EditorContext& ctx)
 
     ImGui::End();
 
+    if (new_project_request) {
+        ImGui::OpenPopup("New Project");
+        new_project_request = false;
+    }
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) {
+        const float browse_w = 90.0f;
+
+        ImGui::InputText("Name", new_project_name, sizeof(new_project_name));
+
+        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - browse_w - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::InputText("##location", new_project_location, sizeof(new_project_location));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse", ImVec2(browse_w, 0))) {
+            const std::wstring picked = drivers::Win32Dialogs::open_folder(L"Choose project location");
+            if (!picked.empty()) std::snprintf(new_project_location, sizeof(new_project_location), "%s", std::filesystem::path(picked).string().c_str());
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Location");
+
+        const std::filesystem::path root = std::filesystem::path(new_project_location) / new_project_name;
+        std::error_code ec;
+        const bool has_name = new_project_name[0] != '\0';
+        const bool has_location = std::filesystem::is_directory(new_project_location, ec);
+        const bool taken = has_name && has_location && std::filesystem::exists(root / Project::FILE_NAME, ec);
+
+        if (!has_name) ImGui::TextDisabled("Enter a project name");
+        else if (!has_location) ImGui::TextDisabled("Choose a location that exists");
+        else if (taken) ImGui::TextColored(ImVec4(0.86f, 0.35f, 0.35f, 1.0f), "That folder already contains a project");
+        else ImGui::TextDisabled("%s", root.string().c_str());
+
+        ImGui::Spacing();
+        ImGui::BeginDisabled(!has_name || !has_location || taken);
+        if (ImGui::Button("Create", ImVec2(120.0f, 0)) && Project::create(root, new_project_name) == Error::OK) {
+            add_recent(root, new_project_name);
+            ImGui::CloseCurrentPopup();
+            ctx.open_project_callback(root);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120.0f, 0))) ImGui::CloseCurrentPopup();
+
+        ImGui::EndPopup();
+    }
+
     // new_project_popup.draw(ctx);
     // delete_project_popup.draw(ctx);
 }
-
 }

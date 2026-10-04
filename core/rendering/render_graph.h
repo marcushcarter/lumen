@@ -18,11 +18,20 @@ struct RenderGraph
     /**** SETUP ****/
     /***************/
     
+    struct RetiredResources {
+        uint64_t epoch = 0;
+        std::vector<drivers::DeviceDriverVulkan::Image> images;
+        std::vector<VkFramebuffer> framebuffers;
+    };
+    
     drivers::DeviceDriverVulkan* dd = nullptr;
     
     uint32_t frame_count = 1;
     uint32_t current_frame = 0;
     uint32_t width = 0, height = 0;
+
+    uint64_t epoch = 0;
+    std::vector<RetiredResources> retired;
     
     RenderGraphProfiler profiler;
     
@@ -30,6 +39,7 @@ struct RenderGraph
     void shutdown();
     Error set_size(uint32_t p_width, uint32_t p_height);
     void framebuffers_flush();
+    void _collect_retired(bool p_all);
 
     /***************/
     /**** NAMES ****/

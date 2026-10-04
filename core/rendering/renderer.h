@@ -56,16 +56,23 @@ struct Renderer
     /**** SIZING ****/
     /****************/
     
+    static constexpr uint32_t RESIZE_SETTLE_FRAMES = 4;
+
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t pending_width = 0;
     uint32_t pending_height = 0;
+    uint32_t settle_width = 0;
+    uint32_t settle_height = 0;
+    uint32_t settle_frames = 0;
     uint64_t resize_epoch = 0;
 
     drivers::DeviceDriverVulkan::Image hiz_pyramid;
+    std::vector<std::pair<uint64_t, drivers::DeviceDriverVulkan::Image>> hiz_retired;
 
     void _create_hiz_pyramid(uint32_t p_width, uint32_t p_height);
     void _destroy_hiz_pyramid();
+    void _collect_hiz_retired(bool p_all);
 
     void request_size(uint32_t p_width, uint32_t p_height);
     Error apply_pending_size();

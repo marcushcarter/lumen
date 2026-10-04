@@ -9,7 +9,7 @@ namespace lumen {
 
 struct Theme
 {
-    ImVec4 base { 0.01f, 0.01f, 0.12f, 1.0f };
+    ImVec4 base { 0.01f, 0.01f, 0.01f, 1.0f };
     ImVec4 accent { 0.06f, 0.06f, 0.78f, 1.0f };
     ImVec4 text { 0.92f, 0.92f, 0.92f, 1.0f };
     bool use_system_accent = false;
@@ -40,9 +40,9 @@ struct Theme
 
     static inline constexpr ThemePreset THEME_PRESETS[] = {
         { "Default", { 0.01f, 0.01f, 0.01f, 1.0f }, { 0.06f, 0.06f, 0.78f, 1.0f }, { 0.92f, 0.92f, 0.92f, 1.0f } },
-        { "Dark", { 0.012f, 0.010f, 0.014f, 1.0f }, { 0.92f, 0.92f, 0.94f, 1.0f }, { 0.66f, 0.30f, 0.76f, 1.0f } },
-        { "Light", { 0.90f, 0.90f, 0.92f, 1.0f }, { 0.10f, 0.10f, 0.12f, 1.0f }, { 0.30f, 0.50f, 0.90f, 1.0f } },
-        { "Classic ImGui", { 0.78f, 0.78f, 0.78f, 1.0f }, { 0.00f, 0.88f, 0.88f, 1.0f }, { 0.00f, 0.00f, 0.00f, 1.0f } }, 
+        { "Dark", { 0.01f, 0.01f, 0.01f, 1.0f }, { 0.06f, 0.06f, 0.78f, 1.0f }, { 0.92f, 0.92f, 0.92f, 1.0f } },
+        { "Light", { 0.90f, 0.90f, 0.92f, 1.0f }, { 0.6f, 0.6f, 0.6f, 1.0f }, { 0.0f, 0.0f, 0.0f, 1.0f } }, 
+        { "Classic ImGui", { 0.40f, 0.40f, 0.40f, 1.0f }, { 0.26f, 0.59f, 0.98f, 1.0f }, { 1.00f, 1.00f, 1.00f, 1.0f } }
     };
     
     static const char* theme_preset_name(int i);

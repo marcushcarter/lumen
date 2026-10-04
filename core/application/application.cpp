@@ -266,6 +266,7 @@ Error Application::_apply_pending_render_path()
     using enum Error;
     if (!pending_render_path) return OK;
 
+    const auto t0 = std::chrono::steady_clock::now();
     dd.device_wait_idle();
 
     if (pending_transition) { pending_transition(); pending_transition = nullptr; }
@@ -276,6 +277,7 @@ Error Application::_apply_pending_render_path()
         render_path->destroy_resources();
         delete render_path;
     }
+    const auto t1 = std::chrono::steady_clock::now();
 
     render_path = pending_render_path;
     pending_render_path = nullptr;
@@ -283,6 +285,11 @@ Error Application::_apply_pending_render_path()
     render_path->ctx.imgui = &imgui;
     Error err = render_path->create_resources();
     LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Application: render path create_resources failed.");
+    dd.pipeline_cache_save();
+
+    const auto t2 = std::chrono::steady_clock::now();
+    auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    log_write("RenderPath switch: teardown %.1f ms, create %.1f ms", ms(t0, t1), ms(t1, t2));
     return OK;
 }
 

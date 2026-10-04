@@ -63,10 +63,11 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
 
     cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, out->extent }});
     cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, out->extent }});
+
+    if (!ctx->geometry->index_buffer().buffer) return;
     cl.dd->command_bind_pipeline(cl.cmd, overdraw_raster_pipe);
     cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
     cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-    // cl.draw_indexed_indirect_count(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *draw_cmds, 0, *draw_count, 0, ctx->frame->cluster_ref_capacity, sizeof(VkDrawIndexedIndirectCommand));
     cl.draw_indexed_indirect_count(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
 }
 

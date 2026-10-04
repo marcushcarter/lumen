@@ -456,6 +456,7 @@ struct DeviceDriverVulkan
     
     Error pipeline_cache_create();
     void pipeline_cache_free();
+    void pipeline_cache_save() { _save_pipeline_cache(); }
     
     // ----- SHADER -----
     

@@ -2632,6 +2632,31 @@ struct ShaderIncluder : shaderc::CompileOptions::IncluderInterface
     }
 };
 
+static void _shader_gather_sources(std::string_view p_src, std::string& r_out, std::vector<std::string>& r_seen)
+{
+    r_out.append(p_src.data(), p_src.size());
+    size_t pos = 0;
+    while ((pos = p_src.find("#include", pos)) != std::string_view::npos) {
+        const size_t eol = p_src.find('\n', pos);
+        const size_t open = p_src.find('"', pos);
+        pos += 8;
+        if (open == std::string_view::npos || (eol != std::string_view::npos && open > eol)) continue;
+        const size_t close = p_src.find('"', open + 1);
+        if (close == std::string_view::npos || (eol != std::string_view::npos && close > eol)) continue;
+
+        std::string name(p_src.substr(open + 1, close - open - 1));
+        if (std::find(r_seen.begin(), r_seen.end(), name) != r_seen.end()) continue;
+        r_seen.push_back(name);
+
+        EmbeddedResource::Blob blob = EmbeddedResource::load(_shader_include_resource_name(name.c_str()).c_str());
+        if (!blob) continue;
+        r_out += '\0';
+        r_out += name;
+        r_out += '\0';
+        _shader_gather_sources(std::string_view((const char*)blob.data, blob.size), r_out, r_seen);
+    }
+}
+
 VkShaderModule DeviceDriverVulkan::shader_create(const ShaderCreateInfo& p_ci)
 {
     using enum Error;
@@ -2641,16 +2666,10 @@ VkShaderModule DeviceDriverVulkan::shader_create(const ShaderCreateInfo& p_ci)
     size_t code_size = p_ci.spirv_size;
 
     if (!code && p_ci.glsl) {
-        shaderc::CompileOptions options;
-        options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
-        options.SetOptimizationLevel(shaderc_optimization_level_zero);
-        options.SetIncluder(std::make_unique<ShaderIncluder>());
-
-        shaderc::PreprocessedSourceCompilationResult pre = shader_compiler->PreprocessGlsl(p_ci.glsl, p_ci.glsl_size, _shaderc_kind(p_ci.stage), p_ci.name ? p_ci.name : "embedded_shader", options);
-        LUMEN_ERR_FAIL_COND_V_MSG(pre.GetCompilationStatus() != shaderc_compilation_status_success, VK_NULL_HANDLE, pre.GetErrorMessage().c_str());
-        const std::string flat(pre.cbegin(), pre.cend());
-
-        const uint64_t key = _shader_cache_key(flat.data(), flat.size(), p_ci.stage);
+        std::string sources;
+        std::vector<std::string> seen;
+        _shader_gather_sources(std::string_view(p_ci.glsl, p_ci.glsl_size), sources, seen);
+        const uint64_t key = _shader_cache_key(sources.data(), sources.size(), p_ci.stage) ^ 0x9E3779B97F4A7C15ull;
 
         std::filesystem::path cache_file;
         if (!shader_cache_dir.empty()) {
@@ -2677,6 +2696,15 @@ VkShaderModule DeviceDriverVulkan::shader_create(const ShaderCreateInfo& p_ci)
         }
 
         if (!loaded) {
+            shaderc::CompileOptions options;
+            options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
+            options.SetOptimizationLevel(shaderc_optimization_level_zero);
+            options.SetIncluder(std::make_unique<ShaderIncluder>());
+
+            shaderc::PreprocessedSourceCompilationResult pre = shader_compiler->PreprocessGlsl(p_ci.glsl, p_ci.glsl_size, _shaderc_kind(p_ci.stage), p_ci.name ? p_ci.name : "embedded_shader", options);
+            LUMEN_ERR_FAIL_COND_V_MSG(pre.GetCompilationStatus() != shaderc_compilation_status_success, VK_NULL_HANDLE, pre.GetErrorMessage().c_str());
+            const std::string flat(pre.cbegin(), pre.cend());
+
             shaderc::SpvCompilationResult res = shader_compiler->CompileGlslToSpv(flat.c_str(), flat.size(), _shaderc_kind(p_ci.stage), p_ci.name ? p_ci.name : "embedded_shader", options);
             LUMEN_ERR_FAIL_COND_V_MSG(res.GetCompilationStatus() != shaderc_compilation_status_success, VK_NULL_HANDLE, res.GetErrorMessage().c_str());
 

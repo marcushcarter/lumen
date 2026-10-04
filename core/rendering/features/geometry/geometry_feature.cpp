@@ -550,11 +550,6 @@ void GeometryFeature::_create_visbuffer_pass()
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
-
-        // cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
-        // cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
-        // cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        // cl.draw_indexed_indirect_count("Visbuffer 1", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
@@ -897,11 +892,6 @@ void GeometryFeature::_create_visbuffer_2_pass()
         cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
-
-        // cl.dd->command_bind_pipeline(cl.cmd, visbuffer_pipe);
-        // cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
-        // cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        // cl.draw_indexed_indirect_count("Visbuffer 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
     };
 }
 
@@ -1250,7 +1240,8 @@ void GeometryFeature::build(RenderGraph& g)
     hiz_use_prev = occlusion && hiz_ok && hiz_history && ctx->frame->hiz_history_valid;
     hiz_history = occlusion && hiz_ok;
 
-    bool ms_active = mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
+    constexpr bool MESH_PATH_READY = false;
+    bool ms_active = MESH_PATH_READY && mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
     bool task_active = ms_active && task_shading && ctx->dd->capabilities.mesh.task_shader;
 
     g.add(&clear_visible_pass);
@@ -1261,7 +1252,7 @@ void GeometryFeature::build(RenderGraph& g)
     g.add(&cluster_cull_pass);
     if (task_active) {
 
-    } if (ms_active) {
+    } else if (ms_active) {
 
     } else {
         g.add(&draw_count_pass);
@@ -1282,7 +1273,7 @@ void GeometryFeature::build(RenderGraph& g)
     g.add(&cluster_retest_pass);
     if (task_active) {
 
-    } if (ms_active) {
+    } else if (ms_active) {
 
     } else {
         g.add(&draw_count_pass_2);

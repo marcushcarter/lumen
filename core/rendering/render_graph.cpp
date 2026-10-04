@@ -27,6 +27,7 @@ Error RenderGraph::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
 void RenderGraph::shutdown()
 {
     dd->device_wait_idle();
+    _collect_retired(true);
 
     profiler.shutdown();
 
@@ -59,21 +60,20 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
     width = p_width;
     height = p_height;
 
-    for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
+    RetiredResources r{};
+    r.epoch = epoch;
+
+    for (auto& [k, fb] : framebuffer_cache) r.framebuffers.push_back(fb);
     framebuffer_cache.clear();
     _alias_free.clear();
 
     for (ImageTransientPool& pool : image_transient_pools) {
         for (auto& [key, imgs] : pool.free)
-            for (drivers::DeviceDriverVulkan::Image& img : imgs) dd->image_free(img);
+            for (drivers::DeviceDriverVulkan::Image& img : imgs) r.images.push_back(std::move(img));
         pool.free.clear();
     }
 
-    for (BufferTransientPool& pool : buffer_transient_pools) {
-        for (auto& [key, bufs] : pool.free)
-            for (drivers::DeviceDriverVulkan::Buffer& buf : bufs) dd->buffer_free(buf);
-        pool.free.clear();
-    }
+    retired.push_back(std::move(r));
 
     return OK;
 }
@@ -82,6 +82,20 @@ void RenderGraph::framebuffers_flush()
 {
     for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
     framebuffer_cache.clear();
+}
+
+void RenderGraph::_collect_retired(bool p_all)
+{
+    for (size_t i = 0; i < retired.size();) {
+        if (p_all || epoch >= retired[i].epoch + frame_count) {
+            for (VkFramebuffer& fb : retired[i].framebuffers) dd->framebuffer_free(fb);
+            for (drivers::DeviceDriverVulkan::Image& img : retired[i].images) dd->image_free(img);
+            retired[i] = std::move(retired.back());
+            retired.pop_back();
+        } else {
+            ++i;
+        }
+    }
 }
 
 /***************/
@@ -689,6 +703,7 @@ VkFramebuffer RenderGraph::_get_or_create_framebuffer(Node& node)
 void RenderGraph::begin(uint32_t p_current_frame)
 {
     current_frame = p_current_frame;
+    _collect_retired(false);
     
     image_resources.clear();
     image_resources.reserve(64);
@@ -1091,6 +1106,7 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
 
     profiler.frame_end();
     release_transients();
+    epoch++;
 }
 
 }

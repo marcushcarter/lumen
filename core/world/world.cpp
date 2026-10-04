@@ -20,6 +20,15 @@ void World::shutdown()
 Error World::load()
 {
     using enum Error;
+
+    const vec3 target = vec3(0.0f, 50.0f, 0.0f);
+    const float radius = 1000.0f;
+    const float height = 50.0f;
+    const float angle = 0.0f;
+    const vec3 eye = target + vec3(radius * std::cos(angle), height, -radius * std::sin(angle));
+    default_camera.position = eye;
+    default_camera.rotation = quatLookAt(normalize(target - eye), vec3(0.0f, 1.0f, 0.0f));
+    active_camera = &default_camera;
     
     return OK;
 }

@@ -16,6 +16,7 @@ enum class DebugViewOp : uint32_t {
     CLAY,
     OVERDRAW,
     ALBEDO,
+    WIREFRAME,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -23,6 +24,7 @@ enum class DebugViewInputs : uint32_t {
     SOURCE = 1u << 0,
     VISBUF = 1u << 1,
     DEPTH = 1u << 2,
+    GEOMETRY = 1u << 3,
 };
 
 constexpr DebugViewInputs operator|(DebugViewInputs a, DebugViewInputs b) { return (DebugViewInputs)((uint32_t)a | (uint32_t)b); }
@@ -42,7 +44,7 @@ static constexpr const char* DV_CAT_GEOMETRY = ICON_FA_IMAGE "  Geometry Visuali
 static constexpr DebugView DEBUG_VIEWS[] = {
     // { ICON_FA_LIGHTBULB "  Lit", "", "G_Albedo", DebugViewOp::COPY, DebugViewInputs::SOURCE },
     { ICON_FA_IMAGE "  Unlit", "", "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
-    // { ICON_FA_IMAGE "  Clay", "", "G_Albedo", DebugViewOp::CLAY, DebugViewInputs::SOURCE },
+    { ICON_FA_DRAW_POLYGON "  Wireframe", "", nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { ICON_FA_IMAGE "  Clay", "", nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
     
     { "Base Color", DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
@@ -64,6 +66,7 @@ static constexpr int DEBUG_VIEW_COUNT = (int)(sizeof(DEBUG_VIEWS) / sizeof(DEBUG
 Lit
 Unlit
 Wireframe
+Wireframe Only
 Direct Lighting / Direct Only
 Indirect Lighting / Indirect Only
 

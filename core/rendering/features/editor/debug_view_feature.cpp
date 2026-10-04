@@ -103,6 +103,11 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
 
+        if (d.inputs & DebugViewInputs::GEOMETRY) {
+            b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+            b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
+
         VkAccessFlags2 vp_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
         if (overdraw_active) vp_access |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
         b.write_image("Viewport", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, vp_access);
@@ -117,6 +122,8 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             VkDeviceAddress camera_addr;
             VkDeviceAddress cluster_refs_addr;
             VkDeviceAddress instances_addr;
+            VkDeviceAddress geometry_addr;
+            VkDeviceAddress transforms_addr;
             uint32_t vis_index; 
             uint32_t depth_index;
             uint32_t src_index;
@@ -140,6 +147,10 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             if (auto* s = cl.graph->image("G_Visibility")) pc.vis_index = s->bindless_sampled; else return;
             if (auto* r = cl.graph->buffer("ClusterRefs")) pc.cluster_refs_addr = r->device_address; else return;
             if (auto* r = cl.graph->buffer("Instances")) pc.instances_addr = r->device_address; else return;
+        }
+        if (d.inputs & DebugViewInputs::GEOMETRY) {
+            if (auto* r = cl.graph->buffer("Geometry")) pc.geometry_addr = r->device_address; else return;
+            if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else return;
         }
 
         uint32_t gx = (out->extent.width + 7) / 8;

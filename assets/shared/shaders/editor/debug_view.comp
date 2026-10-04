@@ -4,6 +4,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
 
+#include "common/geometry.glsl"
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/gbuffer.glsl"
@@ -21,6 +22,8 @@ layout(push_constant) uniform Push {
     CameraBuffer camera;
     ClusterRefsBuffer cluster_refs;
     InstanceBuffer instances;
+    GeometryBuffer geometry;
+    TransformBuffer transforms;
     uint vis_index;
     uint depth_index;
     uint src_index;
@@ -144,6 +147,36 @@ vec3 color_map_inferno(float t) {
     return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
 }
 
+const float WIRE_HALF_WIDTH = 0.5;
+const float WIRE_BASE_DIM = 0.35;
+const vec3 WIRE_COLOR = vec3(0.9);
+
+vec3 wire_vertex(uint index, Mesh mesh, mat4 mvp, vec2 size) {
+    Vertex v = pc.geometry.vertices.data[pc.geometry.indices.data[index]];
+    vec3 local = mesh.pos_min + (vec3(v.position) / 65535.0) * mesh.pos_extent;
+    vec4 clip = mvp * vec4(local, 1.0);
+    return vec3((clip.xy * 0.5 + 0.5 * clip.w) * size, clip.w);
+}
+
+float wire_edge_distance(vec3 a, vec3 b, vec2 p) {
+    vec3 l = cross(a, b);
+    return abs(dot(l, vec3(p, 1.0))) / max(length(l.xy), 1e-20);
+}
+
+float wire_distance(ivec2 coord, ivec2 size, uvec2 v, uvec2 ref) {
+    Instance inst = pc.instances.data[ref.x];
+    Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+    Cluster cluster = pc.geometry.clusters.data[ref.y];
+    mat4 mvp = pc.camera.curr_view_proj * pc.transforms.data[inst.transform_id].curr_mtx;
+    uint i = cluster.index_base + v.y * 3u;
+    vec2 fsize = vec2(size);
+    vec3 a = wire_vertex(i + 0u, mesh, mvp, fsize);
+    vec3 b = wire_vertex(i + 1u, mesh, mvp, fsize);
+    vec3 c = wire_vertex(i + 2u, mesh, mvp, fsize);
+    vec2 p = vec2(coord) + 0.5;
+    return min(wire_edge_distance(a, b, p), min(wire_edge_distance(b, c, p), wire_edge_distance(c, a, p)));
+}
+
 void main() {
     uvec2 px = gl_GlobalInvocationID.xy;
     ivec2 size  = ivec2(pc.width, pc.height);
@@ -159,6 +192,15 @@ void main() {
         uint flags;
         gbuffer_decode_albedo(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), albedo, flags);
         color = albedo;
+    }else if (pc.op == OP_WIREFRAME) {
+        uvec2 v, ref;
+        color = vec3(0);
+        if (sample_vis(coord, v, ref)) {
+            vec3 base = clay_shade(clay_normal(coord, size), view_pos_at(coord, size)) * WIRE_BASE_DIM;
+            float d = wire_distance(coord, size, v, ref);
+            float line = 1.0 - smoothstep(WIRE_HALF_WIDTH - 0.5, WIRE_HALF_WIDTH + 0.5, d);
+            color = mix(base, WIRE_COLOR, line);
+        }
     } else if (pc.op == OP_CLAY) {
         color = vec3(0.24);
         float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;

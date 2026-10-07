@@ -1,4 +1,5 @@
 #include <editor/docking/center_view/center_view.h>
+#include <editor/docking/tab_strip.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/renderer.h>
@@ -148,21 +149,17 @@ void CenterView::_draw_scene(EditorContext& ctx)
     if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
 }
 
-void CenterView::draw(EditorContext& ctx)
+void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    const float strip_h = ImGui::GetFrameHeight();
-    const float handle_h = 6.0f;
-    float above_h = avail.y - strip_h;
-    if (above_h < 1.0f) above_h = 1.0f;
-
-    float usable = above_h - handle_h;
-    if (usable < 1.0f) usable = 1.0f;
-
+    const DockColors colors = DockColors::get();
+    const float w = p_max.x - p_min.x;
+    const float h = p_max.y - p_min.y;
+    const float strip_h = TabStrip::height();
     const float min_debug = 0.025f;
     const float max_debug = 0.7f;
 
+    // Scene / gap / drawer content / tab strip are stacked, never overlapped, so the viewport only renders visible pixels.
+    const float usable = ImMax(1.0f, h - strip_h - DOCK_GAP);
     float scene_h, content_h;
     if (debugger.collapsed) {
         scene_h = usable;
@@ -175,49 +172,36 @@ void CenterView::draw(EditorContext& ctx)
         scene_h = ImFloor(usable * split_ratio);
         content_h = usable - scene_h;
     }
-    
-    ImGui::BeginChild("##top", ImVec2(avail.x, above_h), false, ImGuiWindowFlags_NoScrollbar);
+
+    ImGui::SetCursorScreenPos(p_min);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::BeginChild("##scene", ImVec2(w, ImMax(1.0f, scene_h)), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
     _draw_scene(ctx);
     ImGui::EndChild();
-    const ImVec2 strip_pos = ImGui::GetCursorScreenPos();
 
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + scene_h));
-    ImGui::BeginChild("##overlay", ImVec2(avail.x, handle_h + content_h), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    
-    SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(avail.x, handle_h));
+    ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h));
+    SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, DOCK_GAP), 0.0f);
     if (s.active) {
         if (debugger.collapsed && s.activated) split_ratio = 1.0f;
         split_ratio += s.delta / usable;
         debugger.collapsed = (1.0f - split_ratio < min_debug);
     }
-    
-    ImVec2 bmin = ImGui::GetItemRectMin();
-    ImVec2 bmax = ImGui::GetItemRectMax();
-    float cy = ImFloor((bmin.y + bmax.y) * 0.5f);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    
-    const float grip_w = 40.0f;
-    float gx = ImFloor((bmin.x + bmax.x) * 0.5f);
-    ImU32 grip_col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : s.hovered ? ImGuiCol_SeparatorHovered : ImGuiCol_Separator);
-    dl->AddRectFilled(ImVec2(gx - grip_w * 0.5f, cy - 2.0f), ImVec2(gx + grip_w * 0.5f, cy + 2.0f), grip_col, 2.0f);
 
-    if (!debugger.collapsed) {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
-        ImGui::BeginChild("##bottom", ImVec2(avail.x, content_h), true, ImGuiWindowFlags_NoScrollbar);
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 4));
+    if (!debugger.collapsed && content_h >= 1.0f) {
+        ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h + DOCK_GAP));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.pane);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+        ImGui::BeginChild("##drawer", ImVec2(w, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
         debugger.draw_content(ctx);
-        ImGui::PopStyleVar();
         ImGui::EndChild();
-        ImGui::PopStyleVar();
     }
 
-    ImGui::EndChild();
-
-    ImGui::SetCursorScreenPos(strip_pos);
     const bool was_collapsed = debugger.collapsed;
-    debugger.draw_strip(ctx);
-
+    debugger.draw_strip(ImVec2(p_min.x, p_max.y - strip_h), p_max);
     if (was_collapsed && !debugger.collapsed) split_ratio = 1.0f - max_debug / 3.0f;
 }
-    
-}
+
+}

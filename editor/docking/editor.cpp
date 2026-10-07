@@ -1,4 +1,5 @@
 #include <editor/docking/editor.h>
+#include <editor/docking/tab_strip.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <IconsFontAwesome6.h>
@@ -95,30 +96,39 @@ void Editor::on_update(EditorContext& ctx, float)
     ImGui::Begin("##EditorHost", nullptr,
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus
+        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
     );
     ImGui::PopStyleVar(3);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    // Every pane is placed from explicit rects; nothing relies on ItemSpacing/SameLine flow.
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 extent = ImGui::GetContentRegionAvail();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 4));
-    ImGui::BeginChild("##topbar", ImVec2(0, bar_h), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, ImFloor((bar_h - ImGui::GetFrameHeight()) * 0.5f)));
+    ImGui::BeginChild("##topbar", ImVec2(extent.x, bar_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
     _draw_toolbar(ctx);
     ImGui::EndChild();
-    ImGui::PopStyleVar();
 
-    const float thick = 6.0f;
-    ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float body_y = origin.y + bar_h + DOCK_GAP;
+    const float body_h = ImMax(1.0f, origin.y + extent.y - body_y);
 
-    float body_w = avail.x - thick;
-    if (body_w < 1.0f) body_w = 1.0f;
+    const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+    const bool dragging_panel = payload && payload->IsDataType(DockWell::PAYLOAD);
+    const bool top_live = right_top.has_open() || dragging_panel;
+    const bool bottom_live = right_bottom.has_open() || dragging_panel;
+    const bool right_live = top_live || bottom_live;
+    const bool right_shown = right_live && !right_collapsed;
+
     const float min_dockwell = 0.025f;
     const float max_dockwell = 0.5f;
-    float left_w, right_w;
-    if (right_collapsed) {
-        left_w = body_w;
-        right_w = 0.0f;
-    } else {
+    const float body_w = ImMax(1.0f, extent.x - (right_live ? DOCK_GAP : 0.0f));
+    float left_w = body_w;
+    float right_w = 0.0f;
+    if (right_shown) {
         const float lo = 1.0f - max_dockwell;
         float hi = 1.0f - min_dockwell;
         if (hi < lo) hi = lo;
@@ -127,50 +137,40 @@ void Editor::on_update(EditorContext& ctx, float)
         right_w = body_w - left_w;
     }
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::BeginChild("##left", ImVec2(left_w, avail.y), false, ImGuiWindowFlags_NoScrollbar);
-    center_view.draw(ctx);
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
+    center_view.draw(ctx, ImVec2(origin.x, body_y), ImVec2(origin.x + left_w, body_y + body_h));
 
-    ImGui::SameLine(0, 0);
-    SplitterState sx = imgui_splitter("##split_lr", SplitAxis::X, ImVec2(thick, avail.y));
-    if (sx.active) {
-        if (right_collapsed && sx.activated) split_x = 1.0f;
-        split_x += sx.delta / body_w;
-        right_collapsed = (1.0f - split_x < min_dockwell);
+    if (right_live) {
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + left_w, body_y));
+        SplitterState sx = imgui_splitter("##split_lr", SplitAxis::X, ImVec2(DOCK_GAP, body_h), 0.0f);
+        if (sx.active) {
+            if (right_collapsed && sx.activated) split_x = 1.0f;
+            split_x += sx.delta / body_w;
+            right_collapsed = (1.0f - split_x < min_dockwell);
+        }
     }
 
-    if (!right_collapsed) {
-        ImGui::SameLine(0, 0);
-
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::BeginChild("##right", ImVec2(right_w, avail.y), false, ImGuiWindowFlags_NoScrollbar);
-        {
-            ImVec2 ra = ImGui::GetContentRegionAvail();
-            float col_h = ra.y - thick;
-            if (col_h < 1.0f) col_h = 1.0f;
+    if (right_shown) {
+        const float rx = origin.x + left_w + DOCK_GAP;
+        const float body_max_y = body_y + body_h;
+        if (top_live && bottom_live) {
+            const float col_h = ImMax(1.0f, body_h - DOCK_GAP);
             const float min_well = 0.15f;
             split_y = ImClamp(split_y, min_well, 1.0f - min_well);
-            float top_h = ImFloor(col_h * split_y);
-            float bot_h = col_h - top_h;
+            const float top_h = ImFloor(col_h * split_y);
 
-            ImGui::BeginChild("##rtop", ImVec2(ra.x, top_h), true, ImGuiWindowFlags_NoScrollbar);
-            right_top.draw(ctx);
-            ImGui::EndChild();
+            right_top.draw(ctx, ImVec2(rx, body_y), ImVec2(rx + right_w, body_y + top_h));
 
-            SplitterState sy = imgui_splitter("##split_tb", SplitAxis::Y, ImVec2(ra.x, thick));
+            ImGui::SetCursorScreenPos(ImVec2(rx, body_y + top_h));
+            SplitterState sy = imgui_splitter("##split_tb", SplitAxis::Y, ImVec2(right_w, DOCK_GAP), 0.0f);
             if (sy.active) split_y += sy.delta / col_h;
 
-            ImGui::BeginChild("##rbottom", ImVec2(ra.x, bot_h), true, ImGuiWindowFlags_NoScrollbar);
-            right_bottom.draw(ctx);
-            ImGui::EndChild();
+            right_bottom.draw(ctx, ImVec2(rx, body_y + top_h + DOCK_GAP), ImVec2(rx + right_w, body_max_y));
+        } else {
+            DockWell& only = top_live ? right_top : right_bottom;
+            only.draw(ctx, ImVec2(rx, body_y), ImVec2(rx + right_w, body_max_y));
         }
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
     }
 
-    ImGui::PopStyleVar();
     ImGui::End();
 }
 

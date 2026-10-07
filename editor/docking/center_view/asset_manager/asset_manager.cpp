@@ -109,6 +109,14 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
 
     ImGui::BeginChild("##left", ImVec2(left_w, avail.y), true);
     if (cache.get(root).exists) _draw_folder_node(root, selected_folder, 0);
+    {
+        // Drawn in the tree child's own list: the foreground list painted this over popups and the drag tooltip.
+        const float divider_x = region_p0.x + left_w;
+        const float shadow_w  = 20.0f;
+        const ImU32 c_edge = IM_COL32(0, 0, 0, 80);
+        const ImU32 c_fade = IM_COL32(0, 0, 0, 0);
+        ImGui::GetWindowDrawList()->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
+    }
     ImGui::EndChild();
 
     ImGui::SameLine(0, 0);
@@ -123,13 +131,13 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     ImGui::EndChild();
     ImGui::EndChild();
     
-    const float divider_x = region_p0.x + left_w;
-    const float shadow_w  = 20.0f;
-    const ImU32 c_edge = IM_COL32(0, 0, 0, 80);
-    const ImU32 c_fade = IM_COL32(0, 0, 0, 0);
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    dl->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
+    // const float divider_x = region_p0.x + left_w;
+    // const float shadow_w  = 20.0f;
+    // const ImU32 c_edge = IM_COL32(0, 0, 0, 80);
+    // const ImU32 c_fade = IM_COL32(0, 0, 0, 0);
+    // ImDrawList* dl = ImGui::GetForegroundDrawList();
+    // dl->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
 
 }
 
-}
+}

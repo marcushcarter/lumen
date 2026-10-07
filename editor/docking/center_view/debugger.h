@@ -14,7 +14,7 @@ struct Debugger
 
     void initialize();
     void draw_content(EditorContext& ctx);
-    void draw_strip(EditorContext& ctx);
+    void draw_strip(ImVec2 p_min, ImVec2 p_max);
 };
 
-}
+}

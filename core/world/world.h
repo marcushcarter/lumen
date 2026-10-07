@@ -1,10 +1,15 @@
+// core/world/world.h  (full file)
 #pragma once
 #include <core/world/camera.h>
 #include <core/base/error.h>
+#include <algorithm>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
-#include <vector>
+#include <cstring>
 #include <memory>
-#include <tuple>
+#include <type_traits>
+#include <vector>
 
 namespace lumen {
 
@@ -19,54 +24,148 @@ struct Entity
 
 static constexpr Entity ENTITY_NULL = { Entity::INVALID_INDEX, 0 };
 
-inline uint32_t _next_component_type_id() { static uint32_t id = 0; return id++; }
-template <typename T>
-uint32_t component_type_id() { static const uint32_t id = _next_component_type_id(); return id; }
+static constexpr uint32_t MAX_COMPONENT_TYPES = 128;
 
-struct IComponentPool
-{
-    virtual ~IComponentPool() = default;
-    virtual void _remove(Entity e) = 0;
-};
+inline uint32_t _component_type_count = 0;
 
-template <typename T>
-struct ComponentPool : IComponentPool
+template <typename T> struct ComponentType
 {
     static constexpr uint32_t INVALID = 0xFFFFFFFF;
-    std::vector<uint32_t> sparse;
+    static inline uint32_t id = INVALID;
+};
+
+struct ComponentMask
+{
+    static constexpr uint32_t WORDS = MAX_COMPONENT_TYPES / 64;
+    uint64_t words[WORDS] = {};
+    void set(uint32_t p_id) { words[p_id >> 6] |= 1ull << (p_id & 63); }
+    void clear(uint32_t p_id) { words[p_id >> 6] &= ~(1ull << (p_id & 63)); }
+    bool test(uint32_t p_id) const { return (words[p_id >> 6] >> (p_id & 63)) & 1ull; }
+    void reset() { for (uint64_t& w : words) w = 0; }
+    bool contains(const ComponentMask& p_other) const {
+        for (uint32_t w = 0; w < WORDS; w++) {
+            if ((words[w] & p_other.words[w]) != p_other.words[w]) return false;
+        }
+        return true;
+    }
+};
+
+struct SparseSet
+{
+    static constexpr uint32_t PAGE_BITS = 12;
+    static constexpr uint32_t PAGE_SIZE = 1u << PAGE_BITS;
+    static constexpr uint32_t PAGE_MASK = PAGE_SIZE - 1;
+    static constexpr uint32_t INVALID = 0xFFFFFFFF;
+
+    std::vector<std::unique_ptr<uint32_t[]>> pages;
     std::vector<Entity> dense;
+
+    uint32_t size() const { return (uint32_t)dense.size(); }
+
+    uint32_t find(uint32_t p_index) const {
+        const uint32_t page = p_index >> PAGE_BITS;
+        if (page >= pages.size() || !pages[page]) return INVALID;
+        return pages[page][p_index & PAGE_MASK];
+    }
+
+    uint32_t _insert(Entity p_entity) {
+        const uint32_t page = p_entity.index >> PAGE_BITS;
+        if (page >= pages.size()) pages.resize(page + 1);
+        if (!pages[page]) {
+            pages[page] = std::make_unique_for_overwrite<uint32_t[]>(PAGE_SIZE);
+            std::fill_n(pages[page].get(), PAGE_SIZE, INVALID);
+        }
+        const uint32_t pos = (uint32_t)dense.size();
+        pages[page][p_entity.index & PAGE_MASK] = pos;
+        dense.push_back(p_entity);
+        return pos;
+    }
+
+    uint32_t _erase(uint32_t p_index) {
+        const uint32_t pos = find(p_index);
+        const Entity moved = dense.back();
+        dense[pos] = moved;
+        pages[moved.index >> PAGE_BITS][moved.index & PAGE_MASK] = pos;
+        pages[p_index >> PAGE_BITS][p_index & PAGE_MASK] = INVALID;
+        dense.pop_back();
+        return pos;
+    }
+
+    void _set_clear() {
+        pages.clear();
+        dense.clear();
+    }
+};
+
+template <typename T> struct ComponentPool : SparseSet
+{
+    static constexpr bool IS_TAG = std::is_empty_v<T>;
+
+    static inline T tag_instance{};
+
     std::vector<T> components;
 
-    T& add(Entity e, const T& value) {
-        if (e.index >= sparse.size()) sparse.resize(e.index + 1, INVALID);
-        uint32_t pos = sparse[e.index];
-        if (pos != INVALID) { components[pos] = value; dense[pos] = e; return components[pos]; }
-        sparse[e.index] = (uint32_t)dense.size();
-        dense.push_back(e);
-        components.push_back(value);
-        return components.back();
+    T* _at(uint32_t p_pos) {
+        if constexpr (IS_TAG) return &tag_instance;
+        else return &components[p_pos];
     }
 
-    bool has(Entity e) const {
-        return e.index < sparse.size() && sparse[e.index] != INVALID && dense[sparse[e.index]].generation == e.generation;
+    const T* _at(uint32_t p_pos) const {
+        if constexpr (IS_TAG) return &tag_instance;
+        else return &components[p_pos];
     }
 
-    T* try_get(Entity e) {
-        if (!has(e)) return nullptr;
-        return &components[sparse[e.index]];
+    T* _add(Entity p_entity, const T& p_value) {
+        uint32_t pos = find(p_entity.index);
+        if (pos == INVALID) {
+            pos = _insert(p_entity);
+            if constexpr (!IS_TAG) components.push_back(p_value);
+        } else if constexpr (!IS_TAG) {
+            components[pos] = p_value;
+        }
+        return _at(pos);
     }
 
-    void _remove(Entity e) override {
-        if (!has(e)) return;
-        uint32_t pos = sparse[e.index];
-        uint32_t last = (uint32_t)dense.size() - 1;
-        Entity last_e = dense[last];
-        dense[pos] = last_e;
-        components[pos] = std::move(components[last]);
-        sparse[last_e.index] = pos;
-        dense.pop_back();
-        components.pop_back();
-        sparse[e.index] = INVALID;
+    void _remove(uint32_t p_index) {
+        const uint32_t pos = _erase(p_index);
+        if constexpr (!IS_TAG) {
+            if (pos != components.size() - 1) components[pos] = components.back();
+            components.pop_back();
+        }
+    }
+
+    void _pool_clear() {
+        _set_clear();
+        if constexpr (!IS_TAG) components.clear();
+    }
+};
+
+struct PoolSlot
+{
+    SparseSet* set = nullptr;
+    void (*remove_fn)(SparseSet* p_set, uint32_t p_index) = nullptr;
+    void (*clear_fn)(SparseSet* p_set) = nullptr;
+    void (*free_fn)(SparseSet* p_set) = nullptr;
+    void (*add_bytes_fn)(SparseSet* p_set, Entity p_entity, const std::byte* p_value) = nullptr;
+};
+
+struct WorldCommandBuffer
+{
+    enum class Op : uint32_t { DESTROY, ADD, REMOVE, };
+
+    struct Command {
+        Op op;
+        uint32_t type;
+        Entity entity;
+        uint32_t value_offset;
+    };
+
+    std::vector<Command> commands;
+    std::vector<std::byte> values;
+
+    void clear() {
+        commands.clear();
+        values.clear();
     }
 };
 
@@ -74,64 +173,163 @@ struct World
 {
     Camera default_camera;
     Camera* active_camera = &default_camera;
-    
+
     std::vector<uint32_t> generations;
+    std::vector<ComponentMask> masks;
     std::vector<uint32_t> free_list;
-    std::vector<std::unique_ptr<IComponentPool>> pools;
-    
+
+    std::vector<PoolSlot> pools;
+
+    mutable uint32_t iterating = 0;
+    WorldCommandBuffer deferred;
+
     Error initialize();
     void shutdown();
 
     Error load();
     void unload();
-    
+
+    const Camera& camera_active() const { return default_camera; }
+
     Entity create();
-    void destroy(Entity e);
+    void destroy(Entity p_entity);
 
-    bool valid(Entity e) const {
-        return e.index < generations.size() && generations[e.index] == e.generation;
+    bool valid(Entity p_entity) const {
+        return p_entity.index < generations.size() && generations[p_entity.index] == p_entity.generation;
     }
 
     template <typename T>
-    ComponentPool<T>& _pool() {
-        uint32_t id = component_type_id<T>();
+    void component_register() {
+        static_assert(std::is_trivially_copyable_v<T>, "components must be trivially copyable");
+        LUMEN_ERR_FAIL_COND(iterating != 0);
+        uint32_t& id = ComponentType<T>::id;
+        if (id == ComponentType<T>::INVALID) {
+            LUMEN_ERR_FAIL_COND(_component_type_count >= MAX_COMPONENT_TYPES);
+            id = _component_type_count++;
+        }
         if (id >= pools.size()) pools.resize(id + 1);
-        if (!pools[id]) pools[id] = std::make_unique<ComponentPool<T>>();
-        return *static_cast<ComponentPool<T>*>(pools[id].get());
+        PoolSlot& slot = pools[id];
+        if (slot.set) return;
+        slot.set = new ComponentPool<T>();
+        slot.remove_fn = [](SparseSet* p_set, uint32_t p_index) { static_cast<ComponentPool<T>*>(p_set)->_remove(p_index); };
+        slot.clear_fn = [](SparseSet* p_set) { static_cast<ComponentPool<T>*>(p_set)->_pool_clear(); };
+        slot.free_fn = [](SparseSet* p_set) { delete static_cast<ComponentPool<T>*>(p_set); };
+        slot.add_bytes_fn = [](SparseSet* p_set, Entity p_entity, const std::byte* p_value) {
+            T value;
+            std::memcpy(&value, p_value, sizeof(T));
+            static_cast<ComponentPool<T>*>(p_set)->_add(p_entity, value);
+        };
     }
 
     template <typename T>
-    ComponentPool<T>* _pool_ptr() {
-        uint32_t id = component_type_id<T>();
-        if (id >= pools.size() || !pools[id]) return nullptr;
-        return static_cast<ComponentPool<T>*>(pools[id].get());
+    T* add(Entity p_entity, const T& p_value = {}) {
+        LUMEN_ERR_FAIL_COND_V(iterating != 0, nullptr);
+        LUMEN_ERR_FAIL_COND_V(!valid(p_entity), nullptr);
+        LUMEN_ERR_FAIL_COND_V(!_registered<T>(), nullptr);
+        masks[p_entity.index].set(ComponentType<T>::id);
+        return _pool<T>(*this)->_add(p_entity, p_value);
     }
 
     template <typename T>
-    T& add(Entity e, const T& value = {}) { return _pool<T>().add(e, value); }
+    void remove(Entity p_entity) {
+        LUMEN_ERR_FAIL_COND(iterating != 0);
+        LUMEN_ERR_FAIL_COND(!valid(p_entity));
+        LUMEN_ERR_FAIL_COND(!_registered<T>());
+        _remove_id(p_entity, ComponentType<T>::id);
+    }
 
     template <typename T>
-    bool has(Entity e) { auto* p = _pool_ptr<T>(); return p && p->has(e); }
+    bool has(Entity p_entity) const {
+        const uint32_t id = ComponentType<T>::id;
+        return id != ComponentType<T>::INVALID && valid(p_entity) && masks[p_entity.index].test(id);
+    }
 
     template <typename T>
-    T* try_get(Entity e) { auto* p = _pool_ptr<T>(); return p ? p->try_get(e) : nullptr; }
+    T* try_get(Entity p_entity) {
+        if (!has<T>(p_entity)) return nullptr;
+        ComponentPool<T>* pool = _pool<T>(*this);
+        return pool->_at(pool->find(p_entity.index));
+    }
 
     template <typename T>
-    T& get(Entity e) { return *try_get<T>(e); }
-
-    template <typename T>
-    void remove(Entity e) { auto* p = _pool_ptr<T>(); if (p) p->_remove(e); }
+    const T* try_get(Entity p_entity) const {
+        if (!has<T>(p_entity)) return nullptr;
+        const ComponentPool<T>* pool = _pool<T>(*this);
+        return pool->_at(pool->find(p_entity.index));
+    }
 
     template <typename... Ts, typename Fn>
-    void view(Fn&& fn) {
-        using First = std::tuple_element_t<0, std::tuple<Ts...>>;
-        auto* p = _pool_ptr<First>();
-        if (!p) return;
-        for (size_t i = 0; i < p->dense.size(); ++i) {
-            Entity e = p->dense[i];
-            if ((has<Ts>(e) && ...)) { fn(e, get<Ts>(e)...); }
-        }
+    void view(Fn&& p_fn) { _view<Ts...>(*this, p_fn); }
+
+    template <typename... Ts, typename Fn>
+    void view(Fn&& p_fn) const { _view<Ts...>(*this, p_fn); }
+
+    void deferred_destroy(Entity p_entity) {
+        deferred.commands.push_back({ WorldCommandBuffer::Op::DESTROY, 0, p_entity, 0 });
     }
+
+    template <typename T>
+    void deferred_add(Entity p_entity, const T& p_value = {}) {
+        LUMEN_ERR_FAIL_COND(!_registered<T>());
+        const uint32_t offset = (uint32_t)deferred.values.size();
+        deferred.values.resize(offset + sizeof(T));
+        std::memcpy(deferred.values.data() + offset, &p_value, sizeof(T));
+        deferred.commands.push_back({ WorldCommandBuffer::Op::ADD, ComponentType<T>::id, p_entity, offset });
+    }
+
+    template <typename T>
+    void deferred_remove(Entity p_entity) {
+        LUMEN_ERR_FAIL_COND(!_registered<T>());
+        deferred.commands.push_back({ WorldCommandBuffer::Op::REMOVE, ComponentType<T>::id, p_entity, 0 });
+    }
+
+    void deferred_flush();
+
+    template <typename T>
+    bool _registered() const {
+        const uint32_t id = ComponentType<T>::id;
+        return id < pools.size() && pools[id].set;
+    }
+
+    template <typename T, typename W>
+    static auto* _pool(W& p_world) {
+        using Pool = std::conditional_t<std::is_const_v<W>, const ComponentPool<T>, ComponentPool<T>>;
+        return static_cast<Pool*>(p_world.pools[ComponentType<T>::id].set);
+    }
+
+    template <typename P>
+    static auto* _fetch(P* p_pool, const SparseSet* p_driver, uint32_t p_pos, uint32_t p_index) {
+        return p_pool->_at(static_cast<const SparseSet*>(p_pool) == p_driver ? p_pos : p_pool->find(p_index));
+    }
+
+    template <typename... Ts, typename W, typename Fn>
+    static void _view(W& p_world, Fn& p_fn) {
+        static_assert(sizeof...(Ts) > 0);
+        if (!(p_world.template _registered<Ts>() && ...)) return;
+        p_world.iterating++;
+        [&](auto*... p_pools) {
+            if constexpr (sizeof...(Ts) == 1) {
+                auto* pool = (p_pools, ...);
+                const uint32_t n = pool->size();
+                for (uint32_t i = 0; i < n; i++) p_fn(pool->dense[i], *pool->_at(i));
+            } else {
+                const SparseSet* sets[] = { p_pools... };
+                const SparseSet* driver = sets[0];
+                for (const SparseSet* s : sets) { if (s->size() < driver->size()) driver = s; }
+                ComponentMask required;
+                (required.set(ComponentType<Ts>::id), ...);
+                const uint32_t n = driver->size();
+                for (uint32_t i = 0; i < n; i++) {
+                    const Entity e = driver->dense[i];
+                    if (!p_world.masks[e.index].contains(required)) continue;
+                    p_fn(e, *_fetch(p_pools, driver, i, e.index)...);
+                }
+            }
+        }(_pool<Ts>(p_world)...);
+        p_world.iterating--;
+    }
+
+    void _remove_id(Entity p_entity, uint32_t p_id);
 };
 
 }

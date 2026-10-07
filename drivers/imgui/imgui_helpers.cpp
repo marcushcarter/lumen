@@ -2,6 +2,7 @@
 #include <core/rendering/pass_category.h>
 #include <imgui_internal.h>
 #include <cstdarg>
+#include <cfloat>
 #include <cstdio>
 #include <cstdint>
 #include <windows.h>
@@ -140,13 +141,45 @@ SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float 
     ImVec2 mx = ImGui::GetItemRectMax();
     float cx = ImFloor((mn.x + mx.x) * 0.5f);
     float cy = ImFloor((mn.y + mx.y) * 0.5f);
-    ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : s.hovered ? ImGuiCol_SeparatorHovered : ImGuiCol_Separator);
-    const float t = 2.0f;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - t, cy - grip_len * 0.5f), ImVec2(cx + t, cy + grip_len * 0.5f), col, t);
-    else dl->AddRectFilled(ImVec2(cx - grip_len * 0.5f, cy - t), ImVec2(cx + grip_len * 0.5f, cy + t), col, t);
-    
+
+    // Hover/drag: full-length accent line. Idle: optional grip (grip_len <= 0 -> nothing, the gap itself reads as the divider).
+    if (s.hovered || s.active) {
+        ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered);
+        if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - 1.0f, mn.y), ImVec2(cx + 1.0f, mx.y), col);
+        else dl->AddRectFilled(ImVec2(mn.x, cy - 1.0f), ImVec2(mx.x, cy + 1.0f), col);
+    } else if (grip_len > 0.0f) {
+        ImU32 col = ImGui::GetColorU32(ImGuiCol_Separator);
+        const float t = 2.0f;
+        if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - t, cy - grip_len * 0.5f), ImVec2(cx + t, cy + grip_len * 0.5f), col, t);
+        else dl->AddRectFilled(ImVec2(cx - grip_len * 0.5f, cy - t), ImVec2(cx + grip_len * 0.5f, cy + t), col, t);
+    }
+
     return s;
 }
 
+bool imgui_property_grid_begin(const char* p_id, float p_label_ratio)
+{
+    if (!ImGui::BeginTable(p_id, 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings)) return false;
+    ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthStretch, p_label_ratio);
+    ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch, 1.0f - p_label_ratio);
+    return true;
 }
+
+void imgui_property(const char* p_label)
+{
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(p_label);
+    if (ImGui::IsItemHovered() && ImGui::CalcTextSize(p_label).x > ImGui::GetContentRegionAvail().x) ImGui::SetTooltip("%s", p_label);
+    ImGui::TableSetColumnIndex(1);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+}
+
+void imgui_property_grid_end()
+{
+    ImGui::EndTable();
+}
+
+}

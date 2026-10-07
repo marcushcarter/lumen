@@ -44,6 +44,9 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    err = world.initialize();
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
     drivers::ImGuiDriverCreateInfo imgui_ci{};
     imgui_ci.hwnd = win32.window.hwnd;
     imgui_ci.instance = cd.instance;
@@ -85,6 +88,7 @@ void Application::shutdown()
     dd.device_wait_idle();
 
     project_unload();
+    world.shutdown();
     
     if (render_path) {
         render_path->destroy_resources();
@@ -156,6 +160,7 @@ Error Application::_frame()
 
     cpu.zone_begin("Update");
     on_update((float)delta);
+    world.deferred_flush();
     cpu.zone_end();
 
     cpu.zone_begin("ImGui Render");

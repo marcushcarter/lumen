@@ -5,6 +5,8 @@
 #include <editor/editor_context.h>
 #include <core/base/profiling.h>
 #include <imgui.h>
+#include <drivers/imgui/imgui_helpers.h>
+#include <cfloat>
 
 // #include <editor/popup/settings/editor_settings.h>
 // #include <editor/popup/popup.h>
@@ -17,34 +19,51 @@ namespace lumen {
     
 void WorldSettingsPanel::draw_contents(EditorContext& ctx)
 {
-    ImGui::Text("World Settings");
-    
+    auto reset_row = [](const char* p_label, int* p_value, int p_default) {
+        imgui_property(p_label);
+        const float bw = ImGui::GetFrameHeight();
+        const float sp = ImGui::GetStyle().ItemInnerSpacing.x;
+        ImGui::PushID(p_label);
+        ImGui::SetNextItemWidth(-(bw + sp));
+        ImGui::DragInt("##v", p_value);
+        ImGui::SameLine(0.0f, sp);
+        if (ImGui::Button(ICON_FA_ROTATE_LEFT, ImVec2(bw, bw))) *p_value = p_default;
+        ImGui::PopID();
+    };
+
     ImGui::BeginDisabled(true);
-    ImGui::DragInt("Window width", &ctx.project->settings.width);
-    ImGui::SameLine();
-    if (ImGui::Button("Reset##Width")) ctx.project->settings.width = 1280;
-    ImGui::DragInt("Window height", &ctx.project->settings.height);
-    ImGui::SameLine();
-    if (ImGui::Button("Reset##Height")) ctx.project->settings.height = 720;
+    if (imgui_property_grid_begin("##window")) {
+        reset_row("Window width", &ctx.project->settings.width, 1280);
+        reset_row("Window height", &ctx.project->settings.height, 720);
+        imgui_property_grid_end();
+    }
     ImGui::EndDisabled();
 
     if (!ctx.render_path) return;
     GeometryFeature& geo = ctx.render_path->geometry;
     const GeometryFeature::CullStats& s = geo.stats;
-    // const uint32_t occluded = s.retest - s.phase2_visible;
 
-    ImGui::Text("HiZ: %s", !geo.occlusion ? "off" : !geo.hiz_ok ? "unavailable" : geo.hiz_use_prev ? "active" : "warming up");
+    ImGui::SeparatorText("Culling");
+    if (imgui_property_grid_begin("##hiz")) {
+        imgui_property("HiZ");
+        ImGui::TextUnformatted(!geo.occlusion ? "off" : !geo.hiz_ok ? "unavailable" : geo.hiz_use_prev ? "active" : "warming up");
+        imgui_property_grid_end();
+    }
     if (!ctx.profiling || !ctx.profiling->cull_stats_on()) {
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextDisabled("Enable pipeline statistics in the GPU profiler to see counts.");
+        ImGui::PopTextWrapPos();
     } else {
         auto draw_occlusion = [](const char* p_title, const char* p_input_label, uint32_t p_input, uint32_t p_drawn_1, uint32_t p_deferred, uint32_t p_drawn_2) {
             const uint32_t occluded = p_deferred - p_drawn_2;
             ImGui::SeparatorText(p_title);
-            ImGui::Text("%s: %u", p_input_label, p_input);
-            ImGui::Text("Phase 1 drawn: %u", p_drawn_1);
-            ImGui::Text("Phase 1 deferred: %u", p_deferred);
-            ImGui::Text("Phase 2 drawn: %u", p_drawn_2);
-            ImGui::Text("Occluded: %u (%.1f%%)", occluded, p_input ? 100.0f * (float)occluded / (float)p_input : 0.0f);
+            if (!imgui_property_grid_begin(p_title, 0.55f)) return;
+            imgui_property(p_input_label); ImGui::Text("%u", p_input);
+            imgui_property("Phase 1 drawn"); ImGui::Text("%u", p_drawn_1);
+            imgui_property("Phase 1 deferred"); ImGui::Text("%u", p_deferred);
+            imgui_property("Phase 2 drawn"); ImGui::Text("%u", p_drawn_2);
+            imgui_property("Occluded"); ImGui::Text("%u (%.1f%%)", occluded, p_input ? 100.0f * (float)occluded / (float)p_input : 0.0f);
+            imgui_property_grid_end();
         };
 
         draw_occlusion("Instance Occlusion", "After frustum", s.instances_visible + s.instances_occluded, s.instances_visible, s.instances_occluded, s.instances_recovered);
@@ -53,31 +72,44 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
 
     ImGui::SeparatorText("Editor Settings");
 
-    
     Theme& t = ctx.settings->theme;
     bool changed = false;
 
-    if (ImGui::BeginCombo("Preset", Theme::theme_preset_name(t.preset))) {
-        for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
-            if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, t.preset == i)) {
-                t.preset  = i;
-                t.base = Theme::THEME_PRESETS[i].base;
-                t.accent = Theme::THEME_PRESETS[i].accent;
-                t.text = Theme::THEME_PRESETS[i].text;
-                changed = true;
+    if (imgui_property_grid_begin("##theme")) {
+        imgui_property("Preset");
+        if (ImGui::BeginCombo("##preset", Theme::theme_preset_name(t.preset))) {
+            for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
+                if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, t.preset == i)) {
+                    t.preset  = i;
+                    t.base = Theme::THEME_PRESETS[i].base;
+                    t.accent = Theme::THEME_PRESETS[i].accent;
+                    t.text = Theme::THEME_PRESETS[i].text;
+                    changed = true;
+                }
             }
+            if (ImGui::Selectable("Custom", t.preset == -1)) { t.preset = -1; changed = true; }
+            ImGui::EndCombo();
         }
-        if (ImGui::Selectable("Custom", t.preset == -1)) { t.preset = -1; changed = true; }
-        ImGui::EndCombo();
+
+        imgui_property("Base");
+        if (ImGui::ColorEdit3("##base", &t.base.x)) { t.preset = -1; changed = true; }
+        imgui_property("Text");
+        if (ImGui::ColorEdit3("##text", &t.text.x)) { t.preset = -1; changed = true; }
+        imgui_property("Accent");
+        ImGui::BeginDisabled(t.use_system_accent);
+        if (ImGui::ColorEdit3("##accent", &t.accent.x)) { t.preset = -1; changed = true; }
+        ImGui::EndDisabled();
+        imgui_property("Use system accent");
+        if (ImGui::Checkbox("##sys_accent", &t.use_system_accent)) changed = true;
+
+        imgui_property("Custom titlebar");
+        bool custom = ctx.win32->window.custom_titlebar;
+        if (ImGui::Checkbox("##custom_titlebar", &custom)) ctx.win32->window_set_custom_titlebar(custom);
+
+        imgui_property_grid_end();
     }
 
-    if (ImGui::ColorEdit3("Base", &t.base.x)) { t.preset = -1; changed = true; }
-    if (ImGui::ColorEdit3("Text", &t.text.x)) { t.preset = -1; changed = true; }
-    ImGui::BeginDisabled(t.use_system_accent);
-    if (ImGui::ColorEdit3("Accent", &t.accent.x)) { t.preset = -1; changed = true; }
-    ImGui::EndDisabled();
-    if (ImGui::Checkbox("Use system accent", &t.use_system_accent)) changed = true;
-    if (ImGui::Button("Reset to defaults")) {
+    if (ImGui::Button("Reset to defaults", ImVec2(-FLT_MIN, 0.0f))) {
         t = Theme{};
         changed = true;
     }
@@ -87,11 +119,6 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
         ImVec4 titlebar = ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg];
         ctx.win32->window_set_titlebar_color(RGB((BYTE)(titlebar.x * 255), (BYTE)(titlebar.y * 255), (BYTE)(titlebar.z * 255)));
     }
-
-    bool custom = ctx.win32->window.custom_titlebar;
-    if (ImGui::Checkbox("Window Custom Titlebar", &custom)) ctx.win32->window_set_custom_titlebar(custom);
-
-
 }
 
 }

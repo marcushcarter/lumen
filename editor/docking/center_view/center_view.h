@@ -26,7 +26,7 @@ struct CenterView
     bool _view_item(const char* p_icon, const char* p_name, int p_id);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     void _draw_scene(EditorContext& ctx);
-    void draw(EditorContext& ctx);
+    void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 };
 
-}
+}

@@ -7,24 +7,48 @@ namespace lumen {
 
 using namespace glm;
 
+struct EntityIdComponent
+{
+    Guid guid;
+};
+
 struct TransformComponent
 {
-    Guid guid;
-    vec3 position;
-    quat rotation;
-    vec3 scale;
-    mat4 previous_transform;
+    vec3 position = vec3(0.0f);
+    quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+    vec3 scale = vec3(1.0f);
 };
 
-struct StaticMeshComponent
+struct MeshComponent
 {
-    Guid guid;
+    static constexpr uint32_t INVALID_INDEX = 0xFFFFFFFF;
+
+    Guid mesh;
+    uint32_t mesh_index = INVALID_INDEX;
 };
 
-struct DynamicMeshComponent
+struct StaticTag
 {
-    Guid guid;
-
 };
+
+// struct TransformComponent
+// {
+//     Guid guid;
+//     vec3 position;
+//     quat rotation;
+//     vec3 scale;
+//     mat4 previous_transform;
+// };
+
+// struct StaticMeshComponent
+// {
+//     Guid guid;
+// };
+
+// struct DynamicMeshComponent
+// {
+//     Guid guid;
+
+// };
 
 }

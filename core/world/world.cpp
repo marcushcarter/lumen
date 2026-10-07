@@ -1,4 +1,3 @@
-// core/world/world.cpp  (full file)
 #include <core/world/world.h>
 #include <core/world/components.h>
 

@@ -303,7 +303,7 @@ void Renderer::_frame_build(const World& p_world)
     (void)p_world;
 
     frame.reset();
-    const int GRID = 51;
+    const int GRID = 1;
     for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
         if (geometry.mesh_guids[i] == Guid{}) continue;
         const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;

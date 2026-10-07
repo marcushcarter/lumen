@@ -1,4 +1,4 @@
-#include <editor/docking/panels/world_settings.h>
+#include <editor/docking/panels/world_settings_panel.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_path/editor_render_path.h>

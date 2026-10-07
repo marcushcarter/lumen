@@ -1,4 +1,3 @@
-// core/world/world.h  (full file)
 #pragma once
 #include <core/world/camera.h>
 #include <core/base/error.h>

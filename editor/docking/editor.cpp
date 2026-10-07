@@ -7,7 +7,8 @@
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
-#include <editor/docking/panels/world_settings.h>
+#include <editor/docking/panels/outliner_panel.h>
+#include <editor/docking/panels/world_settings_panel.h>
 
 namespace lumen {
 
@@ -18,9 +19,7 @@ Error Editor::initialize()
     right_top.zone = DockZone::RIGHT_TOP;
     right_bottom.zone = DockZone::RIGHT_BOTTOM;
 
-    // panels.push_back(std::make_unique<WorldPanel>());
-
-    // panels.push_back(std::make_unique<DetailsPanel>());
+    panels.push_back(std::make_unique<OutlinerPanel>());
     panels.push_back(std::make_unique<WorldSettingsPanel>());
 
     return OK;

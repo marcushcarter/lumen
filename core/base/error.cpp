@@ -8,6 +8,7 @@ namespace lumen {
 const char *error_names[] = {
 	"OK",
 	"Failed",
+	"Canceled",
 };
 
 static_assert(std::size(error_names) == static_cast<size_t>(Error::MAX));

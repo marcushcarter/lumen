@@ -7,8 +7,8 @@
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
-#include <editor/docking/panels/outliner_panel.h>
 #include <editor/docking/panels/world_settings_panel.h>
+#include <editor/docking/panels/outliner_panel.h>
 
 namespace lumen {
 
@@ -19,8 +19,8 @@ Error Editor::initialize()
     right_top.zone = DockZone::RIGHT_TOP;
     right_bottom.zone = DockZone::RIGHT_BOTTOM;
 
-    panels.push_back(std::make_unique<OutlinerPanel>());
-    panels.push_back(std::make_unique<WorldSettingsPanel>());
+    add_panel<OutlinerPanel>();
+    add_panel<WorldSettingsPanel>();
 
     return OK;
 }
@@ -99,7 +99,6 @@ void Editor::on_update(EditorContext& ctx, float)
     );
     ImGui::PopStyleVar(3);
 
-    // Every pane is placed from explicit rects; nothing relies on ItemSpacing/SameLine flow.
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 extent = ImGui::GetContentRegionAvail();
 

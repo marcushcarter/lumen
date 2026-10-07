@@ -58,6 +58,9 @@ static int run_app()
     
     lumen::Error err = app->initialize(info);
     if (err == lumen::Error::OK) err = app->run();
+    // if (err != lumen::Error::OK) app->report_fatal_error(err);
+    // return err == lumen::Error::OK ? 0 : 1;
+    if (err == lumen::Error::CANCELED) return 0;
     if (err != lumen::Error::OK) app->report_fatal_error(err);
     return err == lumen::Error::OK ? 0 : 1;
 }

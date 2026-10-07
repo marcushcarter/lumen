@@ -75,39 +75,29 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
     Theme& t = ctx.settings->theme;
     bool changed = false;
 
-    if (imgui_property_grid_begin("##theme")) {
-        imgui_property("Preset");
-        if (ImGui::BeginCombo("##preset", Theme::theme_preset_name(t.preset))) {
-            for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
-                if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, t.preset == i)) {
-                    t.preset  = i;
-                    t.base = Theme::THEME_PRESETS[i].base;
-                    t.accent = Theme::THEME_PRESETS[i].accent;
-                    t.text = Theme::THEME_PRESETS[i].text;
-                    changed = true;
-                }
+    if (ImGui::BeginCombo("Preset", Theme::theme_preset_name(t.preset))) {
+        for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
+            if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, t.preset == i)) {
+                t.preset  = i;
+                t.base = Theme::THEME_PRESETS[i].base;
+                t.accent = Theme::THEME_PRESETS[i].accent;
+                t.text = Theme::THEME_PRESETS[i].text;
+                changed = true;
             }
-            if (ImGui::Selectable("Custom", t.preset == -1)) { t.preset = -1; changed = true; }
-            ImGui::EndCombo();
         }
-
-        imgui_property("Base");
-        if (ImGui::ColorEdit3("##base", &t.base.x)) { t.preset = -1; changed = true; }
-        imgui_property("Text");
-        if (ImGui::ColorEdit3("##text", &t.text.x)) { t.preset = -1; changed = true; }
-        imgui_property("Accent");
-        ImGui::BeginDisabled(t.use_system_accent);
-        if (ImGui::ColorEdit3("##accent", &t.accent.x)) { t.preset = -1; changed = true; }
-        ImGui::EndDisabled();
-        imgui_property("Use system accent");
-        if (ImGui::Checkbox("##sys_accent", &t.use_system_accent)) changed = true;
-
-        imgui_property("Custom titlebar");
-        bool custom = ctx.win32->window.custom_titlebar;
-        if (ImGui::Checkbox("##custom_titlebar", &custom)) ctx.win32->window_set_custom_titlebar(custom);
-
-        imgui_property_grid_end();
+        if (ImGui::Selectable("Custom", t.preset == -1)) { t.preset = -1; changed = true; }
+        ImGui::EndCombo();
     }
+
+    if (ImGui::ColorEdit3("Base", &t.base.x)) { t.preset = -1; changed = true; }
+    if (ImGui::ColorEdit3("Text", &t.text.x)) { t.preset = -1; changed = true; }
+    ImGui::BeginDisabled(t.use_system_accent);
+    if (ImGui::ColorEdit3("Accent", &t.accent.x)) { t.preset = -1; changed = true; }
+    ImGui::EndDisabled();
+    if (ImGui::Checkbox("Use system accent", &t.use_system_accent)) changed = true;
+
+    bool custom = ctx.win32->window.custom_titlebar;
+    if (ImGui::Checkbox("Custom titlebar", &custom)) ctx.win32->window_set_custom_titlebar(custom);
 
     if (ImGui::Button("Reset to defaults", ImVec2(-FLT_MIN, 0.0f))) {
         t = Theme{};
@@ -116,8 +106,7 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
 
     if (changed) {
         t.apply();
-        ImVec4 titlebar = ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg];
-        ctx.win32->window_set_titlebar_color(RGB((BYTE)(titlebar.x * 255), (BYTE)(titlebar.y * 255), (BYTE)(titlebar.z * 255)));
+        ctx.win32->window_set_titlebar_color((COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]));
     }
 }
 

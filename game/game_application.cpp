@@ -12,6 +12,7 @@ Error GameApplication::on_init()
 
     // Error err = project_load(Paths::executable_dir());
     Error err = project_load("D:/TestLumen");
+    if (err == CANCELED) return err;
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     win32.window_set_title(project.name);

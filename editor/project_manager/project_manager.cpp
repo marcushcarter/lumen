@@ -314,7 +314,9 @@ void ProjectManager::on_update(EditorContext& ctx)
 
         ImGui::Spacing();
         ImGui::BeginDisabled(!has_name || !has_location || taken);
-        if (ImGui::Button("Create", ImVec2(120.0f, 0)) && Project::create(root, new_project_name) == Error::OK) {
+        // if (ImGui::Button("Create", ImVec2(120.0f, 0)) && Project::create(root, new_project_name) == Error::OK) {
+        // GPU prompt runs before anything is written, so Cancel leaves no project folder behind.
+        if (ImGui::Button("Create", ImVec2(120.0f, 0)) && ctx.confirm_gpu_support() && Project::create(root, new_project_name) == Error::OK) {
             add_recent(root, new_project_name);
             ImGui::CloseCurrentPopup();
             ctx.open_project_callback(root);

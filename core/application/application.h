@@ -46,6 +46,7 @@ struct Application
     drivers::ImGuiDriver imgui;
 
     bool paused = false;
+    bool gpu_support_confirmed = false;
     World world;
 
     Project project;
@@ -61,6 +62,7 @@ struct Application
     Error run();
     void report_fatal_error(Error p_error);
 
+    bool confirm_gpu_support();
     Error project_load(const std::filesystem::path &p_root);
     void project_unload();
     

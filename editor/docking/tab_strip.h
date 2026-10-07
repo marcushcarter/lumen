@@ -21,6 +21,9 @@ struct DockColors
     static DockColors get();
 };
 
+void dock_menu_push_style();
+void dock_menu_pop_style();
+
 struct TabStrip
 {
     enum class Edge { TOP, BOTTOM };
@@ -41,7 +44,7 @@ struct TabStrip
     static float height();
     static float natural_width(const char* p_label);
 
-    void begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right = 0.0f);
+    void begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right = 0.0f, ImU32 p_bg = 0);
     bool tab(const char* p_label, bool p_selected);
     bool trailing_button(const char* p_icon);
     void end();

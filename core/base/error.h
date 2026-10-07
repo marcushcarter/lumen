@@ -11,6 +11,7 @@ enum class Error
 {
     OK,
     FAILED,
+    CANCELED,
     MAX
 };
 

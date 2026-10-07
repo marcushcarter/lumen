@@ -1,5 +1,6 @@
 #include <editor/docking/center_view/overlay_bar.h>
 #include <drivers/imgui/imgui_helpers.h>
+#include <editor/docking/tab_strip.h>
 #include <imgui.h>
 #include <cstdio>
 #include <algorithm>
@@ -18,6 +19,31 @@ static void overlay_pop_style()
 {
     ImGui::PopStyleVar(1);
     ImGui::PopStyleColor(3);
+}
+
+static void _menu_push_style()
+{
+    const DockColors c = DockColors::get();
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, c.strip);
+    ImGui::PushStyleColor(ImGuiCol_Border, c.line);
+    ImGui::PushStyleColor(ImGuiCol_Separator, c.line);
+    ImGui::PushStyleColor(ImGuiCol_Header, c.pane);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, c.tab_hovered);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, c.pane);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, c.pane);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, c.tab_hovered);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, c.line);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 0.0f);
+}
+
+static void _menu_pop_style()
+{
+    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(9);
 }
 
 void OverlayBar::begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_margin, float p_spacing)
@@ -137,18 +163,17 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
     const bool right = align == Align::RIGHT;
     const ImVec2 anchor(right ? bmax.x : bmin.x, bmax.y + 2.0f);
     ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, 0.0f));
-    const float max_h = std::max(origin.y + region.y - margin - anchor.y, ImGui::GetFrameHeight() * 4.0f);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, max_h));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
-    const bool open = ImGui::BeginPopup(p_label);
-    ImGui::PopStyleVar();
+    _menu_push_style();
+    const bool open = ImGui::BeginPopup(p_label, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    if (!open) _menu_pop_style();
     return open;
 }
 
 void OverlayBar::end_menu()
 {
     ImGui::EndPopup();
+    _menu_pop_style();
 }
 
 void OverlayBar::gap(float p_w)

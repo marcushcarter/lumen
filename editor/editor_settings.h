@@ -1,11 +1,14 @@
 #pragma once
 #include <core/base/vsync_mode.h>
+#include <core/base/error.h>
 #include <imgui.h>
 #include <string>
 #include <iterator>
 #include <cstdio>
 
 namespace lumen {
+
+namespace drivers { struct WindowDriverWin32; }
 
 struct Theme
 {
@@ -45,6 +48,7 @@ struct Theme
         { "Classic ImGui", { 0.40f, 0.40f, 0.40f, 1.0f }, { 0.26f, 0.59f, 0.98f, 1.0f }, { 1.00f, 1.00f, 1.00f, 1.0f } }
     };
     
+    static uint32_t to_colorref(const ImVec4& p_color);
     static const char* theme_preset_name(int i);
     static int theme_preset_index(std::string_view n);
 };

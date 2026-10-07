@@ -116,4 +116,23 @@ bool Win32Dialogs::warning(const wchar_t* p_title, const wchar_t* p_heading, con
     return dont_show == TRUE;
 }
 
+bool Win32Dialogs::confirm(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body)
+{
+    TASKDIALOGCONFIG config{};
+    config.cbSize = sizeof(config);
+    config.hwndParent = GetActiveWindow();
+    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.dwCommonButtons = TDCBF_OK_BUTTON | TDCBF_CANCEL_BUTTON;
+    config.nDefaultButton = IDOK;
+    config.pszWindowTitle = p_title;
+    config.pszMainIcon = TD_WARNING_ICON;
+    config.pszMainInstruction = p_heading;
+    config.pszContent = p_body;
+
+    int button = IDCANCEL;
+    HRESULT hr = TaskDialogIndirect(&config, &button, nullptr, nullptr);
+    if (FAILED(hr)) button = MessageBoxW(config.hwndParent, p_body, p_title, MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND);
+    return button == IDOK;
+}
+
 }

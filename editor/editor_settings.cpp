@@ -1,5 +1,6 @@
 #include <editor/editor_settings.h>
 #include <drivers/windows/window_driver_win32.h>
+#include <cmath>
 
 namespace lumen {
 
@@ -15,6 +16,12 @@ static ImVec4 shade(const ImVec4& c, float f)
     t = t * t * (3.0f - 2.0f * t);
     float k = f + (1.0f / f - f) * t;
     return { c.x * k, c.y * k, c.z * k, c.w };
+}
+
+static float _linear_to_srgb(float p_v)
+{
+    p_v = p_v < 0.0f ? 0.0f : (p_v > 1.0f ? 1.0f : p_v);
+    return p_v <= 0.0031308f ? p_v * 12.92f : 1.055f * std::pow(p_v, 1.0f / 2.4f) - 0.055f;
 }
 
 void Theme::apply() const
@@ -38,7 +45,8 @@ void Theme::apply() const
     c[ImGuiCol_WindowBg]                   = base;
     c[ImGuiCol_ChildBg]                    = shade(base, 0.92f);
     c[ImGuiCol_PopupBg]                    = shade(base, 0.85f);
-    c[ImGuiCol_MenuBarBg]                  = shade(base, 0.90f);
+    // c[ImGuiCol_MenuBarBg]                  = mix(base, text, 0.02f);
+    c[ImGuiCol_MenuBarBg]                  = mix(base, text, 0.012f);
     c[ImGuiCol_TitleBg]                    = shade(base, 0.80f);
     c[ImGuiCol_TitleBgActive]              = shade(base, 0.90f);
     c[ImGuiCol_TitleBgCollapsed]           = shade(base, 0.70f);
@@ -111,6 +119,15 @@ void Theme::apply() const
     c[ImGuiCol_TableBorderLight]           = shade(base, 1.50f);
     c[ImGuiCol_TableRowBg]                 = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     c[ImGuiCol_TableRowBgAlt]              = ImVec4(1.0f, 1.0f, 1.0f, 0.03f);
+}
+
+uint32_t Theme::to_colorref(const ImVec4& p_color)
+{
+    auto channel = [](float p_v) -> uint32_t {
+        const float q = std::round((p_v < 0.0f ? 0.0f : (p_v > 1.0f ? 1.0f : p_v)) * 255.0f) / 255.0f;
+        return (uint32_t)std::lround(_linear_to_srgb(q) * 255.0f);
+    };
+    return channel(p_color.x) | (channel(p_color.y) << 8) | (channel(p_color.z) << 16);
 }
     
 const char* Theme::theme_preset_name(int i)

@@ -16,16 +16,45 @@ DockColors DockColors::get()
 
     DockColors d;
     d.gap = _mix_u32(bg, fg, 0.0f);
-    d.strip = _mix_u32(bg, fg, 0.10f);
-    d.pane = _mix_u32(bg, fg, 0.06f);
-    d.tab_hovered = _mix_u32(bg, fg, 0.13f);
-    d.line = _mix_u32(bg, fg, 0.14f);
+    // d.strip = _mix_u32(bg, fg, 0.06f);
+    // d.pane = _mix_u32(bg, fg, 0.10f);
+    // d.tab_hovered = _mix_u32(bg, fg, 0.08f);
+    // d.line = _mix_u32(bg, fg, 0.14f);
+    d.strip = _mix_u32(bg, fg, 0.045f);
+    d.pane = _mix_u32(bg, fg, 0.08f);
+    d.tab_hovered = _mix_u32(bg, fg, 0.06f);
+    d.line = _mix_u32(bg, fg, 0.12f);
     d.accent = ImGui::GetColorU32(ImGuiCol_TabSelectedOverline);
     d.text = ImGui::GetColorU32(ImGuiCol_Text);
     d.text_dim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
     d.drop_fill = ImGui::GetColorU32(ImGuiCol_DragDropTargetBg);
     d.drop_line = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
     return d;
+}
+
+void dock_menu_push_style()
+{
+    const DockColors c = DockColors::get();
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, c.strip);
+    ImGui::PushStyleColor(ImGuiCol_Border, c.line);
+    ImGui::PushStyleColor(ImGuiCol_Separator, c.line);
+    ImGui::PushStyleColor(ImGuiCol_Header, c.pane);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, c.tab_hovered);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, c.pane);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, c.pane);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, c.tab_hovered);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, c.line);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 0.0f);
+}
+
+void dock_menu_pop_style()
+{
+    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(9);
 }
 
 float TabStrip::height()
@@ -38,9 +67,10 @@ float TabStrip::natural_width(const char* p_label)
     return ImGui::CalcTextSize(p_label, nullptr, true).x + PAD_X * 2.0f;
 }
 
-void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right)
+void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right, ImU32 p_bg)
 {
     colors = DockColors::get();
+    if (p_bg) colors.strip = p_bg;
     draw_list = ImGui::GetWindowDrawList();
     min = p_min;
     max = p_max;

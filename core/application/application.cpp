@@ -33,14 +33,6 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = dd.initialize(cd, cd.optimal_device_index, 3);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    if (!dd.capabilities.mesh.mesh_shader) {
-        const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
-            L"Lumen will use its compatibility geometry path instead. Everything still works, but performance may differ from GPUs with mesh shader support.\n\n"
-            L"If your GPU is recent, updating your graphics driver may enable support.";
-        drivers::Win32Dialogs::warning(L"Lumen", L"Mesh shaders not supported", body.c_str(), false);
-    }
-
-
     err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
@@ -71,6 +63,12 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     tasks.start(std::max(1u, std::thread::hardware_concurrency() - 1u), 1);
     
     err = on_init();
+    if (err == CANCELED) {
+        // User declined at startup (e.g. GPU fallback prompt): tear down cleanly so worker threads join, no crash report.
+        on_shutdown();
+        shutdown();
+        return err;
+    }
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     frame_stats.initialize(win32.window.hwnd);
@@ -239,9 +237,30 @@ void Application::report_fatal_error(Error p_error)
     Paths::reveal_in_explorer(file);
 }
 
+bool Application::confirm_gpu_support()
+{
+    // Asked once per run; a cancel leaves it unconfirmed so the next attempt asks again.
+    if (gpu_support_confirmed || dd.capabilities.mesh.mesh_shader) return true;
+
+    const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
+        L"Lumen will use its compatibility geometry path instead. Everything still works, but performance may differ from GPUs with mesh shader support.\n\n"
+        L"If your GPU is recent, updating your graphics driver may enable support.";
+    gpu_support_confirmed = drivers::Win32Dialogs::confirm(L"Lumen", L"Mesh shaders not supported", body.c_str());
+    return gpu_support_confirmed;
+}
+
 Error Application::project_load(const std::filesystem::path &p_root)
 {
     using enum Error;
+    
+    // if (!dd.capabilities.mesh.mesh_shader) {
+    //     const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
+    //         L"Lumen will use its compatibility geometry path instead. Everything still works, but performance may differ from GPUs with mesh shader support.\n\n"
+    //         L"If your GPU is recent, updating your graphics driver may enable support.";
+    //     drivers::Win32Dialogs::warning(L"Lumen", L"Mesh shaders not supported", body.c_str(), false);
+    // }
+    if (!confirm_gpu_support()) return CANCELED;
+
     Error err = project.load(p_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = renderer.load(project.content_dir);
@@ -249,6 +268,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
     err = world.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());
+
     return OK;
 }
 

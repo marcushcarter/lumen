@@ -119,6 +119,8 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     render_path_request(new EditorRenderPath());
     project_manager.add_recent(project.root, project.name);
     tab = EditorTab::WORLD;
+    tab_sync = true;
+
 
     return OK;
 }
@@ -242,6 +244,7 @@ void EditorApplication::_draw_titlebar()
     const float BTN_W = 46.0f;
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12, 7));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
     const bool  show_tabs = project.loaded();
     const float MENU_H = ImGui::GetFrameHeight();
@@ -249,7 +252,7 @@ void EditorApplication::_draw_titlebar()
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
     if (!ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, H, flags)) {
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(2);
         ImGui::End();
         return;
     }
@@ -284,7 +287,7 @@ void EditorApplication::_draw_titlebar()
     }
 
     ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 }
 
 void EditorApplication::_titlebar_menus(const TitlebarLayout& L)
@@ -367,40 +370,50 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& L)
 
 void EditorApplication::_titlebar_tabs(const TitlebarLayout& L)
 {
-    const ImVec2 mn(L.origin.x + L.logo + 6.0f, L.origin.y + L.menu_h);
-    const ImVec2 mx(L.origin.x + L.width, L.origin.y + L.bar_h);
+    const DockColors colors = DockColors::get();
+    const ImU32 clear = IM_COL32(0, 0, 0, 0);
+    ImGui::SetCursorScreenPos(ImVec2(L.origin.x + L.logo + 6.0f, L.origin.y + L.menu_h));
 
-    const char* world_label = "World";
-    const char* settings_label = "Settings";
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f, ImFloor((L.tab_h - ImGui::GetFontSize()) * 0.5f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_TabBarOverlineSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(2.0f, ImGui::GetStyle().ItemInnerSpacing.y));
+    ImGui::PushStyleColor(ImGuiCol_Tab, clear);
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, colors.strip);
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, clear);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmed, clear);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, colors.strip);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, clear);
 
-    TabStrip strip;
-    // strip.begin("##TitlebarTabs", mn, mx, TabStrip::Edge::TOP, TabStrip::natural_width("World"), 0.0f, ImGui::GetColorU32(ImGuiCol_MenuBarBg));
-    // if (strip.tab("World", active_tab == 0)) active_tab = 0;
-    // _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-    strip.begin("##TitlebarTabs", mn, mx, TabStrip::Edge::TOP, TabStrip::natural_width(world_label) + TabStrip::natural_width(settings_label), 0.0f, ImGui::GetColorU32(ImGuiCol_MenuBarBg));
-    if (strip.tab(world_label, tab == EditorTab::WORLD)) tab = EditorTab::WORLD;
-    _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-    if (strip.tab(settings_label, tab == EditorTab::SETTINGS)) tab = EditorTab::SETTINGS;
-    _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-    strip.end();
+    if (ImGui::BeginTabBar("##TitlebarTabs", ImGuiTabBarFlags_None)) {
+        auto item = [&](const char* p_label, EditorTab p_tab) {
+            const bool selected = tab == p_tab;
+            ImGuiTabItemFlags flags = ImGuiTabItemFlags_NoTooltip;
+            if (tab_sync && selected) flags |= ImGuiTabItemFlags_SetSelected;
+            ImGui::PushStyleColor(ImGuiCol_Text, selected ? colors.text : colors.text_dim);
+            ImGui::PushStyleColor(ImGuiCol_TabHovered, selected ? colors.strip : colors.tab_hovered);
+            const bool open = ImGui::BeginTabItem(p_label, nullptr, flags);
+            ImGui::PopStyleColor(2);
+            _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+            if (open) {
+                tab = p_tab;
+                ImGui::EndTabItem();
+            }
+        };
+        item("World", EditorTab::WORLD);
+        item("Settings", EditorTab::SETTINGS);
+        ImGui::EndTabBar();
+    }
+    tab_sync = false;
 
-    // pending_tab = -1;
+    ImGui::PopStyleColor(6);
+    ImGui::PopStyleVar(6);
 }
 
 void EditorApplication::_titlebar_logo(const TitlebarLayout& L)
 {
-    // ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    // VkDescriptorSet logo_set = imgui.texture_cache.get(resources.icon_image.image_view);
-    // dl->PushClipRect(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + L.bar_h), false);
-    // float m = 6.0f;
-    // ImVec2 mn(L.origin.x + m, L.origin.y + m);
-    // ImVec2 mx(L.origin.x + L.logo - m, L.origin.y + L.bar_h - m);
-    // if (logo_set) dl->AddImage(logo_set, mn, mx);
-    // else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), 4.0f);
-    // dl->PopClipRect();
-
-
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     const float m = 6.0f;
@@ -412,12 +425,6 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& L)
     if (logo_set) dl->AddImage(logo_set, mn, mx);
     else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), 4.0f);
     dl->PopClipRect();
-    // ImGui::SetCursorScreenPos(L.origin);
-    // ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    // ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
-    // ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.12f));
-    // if (ImGui::Button("##LumenLogo", ImVec2(L.logo, L.bar_h))) popups.open("About Lumen");
-    // ImGui::PopStyleColor(3);
 }
 
 void EditorApplication::_titlebar_help_menu()

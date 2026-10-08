@@ -26,11 +26,9 @@ struct EditorApplication : Application
     EditorResources resources;
     AssetImportTracker imports;
 
-    // int active_tab = 0;
-    // int pending_tab = -1;
     enum class EditorTab { WORLD, SETTINGS } tab = EditorTab::WORLD;
+    bool tab_sync = true;
     EditorCamera editor_camera;
-
     Error on_init() override;
     void on_shutdown() override;
     void on_update(float p_dt) override;

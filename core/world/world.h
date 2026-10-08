@@ -1,6 +1,7 @@
 #pragma once
 #include <core/world/camera.h>
 #include <core/base/error.h>
+#include <core/assets/guid.h>
 #include <algorithm>
 #include <bit>
 #include <cstddef>
@@ -8,6 +9,7 @@
 #include <cstring>
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace lumen {
@@ -182,6 +184,8 @@ struct World
     mutable uint32_t iterating = 0;
     WorldCommandBuffer deferred;
 
+    std::unordered_map<Guid, Entity> by_guid;
+
     Error initialize();
     void shutdown();
 
@@ -191,7 +195,9 @@ struct World
     const Camera& camera_active() const { return default_camera; }
 
     Entity create();
+    Entity create_persistent(Guid p_guid);
     void destroy(Entity p_entity);
+    Entity find(Guid p_guid) const;
 
     bool valid(Entity p_entity) const {
         return p_entity.index < generations.size() && generations[p_entity.index] == p_entity.generation;

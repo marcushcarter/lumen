@@ -7,8 +7,9 @@
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
-#include <editor/docking/panels/world_settings_panel.h>
 #include <editor/docking/panels/outliner_panel.h>
+#include <editor/docking/panels/details_panel.h>
+#include <editor/docking/panels/world_settings_panel.h>
 
 namespace lumen {
 
@@ -20,6 +21,7 @@ Error Editor::initialize()
     right_bottom.zone = DockZone::RIGHT_BOTTOM;
 
     add_panel<OutlinerPanel>();
+    add_panel<DetailsPanel>();
     add_panel<WorldSettingsPanel>();
 
     return OK;
@@ -32,45 +34,136 @@ void Editor::shutdown()
     panels.clear();
 }
 
+static bool _toolbar_button(const DockColors& p_colors, const char* p_label, ImVec2 p_min, ImVec2 p_size, bool p_active)
+{
+    ImGui::SetCursorScreenPos(p_min);
+    const bool pressed = ImGui::InvisibleButton(p_label, p_size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 max(p_min.x + p_size.x, p_min.y + p_size.y - 1.0f);
+    if (p_active || held) dl->AddRectFilled(p_min, max, p_colors.pane);
+    else if (hovered) dl->AddRectFilled(p_min, max, p_colors.tab_hovered);
+    if (p_active) dl->AddRectFilled(ImVec2(p_min.x, max.y - TabStrip::ACCENT_H), max, p_colors.accent);
+
+    const char* end = ImGui::FindRenderedTextEnd(p_label);
+    const ImVec2 ts = ImGui::CalcTextSize(p_label, end);
+    dl->AddText(ImVec2(ImFloor(p_min.x + (p_size.x - ts.x) * 0.5f), ImFloor(p_min.y + (p_size.y - ts.y) * 0.5f)), (p_active || hovered) ? p_colors.text : p_colors.text_dim, p_label, end);
+    return pressed;
+}
+
+struct PlayButton
+{
+    const char* label;
+    const char* tooltip;
+    bool enabled;
+    ImU32 icon;
+};
+
+static bool _play_button(const DockColors& p_colors, const PlayButton& p_button, ImVec2 p_min, ImVec2 p_size, bool p_open)
+{
+    ImGui::SetCursorScreenPos(p_min);
+    const bool clicked = ImGui::InvisibleButton(p_button.label, p_size);
+    const bool hovered = p_button.enabled && ImGui::IsItemHovered();
+    const bool held = p_button.enabled && ImGui::IsItemActive();
+    if (p_button.tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", p_button.tooltip);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 max(p_min.x + p_size.x, p_min.y + p_size.y);
+    if (held || p_open) dl->AddRectFilled(p_min, max, p_colors.line, Editor::PLAY_ROUNDING);
+    else if (hovered) dl->AddRectFilled(p_min, max, p_colors.pane, Editor::PLAY_ROUNDING);
+
+    const ImU32 col = p_button.enabled ? p_button.icon : ((p_colors.text_dim & ~IM_COL32_A_MASK) | (Editor::PLAY_DISABLED_ALPHA << IM_COL32_A_SHIFT));
+    const char* end = ImGui::FindRenderedTextEnd(p_button.label);
+    const ImVec2 ts = ImGui::CalcTextSize(p_button.label, end);
+    dl->AddText(ImVec2(ImFloor(p_min.x + (p_size.x - ts.x) * 0.5f), ImFloor(p_min.y + (p_size.y - ts.y) * 0.5f)), col, p_button.label, end);
+    return clicked && p_button.enabled;
+}
+
+void Editor::_draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max)
+{
+    const DockColors colors = DockColors::get();
+    const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
+    const bool paused = playing && ctx.pie_is_paused && ctx.pie_is_paused();
+
+    const float box_h = (p_bar_max.y - p_bar_min.y) - PLAY_MARGIN * 2.0f;
+    const float bh = box_h - PLAY_INSET * 2.0f;
+    const float bw = bh + 4.0f;
+    const float box_w = PLAY_INSET * 2.0f + bw * 4.0f;
+    const float total_w = box_w + PLAY_KEBAB_GAP + PLAY_KEBAB_W;
+
+    const ImVec2 box_min(ImFloor(p_bar_min.x + ((p_bar_max.x - p_bar_min.x) - total_w) * 0.5f), p_bar_min.y + PLAY_MARGIN);
+    const ImVec2 box_max(box_min.x + box_w, box_min.y + box_h);
+    ImGui::GetWindowDrawList()->AddRectFilled(box_min, box_max, colors.gap, PLAY_ROUNDING + PLAY_INSET);
+
+    ImGui::PushID("##play_controls");
+    const ImVec2 size(bw, bh);
+    const float y = box_min.y + PLAY_INSET;
+    float x = box_min.x + PLAY_INSET;
+
+    PlayButton primary{ ICON_FA_PLAY "##primary", "Play", (bool)ctx.pie_toggle_play, PLAY_GREEN };
+    if (playing && paused) primary = { ICON_FA_PLAY "##primary", "Resume", (bool)ctx.pie_toggle_pause, PLAY_GREEN };
+    else if (playing) primary = { ICON_FA_PAUSE "##primary", "Pause", (bool)ctx.pie_toggle_pause, colors.text };
+    if (_play_button(colors, primary, ImVec2(x, y), size, false)) {
+        if (!playing) ctx.pie_toggle_play();
+        else ctx.pie_toggle_pause();
+    }
+    x += bw;
+
+    const PlayButton step{ ICON_FA_FORWARD_STEP "##step", "Advance one frame", paused && (bool)ctx.pie_step_frame, colors.text };
+    if (_play_button(colors, step, ImVec2(x, y), size, false)) ctx.pie_step_frame();
+    x += bw;
+
+    const PlayButton stop{ ICON_FA_STOP "##stop", "Stop", playing && (bool)ctx.pie_toggle_play, colors.text };
+    if (_play_button(colors, stop, ImVec2(x, y), size, false)) ctx.pie_toggle_play();
+    x += bw;
+
+    const PlayButton eject{ ICON_FA_EJECT "##eject", "Eject", playing && (bool)ctx.pie_toggle_eject, colors.text };
+    if (_play_button(colors, eject, ImVec2(x, y), size, false)) ctx.pie_toggle_eject();
+
+    const ImVec2 kebab_min(box_max.x + PLAY_KEBAB_GAP, y);
+    const bool options_open = ImGui::IsPopupOpen("##options_menu");
+    const PlayButton options{ ICON_FA_ELLIPSIS_VERTICAL "##options", "Play options", true, colors.text };
+    if (_play_button(colors, options, kebab_min, ImVec2(PLAY_KEBAB_W, bh), options_open)) ImGui::OpenPopup("##options_menu");
+
+    ImGui::SetNextWindowPos(ImVec2(kebab_min.x, box_max.y + 2.0f), ImGuiCond_Always);
+    dock_menu_push_style();
+    if (ImGui::BeginPopup("##options_menu", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        ImGui::TextDisabled("MODES");
+        ImGui::MenuItem(ICON_FA_PLAY "  Selected Viewport", nullptr, true);
+        ImGui::EndPopup();
+    }
+    dock_menu_pop_style();
+
+    ImGui::PopID();
+}
+
 void Editor::_draw_toolbar(EditorContext& ctx)
 {
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 4));
+    const DockColors colors = DockColors::get();
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const ImVec2 ws = ImGui::GetWindowSize();
+    const ImVec2 wmax(wp.x + ws.x, wp.y + ws.y);
+    const float h = ws.y;
 
-    {
-        const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
-        const bool paused = ctx.pie_is_paused && ctx.pie_is_paused();
+    ImGui::PushClipRect(wp, wmax, false);
 
-        const float btn = ImGui::GetFrameHeight();
-        const float spacing = 6.0f;
-        const int count = playing ? 2 : 1;
-        const float total = btn * count + spacing * (count - 1);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(wp, wmax, colors.strip);
+    dl->AddRectFilled(ImVec2(wp.x, wmax.y - 1.0f), wmax, colors.line);
 
-        ImGui::SameLine();
-        const float center_x = (ImGui::GetContentRegionMax().x - total) * 0.5f;
-        if (center_x > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(center_x);
 
-        if (!playing) {
-            if (ImGui::Button(ICON_FA_PLAY, ImVec2(btn, btn)) && ctx.pie_toggle_play) ctx.pie_toggle_play();
-        } else {
-            if (ImGui::Button(ICON_FA_STOP, ImVec2(btn, btn)) && ctx.pie_toggle_play) ctx.pie_toggle_play();
-            ImGui::SameLine(0.0f, spacing);
-            if (ImGui::Button(paused ? ICON_FA_PLAY : ICON_FA_PAUSE, ImVec2(btn, btn)) && ctx.pie_toggle_pause) ctx.pie_toggle_pause();
-        }
-    }
+    _draw_play_controls(ctx, wp, ImVec2(wmax.x, wmax.y - 1.0f));
 
-    const char* cog = ICON_FA_GEAR " Settings";
-    float settings_width = ImGui::CalcTextSize(cog).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-    ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - settings_width);
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.15f));
-    if (ImGui::Button(cog)) {
+    const char* cog = ICON_FA_GEAR "  Settings";
+    const float cog_w = ImGui::CalcTextSize(cog).x + TabStrip::PAD_X * 2.0f;
+    if (_toolbar_button(colors, cog, ImVec2(wmax.x - cog_w, wp.y), ImVec2(cog_w, h), false)) {
         // ctx.popups->open("Editor Settings");
         // settings_popup.open();
     }
-    ImGui::PopStyleColor(3);
-    
-    ImGui::PopStyleVar();
+
+    ImGui::PopClipRect();
 }
 
 void Editor::on_update(EditorContext& ctx, float)

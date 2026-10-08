@@ -16,10 +16,6 @@ DockColors DockColors::get()
 
     DockColors d;
     d.gap = _mix_u32(bg, fg, 0.0f);
-    // d.strip = _mix_u32(bg, fg, 0.06f);
-    // d.pane = _mix_u32(bg, fg, 0.10f);
-    // d.tab_hovered = _mix_u32(bg, fg, 0.08f);
-    // d.line = _mix_u32(bg, fg, 0.14f);
     d.strip = _mix_u32(bg, fg, 0.045f);
     d.pane = _mix_u32(bg, fg, 0.08f);
     d.tab_hovered = _mix_u32(bg, fg, 0.06f);

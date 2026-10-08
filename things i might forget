@@ -1,7 +1,27 @@
 GBUFFER
 
 Normal RG16UNORM - normal oct encoded xy
-Albedo RGB10A2 - base color xyz
+Albedo RGB10A2 - base color xyz, 
 Material RGBA8UNORM - 
 Custom RGBA8UNORM - assigned channels xyzw
 Velocity RG16SFLOAT - 
+
+SS + DDGI fallback (007 FL inspired)
+Mesh SDFs
+
+reflections
+Planar mirros
+SS reflection
+Box reflection probe rfallbacks|
+
+
+
+
+
+
+
+NEXT STEPS
+outliner panel just showing the entities and folders
+outliner panel having a selected entity
+details panel showing components
+viewport picking entities

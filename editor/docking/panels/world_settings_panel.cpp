@@ -15,6 +15,8 @@
 #include <imgui.h>
 #include <IconsFontAwesome6.h>
 
+#include <editor/assets/mesh_cooker.h>
+
 namespace lumen {
     
 void WorldSettingsPanel::draw_contents(EditorContext& ctx)
@@ -68,6 +70,10 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
 
         draw_occlusion("Instance Occlusion", "After frustum", s.instances_visible + s.instances_occluded, s.instances_visible, s.instances_occluded, s.instances_recovered);
         draw_occlusion("Cluster Occlusion", "After LOD + frustum", s.refs, s.phase1_visible, s.retest, s.phase2_visible);
+        // if (!imgui_property_grid_begin("aisionsa", 0.55f)) return;
+        // imgui_property("Est. Virtual Triangle Count"); ImGui::Text("%u", s.phase1_visible * 64 * 3);
+        // imgui_property("Est. Physical Triangle Count"); ImGui::Text("%u", s.phase1_visible * 64 * 3);
+        // imgui_property_grid_end();
     }
 
     ImGui::SeparatorText("Editor Settings");

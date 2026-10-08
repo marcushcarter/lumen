@@ -42,6 +42,8 @@ struct EditorContext
     std::function<void()> pie_toggle_play;
     std::function<bool()> pie_is_paused;
     std::function<void()> pie_toggle_pause;
+    std::function<void()> pie_step_frame;
+    std::function<void()> pie_toggle_eject;
 };
 
 }

@@ -42,11 +42,11 @@ void Theme::apply() const
     c[ImGuiCol_UnsavedMarker]              = text;
 
     // Surfaces
-    c[ImGuiCol_WindowBg]                   = base;
-    c[ImGuiCol_ChildBg]                    = shade(base, 0.92f);
+    const ImVec4 chrome = mix(base, text, 0.012f);
+    c[ImGuiCol_WindowBg]                   = chrome;
+    c[ImGuiCol_ChildBg]                    = chrome;
     c[ImGuiCol_PopupBg]                    = shade(base, 0.85f);
-    // c[ImGuiCol_MenuBarBg]                  = mix(base, text, 0.02f);
-    c[ImGuiCol_MenuBarBg]                  = mix(base, text, 0.012f);
+    c[ImGuiCol_MenuBarBg]                  = chrome;
     c[ImGuiCol_TitleBg]                    = shade(base, 0.80f);
     c[ImGuiCol_TitleBgActive]              = shade(base, 0.90f);
     c[ImGuiCol_TitleBgCollapsed]           = shade(base, 0.70f);

@@ -19,6 +19,14 @@ struct FrameData
 
     CameraUniform camera{};
 
+    struct EntityCache {
+        mat4 prev_mtx;
+        uint64_t frame = 0;
+        uint32_t generation = UINT32_MAX;
+        uint32_t mesh_index = UINT32_MAX;
+    };
+    std::vector<EntityCache> entity_cache;
+
     void reset();
 };
 

@@ -1,5 +1,6 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/render_path.h>
+#include <core/world/components.h>
 #include <core/io/path.h>
 #include <core/version.h>
 #include <drivers/windows/dialogs_win32.h>
@@ -64,7 +65,6 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     
     err = on_init();
     if (err == CANCELED) {
-        // User declined at startup (e.g. GPU fallback prompt): tear down cleanly so worker threads join, no crash report.
         on_shutdown();
         shutdown();
         return err;
@@ -148,6 +148,7 @@ Error Application::_frame()
     cpu.zone_end();
 
     cpu.zone_begin("Frame Build");
+    renderer.resolve_meshes(world);
     renderer.begin_frame(world);
     cpu.zone_end();
 
@@ -239,7 +240,6 @@ void Application::report_fatal_error(Error p_error)
 
 bool Application::confirm_gpu_support()
 {
-    // Asked once per run; a cancel leaves it unconfirmed so the next attempt asks again.
     if (gpu_support_confirmed || dd.capabilities.mesh.mesh_shader) return true;
 
     const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
@@ -252,13 +252,7 @@ bool Application::confirm_gpu_support()
 Error Application::project_load(const std::filesystem::path &p_root)
 {
     using enum Error;
-    
-    // if (!dd.capabilities.mesh.mesh_shader) {
-    //     const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
-    //         L"Lumen will use its compatibility geometry path instead. Everything still works, but performance may differ from GPUs with mesh shader support.\n\n"
-    //         L"If your GPU is recent, updating your graphics driver may enable support.";
-    //     drivers::Win32Dialogs::warning(L"Lumen", L"Mesh shaders not supported", body.c_str(), false);
-    // }
+
     if (!confirm_gpu_support()) return CANCELED;
 
     Error err = project.load(p_root);
@@ -267,6 +261,22 @@ Error Application::project_load(const std::filesystem::path &p_root)
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = world.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
+    const int GRID = 1;
+    for (uint32_t i = 0; i < (uint32_t)renderer.geometry.mesh_guids.size(); i++) {
+        const Guid mesh_guid = renderer.geometry.mesh_guids[i];
+        if (mesh_guid == Guid{}) continue;
+        const float spacing = renderer.geometry.meshes[i].bounds_sphere.w * 1.5f;
+        const float half = (GRID - 1) * 0.5f * spacing;
+        for (int gz = 0; gz < GRID; gz++) {
+            for (int gx = 0; gx < GRID; gx++) {
+                const Entity e = world.create_persistent(Guid::generate());
+                world.add<TransformComponent>(e, { vec3(gx * spacing - half, 0.0f, gz * spacing - half), quat(1.0f, 0.0f, 0.0f, 0.0f), vec3(1.0f) });
+                world.add<MeshComponent>(e, { mesh_guid });
+            }
+        }
+    }
+
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());
 
     return OK;

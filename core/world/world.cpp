@@ -49,6 +49,7 @@ void World::unload()
 {
     LUMEN_ERR_FAIL_COND(iterating != 0);
     deferred.clear();
+    by_guid.clear();
     for (PoolSlot& slot : pools) {
         if (slot.set) slot.clear_fn(slot.set);
     }
@@ -73,10 +74,21 @@ Entity World::create()
     return { i, 0 };
 }
 
+Entity World::create_persistent(Guid p_guid)
+{
+    LUMEN_ERR_FAIL_COND_V(p_guid == Guid{}, ENTITY_NULL);
+    LUMEN_ERR_FAIL_COND_V(by_guid.contains(p_guid), ENTITY_NULL);
+    const Entity e = create();
+    add<EntityIdComponent>(e, { p_guid });
+    by_guid.emplace(p_guid, e);
+    return e;
+}
+
 void World::destroy(Entity p_entity)
 {
     LUMEN_ERR_FAIL_COND(iterating != 0);
     LUMEN_ERR_FAIL_COND(!valid(p_entity));
+    if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) by_guid.erase(id->guid);
     ComponentMask& mask = masks[p_entity.index];
     for (uint32_t w = 0; w < ComponentMask::WORDS; w++) {
         uint64_t bits = mask.words[w];
@@ -89,6 +101,12 @@ void World::destroy(Entity p_entity)
     mask.reset();
     generations[p_entity.index]++;
     free_list.push_back(p_entity.index);
+}
+
+Entity World::find(Guid p_guid) const
+{
+    const auto it = by_guid.find(p_guid);
+    return it == by_guid.end() ? ENTITY_NULL : it->second;
 }
 
 void World::deferred_flush()

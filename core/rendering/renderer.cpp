@@ -1,5 +1,6 @@
 #include <core/rendering/renderer.h>
 #include <core/world/world.h>
+#include <core/world/components.h>
 #include <core/assets/asset_common.h>
 #include <core/io/embedded_resource.h>
 #include <core/base/cpu_profiler.h>
@@ -175,6 +176,7 @@ void Renderer::unload()
 {
     textures.clear();
     geometry.free();
+    frame.entity_cache.clear();
     hiz_reset_pending = true;
 }
 
@@ -298,26 +300,35 @@ glm::mat4 grid_transform(uint32_t iterator, float spacing = 1.0f)
     );
 }
 
+void Renderer::resolve_meshes(World& r_world)
+{
+    r_world.view<MeshComponent>([&](Entity, MeshComponent& p_mesh) {
+        if (p_mesh.mesh_index < geometry.mesh_guids.size() && geometry.mesh_guids[p_mesh.mesh_index] == p_mesh.mesh) return;
+        p_mesh.mesh_index = geometry.find(p_mesh.mesh);
+    });
+}
+
 void Renderer::_frame_build(const World& p_world)
 {
-    (void)p_world;
-
     frame.reset();
-    const int GRID = 1;
-    for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-        if (geometry.mesh_guids[i] == Guid{}) continue;
-        const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
-        const float half = (GRID - 1) * 0.5f * spacing;
-        for (int gz = 0; gz < GRID; gz++) {
-            for (int gx = 0; gx < GRID; gx++) {
-                const vec3 pos = vec3(gx * spacing - half, 0.0f, gz * spacing - half);
-                const mat4 model = translate(mat4(1.0f), pos);
-                frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-                frame.transforms_scratch.push_back(Transform{ model, model });
-                frame.cluster_ref_capacity += geometry.meshes[i].cluster_count;
-            }
-        }
-    }
+
+    p_world.view<TransformComponent, MeshComponent>([&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh) {
+        if (frame.instances_scratch.size() >= MAX_INSTANCES) return;
+        if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
+        FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
+        if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
+        if (cache.mesh_index >= geometry.mesh_guids.size() || geometry.mesh_guids[cache.mesh_index] != p_mesh.mesh) cache.mesh_index = geometry.find(p_mesh.mesh);
+        const LMesh* mesh = geometry.get(cache.mesh_index);
+        if (!mesh) return;
+        const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+        const mat4 prev_mtx = cache.frame + 1 == frame_number ? cache.prev_mtx : model;
+        cache.prev_mtx = model;
+        cache.frame = frame_number;
+        frame.instances_scratch.push_back(Instance{ cache.mesh_index, (uint32_t)frame.transforms_scratch.size(), { 0, 0 } });
+        frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
+        frame.cluster_ref_capacity += mesh->cluster_count;
+    });
+
     frame.instance_count = (uint32_t)frame.instances_scratch.size();
 
     const float aspect = height ? (float)width / (float)height : 1.0f;

@@ -613,18 +613,21 @@ EditorContext EditorApplication::_make_context()
     EditorContext ctx{};
     ctx.win32 = &win32;
     ctx.imgui = &imgui;
-    ctx.renderer = &renderer;
-    ctx.render_path = static_cast<EditorRenderPath*>(render_path);
-    ctx.project = &project;
-    ctx.tasks = &tasks;
-    ctx.profiling = &profiling;
     
-    ctx.settings = &settings;
-    ctx.resources = &resources;
-    ctx.imports = &imports;
+    ctx.renderer = &renderer;
+    ctx.tasks = &tasks;
+    ctx.project = &project;
+    ctx.world = &world;
     
     ctx.project_manager = &project_manager;
     ctx.editor = &editor;
+    ctx.selected = &selected;
+    
+    ctx.render_path = static_cast<EditorRenderPath*>(render_path);
+    ctx.settings = &settings;
+    ctx.profiling = &profiling;
+    ctx.resources = &resources;
+    ctx.imports = &imports;
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};

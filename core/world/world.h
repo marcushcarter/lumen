@@ -1,4 +1,5 @@
 #pragma once
+#include <core/world/components.h>
 #include <core/world/camera.h>
 #include <core/base/error.h>
 #include <core/assets/guid.h>
@@ -289,6 +290,12 @@ struct World
     }
 
     void deferred_flush();
+
+    template <typename T>
+    const std::vector<Entity>* entities_with() const {
+        if (!_registered<T>()) return nullptr;
+        return &_pool<T>(*this)->dense;
+    }
 
     template <typename T>
     bool _registered() const {

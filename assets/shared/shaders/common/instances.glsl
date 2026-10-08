@@ -7,7 +7,8 @@
 struct Instance {
     uint mesh_id;
     uint transform_id;
-    uint _pad0[2];
+    uint entity_id;
+    uint _pad0;
 };
 
 struct Transform {

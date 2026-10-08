@@ -39,11 +39,11 @@ struct Application
     RenderPath* pending_render_path = nullptr;
     std::function<void()> pending_transition;
 
+    drivers::ImGuiDriver imgui;
+
     TaskSystem tasks;
 
     ProfilingSettings profiling;
-
-    drivers::ImGuiDriver imgui;
 
     bool paused = false;
     bool gpu_support_confirmed = false;

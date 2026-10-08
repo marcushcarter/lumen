@@ -1,0 +1,42 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/instances.glsl"
+#include "common/visbuffer.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) writeonly buffer PickResultBuffer { uint entity; };
+
+layout(push_constant) uniform Push {
+    ClusterRefsBuffer cluster_refs;
+    InstanceBuffer instances;
+    PickResultBuffer result;
+    uint vis_index;
+    uint depth_index;
+    uint x;
+    uint y;
+} pc;
+
+const uint PICK_NONE = 0xFFFFFFFFu;
+
+void main() {
+    ivec2 coord = ivec2(pc.x, pc.y);
+    uint entity = PICK_NONE;
+    float depth = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
+    if (depth != 0.0) {
+        uvec2 v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).xy;
+        if (!vis_is_terrain(v)) {
+            uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(v)];
+            entity = pc.instances.data[ref.x].entity_id;
+        }
+    }
+    pc.result.entity = entity;
+}

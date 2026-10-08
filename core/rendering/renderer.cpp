@@ -324,7 +324,7 @@ void Renderer::_frame_build(const World& p_world)
         const mat4 prev_mtx = cache.frame + 1 == frame_number ? cache.prev_mtx : model;
         cache.prev_mtx = model;
         cache.frame = frame_number;
-        frame.instances_scratch.push_back(Instance{ cache.mesh_index, (uint32_t)frame.transforms_scratch.size(), { 0, 0 } });
+        frame.instances_scratch.push_back(Instance{ cache.mesh_index, (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
         frame.cluster_ref_capacity += mesh->cluster_count;
     });

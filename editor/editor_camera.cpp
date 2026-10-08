@@ -15,7 +15,8 @@ void EditorCamera::update(float p_dt)
 
     zoom_time += zoom_speed * p_dt;
     const float t = 0.5f * (std::sin(zoom_time / 4) + 1.0f);
-    radius = mix(100.0f, 1150.0f * 10.0f, t);
+    // radius = mix(100.0f, 1150.0f * 10.0f, t);
+    radius = mix(100.0f, 1150.0f, t);
     
     // radius = 1000.0f;
 

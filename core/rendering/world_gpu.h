@@ -22,7 +22,8 @@ struct CameraUniform {
 struct Instance {
     uint32_t mesh_id;
     uint32_t transform_id;
-    uint32_t _pad0[2];
+    uint32_t entity_id;
+    uint32_t _pad0;
 };
 
 struct Transform {

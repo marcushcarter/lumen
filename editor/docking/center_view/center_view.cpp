@@ -6,6 +6,8 @@
 #include <core/rendering/render_graph.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/features/editor/debug_view.h>
+#include <core/world/world.h>
+#include <core/world/components.h>
 #include <IconsFontAwesome6.h>
 #include <imgui_internal.h>
 #include <cstring>
@@ -85,6 +87,16 @@ void CenterView::_draw_scene(EditorContext& ctx)
     ImVec2 size = ImGui::GetContentRegionAvail();
     ImVec2 pos = ImGui::GetCursorScreenPos();
 
+    uint32_t picked = PickFeature::NONE;
+    if (ctx.render_path && ctx.world && ctx.selected && ctx.render_path->pick.take_result(picked)) {
+        World& world = *ctx.world;
+        *ctx.selected = ENTITY_NULL;
+        if (picked != PickFeature::NONE && picked < world.generations.size()) {
+            const Entity e{ picked, world.generations[picked] };
+            if (world.has<EntityIdComponent>(e)) *ctx.selected = e;
+        }
+    }
+
     if (!ImGui::IsAnyItemActive()) {
         ctx.renderer->request_size((uint32_t)(size.x * screen_percentage), (uint32_t)(size.y * screen_percentage));
     }
@@ -96,6 +108,11 @@ void CenterView::_draw_scene(EditorContext& ctx)
     VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
     if (set) {
         ImGui::Image((ImTextureID)set, size, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+        const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
+        if (!playing && ctx.render_path && ImGui::IsItemClicked(ImGuiMouseButton_Left) && size.x > 0.0f && size.y > 0.0f) {
+            const ImVec2 m = ImGui::GetMousePos();
+            ctx.render_path->pick.request((m.x - pos.x) / size.x, 1.0f - (m.y - pos.y) / size.y);
+        }
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(25, 25, 25, 255));
@@ -204,4 +221,4 @@ void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     if (was_collapsed && !debugger.collapsed) split_ratio = 1.0f - max_debug / 3.0f;
 }
 
-}
+}

@@ -28,7 +28,10 @@ struct EditorApplication : Application
 
     enum class EditorTab { WORLD, SETTINGS } tab = EditorTab::WORLD;
     bool tab_sync = true;
+    
     EditorCamera editor_camera;
+    Entity selected = ENTITY_NULL;
+
     Error on_init() override;
     void on_shutdown() override;
     void on_update(float p_dt) override;

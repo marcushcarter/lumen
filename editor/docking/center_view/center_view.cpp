@@ -244,6 +244,20 @@ void CenterView::_draw_scene(EditorContext& ctx)
     else snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", cur.name);
 
     left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
+    if (left_overlay.begin_menu(ICON_FA_BARS)) {
+        ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
+        ImGui::SliderFloat("LOD Bias", &ctx.renderer->lod_bias, 0.25f, 4.0f);
+        if (ctx.render_path) {
+            GeometryFeature& geo = ctx.render_path->geometry;
+            ImGui::Checkbox("Occlusion Culling", &geo.occlusion);
+            ImGui::Checkbox("Contribution Culling", &geo.contribution_culling);
+            ImGui::SliderFloat("Min Screen Radius (px)", &geo.contribution_px, 0.25f, 8.0f);
+            ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
+            ImGui::Checkbox("Task Shading", &geo.task_shading);
+        }
+        right_overlay.end_menu();
+    }
+    left_overlay.gap();
     if (left_overlay.begin_menu(view_btn)) {
         int i = 0;
         while (i < DEBUG_VIEW_COUNT) {
@@ -267,19 +281,6 @@ void CenterView::_draw_scene(EditorContext& ctx)
     left_overlay.end();
 
     right_overlay.begin(pos, size, OverlayBar::Align::RIGHT);
-    if (right_overlay.begin_menu(ICON_FA_BARS)) {
-        ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
-        ImGui::SliderFloat("LOD Bias", &ctx.renderer->lod_bias, 0.25f, 4.0f);
-        if (ctx.render_path) {
-            GeometryFeature& geo = ctx.render_path->geometry;
-            ImGui::Checkbox("Occlusion Culling", &geo.occlusion);
-            ImGui::Checkbox("Contribution Culling", &geo.contribution_culling);
-            ImGui::SliderFloat("Min Screen Radius (px)", &geo.contribution_px, 0.25f, 8.0f);
-            ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
-            ImGui::Checkbox("Task Shading", &geo.task_shading);
-        }
-        right_overlay.end_menu();
-    }
     right_overlay.toggle(gizmo_world ? ICON_FA_GLOBE "###gizmo_space" : ICON_FA_CUBE "###gizmo_space", gizmo_world);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(gizmo_world ? "World space" : "Object space");
     right_overlay.end();

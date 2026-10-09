@@ -1,5 +1,6 @@
 #include <editor/docking/tab_strip.h>
 #include <imgui_internal.h>
+#include <IconsFontAwesome6.h>
 
 namespace lumen {
 
@@ -51,6 +52,36 @@ void dock_menu_pop_style()
 {
     ImGui::PopStyleVar(5);
     ImGui::PopStyleColor(9);
+}
+
+// widgets on a dock pane: neutral steps up from the pane instead of the accent-tinted theme frames
+void dock_field_push_style()
+{
+    const ImVec4* c = ImGui::GetStyle().Colors;
+    const ImVec4 bg = c[ImGuiCol_WindowBg];
+    const ImVec4 fg = c[ImGuiCol_Text];
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, _mix_u32(bg, fg, 0.11f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, _mix_u32(bg, fg, 0.14f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, _mix_u32(bg, fg, 0.17f));
+    ImGui::PushStyleColor(ImGuiCol_Header, _mix_u32(bg, fg, 0.14f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, _mix_u32(bg, fg, 0.17f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, _mix_u32(bg, fg, 0.20f));
+}
+
+void dock_field_pop_style()
+{
+    ImGui::PopStyleColor(6);
+}
+
+bool dock_search_bar(const char* p_id, char* p_buf, size_t p_size, float p_width)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFrameHeight() * 0.5f);
+    dock_field_push_style();
+    ImGui::SetNextItemWidth(p_width);
+    const bool changed = ImGui::InputTextWithHint(p_id, ICON_FA_MAGNIFYING_GLASS "  Search...", p_buf, p_size);
+    dock_field_pop_style();
+    ImGui::PopStyleVar();
+    return changed;
 }
 
 float TabStrip::height()

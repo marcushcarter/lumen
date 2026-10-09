@@ -25,13 +25,11 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
         ImGui::PopID();
     };
 
-    ImGui::BeginDisabled(true);
     if (imgui_property_grid_begin("##window")) {
         reset_row("Window width", &ctx.project->settings.width, 1280);
-        reset_row("Window height", &ctx.project->settings.height, 720);
+        reset_row("Window height", &ctx.project->settings.height, 700);
         imgui_property_grid_end();
     }
-    ImGui::EndDisabled();
 
     if (!ctx.render_path) return;
     GeometryFeature& geo = ctx.render_path->geometry;

@@ -1,5 +1,6 @@
 #pragma once
 #include <imgui.h>
+#include <cstddef>
 
 namespace lumen {
 
@@ -23,6 +24,9 @@ struct DockColors
 
 void dock_menu_push_style();
 void dock_menu_pop_style();
+void dock_field_push_style();
+void dock_field_pop_style();
+bool dock_search_bar(const char* p_id, char* p_buf, size_t p_size, float p_width);
 
 struct TabStrip
 {

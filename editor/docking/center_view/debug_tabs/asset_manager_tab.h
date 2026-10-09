@@ -67,7 +67,6 @@ struct AssetManagerDebugTab : DebugTab
     char search_buf[256] = {};
 
     void _toolbar_breadcrumb(const std::filesystem::path& root);
-    void _toolbar_draw(EditorContext& ctx, const std::filesystem::path& root);
 
     /**************/
     /**** LIST ****/

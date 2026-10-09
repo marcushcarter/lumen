@@ -27,7 +27,7 @@ struct OverlayBar
     bool begin_menu(const char* p_label, ImVec2 p_size = ImVec2(0,0));
     void end_menu();
 
-    void gap(float p_w);
+    void gap(float p_w = 5.0f);
 };
 
 }

@@ -1,5 +1,6 @@
 #include <editor/docking/panels/outliner_panel.h>
 #include <editor/editor_context.h>
+#include <editor/docking/tab_strip.h>
 #include <editor/world/editor_folders.h>
 #include <editor/world/editor_selection.h>
 #include <editor/world/editor_spawn.h>
@@ -220,11 +221,7 @@ void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
 {
     const float bw = ImGui::GetFrameHeight();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + PAD_X);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, bw * 0.5f);
-    // ImGui::SetNextItemWidth(-(bw + ImGui::GetStyle().ItemSpacing.x));
-    ImGui::SetNextItemWidth(-(bw + ImGui::GetStyle().ItemSpacing.x + PAD_X));
-    if (ImGui::InputTextWithHint("##outliner_search", ICON_FA_MAGNIFYING_GLASS "  Search...", filter, sizeof(filter))) dirty = true;
-    ImGui::PopStyleVar();
+    if (dock_search_bar("##outliner_search", filter, sizeof(filter), -(bw + ImGui::GetStyle().ItemSpacing.x + PAD_X))) dirty = true;
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_FOLDER_PLUS, ImVec2(bw, bw))) _new_folder(ctx);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create folder (moves the selection into it)");
@@ -300,6 +297,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::PopClipRect();
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered() && !io.KeyCtrl && !io.KeyShift) _clear_selection(ctx);
+    dock_menu_push_style();
     if (ImGui::BeginPopupContextWindow("##outliner_empty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         if (ImGui::BeginMenu(ICON_FA_PLUS "  Add Entity")) {
             editor_spawn_menu_items(ctx, EditorFolders::ROOT);
@@ -311,6 +309,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         }
         ImGui::EndPopup();
     }
+    dock_menu_pop_style();
 
     ImGui::EndTable();
     ImGui::PopStyleVar(2);
@@ -374,10 +373,12 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
         }
         ImGui::EndDragDropTarget();
     }
+    dock_menu_push_style();
     if (ImGui::BeginPopupContextItem("##row_menu")) {
         _row_menu(ctx, p_row);
         ImGui::EndPopup();
     }
+    dock_menu_pop_style();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 text_col = ImGui::GetColorU32(hidden ? ImGuiCol_TextDisabled : ImGuiCol_Text);

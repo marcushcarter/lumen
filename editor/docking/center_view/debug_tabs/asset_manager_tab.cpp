@@ -8,6 +8,7 @@
 #include <core/base/error.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/imgui_helpers.h>
+#include <editor/docking/tab_strip.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -180,41 +181,6 @@ void AssetManagerDebugTab::_toolbar_breadcrumb(const std::filesystem::path& root
         ImGui::PopID();
     }
     ImGui::PopStyleColor();
-}
-
-void AssetManagerDebugTab::_toolbar_draw(EditorContext& ctx, const std::filesystem::path& root)
-{
-    ImGui::BeginDisabled(!(!selected_folder.empty() && selected_folder != root));
-    if (ImGui::Button(ICON_FA_CHEVRON_LEFT)) selected_folder = selected_folder.parent_path();
-    ImGui::EndDisabled();
-    
-    ImGui::SameLine();
-    if (ImGui::Button("New Folder")) {
-        std::filesystem::create_directory(ctx.project->assets_dir / "New Folder");
-        request_refresh();
-    }
-    
-    ImGui::SameLine();
-    if (ImGui::Button("+ Import")) {
-        if (!selected_folder.empty() && std::filesystem::exists(selected_folder)) {
-            std::vector<std::wstring> files = drivers::Win32Dialogs::open_files(
-                L"All Supported\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
-                L"Images\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
-                L"All Files\0*.*\0"
-            );
-            for (const std::wstring& f : files) {
-                const std::filesystem::path source = f;
-                if (!asset_import_any(ctx, source, selected_folder)) log_write("Skipped unsupported import: %s", source.string().c_str());
-            }
-            request_refresh();
-        }
-    }
-    
-    ImGui::SameLine();
-    ImGui::InputTextWithHint("##search", "Search..", search_buf, sizeof(search_buf));
-    
-    ImGui::SameLine();
-    _toolbar_breadcrumb(root);
 }
 
 /**************/
@@ -459,6 +425,33 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
     const std::filesystem::path& root = ctx.project->assets_dir;
     _cache_tick(ImGui::GetTime());
+
+    if (ImGui::Button(ICON_FA_FILE_IMPORT " Import")) {
+        if (!selected_folder.empty() && std::filesystem::exists(selected_folder)) {
+            std::vector<std::wstring> files = drivers::Win32Dialogs::open_files(
+                L"All Supported\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
+                L"Images\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
+                L"All Files\0*.*\0"
+            );
+            for (const std::wstring& f : files) {
+                const std::filesystem::path source = f;
+                if (!asset_import_any(ctx, source, selected_folder)) log_write("Skipped unsupported import: %s", source.string().c_str());
+            }
+            request_refresh();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("New Folder")) {
+        std::filesystem::create_directory(ctx.project->assets_dir / "New Folder");
+        request_refresh();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_CHEVRON_LEFT)) selected_folder = selected_folder.parent_path();
+    ImGui::SameLine();
+    ImGui::Button(ICON_FA_CHEVRON_RIGHT);
+    ImGui::SameLine();
+    _toolbar_breadcrumb(root);
     
     const ImVec2 region_p0 = ImGui::GetCursorScreenPos();
 
@@ -468,14 +461,12 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     float body_w = avail.x - thick;
     if (body_w < 1.0f) body_w = 1.0f;
     const float min_side = 120.0f;
-    split_x = ImClamp(split_x, min_side / body_w, 1.0f - min_side / body_w);
-    float left_w = ImFloor(body_w * split_x);
+    float left_w = ImFloor(ImClamp(body_w * 0.18f, ImMin(min_side, body_w * 0.5f), body_w - ImMin(min_side, body_w * 0.5f)));
     float right_w = body_w - left_w;
 
     ImGui::BeginChild("##left", ImVec2(left_w, avail.y), true);
     if (_cache_get(root).exists) _draw_folder_node(root, 0);
     {
-        // Drawn in the tree child's own list: the foreground list painted this over popups and the drag tooltip.
         const float divider_x = region_p0.x + left_w;
         const float shadow_w  = 20.0f;
         const ImU32 c_edge = IM_COL32(0, 0, 0, 80);
@@ -484,13 +475,11 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     }
     ImGui::EndChild();
 
-    ImGui::SameLine(0, 0);
-    SplitterState sx = imgui_splitter("##am_split_lr", SplitAxis::X, ImVec2(thick, avail.y));
-    if (sx.active) split_x += sx.delta / body_w;
-    ImGui::SameLine(0, 0);
+    ImGui::SameLine(0, thick);
 
     ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
-    _toolbar_draw(ctx, root);
+    // ImGui::InputTextWithHint("##search", "Search..", search_buf, sizeof(search_buf));
+    dock_search_bar("##search", search_buf, sizeof(search_buf), -FLT_MIN);
     ImGui::BeginChild("##bottom_right", ImVec2(0, 0), true);
     _list_draw(ctx);
     ImGui::EndChild();

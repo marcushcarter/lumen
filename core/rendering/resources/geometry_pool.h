@@ -150,6 +150,8 @@ struct GeometryPool
     std::vector<uint32_t> free_meshes;
     std::unordered_map<Guid, uint32_t, GuidHash, GuidEq> by_guid;
 
+    uint64_t version = 0;
+
     std::vector<RetiredMesh> retired_meshes;
     std::vector<RetiredBuffer> retired_buffers;
 

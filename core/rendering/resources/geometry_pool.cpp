@@ -71,6 +71,7 @@ void GeometryPool::free()
 
 void GeometryPool::clear()
 {
+    version++;
     meshes.clear();
     mesh_ranges.clear();
     mesh_guids.clear();
@@ -391,6 +392,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         mesh_guids[id] = p_guid;
     }
     by_guid.emplace(p_guid, id);
+    version++;
 
     // log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
     return id;
@@ -402,6 +404,7 @@ void GeometryPool::unload(Guid p_guid)
     if (it == by_guid.end()) return;
     const uint32_t id = it->second;
     by_guid.erase(it);
+    version++;
 
     retired_meshes.push_back({ frame_number, id, mesh_ranges[id] });
     meshes[id] = LMesh{};

@@ -177,6 +177,7 @@ void Renderer::unload()
     textures.clear();
     geometry.free();
     frame.entity_cache.clear();
+    frame.statics.clear();
     hiz_reset_pending = true;
 }
 
@@ -308,12 +309,59 @@ void Renderer::resolve_meshes(World& r_world)
     });
 }
 
+template <typename Fn>
+static void _mesh_grid_for_each(const MeshGridComponent& p_grid, const LMesh& p_mesh, uint32_t p_budget, Fn&& p_fn)
+{
+    const uvec3 n = p_grid.count;
+    if ((uint64_t)n.x * n.y * n.z > p_budget) return;
+    const float spacing = p_grid.spacing > 0.0f ? p_grid.spacing : p_mesh.bounds_sphere.w * 1.5f;
+    const vec3 half = (vec3(n) - 1.0f) * 0.5f;
+    for (uint32_t z = 0; z < n.z; z++) {
+        for (uint32_t y = 0; y < n.y; y++) {
+            for (uint32_t x = 0; x < n.x; x++) p_fn((vec3(x, y, z) - half) * spacing);
+        }
+    }
+}
+
 void Renderer::_frame_build(const World& p_world)
 {
     frame.reset();
 
-    p_world.view<TransformComponent, MeshComponent>([&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh) {
-        if (frame.instances_scratch.size() >= MAX_INSTANCES) return;
+    StaticInstances& statics = frame.statics;
+    if (statics.world_version != p_world.static_version || statics.geometry_version != geometry.version) {
+        statics.instances.clear();
+        statics.transforms.clear();
+        statics.cluster_ref_capacity = 0;
+        p_world.view<TransformComponent, MeshComponent, StaticTag>([&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh, const StaticTag&) {
+            if (statics.instances.size() >= MAX_INSTANCES) return;
+            const uint32_t mesh_index = geometry.find(p_mesh.mesh);
+            const LMesh* mesh = geometry.get(mesh_index);
+            if (!mesh) return;
+            const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+            statics.instances.push_back(Instance{ mesh_index, (uint32_t)statics.transforms.size(), p_entity.index, 0 });
+            statics.transforms.push_back(Transform{ model, model });
+            statics.cluster_ref_capacity += mesh->cluster_count;
+        });
+        p_world.view<TransformComponent, MeshGridComponent, StaticTag>([&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid, const StaticTag&) {
+            const uint32_t mesh_index = geometry.find(p_grid.mesh);
+            const LMesh* mesh = geometry.get(mesh_index);
+            if (!mesh) return;
+            const mat4 root = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+            _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)statics.instances.size(), [&](vec3 p_offset) {
+                const mat4 model = root * translate(mat4(1.0f), p_offset);
+                statics.instances.push_back(Instance{ mesh_index, (uint32_t)statics.transforms.size(), p_entity.index, 0 });
+                statics.transforms.push_back(Transform{ model, model });
+                statics.cluster_ref_capacity += mesh->cluster_count;
+            });
+        });
+        statics.world_version = p_world.static_version;
+        statics.geometry_version = geometry.version;
+        statics.version++;
+    }
+
+    const uint32_t base = statics.count();
+    p_world.view<TransformComponent, MeshComponent>(Exclude<StaticTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh) {
+        if (base + frame.instances_scratch.size() >= MAX_INSTANCES) return;
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
         FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
         if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
@@ -324,12 +372,32 @@ void Renderer::_frame_build(const World& p_world)
         const mat4 prev_mtx = cache.frame + 1 == frame_number ? cache.prev_mtx : model;
         cache.prev_mtx = model;
         cache.frame = frame_number;
-        frame.instances_scratch.push_back(Instance{ cache.mesh_index, (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
+        frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
         frame.cluster_ref_capacity += mesh->cluster_count;
     });
 
-    frame.instance_count = (uint32_t)frame.instances_scratch.size();
+    p_world.view<TransformComponent, MeshGridComponent>(Exclude<StaticTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid) {
+        if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
+        FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
+        if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
+        if (cache.mesh_index >= geometry.mesh_guids.size() || geometry.mesh_guids[cache.mesh_index] != p_grid.mesh) cache.mesh_index = geometry.find(p_grid.mesh);
+        const LMesh* mesh = geometry.get(cache.mesh_index);
+        if (!mesh) return;
+        const mat4 root = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+        const mat4 prev_root = cache.frame + 1 == frame_number ? cache.prev_mtx : root;
+        cache.prev_mtx = root;
+        cache.frame = frame_number;
+        _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - base - (uint32_t)frame.instances_scratch.size(), [&](vec3 p_offset) {
+            const mat4 offset = translate(mat4(1.0f), p_offset);
+            frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
+            frame.transforms_scratch.push_back(Transform{ prev_root * offset, root * offset });
+            frame.cluster_ref_capacity += mesh->cluster_count;
+        });
+    });
+
+    frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
+    frame.cluster_ref_capacity += statics.cluster_ref_capacity;
 
     const float aspect = height ? (float)width / (float)height : 1.0f;
     const mat4 prev_vp = frame.camera.curr_view_proj;
@@ -349,14 +417,30 @@ void Renderer::_frame_build(const World& p_world)
 
 void Renderer::_frame_upload()
 {
-    if (frame.instance_count != 0) {
-        drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
-        dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-        dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
+    StaticInstances& statics = frame.statics;
+    drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
+    const uint32_t base = statics.count();
+    if (statics.uploaded_version.size() != frame_count) statics.uploaded_version.assign(frame_count, UINT64_MAX);
 
-        drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
-        dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-        dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
+    if (statics.uploaded_version[current_frame] != statics.version) {
+        if (base != 0) {
+            dd->buffer_update(ib, statics.instances.data(), (VkDeviceSize)base * sizeof(Instance));
+            dd->buffer_flush(ib, 0, (VkDeviceSize)base * sizeof(Instance));
+            dd->buffer_update(tb, statics.transforms.data(), (VkDeviceSize)base * sizeof(Transform));
+            dd->buffer_flush(tb, 0, (VkDeviceSize)base * sizeof(Transform));
+        }
+        statics.uploaded_version[current_frame] = statics.version;
+    }
+    
+    const uint32_t dynamic_count = frame.instance_count - base;
+    if (dynamic_count != 0) {
+        const VkDeviceSize i_off = (VkDeviceSize)base * sizeof(Instance);
+        const VkDeviceSize t_off = (VkDeviceSize)base * sizeof(Transform);
+        dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)dynamic_count * sizeof(Instance), i_off);
+        dd->buffer_flush(ib, i_off, (VkDeviceSize)dynamic_count * sizeof(Instance));
+        dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)dynamic_count * sizeof(Transform), t_off);
+        dd->buffer_flush(tb, t_off, (VkDeviceSize)dynamic_count * sizeof(Transform));
     }
     
     drivers::DeviceDriverVulkan::Buffer& cb = camera_buffers[current_frame];

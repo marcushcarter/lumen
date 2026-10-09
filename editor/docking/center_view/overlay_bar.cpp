@@ -85,12 +85,13 @@ bool OverlayBar::_emit(const char* p_label, ImVec2 p_size, bool p_active)
 
     ImGui::SetCursorScreenPos(ImVec2(x, row_y));
 
+    overlay_push_style();
     int pushed = 0;
     if (p_active) { ImGui::PushStyleColor(ImGuiCol_Button, active_col); ++pushed; }
     const bool clicked = ImGui::Button(p_label, ImVec2(w, h));
     if (pushed) ImGui::PopStyleColor(pushed);
+    overlay_pop_style();
     return clicked;
-
 }
 
 bool OverlayBar::button(const char* p_label, ImVec2 p_size)

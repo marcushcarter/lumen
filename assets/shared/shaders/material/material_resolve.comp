@@ -10,6 +10,7 @@
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/gbuffer.glsl"
+#include "common/visbuffer.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -40,6 +41,50 @@ layout(push_constant) uniform Push {
     uint height;
 } pc;
 
+vec3 fetch_local_position(Mesh p_mesh, uint p_index) {
+    Vertex v = pc.geometry.vertices.data[pc.geometry.indices.data[p_index]];
+    return p_mesh.pos_min + (vec3(v.position) / 65535.0) * p_mesh.pos_extent;
+}
+
+bool clip_barycentrics(vec4 p_c0, vec4 p_c1, vec4 p_c2, vec2 p_ndc, out vec3 r_bary) {
+    mat3 m = mat3(p_c0.xyw, p_c1.xyw, p_c2.xyw);
+    float det = determinant(m);
+    if (abs(det) < 1e-20) return false;
+    vec3 l = inverse(m) * vec3(p_ndc, 1.0);
+    float s = l.x + l.y + l.z;
+    if (abs(s) < 1e-20) return false;
+    r_bary = l / s;
+    return true;
+}
+
+vec2 compute_motion(uvec2 p_vis, ivec2 p_coord) {
+    if (vis_is_terrain(p_vis)) return vec2(0.0);
+
+    uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(p_vis)];
+    Instance inst = pc.instances.data[ref.x];
+    Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+    Cluster cluster = pc.geometry.clusters.data[ref.y];
+    Transform xf = pc.transforms.data[inst.transform_id];
+
+    uint i0 = cluster.index_base + vis_triangle(p_vis) * 3u;
+    vec3 l0 = fetch_local_position(mesh, i0 + 0u);
+    vec3 l1 = fetch_local_position(mesh, i0 + 1u);
+    vec3 l2 = fetch_local_position(mesh, i0 + 2u);
+
+    mat4 curr_mvp = pc.camera.curr_view_proj * xf.curr_mtx;
+    vec2 ndc = (vec2(p_coord) + 0.5) / vec2(pc.width, pc.height) * 2.0 - 1.0;
+
+    vec3 b;
+    if (!clip_barycentrics(curr_mvp * vec4(l0, 1.0), curr_mvp * vec4(l1, 1.0), curr_mvp * vec4(l2, 1.0), ndc, b)) return vec2(0.0);
+    vec3 local = l0 * b.x + l1 * b.y + l2 * b.z;
+
+    vec4 curr_clip = curr_mvp * vec4(local, 1.0);
+    vec4 prev_clip = pc.camera.prev_view_proj * xf.prev_mtx * vec4(local, 1.0);
+    if (curr_clip.w <= 0.0 || prev_clip.w <= 0.0) return vec2(0.0);
+
+    return (curr_clip.xy / curr_clip.w - prev_clip.xy / prev_clip.w) * 0.5;
+}
+
 void main() {
     uvec2 px = gl_GlobalInvocationID.xy;
     if (px.x >= pc.width || px.y >= pc.height) return;
@@ -51,6 +96,7 @@ void main() {
         imageStore(u_storage_rgb10a2[nonuniformEXT(pc.albedo_slot)], coord, vec4(0.0));
         imageStore(u_storage_rg16[nonuniformEXT(pc.normal_slot)], coord, vec4(0.0));
         imageStore(u_storage_rgba8[nonuniformEXT(pc.material_slot)], coord, vec4(0.0));
+        imageStore(u_storage_rgba8[nonuniformEXT(pc.custom_slot)], coord, vec4(0.0));
         imageStore(u_storage_rg16f[nonuniformEXT(pc.motion_slot)], coord, vec4(0.0));
         return;
     }
@@ -60,5 +106,6 @@ void main() {
     imageStore(u_storage_rgb10a2[nonuniformEXT(pc.albedo_slot)], coord, gbuffer_encode_albedo(vec3(1), 0u));
     imageStore(u_storage_rg16[nonuniformEXT(pc.normal_slot)], coord, vec4(gbuffer_encode_normal(vec3(0.0, 0.0, 1.0)), 0.0, 0.0));
     imageStore(u_storage_rgba8[nonuniformEXT(pc.material_slot)], coord, gbuffer_encode_material(0.5, 0.0, 1.0, 0u));
-    imageStore(u_storage_rg16f[nonuniformEXT(pc.motion_slot)], coord, vec4(0.0));
+    imageStore(u_storage_rgba8[nonuniformEXT(pc.custom_slot)], coord, vec4(0.0));
+    imageStore(u_storage_rg16f[nonuniformEXT(pc.motion_slot)], coord, vec4(compute_motion(v, coord), 0.0, 0.0));
 }

@@ -262,19 +262,13 @@ Error Application::project_load(const std::filesystem::path &p_root)
     err = world.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    const int GRID = 1;
     for (uint32_t i = 0; i < (uint32_t)renderer.geometry.mesh_guids.size(); i++) {
         const Guid mesh_guid = renderer.geometry.mesh_guids[i];
         if (mesh_guid == Guid{}) continue;
-        const float spacing = renderer.geometry.meshes[i].bounds_sphere.w * 1.5f;
-        const float half = (GRID - 1) * 0.5f * spacing;
-        for (int gz = 0; gz < GRID; gz++) {
-            for (int gx = 0; gx < GRID; gx++) {
-                const Entity e = world.create_persistent(Guid::generate());
-                world.add<TransformComponent>(e, { vec3(gx * spacing - half, 0.0f, gz * spacing - half), quat(1.0f, 0.0f, 0.0f, 0.0f), vec3(1.0f) });
-                world.add<MeshComponent>(e, { mesh_guid });
-            }
-        }
+        const Entity e = world.create_persistent(Guid::generate());
+        world.add<TransformComponent>(e);
+        world.add<MeshGridComponent>(e, { mesh_guid, uvec3(10, 1, 10), 0.0f });
+        world.add<StaticTag>(e);
     }
 
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());

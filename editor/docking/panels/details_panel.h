@@ -17,6 +17,7 @@ struct DetailsPanel : Panel
 
     bool _component_begin(const char* p_title);
     bool _component_end(bool p_open, bool p_deletable = true);
+    bool _mesh_field(Guid& r_mesh);
 };
 
 }

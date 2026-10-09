@@ -29,11 +29,10 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
     while (clipper.Step()) {
         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
             const Entity e = (*entities)[i];
-            const EntityIdComponent* id = world.try_get<EntityIdComponent>(e);
-            char guid[Guid::BUFFER];
-            id->guid.to_chars(guid);
-            char label[64];
-            snprintf(label, sizeof(label), "Entity %u  %s###%u", e.index, guid, e.index);
+            const NameComponent* name = world.try_get<NameComponent>(e);
+            char label[96];
+            if (name && name->name[0]) snprintf(label, sizeof(label), "%s###%u", name->name, e.index);
+            else snprintf(label, sizeof(label), "Entity %u###%u", e.index, e.index);
             if (ImGui::Selectable(label, e == selected)) selected = e;
         }
     }

@@ -44,6 +44,21 @@ struct ComponentMask
     void clear(uint32_t p_id) { words[p_id >> 6] &= ~(1ull << (p_id & 63)); }
     bool test(uint32_t p_id) const { return (words[p_id >> 6] >> (p_id & 63)) & 1ull; }
     void reset() { for (uint64_t& w : words) w = 0; }
+
+    bool empty() const {
+        for (uint32_t w = 0; w < WORDS; w++) {
+            if (words[w]) return false;
+        }
+        return true;
+    }
+
+    bool intersects(const ComponentMask& p_other) const {
+        for (uint32_t w = 0; w < WORDS; w++) {
+            if (words[w] & p_other.words[w]) return true;
+        }
+        return false;
+    }
+
     bool contains(const ComponentMask& p_other) const {
         for (uint32_t w = 0; w < WORDS; w++) {
             if ((words[w] & p_other.words[w]) != p_other.words[w]) return false;
@@ -149,6 +164,10 @@ struct PoolSlot
     void (*clear_fn)(SparseSet* p_set) = nullptr;
     void (*free_fn)(SparseSet* p_set) = nullptr;
     void (*add_bytes_fn)(SparseSet* p_set, Entity p_entity, const std::byte* p_value) = nullptr;
+
+    const char* name = nullptr;
+    bool addable = false;
+    std::vector<std::byte> default_value;
 };
 
 struct WorldCommandBuffer
@@ -171,6 +190,11 @@ struct WorldCommandBuffer
     }
 };
 
+template <typename... Xs>
+struct Exclude
+{
+};
+
 struct World
 {
     Camera default_camera;
@@ -187,6 +211,9 @@ struct World
 
     std::unordered_map<Guid, Entity> by_guid;
 
+    uint32_t static_tag_id = UINT32_MAX;
+    uint64_t static_version = 0;
+
     Error initialize();
     void shutdown();
 
@@ -200,12 +227,15 @@ struct World
     void destroy(Entity p_entity);
     Entity find(Guid p_guid) const;
 
+    void touch(Entity p_entity) { if (valid(p_entity) && _is_static(p_entity)) static_version++; }
+    bool _is_static(Entity p_entity) const { return static_tag_id != UINT32_MAX && masks[p_entity.index].test(static_tag_id); }
+
     bool valid(Entity p_entity) const {
         return p_entity.index < generations.size() && generations[p_entity.index] == p_entity.generation;
     }
 
     template <typename T>
-    void component_register() {
+    void component_register(const char* p_name, bool p_addable = true) {
         static_assert(std::is_trivially_copyable_v<T>, "components must be trivially copyable");
         LUMEN_ERR_FAIL_COND(iterating != 0);
         uint32_t& id = ComponentType<T>::id;
@@ -225,6 +255,11 @@ struct World
             std::memcpy(&value, p_value, sizeof(T));
             static_cast<ComponentPool<T>*>(p_set)->_add(p_entity, value);
         };
+        slot.name = p_name;
+        slot.addable = p_addable;
+        const T def{};
+        slot.default_value.resize(sizeof(T));
+        std::memcpy(slot.default_value.data(), &def, sizeof(T));
     }
 
     template <typename T>
@@ -233,6 +268,7 @@ struct World
         LUMEN_ERR_FAIL_COND_V(!valid(p_entity), nullptr);
         LUMEN_ERR_FAIL_COND_V(!_registered<T>(), nullptr);
         masks[p_entity.index].set(ComponentType<T>::id);
+        if (_is_static(p_entity)) static_version++;
         return _pool<T>(*this)->_add(p_entity, p_value);
     }
 
@@ -265,10 +301,16 @@ struct World
     }
 
     template <typename... Ts, typename Fn>
-    void view(Fn&& p_fn) { _view<Ts...>(*this, p_fn); }
+    void view(Fn&& p_fn) { _view<Ts...>(*this, ComponentMask{}, p_fn); }
 
     template <typename... Ts, typename Fn>
-    void view(Fn&& p_fn) const { _view<Ts...>(*this, p_fn); }
+    void view(Fn&& p_fn) const { _view<Ts...>(*this, ComponentMask{}, p_fn); }
+
+    template <typename... Ts, typename... Xs, typename Fn>
+    void view(Exclude<Xs...>, Fn&& p_fn) { _view<Ts...>(*this, _mask_of<Xs...>(), p_fn); }
+
+    template <typename... Ts, typename... Xs, typename Fn>
+    void view(Exclude<Xs...>, Fn&& p_fn) const { _view<Ts...>(*this, _mask_of<Xs...>(), p_fn); }
 
     void deferred_destroy(Entity p_entity) {
         deferred.commands.push_back({ WorldCommandBuffer::Op::DESTROY, 0, p_entity, 0 });
@@ -287,6 +329,14 @@ struct World
     void deferred_remove(Entity p_entity) {
         LUMEN_ERR_FAIL_COND(!_registered<T>());
         deferred.commands.push_back({ WorldCommandBuffer::Op::REMOVE, ComponentType<T>::id, p_entity, 0 });
+    }
+
+    void deferred_add_id(Entity p_entity, uint32_t p_id) {
+        LUMEN_ERR_FAIL_COND(p_id >= pools.size() || !pools[p_id].set);
+        const std::vector<std::byte>& def = pools[p_id].default_value;
+        const uint32_t offset = (uint32_t)deferred.values.size();
+        deferred.values.insert(deferred.values.end(), def.begin(), def.end());
+        deferred.commands.push_back({ WorldCommandBuffer::Op::ADD, p_id, p_entity, offset });
     }
 
     void deferred_flush();
@@ -314,16 +364,28 @@ struct World
         return p_pool->_at(static_cast<const SparseSet*>(p_pool) == p_driver ? p_pos : p_pool->find(p_index));
     }
 
+    template <typename... Xs>
+    static ComponentMask _mask_of() {
+        ComponentMask m;
+        ((ComponentType<Xs>::id != ComponentType<Xs>::INVALID ? m.set(ComponentType<Xs>::id) : void()), ...);
+        return m;
+    }
+
     template <typename... Ts, typename W, typename Fn>
-    static void _view(W& p_world, Fn& p_fn) {
+    static void _view(W& p_world, const ComponentMask& p_excluded, Fn& p_fn) {
         static_assert(sizeof...(Ts) > 0);
         if (!(p_world.template _registered<Ts>() && ...)) return;
+        const bool excluding = !p_excluded.empty();
         p_world.iterating++;
         [&](auto*... p_pools) {
             if constexpr (sizeof...(Ts) == 1) {
                 auto* pool = (p_pools, ...);
                 const uint32_t n = pool->size();
-                for (uint32_t i = 0; i < n; i++) p_fn(pool->dense[i], *pool->_at(i));
+                for (uint32_t i = 0; i < n; i++) {
+                    const Entity e = pool->dense[i];
+                    if (excluding && p_world.masks[e.index].intersects(p_excluded)) continue;
+                    p_fn(e, *pool->_at(i));
+                }
             } else {
                 const SparseSet* sets[] = { p_pools... };
                 const SparseSet* driver = sets[0];
@@ -333,7 +395,8 @@ struct World
                 const uint32_t n = driver->size();
                 for (uint32_t i = 0; i < n; i++) {
                     const Entity e = driver->dense[i];
-                    if (!p_world.masks[e.index].contains(required)) continue;
+                    const ComponentMask& m = p_world.masks[e.index];
+                    if (!m.contains(required) || (excluding && m.intersects(p_excluded))) continue;
                     p_fn(e, *_fetch(p_pools, driver, i, e.index)...);
                 }
             }

@@ -12,6 +12,12 @@ struct EntityIdComponent
     Guid guid;
 };
 
+struct NameComponent
+{
+    static constexpr uint32_t MAX_LENGTH = 64;
+    char name[MAX_LENGTH] = {};
+};
+
 struct TransformComponent
 {
     vec3 position = vec3(0.0f);
@@ -19,36 +25,20 @@ struct TransformComponent
     vec3 scale = vec3(1.0f);
 };
 
+struct StaticTag {};
+
 struct MeshComponent
 {
     static constexpr uint32_t INVALID_INDEX = 0xFFFFFFFF;
-
     Guid mesh;
     uint32_t mesh_index = INVALID_INDEX;
 };
 
-struct StaticTag
+struct MeshGridComponent
 {
+    Guid mesh;
+    uvec3 count = uvec3(10, 1, 10);
+    float spacing = 0.0f;
 };
-
-// struct TransformComponent
-// {
-//     Guid guid;
-//     vec3 position;
-//     quat rotation;
-//     vec3 scale;
-//     mat4 previous_transform;
-// };
-
-// struct StaticMeshComponent
-// {
-//     Guid guid;
-// };
-
-// struct DynamicMeshComponent
-// {
-//     Guid guid;
-
-// };
 
 }

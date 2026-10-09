@@ -25,3 +25,10 @@ outliner panel just showing the entities and folders
 outliner panel having a selected entity
 details panel showing components
 viewport picking entities
+
+
+
+
+SHADING IDS
+0 - Backbuffer / skybox
+1 - 

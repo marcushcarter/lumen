@@ -6,9 +6,9 @@ target_include_directories(glm INTERFACE glm)
 
 file(GLOB IMGUI_CORE imgui/*.cpp)
 file(GLOB IMPLOT_CORE implot/*.cpp)
-set(IMGUI_SRC ${IMGUI_CORE} imgui/backends/imgui_impl_win32.cpp imgui/backends/imgui_impl_vulkan.cpp ${IMPLOT_CORE})
+set(IMGUI_SRC ${IMGUI_CORE} imgui/backends/imgui_impl_win32.cpp imgui/backends/imgui_impl_vulkan.cpp ${IMPLOT_CORE} imguizmo/src/ImGuizmo.cpp)
 add_library(imgui STATIC ${IMGUI_SRC})
-target_include_directories(imgui PUBLIC imgui implot ${Vulkan_INCLUDE_DIRS})
+target_include_directories(imgui PUBLIC imgui implot imguizmo/src ${Vulkan_INCLUDE_DIRS})
 
 add_library(IconFontCppHeaders INTERFACE)
 target_include_directories(IconFontCppHeaders INTERFACE IconFontCppHeaders)

@@ -26,3 +26,6 @@
 [submodule "thirdparty/mesh_opt"]
 	path = thirdparty/mesh_opt
 	url = https://github.com/zeux/meshoptimizer.git
+[submodule "thirdparty/imguizmo"]
+	path = thirdparty/imguizmo
+	url = https://github.com/CedricGuillemet/ImGuizmo.git

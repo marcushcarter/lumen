@@ -7,10 +7,13 @@ Error World::initialize()
 {
     using enum Error;
 
-    component_register<EntityIdComponent>();
-    component_register<TransformComponent>();
-    component_register<MeshComponent>();
-    component_register<StaticTag>();
+    component_register<EntityIdComponent>("Entity Id", false);
+    component_register<NameComponent>("Name");
+    component_register<TransformComponent>("Transform");
+    component_register<MeshComponent>("Mesh");
+    component_register<MeshGridComponent>("Mesh Grid");
+    component_register<StaticTag>("Static");
+    static_tag_id = ComponentType<StaticTag>::id;
 
     return OK;
 }
@@ -39,7 +42,6 @@ Error World::load()
     default_camera.position = eye;
     default_camera.rotation = quatLookAt(normalize(target - eye), vec3(0.0f, 1.0f, 0.0f));
     
-    
     active_camera = &default_camera;
 
     return OK;
@@ -50,6 +52,7 @@ void World::unload()
     LUMEN_ERR_FAIL_COND(iterating != 0);
     deferred.clear();
     by_guid.clear();
+    static_version++;
     for (PoolSlot& slot : pools) {
         if (slot.set) slot.clear_fn(slot.set);
     }
@@ -89,6 +92,7 @@ void World::destroy(Entity p_entity)
     LUMEN_ERR_FAIL_COND(iterating != 0);
     LUMEN_ERR_FAIL_COND(!valid(p_entity));
     if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) by_guid.erase(id->guid);
+    if (_is_static(p_entity)) static_version++;
     ComponentMask& mask = masks[p_entity.index];
     for (uint32_t w = 0; w < ComponentMask::WORDS; w++) {
         uint64_t bits = mask.words[w];
@@ -120,6 +124,7 @@ void World::deferred_flush()
             case Op::DESTROY: destroy(c.entity); break;
             case Op::ADD:
                 masks[c.entity.index].set(c.type);
+                if (_is_static(c.entity)) static_version++;
                 pools[c.type].add_bytes_fn(pools[c.type].set, c.entity, deferred.values.data() + c.value_offset);
                 break;
             case Op::REMOVE: _remove_id(c.entity, c.type); break;
@@ -132,6 +137,7 @@ void World::_remove_id(Entity p_entity, uint32_t p_id)
 {
     ComponentMask& mask = masks[p_entity.index];
     if (!mask.test(p_id)) return;
+    if (_is_static(p_entity)) static_version++;
     pools[p_id].remove_fn(pools[p_id].set, p_entity.index);
     mask.clear(p_id);
 }

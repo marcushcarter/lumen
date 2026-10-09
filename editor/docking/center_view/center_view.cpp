@@ -9,6 +9,8 @@
 #include <core/world/world.h>
 #include <core/world/components.h>
 #include <IconsFontAwesome6.h>
+#include <ImGuizmo.h>
+#include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
 #include <cstring>
 #include <cstdio>
@@ -82,10 +84,58 @@ bool CenterView::_view_submenu(const DebugViewCategory& p_category, bool p_activ
     return ImGui::BeginPopupMenuEx(popup_id, p_category.name, ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus);
 }
 
+bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+{
+    if (!ctx.world || !ctx.selected || p_size.x <= 0.0f || p_size.y <= 0.0f) return false;
+    TransformComponent* xf = ctx.world->try_get<TransformComponent>(*ctx.selected);
+    if (!xf) return false;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsWindowHovered() && !ImGuizmo::IsUsing() && !io.WantTextInput && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_W, false)) gizmo_op = ImGuizmo::TRANSLATE;
+        if (ImGui::IsKeyPressed(ImGuiKey_E, false)) gizmo_op = ImGuizmo::ROTATE;
+        if (ImGui::IsKeyPressed(ImGuiKey_R, false)) gizmo_op = ImGuizmo::SCALE;
+    }
+
+    const Camera& cam = ctx.renderer->active_camera;
+    const mat4 view = cam.view();
+    const mat4 proj = cam.proj(p_size.x / p_size.y);
+    mat4 model = translate(mat4(1.0f), xf->position) * mat4_cast(xf->rotation) * glm::scale(mat4(1.0f), xf->scale);
+
+    const vec4 pivot_clip = proj * view * vec4(xf->position, 1.0f);
+    if (pivot_clip.w <= cam.near_z && !ImGuizmo::IsUsing()) return false;
+
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+    ImGuizmo::SetRect(p_pos.x, p_pos.y, p_size.x, p_size.y);
+
+    const float step = gizmo_op == ImGuizmo::ROTATE ? 15.0f : (gizmo_op == ImGuizmo::SCALE ? 0.1f : 1.0f);
+    const float snap[3] = { step, step, step };
+    const ImGuizmo::MODE mode = gizmo_world ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
+
+    if (ImGuizmo::Manipulate(value_ptr(view), value_ptr(proj), gizmo_op, mode, value_ptr(model), nullptr, io.KeyCtrl ? snap : nullptr)) {
+        vec3 axis[3] = { vec3(model[0]), vec3(model[1]), vec3(model[2]) };
+        vec3 s = vec3(length(axis[0]), length(axis[1]), length(axis[2]));
+        if (dot(cross(axis[0], axis[1]), axis[2]) < 0.0f) {
+            s.x = -s.x;
+        }
+        switch (gizmo_op) {
+            case ImGuizmo::TRANSLATE: xf->position = vec3(model[3]); break;
+            case ImGuizmo::ROTATE: if (s.x != 0.0f && s.y != 0.0f && s.z != 0.0f) xf->rotation = normalize(quat_cast(mat3(axis[0] / s.x, axis[1] / s.y, axis[2] / s.z))); break;
+            case ImGuizmo::SCALE: xf->scale = s; break;
+            default: break;
+        }
+        ctx.world->touch(*ctx.selected);
+    }
+    return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+}
+
 void CenterView::_draw_scene(EditorContext& ctx)
 {
     ImVec2 size = ImGui::GetContentRegionAvail();
     ImVec2 pos = ImGui::GetCursorScreenPos();
+
+    ImGuizmo::BeginFrame();
 
     uint32_t picked = PickFeature::NONE;
     if (ctx.render_path && ctx.world && ctx.selected && ctx.render_path->pick.take_result(picked)) {
@@ -106,13 +156,14 @@ void CenterView::_draw_scene(EditorContext& ctx)
     if (sel && sel->image && sel->image->state.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) sel_view = sel->image->image_view;
     
     VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
+    bool pick_click = false;
+    ImVec2 pick_mouse = ImGui::GetMousePos();
     if (set) {
         ImGui::Image((ImTextureID)set, size, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+        const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
-        if (!playing && ctx.render_path && ImGui::IsItemClicked(ImGuiMouseButton_Left) && size.x > 0.0f && size.y > 0.0f) {
-            const ImVec2 m = ImGui::GetMousePos();
-            ctx.render_path->pick.request((m.x - pos.x) / size.x, 1.0f - (m.y - pos.y) / size.y);
-        }
+        const bool gizmo_hot = !playing && _draw_gizmo(ctx, pos, size);
+        pick_click = !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(25, 25, 25, 255));
@@ -161,7 +212,14 @@ void CenterView::_draw_scene(EditorContext& ctx)
         }
         right_overlay.end_menu();
     }
+    right_overlay.toggle(gizmo_world ? ICON_FA_GLOBE "###gizmo_space" : ICON_FA_CUBE "###gizmo_space", gizmo_world);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(gizmo_world ? "World space" : "Object space");
     right_overlay.end();
+
+    if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
+        ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
+    }
+    popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
 }
@@ -175,7 +233,6 @@ void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     const float min_debug = 0.025f;
     const float max_debug = 0.7f;
 
-    // Scene / gap / drawer content / tab strip are stacked, never overlapped, so the viewport only renders visible pixels.
     const float usable = ImMax(1.0f, h - strip_h - DOCK_GAP);
     float scene_h, content_h;
     if (debugger.collapsed) {

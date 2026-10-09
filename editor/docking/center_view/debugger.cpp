@@ -3,7 +3,7 @@
 #include <editor/docking/center_view/debug_tabs/output_tab.h>
 #include <editor/docking/center_view/debug_tabs/profiler_tab.h>
 #include <editor/docking/center_view/debug_tabs/memory_tab.h>
-#include <editor/docking/center_view/asset_manager/asset_manager.h>
+#include <editor/docking/center_view/debug_tabs/asset_manager_tab.h>
 #include <core/base/error.h>
 #include <IconsFontAwesome6.h>
 #include <cfloat>

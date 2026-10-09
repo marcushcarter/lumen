@@ -7,6 +7,29 @@
 
 namespace lumen {
 
+struct StaticInstances
+{
+    std::vector<Instance> instances;
+    std::vector<Transform> transforms;
+    uint32_t cluster_ref_capacity = 0;
+
+    uint64_t version = 0;
+    uint64_t world_version = UINT64_MAX;
+    uint64_t geometry_version = UINT64_MAX;
+    std::vector<uint64_t> uploaded_version;
+
+    uint32_t count() { return (uint32_t)instances.size(); }
+
+    void clear() {
+        instances.clear();
+        transforms.clear();
+        cluster_ref_capacity = 0;
+        world_version = UINT64_MAX;
+        geometry_version = UINT64_MAX;
+        version++;
+    }
+};
+
 struct FrameData
 {    
     std::vector<Instance> instances_scratch;
@@ -26,6 +49,8 @@ struct FrameData
         uint32_t mesh_index = UINT32_MAX;
     };
     std::vector<EntityCache> entity_cache;
+
+    StaticInstances statics;
 
     void reset();
 };

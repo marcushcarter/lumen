@@ -289,6 +289,20 @@ struct RenderGraph
 
     uint32_t _node_push(Pass* p_pass);
     
+    /*********************/
+    /**** BREADCRUMBS ****/
+    /*********************/
+
+    static constexpr uint32_t BREADCRUMB_NONE = 0xFFFFFFFFu;
+
+    bool breadcrumbs = true;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> breadcrumb_buffers;
+    std::vector<std::vector<std::string>> breadcrumb_names;
+
+    void _breadcrumb_reset(VkCommandBuffer p_cmd);
+    void _breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order);
+    void breadcrumb_report();
+    
     /***************/
     /**** CACHE ****/
     /***************/

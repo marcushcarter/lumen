@@ -140,6 +140,8 @@ struct GeometryFeature : Feature
     /**** LIFECYCLE ****/
     /*******************/
 
+    drivers::DeviceDriverVulkan::Pipeline _compute_pipeline(const wchar_t* p_resource, const char* p_name);
+
     Error create_resources() override;
     Error create_pipelines() override;
     void destroy_resources() override;

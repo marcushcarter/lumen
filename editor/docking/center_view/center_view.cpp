@@ -16,6 +16,7 @@
 #include <cfloat>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 
 namespace lumen {
 
@@ -175,7 +176,13 @@ bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     const float snap[3] = { step, step, step };
     const ImGuizmo::MODE mode = gizmo_world ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
 
+    if (p_size.x < 2.0f || p_size.y < 2.0f) return false;
+
     if (ImGuizmo::Manipulate(value_ptr(view), value_ptr(proj), gizmo_op, mode, value_ptr(model), nullptr, io.KeyCtrl ? snap : nullptr)) {
+        bool finite = true;
+        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) finite = finite && std::isfinite(model[c][r]);
+        if (!finite) return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+
         vec3 axis[3] = { vec3(model[0]), vec3(model[1]), vec3(model[2]) };
         vec3 s = vec3(length(axis[0]), length(axis[1]), length(axis[2]));
         if (dot(cross(axis[0], axis[1]), axis[2]) < 0.0f) {
@@ -215,8 +222,10 @@ void CenterView::_draw_scene(EditorContext& ctx)
     }
     if (ctx.render_path && ctx.world && ctx.selection && ctx.render_path->outline.enabled && !ctx.selection->entities.empty()) _outline_rect(ctx, ctx.render_path->outline);
 
-    if (!ImGui::IsAnyItemActive()) {
-        ctx.renderer->request_size((uint32_t)(size.x * screen_percentage), (uint32_t)(size.y * screen_percentage));
+    if (!ImGui::IsAnyItemActive() && size.x >= 1.0f && size.y >= 1.0f) {
+        const uint32_t w = (uint32_t)ImClamp(size.x * screen_percentage, 1.0f, 8192.0f);
+        const uint32_t h = (uint32_t)ImClamp(size.y * screen_percentage, 1.0f, 8192.0f);
+        ctx.renderer->request_size(w, h);
     }
     
     RenderGraph::ImageResource* sel = ctx.renderer->graph.image_resource("Viewport");

@@ -1,4 +1,3 @@
-// core/rendering/features/lighting/lighting_feature.h
 #pragma once
 #include <core/rendering/features/feature.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
@@ -10,10 +9,9 @@ struct LightingFeature : Feature
 {
     RenderGraph::Pass lighting_pass;
     drivers::DeviceDriverVulkan::Pipeline lighting_pipe;
+    
+    drivers::DeviceDriverVulkan::Pipeline _compute_pipeline(const wchar_t* p_resource, const char* p_name);
 
-    // glm::vec3 sun_direction = glm::normalize(glm::vec3(0.4f, 0.8f, 0.3f));
-    // glm::vec3 sun_color = glm::vec3(1.0f, 0.95f, 0.88f);
-    // float sun_intensity = 3.0f;
     glm::vec3 sky_zenith = glm::vec3(0.18f, 0.32f, 0.62f);
     glm::vec3 sky_horizon = glm::vec3(0.62f, 0.72f, 0.85f);
     glm::vec3 ground_color = glm::vec3(0.12f, 0.10f, 0.08f);

@@ -23,7 +23,7 @@ void GeometryFeature::_create_clear_visible_pass()
     clear_visible_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
         visible_ci.size = (VkDeviceSize)(ctx->frame->instance_count + 1) * sizeof(uint32_t);
-        visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         visible_ci.device_local = true;
         b.create_buffer("VisibleInstances", visible_ci);
         b.create_buffer("OccludedInstances", visible_ci);
@@ -123,7 +123,7 @@ void GeometryFeature::_create_cluster_expand_args_pass(RenderGraph::Pass& r_pass
 
             drivers::DeviceDriverVulkan::BufferCreateInfo refs_ci{};
             refs_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
-            refs_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            refs_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             refs_ci.device_local = true;
             b.create_buffer("ClusterRefs", refs_ci);
 
@@ -241,14 +241,14 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         
         drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
         visible_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
-        visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+        visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         visible_ci.device_local = true;
         b.create_buffer("VisibleClusters", visible_ci);
         b.create_buffer("VisibleClusters2", visible_ci);
         
         drivers::DeviceDriverVulkan::BufferCreateInfo retest_ci{};
         retest_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
-        retest_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+        retest_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         retest_ci.device_local = true;
         b.create_buffer("ClusterRetest", retest_ci);
 
@@ -1080,65 +1080,32 @@ Error GeometryFeature::create_resources()
     return Error::OK;
 };
 
+drivers::DeviceDriverVulkan::Pipeline GeometryFeature::_compute_pipeline(const wchar_t* p_resource, const char* p_name)
+{
+    EmbeddedResource::Blob blob = EmbeddedResource::load(p_resource);
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = p_name });
+    drivers::DeviceDriverVulkan::Pipeline pipe = ctx->dd->compute_pipeline_create({ cs, p_name });
+    ctx->dd->shader_free(cs);
+    return pipe;
+}
+
 Error GeometryFeature::create_pipelines()
 {
     using enum Error;
 
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_INSTANCE_CULL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/instance_cull.comp" });
-    instance_cull_pipe = ctx->dd->compute_pipeline_create({cs, "culling/instance_cull"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_EXPAND_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_expand_args.comp" });
-    cluster_expand_args_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_expand_args"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_EXPAND_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_expand.comp" });
-    cluster_expand_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_expand"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_CULL_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_cull_args.comp" });
-    cluster_cull_args_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_cull_args"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_CULL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_cull.comp" });
-    cluster_cull_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_cull"});
-    ctx->dd->shader_free(cs);
-    }
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_RASTER_DRAW_COUNT_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "raster/draw_count.comp" });
-    draw_count_pipe = ctx->dd->compute_pipeline_create({cs, "raster/draw_count"});
-    ctx->dd->shader_free(cs);
-    }
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_RASTER_DRAW_BUILD_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "raster/draw_build.comp" });
-    draw_build_pipe = ctx->dd->compute_pipeline_create({cs, "raster/draw_build"});
-    ctx->dd->shader_free(cs);
-    }
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_RASTER_DRAW_SCATTER_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "raster/draw_scatter.comp" });
-    draw_scatter_pipe = ctx->dd->compute_pipeline_create({cs, "raster/draw_scatter"});
-    ctx->dd->shader_free(cs);
-    }
+    instance_cull_pipe = _compute_pipeline(L"SHADERS_CULLING_INSTANCE_CULL_COMP", "culling/instance_cull.comp");
+    cluster_expand_args_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_EXPAND_ARGS_COMP", "culling/cluster_expand_args.comp");
+    cluster_expand_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_EXPAND_COMP", "culling/cluster_expand.comp");
+    cluster_cull_args_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_CULL_ARGS_COMP", "culling/cluster_cull_args.comp");
+    cluster_cull_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_CULL_COMP", "culling/cluster_cull.comp");
+    draw_count_pipe = _compute_pipeline(L"SHADERS_RASTER_DRAW_COUNT_COMP", "raster/draw_count.comp");
+    draw_build_pipe = _compute_pipeline(L"SHADERS_RASTER_DRAW_BUILD_COMP", "raster/draw_build.comp");
+    draw_scatter_pipe = _compute_pipeline(L"SHADERS_RASTER_DRAW_SCATTER_COMP", "raster/draw_scatter.comp");
+    hiz_build_pipe = _compute_pipeline(L"SHADERS_CULLING_HIZ_BUILD_COMP", "culling/hiz_build.comp");
+    hiz_tail_pipe = _compute_pipeline(L"SHADERS_CULLING_HIZ_TAIL_COMP", "culling/hiz_tail.comp");
+    cluster_retest_args_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_RETEST_ARGS_COMP", "culling/cluster_retest_args.comp");
+    cluster_retest_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_RETEST_COMP", "culling/cluster_retest.comp");
+    material_resolve_pipe = _compute_pipeline(L"SHADERS_MATERIAL_MATERIAL_RESOLVE_COMP", "material/material_resolve.comp");
 
     {
     VkRenderPass rp = ctx->graph->acquire_render_pass(visbuffer_pass);
@@ -1157,41 +1124,6 @@ Error GeometryFeature::create_pipelines()
     pipeline_ci.name = "raster/visbuffer";
     visbuffer_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
     ctx->dd->shader_free(vs); ctx->dd->shader_free(fs);
-    }
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_HIZ_BUILD_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/hiz_build.comp" });
-    hiz_build_pipe = ctx->dd->compute_pipeline_create({cs, "culling/hiz_build"});
-    ctx->dd->shader_free(cs);
-    }
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_HIZ_TAIL_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/hiz_tail.comp" });
-    hiz_tail_pipe = ctx->dd->compute_pipeline_create({cs, "culling/hiz_tail"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_RETEST_ARGS_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_retest_args.comp" });
-    cluster_retest_args_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_retest_args"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_CULLING_CLUSTER_RETEST_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "culling/cluster_retest.comp" });
-    cluster_retest_pipe = ctx->dd->compute_pipeline_create({cs, "culling/cluster_retest"});
-    ctx->dd->shader_free(cs);
-    }
-    
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_MATERIAL_MATERIAL_RESOLVE_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "material/material_resolve.comp" });
-    material_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "material/material_resolve"});
-    ctx->dd->shader_free(cs);
     }
 
     return OK;

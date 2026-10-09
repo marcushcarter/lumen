@@ -238,6 +238,7 @@ Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
 
     if (p_width == 0 || p_height == 0) return OK;
     if (p_width == width && p_height == height) return OK;
+    log_write("Renderer: resize %ux%u -> %ux%u (frame %llu)", width, height, p_width, p_height, (unsigned long long)frame_number);
     width = p_width;
     height = p_height;
     resize_epoch++;
@@ -537,10 +538,11 @@ Error Renderer::acquire_frame()
         graph.framebuffers_flush();
         images_in_flight.assign(sc.images.size(), VK_NULL_HANDLE);
     }
-    
+
     cpu.zone_begin("Frame Fence", CpuProfiler::FLAG_WAIT);
     Error err = dd->fence_wait(in_flight_fences[current_frame]);
     cpu.zone_end();
+    if (err != OK) graph.breadcrumb_report();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Swapchain Acquire", CpuProfiler::FLAG_WAIT);
@@ -652,7 +654,10 @@ Error Renderer::end_frame()
     cpu.zone_begin("Queue Submit");
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
     cpu.zone_end();
-    if (result != VK_SUCCESS) log_write("Renderer: vkQueueSubmit returned %d", (int)result);
+    if (result != VK_SUCCESS) {
+        log_write("Renderer: vkQueueSubmit returned %d", (int)result);
+        graph.breadcrumb_report();
+    }
     LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "Failed to submit Vulkan queue");
 
     VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };

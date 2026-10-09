@@ -282,6 +282,22 @@ Error Application::project_load(const std::filesystem::path &p_root)
         light.type = LightType::DIRECTIONAL;
         light.intensity = 3.0f;
         world.add<LightComponent>(sun, light);
+        world.add<EditorHiddenTag>(sun);
+    }
+
+    {
+        const Entity point = world.create_persistent(Guid::generate());
+        TransformComponent xf;
+        xf.position = vec3(0.0f, 200.0f, 0.0f);
+        world.add<TransformComponent>(point, xf);
+        NameComponent name{};
+        snprintf(name.name, NameComponent::MAX_LENGTH, "Point Light 1");
+        world.add<NameComponent>(point, name);
+        LightComponent light;
+        light.type = LightType::POINT;
+        light.intensity = 50000.0f;
+        light.range = 50000.0f;
+        world.add<LightComponent>(point, light);
     }
 
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());

@@ -1,0 +1,55 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+#include "common/camera.glsl"
+#include "common/lights.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    LightBuffer lights;
+    LightCullData cull;
+    VisibleLightBuffer visible;
+    uint first_light;
+    uint local_count;
+} pc;
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    bool keep = false;
+    uvec2 entry = uvec2(0u);
+
+    if (id < pc.local_count) {
+        uint index = pc.first_light + id;
+        GpuLight light = pc.lights.data[index];
+        vec4 b = light_bounds(light);
+        bool lit = any(greaterThan(light.radiance, vec3(0.0)));
+        bool faded = light_camera_fade(light, distance(light.position, pc.camera.position.xyz)) <= 0.0;
+        if (lit && !faded && !frustum_cull_sphere(pc.camera, b.xyz, b.w)) {
+            float d = camera_view_depth(pc.camera, b.xyz);
+            uint key = light_zbin(pc.camera, d);
+            uint bmin = light_zbin(pc.camera, d - b.w);
+            uint bmax = light_zbin(pc.camera, d + b.w);
+            entry = uvec2(index, key | (bmin << 10) | (bmax << 20));
+            keep = true;
+        }
+    }
+
+    uvec4 ballot = subgroupBallot(keep);
+    uint n = subgroupBallotBitCount(ballot);
+    uint base = 0u;
+    if (subgroupElect() && n > 0u) base = atomicAdd(pc.cull.visible_count, n);
+    base = subgroupBroadcastFirst(base);
+
+    if (keep) {
+        uint slot = base + subgroupBallotExclusiveBitCount(ballot);
+        if (slot < MAX_VISIBLE_LIGHTS) {
+            pc.visible.data[slot] = entry;
+            atomicAdd(pc.cull.histogram[entry.y & 1023u], 1u);
+        }
+    }
+}

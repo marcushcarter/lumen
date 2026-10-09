@@ -21,6 +21,13 @@ Error RenderGraph::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
 
     profiler.initialize(r_dd, p_frame_count);
 
+    breadcrumb_buffers.resize(frame_count);
+    breadcrumb_names.resize(frame_count);
+    for (drivers::DeviceDriverVulkan::Buffer& b : breadcrumb_buffers) {
+        b = dd->buffer_create({ .size = 2 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = false, .host_visible = true, .cpu_read = true, .pool = dd->readback_pool, .name = "breadcrumbs" });
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "RenderGraph: breadcrumb buffer allocation failed.");
+    }
+
     return OK;
 }
 
@@ -30,6 +37,10 @@ void RenderGraph::shutdown()
     _collect_retired(true);
 
     profiler.shutdown();
+
+    for (drivers::DeviceDriverVulkan::Buffer& b : breadcrumb_buffers) dd->buffer_free(b);
+    breadcrumb_buffers.clear();
+    breadcrumb_names.clear();
 
     for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
     framebuffer_cache.clear();
@@ -165,6 +176,8 @@ void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVul
         p_image->state.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         p_image->state.stage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
         p_image->state.access = 0;
+        p_image->state.read_stages = 0;
+        p_image->state.read_access = 0;
     }
 
     declared_image_formats.set(id, (uint32_t)p_image->format);
@@ -307,6 +320,8 @@ void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVu
 
     p_buffer->state.stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
     p_buffer->state.access = 0;
+    p_buffer->state.read_stages = 0;
+    p_buffer->state.read_access = 0;
 
     uint32_t res_idx = static_cast<uint32_t>(buffer_resources.size());
     buffer_resources.push_back(std::move(r));
@@ -562,6 +577,48 @@ void RenderGraph::Builder::write_buffer(std::string_view p_name, VkPipelineStage
     a.access = p_access;
     a.is_write = true;
     graph->nodes[node_index].buffer_accesses.push_back(a);
+}
+
+/********************/
+/**** BREADCRUMB ****/
+/********************/
+
+void RenderGraph::_breadcrumb_reset(VkCommandBuffer p_cmd)
+{
+    const drivers::DeviceDriverVulkan::Buffer& b = breadcrumb_buffers[current_frame];
+    vkCmdFillBuffer(p_cmd, b.buffer, 0, sizeof(uint32_t), (uint32_t)epoch);
+    vkCmdFillBuffer(p_cmd, b.buffer, sizeof(uint32_t), sizeof(uint32_t), BREADCRUMB_NONE);
+    breadcrumb_names[current_frame].clear();
+}
+
+void RenderGraph::_breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order)
+{
+    VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(p_cmd, &dep);
+    vkCmdFillBuffer(p_cmd, breadcrumb_buffers[current_frame].buffer, sizeof(uint32_t), sizeof(uint32_t), p_order);
+}
+
+void RenderGraph::breadcrumb_report()
+{
+    if (!breadcrumbs) return;
+    for (uint32_t f = 0; f < (uint32_t)breadcrumb_buffers.size(); f++) {
+        drivers::DeviceDriverVulkan::Buffer& b = breadcrumb_buffers[f];
+        if (!b.mapped) continue;
+        dd->buffer_invalidate(b, 0, 2 * sizeof(uint32_t));
+        const uint32_t* v = (const uint32_t*)b.mapped;
+        const std::vector<std::string>& names = breadcrumb_names[f];
+        const uint32_t done = v[1];
+        const char* last = done == BREADCRUMB_NONE ? "(none)" : done < names.size() ? names[done].c_str() : "?";
+        const char* next = done == BREADCRUMB_NONE ? (names.empty() ? "?" : names[0].c_str()) : done + 1 < names.size() ? names[done + 1].c_str() : "(final barriers / end of frame)";
+        log_write("RenderGraph breadcrumbs: slot %u epoch %u, %u passes, last finished '%s', hung in '%s'", f, v[0], (uint32_t)names.size(), last, next);
+    }
 }
 
 /***************/
@@ -895,28 +952,6 @@ Error RenderGraph::compile()
             }
             auto& img = *r.image;
 
-            if (a.is_attachment) {
-                const bool reused = img.state.layout != VK_IMAGE_LAYOUT_UNDEFINED || img.state.access != 0;
-                if (reused) {
-                    ImageBarrier b{};
-                    b.image = img.image;
-                    b.aspect = img.aspect;
-                    b.old_layout = img.state.layout;
-                    b.new_layout = a.layout;
-                    b.src_stage = img.state.stage;
-                    b.dst_stage = a.stage;
-                    b.src_access = img.state.access;
-                    b.dst_access = a.access;
-                    node.pre_image_barriers.push_back(b);
-                    img.state.layout = a.layout;
-                    img.state.stage = a.stage;
-                    img.state.access = a.access;
-                }
-                node.attachment_access_idx.push_back(i);
-                if (node.area.width == 0) node.area = { img.extent.width, img.extent.height };
-                continue;
-            }
-
             constexpr VkAccessFlags2 WRITE_MASK =
                 VK_ACCESS_2_SHADER_WRITE_BIT |
                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
@@ -925,25 +960,69 @@ Error RenderGraph::compile()
                 VK_ACCESS_2_HOST_WRITE_BIT |
                 VK_ACCESS_2_MEMORY_WRITE_BIT;
 
+            if (a.is_attachment) {
+                const bool reused = img.state.layout != VK_IMAGE_LAYOUT_UNDEFINED || img.state.access != 0 || img.state.read_stages != 0;
+                if (reused) {
+                    ImageBarrier b{};
+                    b.image = img.image;
+                    b.aspect = img.aspect;
+                    b.old_layout = img.state.layout;
+                    b.new_layout = a.layout;
+                    b.src_stage = img.state.stage | img.state.read_stages;
+                    b.dst_stage = a.stage;
+                    b.src_access = img.state.access & WRITE_MASK;
+                    b.dst_access = a.access;
+                    node.pre_image_barriers.push_back(b);
+                    img.state.layout = a.layout;
+                    img.state.stage = a.stage;
+                    img.state.access = a.access;
+                    img.state.read_stages = 0;
+                    img.state.read_access = 0;
+                }
+                node.attachment_access_idx.push_back(i);
+                if (node.area.width == 0) node.area = { img.extent.width, img.extent.height };
+                continue;
+            }
+
             const bool layout_change = img.state.layout != a.layout;
             const bool prev_write = (img.state.access & WRITE_MASK) != 0;
             const bool curr_write = a.is_write || (a.access & WRITE_MASK) != 0;
 
-            if (layout_change || prev_write || curr_write) {
-                ImageBarrier b{};
-                b.image = img.image;
-                b.aspect = img.aspect;
-                b.old_layout = img.state.layout;
-                b.new_layout = a.layout;
-                b.src_stage = img.state.stage;
-                b.dst_stage = a.stage;
-                b.src_access = img.state.access;
-                b.dst_access = a.access;
-                node.pre_image_barriers.push_back(b);
+            if (layout_change || curr_write) {
+                if (layout_change || prev_write || img.state.read_stages != 0) {
+                    ImageBarrier b{};
+                    b.image = img.image;
+                    b.aspect = img.aspect;
+                    b.old_layout = img.state.layout;
+                    b.new_layout = a.layout;
+                    b.src_stage = img.state.stage | img.state.read_stages;
+                    b.dst_stage = a.stage;
+                    b.src_access = img.state.access & WRITE_MASK;
+                    b.dst_access = a.access;
+                    node.pre_image_barriers.push_back(b);
+                }
+                img.state.layout = a.layout;
+                img.state.stage = a.stage;
+                img.state.access = curr_write ? a.access : VK_ACCESS_2_MEMORY_WRITE_BIT;
+                img.state.read_stages = curr_write ? 0 : a.stage;
+                img.state.read_access = curr_write ? 0 : a.access;
+            } else {
+                const bool unseen = (a.stage & ~img.state.read_stages) != 0 || (a.access & ~img.state.read_access) != 0;
+                if (prev_write && unseen) {
+                    ImageBarrier b{};
+                    b.image = img.image;
+                    b.aspect = img.aspect;
+                    b.old_layout = img.state.layout;
+                    b.new_layout = a.layout;
+                    b.src_stage = img.state.stage;
+                    b.dst_stage = a.stage;
+                    b.src_access = img.state.access & WRITE_MASK;
+                    b.dst_access = a.access;
+                    node.pre_image_barriers.push_back(b);
+                }
+                img.state.read_stages |= a.stage;
+                img.state.read_access |= a.access;
             }
-            img.state.layout = a.layout;
-            img.state.stage = a.stage;
-            img.state.access = a.access;
         }
 
         for (BufferAccess& a : node.buffer_accesses) {
@@ -963,19 +1042,28 @@ Error RenderGraph::compile()
             const bool prev_write = (buf.state.access & BUF_WRITE_MASK) != 0;
             const bool curr_write = a.is_write || (a.access & BUF_WRITE_MASK) != 0;
 
-            if (prev_write || curr_write) {
+            const bool unseen = (a.stage & ~buf.state.read_stages) != 0 || (a.access & ~buf.state.read_access) != 0;
+            const bool need = curr_write ? (prev_write || buf.state.read_stages != 0) : (prev_write && unseen);
+            if (need) {
                 BufferBarrier b{};
                 b.buffer = buf.buffer;
                 b.offset = 0;
                 b.size = VK_WHOLE_SIZE;
-                b.src_stage = buf.state.stage;
+                b.src_stage = curr_write ? (buf.state.stage | buf.state.read_stages) : buf.state.stage;
                 b.dst_stage = a.stage;
-                b.src_access = buf.state.access;
+                b.src_access = buf.state.access & BUF_WRITE_MASK;
                 b.dst_access = a.access;
                 node.pre_buffer_barriers.push_back(b);
             }
-            buf.state.stage = a.stage;
-            buf.state.access = a.access;
+            if (curr_write) {
+                buf.state.stage = a.stage;
+                buf.state.access = a.access;
+                buf.state.read_stages = 0;
+                buf.state.read_access = 0;
+            } else {
+                buf.state.read_stages |= a.stage;
+                buf.state.read_access |= a.access;
+            }
         }
 
         if (!node.attachment_access_idx.empty()) {
@@ -1020,7 +1108,7 @@ Error RenderGraph::compile()
         b.aspect = img.aspect;
         b.old_layout = img.state.layout;
         b.new_layout = r.final_layout;
-        b.src_stage = img.state.stage;
+        b.src_stage = img.state.stage | img.state.read_stages;
         b.dst_stage = r.final_stage;
         b.src_access = img.state.access;
         b.dst_access = r.final_access;
@@ -1028,7 +1116,9 @@ Error RenderGraph::compile()
 
         img.state.layout = r.final_layout;
         img.state.stage = r.final_stage;
-        img.state.access = r.final_access;
+        img.state.access = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        img.state.read_stages = r.final_stage;
+        img.state.read_access = r.final_access;
     }
 
     return OK;
@@ -1080,6 +1170,7 @@ void RenderGraph::_emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageB
 void RenderGraph::execute(VkCommandBuffer p_cmd)
 {
     profiler.frame_begin(p_cmd, current_frame);
+    if (breadcrumbs) _breadcrumb_reset(p_cmd);
 
     for (uint32_t n = 0; n < node_count; ++n) {
         Node& node = nodes[n];
@@ -1100,6 +1191,11 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
         if (node.pass->execute) node.pass->execute(cl);
         if (node.has_render_pass) dd->command_end_render_pass(p_cmd);
         profiler.pass_end(p_cmd, cl.draw_count);
+
+        if (breadcrumbs) {
+            breadcrumb_names[current_frame].push_back(node.pass->name);
+            _breadcrumb_mark(p_cmd, (uint32_t)breadcrumb_names[current_frame].size() - 1);
+        }
     }
 
     _emit_barriers(p_cmd, final_image_barriers, final_buffer_barriers);

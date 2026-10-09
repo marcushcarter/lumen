@@ -9,6 +9,7 @@
 #include "common/instances.glsl"
 #include "common/gbuffer.glsl"
 #include "common/lod.glsl"
+#include "common/lights.glsl"
 #include "editor/debug_palette.glsl"
 #include "editor/debug_op.glsl"
 
@@ -26,6 +27,9 @@ layout(push_constant) uniform Push {
     InstanceBuffer instances;
     GeometryBuffer geometry;
     TransformBuffer transforms;
+    LightCullData light_cull;
+    LightTileMaskBuffer light_masks;
+    SortedLightBuffer light_sorted;
     uint vis_index;
     uint depth_index;
     uint src_index;
@@ -176,6 +180,48 @@ float triangle_pixel_area(ivec2 size, uvec2 v, uvec2 ref) {
 }
 
 const uint LOD_HEAT_MAX_LEVEL = 9u;
+const float LIGHT_COMPLEXITY_MAX = 16.0;
+
+bool light_reaches(GpuLight p_light, vec3 p_world_pos) {
+    vec3 to_light = p_light.position - p_world_pos;
+    float dist_sq = dot(to_light, to_light);
+    if (dist_sq >= p_light.range * p_light.range) return false;
+    if (light_camera_fade(p_light, distance(p_light.position, pc.camera.position.xyz)) <= 0.0) return false;
+    if (light_type(p_light) == LIGHT_TYPE_SPOT && light_spot_falloff(p_light, to_light * inversesqrt(max(dist_sq, 1e-8))) <= 0.0) return false;
+    return true;
+}
+
+uint light_count(ivec2 p_coord, ivec2 p_size, float p_depth, bool p_exact) {
+    uint count = min(pc.light_cull.visible_count, MAX_VISIBLE_LIGHTS);
+    if (count == 0u) return 0u;
+    uvec2 zb = pc.light_cull.zbins[light_zbin(pc.camera, camera_linear_depth(pc.camera, p_depth))];
+    uint first = zb.x;
+    uint last = ~zb.y;
+    if (first > last) return 0u;
+    vec2 ndc = (vec2(p_coord) + 0.5) / vec2(p_size) * 2.0 - 1.0;
+    vec4 world_h = pc.camera.inv_view_proj * vec4(ndc, p_depth, 1.0);
+    vec3 world_pos = world_h.xyz / world_h.w;
+    uint words = (count + 31u) / 32u;
+    uint tiles_x = (pc.width + LIGHT_TILE_SIZE - 1u) / LIGHT_TILE_SIZE;
+    uint base = (uint(p_coord.y) / LIGHT_TILE_SIZE * tiles_x + uint(p_coord.x) / LIGHT_TILE_SIZE) * words;
+    uint n = 0u;
+    for (uint w = first >> 5u; w <= (last >> 5u); w++) {
+        uint lo = w * 32u;
+        uint b0 = max(first, lo) - lo;
+        uint b1 = min(last, lo + 31u) - lo;
+        uint mask = pc.light_masks.data[base + w] & ((0xFFFFFFFFu >> (31u - b1)) & (0xFFFFFFFFu << b0));
+        if (!p_exact) {
+            n += uint(bitCount(mask));
+            continue;
+        }
+        while (mask != 0u) {
+            uint bit = findLSB(mask);
+            mask &= mask - 1u;
+            if (light_reaches(pc.light_sorted.data[lo + bit], world_pos)) n++;
+        }
+    }
+    return n;
+}
 
 void main() {
     uvec2 px = gl_GlobalInvocationID.xy;
@@ -291,6 +337,14 @@ void main() {
         color = hsv_to_rgb(vec3(hue, 1.0, clamp(speed, 0.0, 1.0)));
     } else if (pc.op == OP_DEPTH) {
         color = vec3(linearize_depth(coord));
+    } else if (pc.op == OP_LIGHT_COMPLEXITY || pc.op == OP_LIGHT_CULL_COST) {
+        color = vec3(0.0);
+        float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
+        if (d != 0.0) {
+            float n = float(light_count(coord, size, d, pc.op == OP_LIGHT_COMPLEXITY));
+            float shade = dot(clay_shade(clay_normal(coord, size), view_pos_at(coord, size)), vec3(0.3333));
+            color = (n > 0.0 ? color_map_heat(n / LIGHT_COMPLEXITY_MAX) : vec3(0.02)) * (0.4 + 0.6 * shade);
+        }
     }
 
     imageStore(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord, vec4(color, 1.0));

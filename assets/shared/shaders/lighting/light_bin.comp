@@ -1,0 +1,59 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/lights.glsl"
+
+#define WG 256u
+layout(local_size_x = 256) in;
+
+layout(push_constant, scalar) uniform Push {
+    LightBuffer lights;
+    LightCullData cull;
+    VisibleLightBuffer visible;
+    SortedLightBuffer sorted;
+} pc;
+
+shared uint s_scan[WG];
+shared uint s_offsets[LIGHT_ZBIN_COUNT];
+
+void main() {
+    uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
+    if (gl_WorkGroupID.x * WG >= count) return;
+
+    uint lid = gl_LocalInvocationID.x;
+    uint h0 = pc.cull.histogram[lid * 4u + 0u];
+    uint h1 = pc.cull.histogram[lid * 4u + 1u];
+    uint h2 = pc.cull.histogram[lid * 4u + 2u];
+    uint h3 = pc.cull.histogram[lid * 4u + 3u];
+    uint sum = h0 + h1 + h2 + h3;
+    s_scan[lid] = sum;
+    barrier();
+    for (uint off = 1u; off < WG; off <<= 1u) {
+        uint a = lid >= off ? s_scan[lid - off] : 0u;
+        barrier();
+        s_scan[lid] += a;
+        barrier();
+    }
+    uint excl = s_scan[lid] - sum;
+    s_offsets[lid * 4u + 0u] = excl;
+    s_offsets[lid * 4u + 1u] = excl + h0;
+    s_offsets[lid * 4u + 2u] = excl + h0 + h1;
+    s_offsets[lid * 4u + 3u] = excl + h0 + h1 + h2;
+    barrier();
+
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= count) return;
+
+    uvec2 e = pc.visible.data[i];
+    uint key = e.y & 1023u;
+    uint dst = s_offsets[key] + atomicAdd(pc.cull.cursor[key], 1u);
+    pc.sorted.data[dst] = pc.lights.data[e.x];
+
+    uint bmin = (e.y >> 10) & 1023u;
+    uint bmax = (e.y >> 20) & 1023u;
+    for (uint b = bmin; b <= bmax; b++) {
+        atomicMin(pc.cull.zbins[b].x, dst);
+        atomicMin(pc.cull.zbins[b].y, ~dst);
+    }
+}

@@ -109,6 +109,12 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
             b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
+        
+        if (d.inputs & DebugViewInputs::LIGHTS) {
+            b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
 
         VkAccessFlags2 vp_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
         if (overdraw_active) vp_access |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
@@ -126,6 +132,9 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             VkDeviceAddress instances_addr;
             VkDeviceAddress geometry_addr;
             VkDeviceAddress transforms_addr;
+            VkDeviceAddress light_cull_addr;
+            VkDeviceAddress light_masks_addr;
+            VkDeviceAddress light_sorted_addr;
             uint32_t vis_index; 
             uint32_t depth_index;
             uint32_t src_index;
@@ -155,6 +164,11 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         if (d.inputs & DebugViewInputs::GEOMETRY) {
             if (auto* r = cl.graph->buffer("Geometry")) pc.geometry_addr = r->device_address; else return;
             if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else return;
+        }
+        if (d.inputs & DebugViewInputs::LIGHTS) {
+            if (auto* r = cl.graph->buffer("LightCullData")) pc.light_cull_addr = r->device_address; else return;
+            if (auto* r = cl.graph->buffer("LightTileMasks")) pc.light_masks_addr = r->device_address; else return;
+            if (auto* r = cl.graph->buffer("SortedLights")) pc.light_sorted_addr = r->device_address; else return;
         }
 
         uint32_t gx = (out->extent.width + 7) / 8;

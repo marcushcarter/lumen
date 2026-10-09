@@ -133,6 +133,8 @@ struct DeviceDriverVulkan
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
         VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
         VkAccessFlags2 access = 0;
+        VkPipelineStageFlags2 read_stages = 0;
+        VkAccessFlags2 read_access = 0;
     };
 
     struct ImageCreateInfo {
@@ -188,6 +190,8 @@ struct DeviceDriverVulkan
     struct BufferBarrierState {
         VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
         VkAccessFlags2 access = 0;
+        VkPipelineStageFlags2 read_stages = 0;
+        VkAccessFlags2 read_access = 0;
     };
 
     struct BufferCreateInfo {

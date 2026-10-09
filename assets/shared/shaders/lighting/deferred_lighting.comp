@@ -1,9 +1,10 @@
-// assets/shared/shaders/lighting/deferred_lighting.comp
 #version 460
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "common/camera.glsl"
 #include "common/gbuffer.glsl"
@@ -17,6 +18,9 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
     LightBuffer lights;
+    LightCullData cull;
+    SortedLightBuffer sorted;
+    LightTileMaskBuffer masks;
     uint depth_index;
     uint albedo_index;
     uint normal_index;
@@ -25,7 +29,6 @@ layout(push_constant, scalar) uniform Push {
     uint width;
     uint height;
     uint directional_count;
-    uint light_count;
     float ambient_intensity;
     vec4 sky_zenith;
     vec4 sky_horizon;
@@ -78,8 +81,6 @@ struct Surface {
     vec3 diffuse_color;
 };
 
-// p_l: to light center (diffuse), p_l_spec: representative direction (specular)
-// p_spread: source size as seen from the surface, widens the highlight
 vec3 shade_light(Surface p_s, vec3 p_l, vec3 p_l_spec, float p_spread, vec3 p_radiance) {
     float n_l = clamp(dot(p_s.n, p_l), 0.0, 1.0);
     float n_l_spec = clamp(dot(p_s.n, p_l_spec), 0.0, 1.0);
@@ -96,6 +97,20 @@ vec3 shade_light(Surface p_s, vec3 p_l, vec3 p_l_spec, float p_spread, vec3 p_ra
     vec3 specular = d_ggx(n_h, p_s.a2) * v_smith_ggx_correlated(p_s.n_v, n_l_spec, p_s.a2) * f * energy * n_l_spec;
     vec3 diffuse = p_s.diffuse_color / PI * (1.0 - f) * n_l;
     return (diffuse + specular) * p_radiance;
+}
+
+vec3 shade_local(Surface p_s, GpuLight p_light, vec3 p_world_pos) {
+    vec3 to_light = p_light.position - p_world_pos;
+    float dist_sq = dot(to_light, to_light);
+    if (dist_sq >= p_light.range * p_light.range) return vec3(0.0);
+    float inv_dist = inversesqrt(max(dist_sq, 1e-8));
+    vec3 l = to_light * inv_dist;
+    float atten = light_range_falloff(dist_sq, p_light.range) * light_camera_fade(p_light, distance(p_light.position, pc.camera.position.xyz));
+    if (light_type(p_light) == LIGHT_TYPE_SPOT) atten *= light_spot_falloff(p_light, l);
+    if (atten <= 0.0) return vec3(0.0);
+    vec3 l_spec = p_light.source_radius > 0.0 ? light_sphere_specular_dir(to_light, p_s.r, p_light.source_radius) : l;
+    float spread = clamp(p_light.source_radius * inv_dist, 0.0, 1.0);
+    return shade_light(p_s, l, l_spec, spread, p_light.radiance * atten);
 }
 
 void main() {
@@ -141,23 +156,33 @@ void main() {
         direct += shade_light(s, l, l, 0.0, light.radiance);
     }
 
-    for (uint i = MAX_DIRECTIONAL_LIGHTS; i < pc.light_count; i++) {
-        GpuLight light = pc.lights.data[i];
-        switch (light_type(light)) {
-            case LIGHT_TYPE_POINT:
-            case LIGHT_TYPE_SPOT: {
-                vec3 to_light = light.position - world_pos;
-                float dist_sq = dot(to_light, to_light);
-                if (dist_sq >= light.range * light.range) break;
-                float inv_dist = inversesqrt(max(dist_sq, 1e-8));
-                vec3 l = to_light * inv_dist;
-                float atten = light_range_falloff(dist_sq, light.range) * light_camera_fade(light, distance(light.position, pc.camera.position.xyz));
-                if (light_type(light) == LIGHT_TYPE_SPOT) atten *= light_spot_falloff(light, l);
-                if (atten <= 0.0) break;
-                vec3 l_spec = light.source_radius > 0.0 ? light_sphere_specular_dir(to_light, s.r, light.source_radius) : l;
-                float spread = clamp(light.source_radius * inv_dist, 0.0, 1.0);
-                direct += shade_light(s, l, l_spec, spread, light.radiance * atten);
-            } break;
+    uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
+    if (count > 0u) {
+        uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, camera_linear_depth(pc.camera, depth))];
+        uint first = zb.x;
+        uint last = ~zb.y;
+        bool any_light = first <= last;
+        uint word_first = subgroupMin(any_light ? first >> 5u : 0xFFFFFFFFu);
+        uint word_last = subgroupMax(any_light ? last >> 5u : 0u);
+
+        uint words = (count + 31u) / 32u;
+        uint tiles_x = (pc.width + LIGHT_TILE_SIZE - 1u) / LIGHT_TILE_SIZE;
+        uint tile_base = (uint(p.y) / LIGHT_TILE_SIZE * tiles_x + uint(p.x) / LIGHT_TILE_SIZE) * words;
+
+        for (uint w = word_first; w <= word_last && word_first != 0xFFFFFFFFu; w++) {
+            uint mask = 0u;
+            uint lo = w * 32u;
+            if (any_light && first <= lo + 31u && last >= lo) {
+                uint b0 = max(first, lo) - lo;
+                uint b1 = min(last, lo + 31u) - lo;
+                mask = pc.masks.data[tile_base + w] & ((0xFFFFFFFFu >> (31u - b1)) & (0xFFFFFFFFu << b0));
+            }
+            mask = subgroupOr(mask);
+            while (mask != 0u) {
+                uint bit = findLSB(mask);
+                mask &= mask - 1u;
+                direct += shade_local(s, pc.sorted.data[lo + bit], world_pos);
+            }
         }
     }
 

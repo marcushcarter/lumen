@@ -21,11 +21,12 @@ enum class DebugViewOp : uint32_t {
     LOD_LEVEL,
     CLUSTER_ERROR,
     TRIANGLE_DENSITY,
-    
     ROUGHNESS,
     METALLIC,
     MATERIAL_AO,
     SHADING_MODEL,
+    LIGHT_COMPLEXITY,
+    LIGHT_CULL_COST,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -34,6 +35,7 @@ enum class DebugViewInputs : uint32_t {
     VISBUF = 1u << 1,
     DEPTH = 1u << 2,
     GEOMETRY = 1u << 3,
+    LIGHTS = 1u << 4,
 };
 
 constexpr DebugViewInputs operator|(DebugViewInputs a, DebugViewInputs b) { return (DebugViewInputs)((uint32_t)a | (uint32_t)b); }
@@ -98,7 +100,8 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     // lighting only
     // direct only
     // indirect only
-    // light complexity
+    { nullptr, "Light Complexity", &DV_CAT_LIGHTING, nullptr, DebugViewOp::LIGHT_COMPLEXITY, DebugViewInputs::DEPTH | DebugViewInputs::LIGHTS },
+    { nullptr, "Light Cull Cost", &DV_CAT_LIGHTING, nullptr, DebugViewOp::LIGHT_CULL_COST, DebugViewInputs::DEPTH | DebugViewInputs::LIGHTS },
     // shadow cascades
 
     // gibs scene

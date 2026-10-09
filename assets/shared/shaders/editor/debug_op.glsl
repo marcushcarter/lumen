@@ -21,5 +21,7 @@ const uint OP_ROUGHNESS = 16u;
 const uint OP_METALLIC = 17u;
 const uint OP_MATERIAL_AO = 18u;
 const uint OP_SHADING_MODEL = 19u;
+const uint OP_LIGHT_COMPLEXITY = 20u;
+const uint OP_LIGHT_CULL_COST = 21u;
 
 #endif

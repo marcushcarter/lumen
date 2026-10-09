@@ -1,0 +1,109 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/camera.glsl"
+#include "common/lights.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    LightCullData cull;
+    SortedLightBuffer sorted;
+    LightTileMaskBuffer masks;
+    uint depth_index;
+    uint width;
+    uint height;
+} pc;
+
+shared uint s_min_depth;
+shared uint s_max_depth;
+shared uint s_first;
+shared uint s_last;
+shared vec3 s_planes[4];
+shared uint s_mask[LIGHT_TILE_WORDS];
+
+vec3 corner_dir(vec2 p_pixel) {
+    vec2 ndc = p_pixel / vec2(pc.width, pc.height) * 2.0 - 1.0;
+    vec4 h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    return h.xyz / h.w - pc.camera.position.xyz;
+}
+
+void main() {
+    uint lid = gl_LocalInvocationIndex;
+    uvec2 tile = gl_WorkGroupID.xy;
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
+    uint words = (count + 31u) / 32u;
+
+    if (lid == 0u) {
+        s_min_depth = 0x7F7FFFFFu;
+        s_max_depth = 0u;
+        s_first = 0xFFFFFFFFu;
+        s_last = 0u;
+
+        vec2 lo = vec2(tile * LIGHT_TILE_SIZE);
+        vec2 hi = min(lo + vec2(LIGHT_TILE_SIZE), vec2(pc.width, pc.height));
+        vec3 d00 = corner_dir(vec2(lo.x, lo.y));
+        vec3 d10 = corner_dir(vec2(hi.x, lo.y));
+        vec3 d01 = corner_dir(vec2(lo.x, hi.y));
+        vec3 d11 = corner_dir(vec2(hi.x, hi.y));
+        vec3 center = d00 + d10 + d01 + d11;
+        vec3 n[4] = vec3[4](cross(d00, d01), cross(d11, d10), cross(d10, d00), cross(d01, d11));
+        for (int k = 0; k < 4; k++) {
+            vec3 nk = normalize(n[k]);
+            s_planes[k] = dot(nk, center) < 0.0 ? -nk : nk;
+        }
+    }
+    for (uint w = lid; w < words; w += 64u) s_mask[w] = 0u;
+    barrier();
+
+    if (p.x < int(pc.width) && p.y < int(pc.height)) {
+        float d = texelFetch(u_textures[pc.depth_index], p, 0).r;
+        if (d > 0.0) {
+            uint z = floatBitsToUint(camera_linear_depth(pc.camera, d));
+            atomicMin(s_min_depth, z);
+            atomicMax(s_max_depth, z);
+        }
+    }
+    barrier();
+
+    bool has_geometry = s_max_depth != 0u && count > 0u;
+    float tile_min = uintBitsToFloat(s_min_depth);
+    float tile_max = uintBitsToFloat(s_max_depth);
+
+    if (has_geometry) {
+        uint b0 = light_zbin(pc.camera, tile_min);
+        uint b1 = light_zbin(pc.camera, tile_max);
+        for (uint b = b0 + lid; b <= b1; b += 64u) {
+            uvec2 zb = pc.cull.zbins[b];
+            if (zb.x <= ~zb.y) {
+                atomicMin(s_first, zb.x);
+                atomicMax(s_last, ~zb.y);
+            }
+        }
+    }
+    barrier();
+
+    if (has_geometry && s_first <= s_last) {
+        vec3 cam = pc.camera.position.xyz;
+        for (uint i = s_first + lid; i <= s_last; i += 64u) {
+            vec4 b = light_bounds(pc.sorted.data[i]);
+            vec3 c = b.xyz - cam;
+            bool hit = dot(s_planes[0], c) > -b.w && dot(s_planes[1], c) > -b.w && dot(s_planes[2], c) > -b.w && dot(s_planes[3], c) > -b.w;
+            float d = camera_view_depth(pc.camera, b.xyz);
+            hit = hit && d + b.w >= tile_min && d - b.w <= tile_max;
+            if (hit) atomicOr(s_mask[i >> 5u], 1u << (i & 31u));
+        }
+    }
+    barrier();
+
+    uint tiles_x = (pc.width + LIGHT_TILE_SIZE - 1u) / LIGHT_TILE_SIZE;
+    uint base = (tile.y * tiles_x + tile.x) * words;
+    for (uint w = lid; w < words; w += 64u) pc.masks.data[base + w] = s_mask[w];
+}

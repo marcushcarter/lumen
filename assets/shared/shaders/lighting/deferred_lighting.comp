@@ -1,0 +1,106 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/camera.glsl"
+#include "common/gbuffer.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    uint depth_index;
+    uint albedo_index;
+    uint normal_index;
+    uint material_index;
+    uint out_slot;
+    uint width;
+    uint height;
+    float ambient_intensity;
+    vec4 sun_direction;
+    vec4 sun_radiance;
+    vec4 sky_zenith;
+    vec4 sky_horizon;
+    vec4 ground_color;
+} pc;
+
+const float PI = 3.14159265359;
+
+vec3 sky_radiance(vec3 p_dir) {
+    float h = p_dir.y;
+    vec3 sky = mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, pow(clamp(h, 0.0, 1.0), 0.5));
+    vec3 col = h >= 0.0 ? sky : mix(pc.sky_horizon.rgb, pc.ground_color.rgb, clamp(-h * 4.0, 0.0, 1.0));
+    float sun = smoothstep(0.9995, 0.9999, dot(p_dir, pc.sun_direction.xyz));
+    return col + pc.sun_radiance.rgb * sun * 20.0;
+}
+
+vec3 ambient_irradiance(vec3 p_n) {
+    float t = p_n.y * 0.5 + 0.5;
+    return mix(pc.ground_color.rgb, mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, t), t) * pc.ambient_intensity;
+}
+
+float d_ggx(float p_n_h, float p_a2) {
+    float d = p_n_h * p_n_h * (p_a2 - 1.0) + 1.0;
+    return p_a2 / (PI * d * d);
+}
+
+float v_smith_ggx_correlated(float p_n_v, float p_n_l, float p_a2) {
+    float gv = p_n_l * sqrt(p_n_v * p_n_v * (1.0 - p_a2) + p_a2);
+    float gl = p_n_v * sqrt(p_n_l * p_n_l * (1.0 - p_a2) + p_a2);
+    return 0.5 / max(gv + gl, 1e-5);
+}
+
+vec3 f_schlick(float p_v_h, vec3 p_f0) {
+    return p_f0 + (1.0 - p_f0) * pow(1.0 - p_v_h, 5.0);
+}
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
+
+    float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
+    vec2 ndc = (vec2(p) + 0.5) / vec2(pc.width, pc.height) * 2.0 - 1.0;
+    vec4 near_h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    vec3 view_dir = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
+
+    float roughness, metallic, ao;
+    uint shading_model;
+    gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
+
+    if (depth == 0.0 || shading_model == SHADING_MODEL_SKY) {
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(sky_radiance(view_dir), 1.0));
+        return;
+    }
+
+    vec3 albedo;
+    uint flags;
+    gbuffer_decode_albedo(texelFetch(u_textures[pc.albedo_index], p, 0), albedo, flags);
+    vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
+
+    vec3 v = -view_dir;
+    vec3 l = pc.sun_direction.xyz;
+    vec3 h = normalize(v + l);
+    float n_v = max(dot(n, v), 1e-4);
+    float n_l = clamp(dot(n, l), 0.0, 1.0);
+    float n_h = clamp(dot(n, h), 0.0, 1.0);
+    float v_h = clamp(dot(v, h), 0.0, 1.0);
+
+    float a = max(roughness * roughness, 0.002);
+    float a2 = a * a;
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+    vec3 diffuse_color = albedo * (1.0 - metallic);
+
+    vec3 f = f_schlick(v_h, f0);
+    vec3 specular = d_ggx(n_h, a2) * v_smith_ggx_correlated(n_v, n_l, a2) * f;
+    vec3 diffuse = diffuse_color / PI;
+    vec3 direct = (diffuse * (1.0 - f) + specular) * pc.sun_radiance.rgb * n_l;
+
+    vec3 indirect = diffuse_color * ambient_irradiance(n) * ao;
+
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(direct + indirect, 1.0));
+}

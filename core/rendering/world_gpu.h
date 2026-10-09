@@ -17,6 +17,7 @@ struct CameraUniform {
     float near_z;
     float far_z;
     float tan_half_fov_y;
+    mat4 inv_view_proj;
 };
 
 struct Instance {

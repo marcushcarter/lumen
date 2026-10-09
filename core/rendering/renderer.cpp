@@ -400,6 +400,7 @@ void Renderer::_frame_build(const World& p_world)
     frame.camera.near_z = active_camera.near_z;
     frame.camera.far_z = active_camera.far_z;
     frame.camera.tan_half_fov_y = std::tan(active_camera.fov_y * 0.5f);
+    frame.camera.inv_view_proj = inverse(frame.camera.curr_view_proj);
     frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
     frame.hiz_history_valid = !camera_cut_pending && !hiz_reset_pending;
     

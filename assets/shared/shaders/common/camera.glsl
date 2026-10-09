@@ -12,6 +12,7 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     float near_z;
     float far_z;
     float tan_half_fov_y;
+    mat4 inv_view_proj;
 };
 
 bool frustum_cull_sphere(CameraBuffer p_camera, vec3 p_center, float p_radius) {

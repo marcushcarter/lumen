@@ -97,7 +97,6 @@ struct Renderer
     std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> camera_buffers;
 
-    void resolve_meshes(World& r_world);
     void _frame_build(const World& p_world);
     void _frame_upload();
 

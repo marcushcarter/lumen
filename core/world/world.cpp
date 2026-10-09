@@ -8,11 +8,13 @@ Error World::initialize()
     using enum Error;
 
     component_register<EntityIdComponent>("Entity Id", false);
-    component_register<NameComponent>("Name");
+    component_register<NameComponent>("Name", false);
     component_register<TransformComponent>("Transform");
     component_register<MeshComponent>("Mesh");
     component_register<MeshGridComponent>("Mesh Grid");
-    component_register<StaticTag>("Static");
+    component_register<StaticTag>("Static", false);
+    component_register<EditorFolderComponent>("Folder", false);
+    component_register<EditorHiddenTag>("Hidden", false);
     static_tag_id = ComponentType<StaticTag>::id;
 
     return OK;
@@ -53,6 +55,8 @@ void World::unload()
     deferred.clear();
     by_guid.clear();
     static_version++;
+    structure_version++;
+    entity_version++;
     for (PoolSlot& slot : pools) {
         if (slot.set) slot.clear_fn(slot.set);
     }
@@ -66,6 +70,8 @@ void World::unload()
 
 Entity World::create()
 {
+    structure_version++;
+    entity_version++;
     if (!free_list.empty()) {
         const uint32_t i = free_list.back();
         free_list.pop_back();
@@ -93,6 +99,8 @@ void World::destroy(Entity p_entity)
     LUMEN_ERR_FAIL_COND(!valid(p_entity));
     if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) by_guid.erase(id->guid);
     if (_is_static(p_entity)) static_version++;
+    structure_version++;
+    entity_version++;
     ComponentMask& mask = masks[p_entity.index];
     for (uint32_t w = 0; w < ComponentMask::WORDS; w++) {
         uint64_t bits = mask.words[w];
@@ -125,6 +133,7 @@ void World::deferred_flush()
             case Op::ADD:
                 masks[c.entity.index].set(c.type);
                 if (_is_static(c.entity)) static_version++;
+                structure_version++;
                 pools[c.type].add_bytes_fn(pools[c.type].set, c.entity, deferred.values.data() + c.value_offset);
                 break;
             case Op::REMOVE: _remove_id(c.entity, c.type); break;
@@ -138,6 +147,7 @@ void World::_remove_id(Entity p_entity, uint32_t p_id)
     ComponentMask& mask = masks[p_entity.index];
     if (!mask.test(p_id)) return;
     if (_is_static(p_entity)) static_version++;
+    structure_version++;
     pools[p_id].remove_fn(pools[p_id].set, p_entity.index);
     mask.clear(p_id);
 }

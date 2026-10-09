@@ -11,6 +11,8 @@
 #include <editor/editor_resources.h>
 #include <editor/assets/asset_import_tracker.h>
 #include <editor/assets/asset_registry.h>
+#include <editor/world/editor_folders.h>
+#include <editor/world/editor_selection.h>
 #include <vector>
 
 namespace lumen {
@@ -27,12 +29,13 @@ struct EditorApplication : Application
     EditorResources resources;
     AssetImportTracker imports;
     AssetRegistry assets;
+    EditorFolders folders;
 
     enum class EditorTab { WORLD, SETTINGS } tab = EditorTab::WORLD;
     bool tab_sync = true;
     
     EditorCamera editor_camera;
-    Entity selected = ENTITY_NULL;
+    EditorSelection selection;
 
     Error on_init() override;
     void on_shutdown() override;

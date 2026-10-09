@@ -18,7 +18,6 @@ struct Editor
     static constexpr float PLAY_ROUNDING = 3.0f;
     static constexpr float PLAY_KEBAB_W = 14.0f;
     static constexpr float PLAY_KEBAB_GAP = 4.0f;
-    // ImGui colors are linear on the *_SRGB swapchain; sRGB (95, 185, 75) pre-converted to linear.
     static constexpr ImU32 PLAY_GREEN = IM_COL32(29, 124, 18, 255);
     static constexpr ImU32 PLAY_DISABLED_ALPHA = 0x60;
 

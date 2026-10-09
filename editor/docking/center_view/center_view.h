@@ -18,7 +18,7 @@ struct CenterView
     OverlayBar right_overlay;
 
     int selected_view = 0;
-    float split_ratio = 0.66f;
+    float split_ratio = 1.0f;
     float screen_percentage = 1.0f;
     float item_w = 240.0f;
     

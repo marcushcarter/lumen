@@ -8,10 +8,12 @@
 #include <core/rendering/features/editor/debug_view.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
+#include <editor/world/editor_selection.h>
 #include <IconsFontAwesome6.h>
 #include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
+#include <cfloat>
 #include <cstring>
 #include <cstdio>
 
@@ -84,10 +86,70 @@ bool CenterView::_view_submenu(const DebugViewCategory& p_category, bool p_activ
     return ImGui::BeginPopupMenuEx(popup_id, p_category.name, ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus);
 }
 
+static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
+{
+    static constexpr size_t MAX_BOUNDED = 4096;
+    const World& world = *ctx.world;
+    const Renderer& renderer = *ctx.renderer;
+    if (ctx.selection->entities.size() > MAX_BOUNDED || renderer.width == 0 || renderer.height == 0) {
+        r_outline.set_rect(vec2(0.0f), vec2(1.0f));
+        return;
+    }
+    const Camera& cam = renderer.active_camera;
+    const mat4 view_proj = cam.view_proj((float)renderer.width / (float)renderer.height);
+    vec2 lo(FLT_MAX);
+    vec2 hi(-FLT_MAX);
+    bool full = false;
+
+    auto add_box = [&](const mat4& p_mvp, vec3 p_min, vec3 p_max) {
+        vec2 box_lo(FLT_MAX);
+        vec2 box_hi(-FLT_MAX);
+        uint32_t behind = 0;
+        for (uint32_t c = 0; c < 8; c++) {
+            const vec3 corner((c & 1) ? p_max.x : p_min.x, (c & 2) ? p_max.y : p_min.y, (c & 4) ? p_max.z : p_min.z);
+            const vec4 clip = p_mvp * vec4(corner, 1.0f);
+            if (clip.w <= cam.near_z) {
+                behind++;
+                continue;
+            }
+            const vec2 uv = vec2(clip) / clip.w * 0.5f + 0.5f;
+            box_lo = min(box_lo, uv);
+            box_hi = max(box_hi, uv);
+        }
+        if (behind == 8) return;
+        if (behind > 0) {
+            full = true;
+            return;
+        }
+        lo = min(lo, box_lo);
+        hi = max(hi, box_hi);
+    };
+
+    for (const Entity e : ctx.selection->entities) {
+        const TransformComponent* xf = world.try_get<TransformComponent>(e);
+        if (!xf || world.has<EditorHiddenTag>(e)) continue;
+        const mat4 mvp = view_proj * translate(mat4(1.0f), xf->position) * mat4_cast(xf->rotation) * glm::scale(mat4(1.0f), xf->scale);
+        if (const MeshComponent* m = world.try_get<MeshComponent>(e)) {
+            if (const LMesh* mesh = renderer.geometry.get(renderer.geometry.find(m->mesh))) add_box(mvp, mesh->pos_min, mesh->pos_min + mesh->pos_extent);
+        }
+        if (const MeshGridComponent* g = world.try_get<MeshGridComponent>(e)) {
+            if (const LMesh* mesh = renderer.geometry.get(renderer.geometry.find(g->mesh))) {
+                const float spacing = g->spacing > 0.0f ? g->spacing : mesh->bounds_sphere.w * 1.5f;
+                const vec3 half = (vec3(g->count) - 1.0f) * 0.5f * spacing;
+                add_box(mvp, mesh->pos_min - half, mesh->pos_min + mesh->pos_extent + half);
+            }
+        }
+        if (full) break;
+    }
+    if (full) r_outline.set_rect(vec2(0.0f), vec2(1.0f));
+    else r_outline.set_rect(lo, hi);
+}
+
 bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 {
-    if (!ctx.world || !ctx.selected || p_size.x <= 0.0f || p_size.y <= 0.0f) return false;
-    TransformComponent* xf = ctx.world->try_get<TransformComponent>(*ctx.selected);
+    if (!ctx.world || !ctx.selection || p_size.x <= 0.0f || p_size.y <= 0.0f) return false;
+    const Entity selected = ctx.selection->primary();
+    TransformComponent* xf = ctx.world->try_get<TransformComponent>(selected);
     if (!xf) return false;
 
     const ImGuiIO& io = ImGui::GetIO();
@@ -125,7 +187,7 @@ bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
             case ImGuizmo::SCALE: xf->scale = s; break;
             default: break;
         }
-        ctx.world->touch(*ctx.selected);
+        ctx.world->touch(selected);
     }
     return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
 }
@@ -138,14 +200,20 @@ void CenterView::_draw_scene(EditorContext& ctx)
     ImGuizmo::BeginFrame();
 
     uint32_t picked = PickFeature::NONE;
-    if (ctx.render_path && ctx.world && ctx.selected && ctx.render_path->pick.take_result(picked)) {
+    if (ctx.render_path && ctx.world && ctx.selection && ctx.render_path->pick.take_result(picked)) {
         World& world = *ctx.world;
-        *ctx.selected = ENTITY_NULL;
+        ctx.selection->clear();
         if (picked != PickFeature::NONE && picked < world.generations.size()) {
             const Entity e{ picked, world.generations[picked] };
-            if (world.has<EntityIdComponent>(e)) *ctx.selected = e;
+            if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
         }
     }
+    if (ctx.render_path) ctx.render_path->outline.enabled = !(ctx.pie_is_playing && ctx.pie_is_playing());
+    if (ctx.render_path && ctx.selection && ctx.render_path->outline.source_version != ctx.selection->version) {
+        ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
+        ctx.render_path->outline.source_version = ctx.selection->version;
+    }
+    if (ctx.render_path && ctx.world && ctx.selection && ctx.render_path->outline.enabled && !ctx.selection->entities.empty()) _outline_rect(ctx, ctx.render_path->outline);
 
     if (!ImGui::IsAnyItemActive()) {
         ctx.renderer->request_size((uint32_t)(size.x * screen_percentage), (uint32_t)(size.y * screen_percentage));

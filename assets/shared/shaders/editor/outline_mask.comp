@@ -1,0 +1,45 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/instances.glsl"
+#include "common/visbuffer.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, r32ui) uniform writeonly uimage2D u_storage_r32ui[];
+
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) readonly buffer SelectionWordsBuffer { uint words[]; };
+
+layout(push_constant) uniform Push {
+    ClusterRefsBuffer cluster_refs;
+    InstanceBuffer instances;
+    SelectionWordsBuffer mask;
+    uint word_count;
+    uint vis_index;
+    uint depth_index;
+    uint out_slot;
+    uint rect[4];
+} pc;
+
+void main() {
+    ivec2 p = ivec2(pc.rect[0], pc.rect[1]) + ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.rect[2]) || p.y >= int(pc.rect[3])) return;
+
+    uint id = 0u;
+    float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
+    if (depth != 0.0) {
+        uvec2 v = texelFetch(u_textures_uint[pc.vis_index], p, 0).xy;
+        if (!vis_is_terrain(v)) {
+            uint entity = pc.instances.data[pc.cluster_refs.data[vis_cluster_ref(v)].x].entity_id;
+            uint w = entity >> 5u;
+            if (w < pc.word_count && ((pc.mask.words[w] >> (entity & 31u)) & 1u) != 0u) id = entity + 1u;
+        }
+    }
+    imageStore(u_storage_r32ui[pc.out_slot], p, uvec4(id));
+}

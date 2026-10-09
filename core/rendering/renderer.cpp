@@ -301,14 +301,6 @@ glm::mat4 grid_transform(uint32_t iterator, float spacing = 1.0f)
     );
 }
 
-void Renderer::resolve_meshes(World& r_world)
-{
-    r_world.view<MeshComponent>([&](Entity, MeshComponent& p_mesh) {
-        if (p_mesh.mesh_index < geometry.mesh_guids.size() && geometry.mesh_guids[p_mesh.mesh_index] == p_mesh.mesh) return;
-        p_mesh.mesh_index = geometry.find(p_mesh.mesh);
-    });
-}
-
 template <typename Fn>
 static void _mesh_grid_for_each(const MeshGridComponent& p_grid, const LMesh& p_mesh, uint32_t p_budget, Fn&& p_fn)
 {
@@ -332,7 +324,7 @@ void Renderer::_frame_build(const World& p_world)
         statics.instances.clear();
         statics.transforms.clear();
         statics.cluster_ref_capacity = 0;
-        p_world.view<TransformComponent, MeshComponent, StaticTag>([&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh, const StaticTag&) {
+        p_world.view<TransformComponent, MeshComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh, const StaticTag&) {
             if (statics.instances.size() >= MAX_INSTANCES) return;
             const uint32_t mesh_index = geometry.find(p_mesh.mesh);
             const LMesh* mesh = geometry.get(mesh_index);
@@ -342,7 +334,7 @@ void Renderer::_frame_build(const World& p_world)
             statics.transforms.push_back(Transform{ model, model });
             statics.cluster_ref_capacity += mesh->cluster_count;
         });
-        p_world.view<TransformComponent, MeshGridComponent, StaticTag>([&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid, const StaticTag&) {
+        p_world.view<TransformComponent, MeshGridComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid, const StaticTag&) {
             const uint32_t mesh_index = geometry.find(p_grid.mesh);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
@@ -360,7 +352,7 @@ void Renderer::_frame_build(const World& p_world)
     }
 
     const uint32_t base = statics.count();
-    p_world.view<TransformComponent, MeshComponent>(Exclude<StaticTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh) {
+    p_world.view<TransformComponent, MeshComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh) {
         if (base + frame.instances_scratch.size() >= MAX_INSTANCES) return;
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
         FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
@@ -377,7 +369,7 @@ void Renderer::_frame_build(const World& p_world)
         frame.cluster_ref_capacity += mesh->cluster_count;
     });
 
-    p_world.view<TransformComponent, MeshGridComponent>(Exclude<StaticTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid) {
+    p_world.view<TransformComponent, MeshGridComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid) {
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
         FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
         if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };

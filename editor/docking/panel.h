@@ -33,6 +33,7 @@ struct Panel
 
     virtual void draw_contents(EditorContext& ctx) = 0;
     virtual ImGuiWindowFlags window_flags() const { return 0; }
+    virtual ImVec2 window_padding() const { return ImVec2(10.0f, 8.0f); }
     virtual int push_style() { return 0; }
     virtual void before_begin() {}
 };

@@ -12,13 +12,14 @@ struct Project;
 struct World;
 struct ProjectManager;
 struct Editor;
-struct Entity;
+struct EditorSelection;
 struct EditorRenderPath;
 struct ProfilingSettings;
 struct EditorSettings;
 struct EditorResources;
 struct AssetImportTracker;
 struct AssetRegistry;
+struct EditorFolders;
 
 struct EditorContext
 {
@@ -32,7 +33,7 @@ struct EditorContext
     
     ProjectManager* project_manager = nullptr;
     Editor* editor = nullptr;
-    Entity* selected = nullptr;
+    EditorSelection* selection = nullptr;
     
     EditorRenderPath* render_path = nullptr;
     EditorSettings* settings = nullptr;
@@ -40,6 +41,7 @@ struct EditorContext
     EditorResources* resources = nullptr;
     AssetImportTracker* imports = nullptr;
     AssetRegistry* assets = nullptr;
+    EditorFolders* folders = nullptr;
         
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;

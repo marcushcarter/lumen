@@ -148,7 +148,6 @@ Error Application::_frame()
     cpu.zone_end();
 
     cpu.zone_begin("Frame Build");
-    renderer.resolve_meshes(world);
     renderer.begin_frame(world);
     cpu.zone_end();
 

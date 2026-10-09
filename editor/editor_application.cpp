@@ -103,6 +103,7 @@ void EditorApplication::on_update(float p_dt)
         }
         imports.completed.clear();
         assets.tick();
+        selection.prune(world, folders);
 
         if (tab == EditorTab::SETTINGS) settings_page.draw(ctx);
         else editor.on_update(ctx, p_dt);
@@ -125,6 +126,8 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     assets.open(project.assets_dir);
+    folders.clear();
+    selection.clear();
     render_path_request(new EditorRenderPath());
     project_manager.add_recent(project.root, project.name);
     tab = EditorTab::WORLD;
@@ -136,7 +139,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 
 void EditorApplication::close_project()
 {
-    pending_transition = [this]{ assets.close(); project_unload(); };
+    pending_transition = [this]{ assets.close(); folders.clear(); selection.clear(); project_unload(); };
     render_path_request(new ProjectManagerRenderPath());
 }
 
@@ -630,7 +633,7 @@ EditorContext EditorApplication::_make_context()
     
     ctx.project_manager = &project_manager;
     ctx.editor = &editor;
-    ctx.selected = &selected;
+    ctx.selection = &selection;
     
     ctx.render_path = static_cast<EditorRenderPath*>(render_path);
     ctx.settings = &settings;
@@ -638,6 +641,7 @@ EditorContext EditorApplication::_make_context()
     ctx.resources = &resources;
     ctx.imports = &imports;
     ctx.assets = &assets;
+    ctx.folders = &folders;
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};

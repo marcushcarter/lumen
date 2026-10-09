@@ -1,0 +1,63 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+const int TILE = 8;
+const int MAX_RADIUS = 8;
+const int MAX_SIDE = TILE + 2 * MAX_RADIUS;
+
+layout(local_size_x = TILE, local_size_y = TILE) in;
+
+layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
+layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
+
+layout(push_constant) uniform Push {
+    vec4 color;
+    uint id_index;
+    uint out_slot;
+    int radius;
+    uint _pad;
+    uint rect[4];
+} pc;
+
+shared uint s_ids[MAX_SIDE * MAX_SIDE];
+shared uint s_any;
+
+void main() {
+    const int r = pc.radius;
+    const int side = TILE + 2 * r;
+    const ivec2 rect_min = ivec2(pc.rect[0], pc.rect[1]);
+    const ivec2 rect_max = ivec2(pc.rect[2], pc.rect[3]);
+    const ivec2 origin = rect_min + ivec2(gl_WorkGroupID.xy) * TILE - r;
+
+    if (gl_LocalInvocationIndex == 0u) s_any = 0u;
+    barrier();
+
+    uint any_id = 0u;
+    for (int i = int(gl_LocalInvocationIndex); i < side * side; i += TILE * TILE) {
+        ivec2 q = origin + ivec2(i % side, i / side);
+        uint id = all(greaterThanEqual(q, rect_min)) && all(lessThan(q, rect_max)) ? texelFetch(u_textures_uint[pc.id_index], q, 0).r : 0u;
+        s_ids[i] = id;
+        any_id |= id;
+    }
+    if (any_id != 0u) atomicOr(s_any, 1u);
+    barrier();
+    if (s_any == 0u) return;
+
+    ivec2 p = rect_min + ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= rect_max.x || p.y >= rect_max.y) return;
+
+    const ivec2 l = ivec2(gl_LocalInvocationID.xy) + r;
+    const uint self_id = s_ids[l.y * side + l.x];
+    int best = 0x7FFFFFFF;
+    for (int y = -r; y <= r; y++) {
+        for (int x = -r; x <= r; x++) {
+            if (s_ids[(l.y + y) * side + l.x + x] > self_id) best = min(best, x * x + y * y);
+        }
+    }
+    if (best == 0x7FFFFFFF) return;
+
+    float a = clamp(float(r) + 0.5 - sqrt(float(best)), 0.0, 1.0) * pc.color.a;
+    vec4 c = imageLoad(u_storage_rgba8[pc.out_slot], p);
+    imageStore(u_storage_rgba8[pc.out_slot], p, vec4(mix(c.rgb, pc.color.rgb, a), c.a));
+}

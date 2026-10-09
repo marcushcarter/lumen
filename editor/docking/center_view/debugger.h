@@ -10,11 +10,11 @@ struct Debugger
 {
     std::vector<std::unique_ptr<DebugTab>> tabs;
     int active = 0;
-    bool collapsed = false;
+    bool collapsed = true;
 
     void initialize();
     void draw_content(EditorContext& ctx);
     void draw_strip(ImVec2 p_min, ImVec2 p_max);
 };
 
-}
+}

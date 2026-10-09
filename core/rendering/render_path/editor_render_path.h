@@ -2,6 +2,7 @@
 #include <core/rendering/render_path/scene_render_path.h>
 #include <core/rendering/features/editor/debug_view_feature.h>
 #include <core/rendering/features/editor/pick_feature.h>
+#include <core/rendering/features/editor/outline_feature.h>
 #include <core/rendering/features/present/imgui_feature.h>
 #include <core/rendering/features/present/screenshot_feature.h>
 
@@ -11,6 +12,7 @@ struct EditorRenderPath : SceneRenderPath
 {
     DebugViewFeature debug;
     PickFeature pick;
+    OutlineFeature outline;
 
     ImGuiFeature ui;
     ScreenshotFeature screenshot;    
@@ -18,10 +20,11 @@ struct EditorRenderPath : SceneRenderPath
     EditorRenderPath() {
         ui.viewport = "Viewport";
         features.push_back(&debug);
+        features.push_back(&outline);
         features.push_back(&pick);
         features.push_back(&ui);
         features.push_back(&screenshot);
     }
 };
 
-}
+}

@@ -77,7 +77,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + tab_h));
     ImGui::PushID(active ? active->name() : "##empty");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.pane);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->window_padding() : ImVec2(10.0f, 8.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 10.0f);
     const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, active ? active->window_flags() : ImGuiWindowFlags_NoScrollbar);
     ImGui::PopStyleVar(2);

@@ -213,6 +213,8 @@ struct World
 
     uint32_t static_tag_id = UINT32_MAX;
     uint64_t static_version = 0;
+    uint64_t structure_version = 0;
+    uint64_t entity_version = 0;
 
     Error initialize();
     void shutdown();
@@ -269,6 +271,7 @@ struct World
         LUMEN_ERR_FAIL_COND_V(!_registered<T>(), nullptr);
         masks[p_entity.index].set(ComponentType<T>::id);
         if (_is_static(p_entity)) static_version++;
+        structure_version++;
         return _pool<T>(*this)->_add(p_entity, p_value);
     }
 

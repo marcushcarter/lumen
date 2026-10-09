@@ -2,6 +2,7 @@
 #include <editor/editor_context.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
+#include <editor/world/editor_selection.h>
 #include <core/rendering/world_gpu.h>
 #include <core/world/world.h>
 #include <imgui.h>
@@ -70,13 +71,14 @@ bool DetailsPanel::_mesh_field(EditorContext& ctx, Guid& r_mesh)
 
 void DetailsPanel::draw_contents(EditorContext& ctx)
 {
-    if (!ctx.world || !ctx.selected) return;
+    if (!ctx.world || !ctx.selection) return;
     World& world = *ctx.world;
-    const Entity e = *ctx.selected;
+    const Entity e = ctx.selection->primary();
     if (!world.valid(e)) {
         ImGui::TextDisabled("No entity selected");
         return;
     }
+    if (ctx.selection->entities.size() > 1) ImGui::TextDisabled("%u entities selected, editing the last one", (uint32_t)ctx.selection->entities.size());
 
     if (const EntityIdComponent* id = world.try_get<EntityIdComponent>(e)) {
         char guid[Guid::BUFFER];
@@ -118,7 +120,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (MeshComponent* mesh = world.try_get<MeshComponent>(e)) {
         const bool o = _component_begin("Mesh");
         if (o && _mesh_field(ctx, mesh->mesh)) {
-            mesh->mesh_index = MeshComponent::INVALID_INDEX;
             world.touch(e);
         }
         if (_component_end(o)) world.deferred_remove<MeshComponent>(e);

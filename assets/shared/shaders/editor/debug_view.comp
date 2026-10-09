@@ -272,6 +272,17 @@ void main() {
             vec3 n = gbuffer_decode_normal(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg);
             color = srgb_to_linear(n * 0.5 + 0.5);
         }
+    } else if (pc.op == OP_ROUGHNESS || pc.op == OP_METALLIC || pc.op == OP_MATERIAL_AO) {
+        float roughness, metallic, ao;
+        uint model;
+        gbuffer_decode_material(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), roughness, metallic, ao, model);
+        float value = pc.op == OP_ROUGHNESS ? roughness : (pc.op == OP_METALLIC ? metallic : ao);
+        color = model == SHADING_MODEL_SKY ? vec3(0.0) : srgb_to_linear(vec3(value));
+    } else if (pc.op == OP_SHADING_MODEL) {
+        float roughness, metallic, ao;
+        uint model;
+        gbuffer_decode_material(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), roughness, metallic, ao, model);
+        color = model == SHADING_MODEL_SKY ? vec3(0.0) : hash_color(model);
     } else if (pc.op == OP_VELOCITY) {
         vec2 m = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg;
         const float SCALE = 40.0;

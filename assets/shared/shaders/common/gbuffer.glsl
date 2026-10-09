@@ -3,6 +3,9 @@
 
 #include "common/color.glsl"
 
+const uint SHADING_MODEL_SKY = 0u;
+const uint SHADING_MODEL_DEFAULT_LIT = 1u;
+
 vec4 gbuffer_encode_albedo(vec3 albedo, uint flags) {
     return vec4(linear_to_srgb(clamp(albedo, 0.0, 1.0)), float(flags & 3u) / 3.0);
 }

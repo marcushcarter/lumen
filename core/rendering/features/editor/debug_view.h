@@ -21,6 +21,11 @@ enum class DebugViewOp : uint32_t {
     LOD_LEVEL,
     CLUSTER_ERROR,
     TRIANGLE_DENSITY,
+    
+    ROUGHNESS,
+    METALLIC,
+    MATERIAL_AO,
+    SHADING_MODEL,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -82,13 +87,13 @@ static constexpr DebugView DEBUG_VIEWS[] = {
 
     { nullptr, "Base Color", &DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
     { nullptr, "World Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
-    // roughness
-    // metallic
-    // material ao
-    // shading model
+    { nullptr, "Roughness", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::ROUGHNESS, DebugViewInputs::SOURCE },
+    { nullptr, "Metallic", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::METALLIC, DebugViewInputs::SOURCE },
+    { nullptr, "Material AO", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::MATERIAL_AO, DebugViewInputs::SOURCE },
+    { nullptr, "Shading Model", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::SHADING_MODEL, DebugViewInputs::SOURCE },
     // ao
-    // custom data
-    // emissive
+    { nullptr, "Custom Data", &DV_CAT_BUFFERS, "G_Custom", DebugViewOp::COPY, DebugViewInputs::SOURCE },
+        // emissive
     { nullptr, "Velocity", &DV_CAT_BUFFERS, "G_Motion", DebugViewOp::VELOCITY, DebugViewInputs::SOURCE },
     { nullptr, "Scene Depth", &DV_CAT_BUFFERS, "G_Depth", DebugViewOp::DEPTH, DebugViewInputs::SOURCE },
 

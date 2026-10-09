@@ -17,5 +17,9 @@ const uint OP_WORLD_NORMAL = 12u;
 const uint OP_LOD_LEVEL = 13u;
 const uint OP_CLUSTER_ERROR = 14u;
 const uint OP_TRIANGLE_DENSITY = 15u;
+const uint OP_ROUGHNESS = 16u;
+const uint OP_METALLIC = 17u;
+const uint OP_MATERIAL_AO = 18u;
+const uint OP_SHADING_MODEL = 19u;
 
 #endif

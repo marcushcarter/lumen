@@ -4,7 +4,6 @@
 #include <editor/docking/center_view/center_view.h>
 #include <editor/docking/dock_well.h>
 #include <editor/docking/panel.h>
-#include <editor/popup/settings/editor_settings.h>
 #include <memory>
 #include <vector>
 

@@ -7,14 +7,6 @@
 #include <imgui.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <cfloat>
-
-// #include <editor/popup/settings/editor_settings.h>
-// #include <editor/popup/popup.h>
-#include <editor/editor_settings.h>
-#include <drivers/windows/window_driver_win32.h>
-#include <imgui.h>
-#include <IconsFontAwesome6.h>
-
 #include <editor/assets/mesh_cooker.h>
 
 namespace lumen {
@@ -74,45 +66,6 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
         // imgui_property("Est. Virtual Triangle Count"); ImGui::Text("%u", s.phase1_visible * 64 * 3);
         // imgui_property("Est. Physical Triangle Count"); ImGui::Text("%u", s.phase1_visible * 64 * 3);
         // imgui_property_grid_end();
-    }
-
-    ImGui::SeparatorText("Editor Settings");
-
-    Theme& t = ctx.settings->theme;
-    bool changed = false;
-
-    if (ImGui::BeginCombo("Preset", Theme::theme_preset_name(t.preset))) {
-        for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
-            if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, t.preset == i)) {
-                t.preset  = i;
-                t.base = Theme::THEME_PRESETS[i].base;
-                t.accent = Theme::THEME_PRESETS[i].accent;
-                t.text = Theme::THEME_PRESETS[i].text;
-                changed = true;
-            }
-        }
-        if (ImGui::Selectable("Custom", t.preset == -1)) { t.preset = -1; changed = true; }
-        ImGui::EndCombo();
-    }
-
-    if (ImGui::ColorEdit3("Base", &t.base.x)) { t.preset = -1; changed = true; }
-    if (ImGui::ColorEdit3("Text", &t.text.x)) { t.preset = -1; changed = true; }
-    ImGui::BeginDisabled(t.use_system_accent);
-    if (ImGui::ColorEdit3("Accent", &t.accent.x)) { t.preset = -1; changed = true; }
-    ImGui::EndDisabled();
-    if (ImGui::Checkbox("Use system accent", &t.use_system_accent)) changed = true;
-
-    bool custom = ctx.win32->window.custom_titlebar;
-    if (ImGui::Checkbox("Custom titlebar", &custom)) ctx.win32->window_set_custom_titlebar(custom);
-
-    if (ImGui::Button("Reset to defaults", ImVec2(-FLT_MIN, 0.0f))) {
-        t = Theme{};
-        changed = true;
-    }
-
-    if (changed) {
-        t.apply();
-        ctx.win32->window_set_titlebar_color((COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]));
     }
 }
 

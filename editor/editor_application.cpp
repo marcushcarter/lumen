@@ -104,9 +104,15 @@ void EditorApplication::on_update(float p_dt)
         imports.completed.clear();
         assets.tick();
 
-        editor.on_update(ctx, p_dt);
+        if (tab == EditorTab::SETTINGS) settings_page.draw(ctx);
+        else editor.on_update(ctx, p_dt);
     } else {
         project_manager.on_update(ctx);
+    }
+
+    if (settings.dirty && !ImGui::IsAnyItemActive()) {
+        _save_state();
+        settings.dirty = false;
     }
 }
 

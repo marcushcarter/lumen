@@ -3,6 +3,7 @@
 #include <core/application/application.h>
 #include <editor/docking/editor.h>
 #include <editor/project_manager/project_manager.h>
+#include <editor/settings/settings_page.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
 #include <editor/editor_settings.h>
@@ -20,7 +21,7 @@ struct EditorApplication : Application
 
     ProjectManager project_manager;
     Editor editor;
-    // PopupManager popups;
+    SettingsPage settings_page;
 
     EditorSettings settings;
     EditorResources resources;

@@ -270,6 +270,20 @@ Error Application::project_load(const std::filesystem::path &p_root)
         world.add<StaticTag>(e);
     }
 
+    {
+        const Entity sun = world.create_persistent(Guid::generate());
+        TransformComponent xf;
+        xf.rotation = quatLookAt(normalize(vec3(-0.4f, -0.8f, -0.3f)), vec3(0.0f, 1.0f, 0.0f));
+        world.add<TransformComponent>(sun, xf);
+        NameComponent name{};
+        snprintf(name.name, NameComponent::MAX_LENGTH, "Sun");
+        world.add<NameComponent>(sun, name);
+        LightComponent light;
+        light.type = LightType::DIRECTIONAL;
+        light.intensity = 3.0f;
+        world.add<LightComponent>(sun, light);
+    }
+
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());
 
     return OK;

@@ -7,6 +7,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/packing.hpp>
+#include <algorithm>
 #include <iostream>
 #include <cmath>
 
@@ -25,11 +27,13 @@ Error Renderer::_create_dynamic_buffers()
     instance_buffers.resize(frame_count);
     transform_buffers.resize(frame_count);
     camera_buffers.resize(frame_count);
+    light_buffers.resize(frame_count);
     
     for (uint32_t i = 0; i < frame_count; i++) {
         instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
+        light_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_LIGHTS * sizeof(GpuLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "lights"});
     }
 
     return OK;
@@ -41,6 +45,7 @@ void Renderer::_destroy_dynamic_buffers()
         dd->buffer_free(instance_buffers[i]);
         dd->buffer_free(transform_buffers[i]);
         dd->buffer_free(camera_buffers[i]);
+        dd->buffer_free(light_buffers[i]);
     }
 }
 
@@ -177,7 +182,8 @@ void Renderer::unload()
     textures.clear();
     geometry.free();
     frame.entity_cache.clear();
-    frame.statics.clear();
+    frame.static_insts.clear();
+    frame.static_lights.clear();
     hiz_reset_pending = true;
 }
 
@@ -301,8 +307,7 @@ glm::mat4 grid_transform(uint32_t iterator, float spacing = 1.0f)
     );
 }
 
-template <typename Fn>
-static void _mesh_grid_for_each(const MeshGridComponent& p_grid, const LMesh& p_mesh, uint32_t p_budget, Fn&& p_fn)
+template <typename Fn> static void _mesh_grid_for_each(const MeshGridComponent& p_grid, const LMesh& p_mesh, uint32_t p_budget, Fn&& p_fn)
 {
     const uvec3 n = p_grid.count;
     if ((uint64_t)n.x * n.y * n.z > p_budget) return;
@@ -315,43 +320,72 @@ static void _mesh_grid_for_each(const MeshGridComponent& p_grid, const LMesh& p_
     }
 }
 
+static GpuLight _light_pack(const TransformComponent& p_xf, const LightComponent& p_light, uint32_t p_ies_index)
+{   
+    const uint32_t ies = p_light.type == LightType::DIRECTIONAL ? LIGHT_IES_NONE : (p_ies_index & 0xFFFFu);
+    GpuLight g{};
+    g.radiance = p_light.color * p_light.intensity;
+    g.type_flags_ies = ((uint32_t)p_light.type & 0xFu) | (((uint32_t)p_light.flags & 0xFu) << 4) | (ies << 8);
+    g.shadow_id = LIGHT_SHADOW_NONE;
+    switch (p_light.type) {
+        case LightType::DIRECTIONAL:
+            g.direction = normalize(p_xf.rotation * vec3(0.0f, 0.0f, -1.0f));
+            g.source_radius = radians(std::clamp(p_light.angular_diameter, 0.0f, 10.0f) * 0.5f);
+            break;
+        case LightType::SPOT: {
+            const float outer = std::clamp(p_light.outer_cone_angle, 0.1f, 89.9f);
+            const float inner = std::clamp(p_light.inner_cone_angle, 0.0f, outer);
+            g.direction = normalize(p_xf.rotation * vec3(0.0f, 0.0f, -1.0f));
+            g.cos_outer = std::cos(radians(outer));
+            g.inv_cone_range = 1.0f / std::max(std::cos(radians(inner)) - g.cos_outer, 1e-4f);
+        } [[fallthrough]];
+        case LightType::POINT:
+            g.position = p_xf.position;
+            g.range = std::max(p_light.range, 0.01f);
+            g.source_radius = std::clamp(p_light.source_radius, 0.0f, g.range);
+            g.fade = packHalf2x16(p_light.fade_end > p_light.fade_start ? vec2(p_light.fade_start, p_light.fade_end) : vec2(0.0f));
+            break;
+    }
+    return g;
+}
+
 void Renderer::_frame_build(const World& p_world)
 {
     frame.reset();
 
-    StaticInstances& statics = frame.statics;
-    if (statics.world_version != p_world.static_version || statics.geometry_version != geometry.version) {
-        statics.instances.clear();
-        statics.transforms.clear();
-        statics.cluster_ref_capacity = 0;
+    StaticInstances& static_insts = frame.static_insts;
+    if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version) {
+        static_insts.instances.clear();
+        static_insts.transforms.clear();
+        static_insts.cluster_ref_capacity = 0;
         p_world.view<TransformComponent, MeshComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh, const StaticTag&) {
-            if (statics.instances.size() >= MAX_INSTANCES) return;
+            if (static_insts.instances.size() >= MAX_INSTANCES) return;
             const uint32_t mesh_index = geometry.find(p_mesh.mesh);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
-            statics.instances.push_back(Instance{ mesh_index, (uint32_t)statics.transforms.size(), p_entity.index, 0 });
-            statics.transforms.push_back(Transform{ model, model });
-            statics.cluster_ref_capacity += mesh->cluster_count;
+            static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, 0 });
+            static_insts.transforms.push_back(Transform{ model, model });
+            static_insts.cluster_ref_capacity += mesh->cluster_count;
         });
         p_world.view<TransformComponent, MeshGridComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid, const StaticTag&) {
             const uint32_t mesh_index = geometry.find(p_grid.mesh);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 root = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
-            _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)statics.instances.size(), [&](vec3 p_offset) {
+            _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)static_insts.instances.size(), [&](vec3 p_offset) {
                 const mat4 model = root * translate(mat4(1.0f), p_offset);
-                statics.instances.push_back(Instance{ mesh_index, (uint32_t)statics.transforms.size(), p_entity.index, 0 });
-                statics.transforms.push_back(Transform{ model, model });
-                statics.cluster_ref_capacity += mesh->cluster_count;
+                static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, 0 });
+                static_insts.transforms.push_back(Transform{ model, model });
+                static_insts.cluster_ref_capacity += mesh->cluster_count;
             });
         });
-        statics.world_version = p_world.static_version;
-        statics.geometry_version = geometry.version;
-        statics.version++;
+        static_insts.world_version = p_world.static_version;
+        static_insts.geometry_version = geometry.version;
+        static_insts.version++;
     }
 
-    const uint32_t base = statics.count();
+    const uint32_t base = static_insts.count();
     p_world.view<TransformComponent, MeshComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshComponent& p_mesh) {
         if (base + frame.instances_scratch.size() >= MAX_INSTANCES) return;
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
@@ -389,7 +423,33 @@ void Renderer::_frame_build(const World& p_world)
     });
 
     frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
-    frame.cluster_ref_capacity += statics.cluster_ref_capacity;
+    frame.cluster_ref_capacity += static_insts.cluster_ref_capacity;
+
+    StaticLights& static_lights = frame.static_lights;
+    if (static_lights.world_version != p_world.static_version) {
+        static_lights.lights.clear();
+        static_lights.directional.clear();
+        p_world.view<TransformComponent, LightComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const LightComponent& p_light, const StaticTag&) {
+            if (p_light.type == LightType::DIRECTIONAL) static_lights.directional.push_back(_light_pack(p_xf, p_light, 0xFFFF));
+            else if (static_lights.lights.size() < MAX_LIGHTS - MAX_DIRECTIONAL_LIGHTS) static_lights.lights.push_back(_light_pack(p_xf, p_light, 0xFFFF));
+        });
+        static_lights.world_version = p_world.static_version;
+        static_lights.version++;
+    }
+
+    for (const GpuLight& l : static_lights.directional) {
+        if (frame.directional_count < MAX_DIRECTIONAL_LIGHTS) frame.directional[frame.directional_count++] = l;
+    }
+    const uint32_t light_base = MAX_DIRECTIONAL_LIGHTS + static_lights.count();
+    p_world.view<TransformComponent, LightComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const LightComponent& p_light) {
+        if (p_light.type == LightType::DIRECTIONAL) {
+            if (frame.directional_count < MAX_DIRECTIONAL_LIGHTS) frame.directional[frame.directional_count++] = _light_pack(p_xf, p_light, 0xFFFF);
+        } else if (light_base + frame.lights_scratch.size() < MAX_LIGHTS) {
+            frame.lights_scratch.push_back(_light_pack(p_xf, p_light, 0xFFFF));
+        }
+    });
+    for (uint32_t i = frame.directional_count; i < MAX_DIRECTIONAL_LIGHTS; i++) frame.directional[i] = {};
+    frame.light_count = light_base + (uint32_t)frame.lights_scratch.size();
 
     const float aspect = height ? (float)width / (float)height : 1.0f;
     const mat4 prev_vp = frame.camera.curr_view_proj;
@@ -410,20 +470,20 @@ void Renderer::_frame_build(const World& p_world)
 
 void Renderer::_frame_upload()
 {
-    StaticInstances& statics = frame.statics;
+    StaticInstances& static_insts = frame.static_insts;
     drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
     drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
-    const uint32_t base = statics.count();
-    if (statics.uploaded_version.size() != frame_count) statics.uploaded_version.assign(frame_count, UINT64_MAX);
+    const uint32_t base = static_insts.count();
+    if (static_insts.uploaded_version.size() != frame_count) static_insts.uploaded_version.assign(frame_count, UINT64_MAX);
 
-    if (statics.uploaded_version[current_frame] != statics.version) {
+    if (static_insts.uploaded_version[current_frame] != static_insts.version) {
         if (base != 0) {
-            dd->buffer_update(ib, statics.instances.data(), (VkDeviceSize)base * sizeof(Instance));
+            dd->buffer_update(ib, static_insts.instances.data(), (VkDeviceSize)base * sizeof(Instance));
             dd->buffer_flush(ib, 0, (VkDeviceSize)base * sizeof(Instance));
-            dd->buffer_update(tb, statics.transforms.data(), (VkDeviceSize)base * sizeof(Transform));
+            dd->buffer_update(tb, static_insts.transforms.data(), (VkDeviceSize)base * sizeof(Transform));
             dd->buffer_flush(tb, 0, (VkDeviceSize)base * sizeof(Transform));
         }
-        statics.uploaded_version[current_frame] = statics.version;
+        static_insts.uploaded_version[current_frame] = static_insts.version;
     }
     
     const uint32_t dynamic_count = frame.instance_count - base;
@@ -434,6 +494,30 @@ void Renderer::_frame_upload()
         dd->buffer_flush(ib, i_off, (VkDeviceSize)dynamic_count * sizeof(Instance));
         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)dynamic_count * sizeof(Transform), t_off);
         dd->buffer_flush(tb, t_off, (VkDeviceSize)dynamic_count * sizeof(Transform));
+    }
+
+    StaticLights& static_lights = frame.static_lights;
+    drivers::DeviceDriverVulkan::Buffer& lb = light_buffers[current_frame];
+    if (static_lights.uploaded_version.size() != frame_count) static_lights.uploaded_version.assign(frame_count, UINT64_MAX);
+
+    dd->buffer_update(lb, frame.directional, sizeof(frame.directional));
+    dd->buffer_flush(lb, 0, sizeof(frame.directional));
+
+    const uint32_t light_base = MAX_DIRECTIONAL_LIGHTS + static_lights.count();
+    if (static_lights.uploaded_version[current_frame] != static_lights.version) {
+        if (static_lights.count() != 0) {
+            const VkDeviceSize s_off = (VkDeviceSize)MAX_DIRECTIONAL_LIGHTS * sizeof(GpuLight);
+            dd->buffer_update(lb, static_lights.lights.data(), (VkDeviceSize)static_lights.count() * sizeof(GpuLight), s_off);
+            dd->buffer_flush(lb, s_off, (VkDeviceSize)static_lights.count() * sizeof(GpuLight));
+        }
+        static_lights.uploaded_version[current_frame] = static_lights.version;
+    }
+
+    const uint32_t dynamic_lights = frame.light_count - light_base;
+    if (dynamic_lights != 0) {
+        const VkDeviceSize l_off = (VkDeviceSize)light_base * sizeof(GpuLight);
+        dd->buffer_update(lb, frame.lights_scratch.data(), (VkDeviceSize)dynamic_lights * sizeof(GpuLight), l_off);
+        dd->buffer_flush(lb, l_off, (VkDeviceSize)dynamic_lights * sizeof(GpuLight));
     }
     
     drivers::DeviceDriverVulkan::Buffer& cb = camera_buffers[current_frame];
@@ -511,6 +595,7 @@ Error Renderer::begin_frame(const World& p_world)
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Lights", &light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
 
     return OK;
 }

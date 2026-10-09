@@ -12,6 +12,8 @@ Error World::initialize()
     component_register<TransformComponent>("Transform");
     component_register<MeshComponent>("Mesh");
     component_register<MeshGridComponent>("Mesh Grid");
+    component_register<LightComponent>("Light");
+    component_register<LightProfileComponent>("Light Profile");
     component_register<StaticTag>("Static", false);
     component_register<EditorFolderComponent>("Folder", false);
     component_register<EditorHiddenTag>("Hidden", false);

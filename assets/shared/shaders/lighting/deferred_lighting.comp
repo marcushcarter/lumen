@@ -1,3 +1,4 @@
+// assets/shared/shaders/lighting/deferred_lighting.comp
 #version 460
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
@@ -6,6 +7,7 @@
 
 #include "common/camera.glsl"
 #include "common/gbuffer.glsl"
+#include "common/lights.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -14,6 +16,7 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
+    LightBuffer lights;
     uint depth_index;
     uint albedo_index;
     uint normal_index;
@@ -21,9 +24,9 @@ layout(push_constant, scalar) uniform Push {
     uint out_slot;
     uint width;
     uint height;
+    uint directional_count;
+    uint light_count;
     float ambient_intensity;
-    vec4 sun_direction;
-    vec4 sun_radiance;
     vec4 sky_zenith;
     vec4 sky_horizon;
     vec4 ground_color;
@@ -35,8 +38,13 @@ vec3 sky_radiance(vec3 p_dir) {
     float h = p_dir.y;
     vec3 sky = mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, pow(clamp(h, 0.0, 1.0), 0.5));
     vec3 col = h >= 0.0 ? sky : mix(pc.sky_horizon.rgb, pc.ground_color.rgb, clamp(-h * 4.0, 0.0, 1.0));
-    float sun = smoothstep(0.9995, 0.9999, dot(p_dir, pc.sun_direction.xyz));
-    return col + pc.sun_radiance.rgb * sun * 20.0;
+    if (pc.directional_count > 0u) {
+        GpuLight sun = pc.lights.data[0];
+        float cos_r = cos(max(sun.source_radius, 0.001));
+        float disc = smoothstep(cos_r - 0.0002, cos_r, dot(p_dir, -sun.direction));
+        col += sun.radiance * disc * 20.0;
+    }
+    return col;
 }
 
 vec3 ambient_irradiance(vec3 p_n) {
@@ -59,6 +67,37 @@ vec3 f_schlick(float p_v_h, vec3 p_f0) {
     return p_f0 + (1.0 - p_f0) * pow(1.0 - p_v_h, 5.0);
 }
 
+struct Surface {
+    vec3 n;
+    vec3 v;
+    vec3 r;
+    float n_v;
+    float a;
+    float a2;
+    vec3 f0;
+    vec3 diffuse_color;
+};
+
+// p_l: to light center (diffuse), p_l_spec: representative direction (specular)
+// p_spread: source size as seen from the surface, widens the highlight
+vec3 shade_light(Surface p_s, vec3 p_l, vec3 p_l_spec, float p_spread, vec3 p_radiance) {
+    float n_l = clamp(dot(p_s.n, p_l), 0.0, 1.0);
+    float n_l_spec = clamp(dot(p_s.n, p_l_spec), 0.0, 1.0);
+    if (n_l <= 0.0 && n_l_spec <= 0.0) return vec3(0.0);
+
+    vec3 h = normalize(p_s.v + p_l_spec);
+    float n_h = clamp(dot(p_s.n, h), 0.0, 1.0);
+    float v_h = clamp(dot(p_s.v, h), 0.0, 1.0);
+    vec3 f = f_schlick(v_h, p_s.f0);
+
+    float a_wide = clamp(p_s.a + 0.5 * p_spread, 0.0, 1.0);
+    float energy = (p_s.a * p_s.a) / (a_wide * a_wide);
+
+    vec3 specular = d_ggx(n_h, p_s.a2) * v_smith_ggx_correlated(p_s.n_v, n_l_spec, p_s.a2) * f * energy * n_l_spec;
+    vec3 diffuse = p_s.diffuse_color / PI * (1.0 - f) * n_l;
+    return (diffuse + specular) * p_radiance;
+}
+
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
@@ -77,30 +116,52 @@ void main() {
         return;
     }
 
+    vec4 world_h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
+    vec3 world_pos = world_h.xyz / world_h.w;
+
     vec3 albedo;
     uint flags;
     gbuffer_decode_albedo(texelFetch(u_textures[pc.albedo_index], p, 0), albedo, flags);
-    vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
 
-    vec3 v = -view_dir;
-    vec3 l = pc.sun_direction.xyz;
-    vec3 h = normalize(v + l);
-    float n_v = max(dot(n, v), 1e-4);
-    float n_l = clamp(dot(n, l), 0.0, 1.0);
-    float n_h = clamp(dot(n, h), 0.0, 1.0);
-    float v_h = clamp(dot(v, h), 0.0, 1.0);
+    Surface s;
+    s.n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
+    s.v = -view_dir;
+    s.r = reflect(view_dir, s.n);
+    s.n_v = max(dot(s.n, s.v), 1e-4);
+    s.a = max(roughness * roughness, 0.002);
+    s.a2 = s.a * s.a;
+    s.f0 = mix(vec3(0.04), albedo, metallic);
+    s.diffuse_color = albedo * (1.0 - metallic);
 
-    float a = max(roughness * roughness, 0.002);
-    float a2 = a * a;
-    vec3 f0 = mix(vec3(0.04), albedo, metallic);
-    vec3 diffuse_color = albedo * (1.0 - metallic);
+    vec3 direct = vec3(0.0);
 
-    vec3 f = f_schlick(v_h, f0);
-    vec3 specular = d_ggx(n_h, a2) * v_smith_ggx_correlated(n_v, n_l, a2) * f;
-    vec3 diffuse = diffuse_color / PI;
-    vec3 direct = (diffuse * (1.0 - f) + specular) * pc.sun_radiance.rgb * n_l;
+    for (uint i = 0u; i < pc.directional_count; i++) {
+        GpuLight light = pc.lights.data[i];
+        vec3 l = -light.direction;
+        direct += shade_light(s, l, l, 0.0, light.radiance);
+    }
 
-    vec3 indirect = diffuse_color * ambient_irradiance(n) * ao;
+    for (uint i = MAX_DIRECTIONAL_LIGHTS; i < pc.light_count; i++) {
+        GpuLight light = pc.lights.data[i];
+        switch (light_type(light)) {
+            case LIGHT_TYPE_POINT:
+            case LIGHT_TYPE_SPOT: {
+                vec3 to_light = light.position - world_pos;
+                float dist_sq = dot(to_light, to_light);
+                if (dist_sq >= light.range * light.range) break;
+                float inv_dist = inversesqrt(max(dist_sq, 1e-8));
+                vec3 l = to_light * inv_dist;
+                float atten = light_range_falloff(dist_sq, light.range) * light_camera_fade(light, distance(light.position, pc.camera.position.xyz));
+                if (light_type(light) == LIGHT_TYPE_SPOT) atten *= light_spot_falloff(light, l);
+                if (atten <= 0.0) break;
+                vec3 l_spec = light.source_radius > 0.0 ? light_sphere_specular_dir(to_light, s.r, light.source_radius) : l;
+                float spread = clamp(light.source_radius * inv_dist, 0.0, 1.0);
+                direct += shade_light(s, l, l_spec, spread, light.radiance * atten);
+            } break;
+        }
+    }
+
+    vec3 indirect = s.diffuse_color * ambient_irradiance(s.n) * ao;
 
     imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(direct + indirect, 1.0));
 }

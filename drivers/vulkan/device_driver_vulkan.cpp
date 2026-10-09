@@ -2026,6 +2026,8 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
 {
     using enum Error;
     
+    VkSwapchainKHR old_swapchain = swapchain.swapchain;
+    swapchain.swapchain = VK_NULL_HANDLE;
     _swapchain_release();
 
     ContextDriverVulkan::Surface* surface = (ContextDriverVulkan::Surface*)(swapchain.surface);
@@ -2051,6 +2053,7 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
     }
 
 	if (surface->width == 0 || surface->height == 0) {
+        if (old_swapchain) vkDestroySwapchainKHR(device, old_swapchain, nullptr);
 		return FAILED;
 	}
 
@@ -2125,8 +2128,10 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
     swap_ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     swap_ci.presentMode = present_mode;
     swap_ci.clipped = VK_TRUE;
+    swap_ci.oldSwapchain = old_swapchain;
 
     err = vkCreateSwapchainKHR(device, &swap_ci, nullptr, &swapchain.swapchain);
+    if (old_swapchain) vkDestroySwapchainKHR(device, old_swapchain, nullptr);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't create Vulkan swapchain.");
     
     uint32_t image_count = 0;

@@ -274,6 +274,11 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
             return 0;
         }
 
+        case WM_NCACTIVATE: {
+            if (window && window->custom_titlebar) return DefWindowProcW(p_hwnd, p_msg, p_wparam, -1);
+            break;
+        }
+
         case WM_NCHITTEST: {
             if (!window || !window->custom_titlebar) break;
             POINT cursor = { GET_X_LPARAM(p_lparam), GET_Y_LPARAM(p_lparam) };

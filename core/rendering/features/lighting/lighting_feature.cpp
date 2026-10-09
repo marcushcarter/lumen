@@ -1,4 +1,6 @@
+// core/rendering/features/lighting/lighting_feature.cpp
 #include <core/rendering/features/lighting/lighting_feature.h>
+#include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
 
 namespace lumen {
@@ -18,6 +20,7 @@ void LightingFeature::_create_lighting_pass()
         b.read_image("G_Normal", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("G_Material", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+        b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -26,10 +29,13 @@ void LightingFeature::_create_lighting_pass()
         auto* normal = cl.graph->image("G_Normal");
         auto* material = cl.graph->image("G_Material");
         auto* camera = cl.graph->buffer("Camera");
+        auto* lights = cl.graph->buffer("Lights");
         auto* out = cl.graph->image("SceneColor");
+        if (!depth || !albedo || !normal || !material || !camera || !lights || !out) return;
 
         struct Push {
             VkDeviceAddress camera_addr;
+            VkDeviceAddress lights_addr;
             uint32_t depth_index;
             uint32_t albedo_index;
             uint32_t normal_index;
@@ -37,16 +43,15 @@ void LightingFeature::_create_lighting_pass()
             uint32_t out_slot;
             uint32_t width;
             uint32_t height;
+            uint32_t directional_count;
+            uint32_t light_count;
             float ambient_intensity;
-            float sun_direction[4];
-            float sun_radiance[4];
             float sky_zenith[4];
             float sky_horizon[4];
             float ground_color[4];
         } pc{};
-        const glm::vec3 dir = glm::normalize(sun_direction);
-        const glm::vec3 radiance = sun_color * sun_intensity;
         pc.camera_addr = camera->device_address;
+        pc.lights_addr = lights->device_address;
         pc.depth_index = depth->bindless_sampled;
         pc.albedo_index = albedo->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
@@ -54,9 +59,9 @@ void LightingFeature::_create_lighting_pass()
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
+        pc.directional_count = ctx->frame->directional_count;
+        pc.light_count = ctx->frame->light_count;
         pc.ambient_intensity = ambient_intensity;
-        pc.sun_direction[0] = dir.x; pc.sun_direction[1] = dir.y; pc.sun_direction[2] = dir.z;
-        pc.sun_radiance[0] = radiance.x; pc.sun_radiance[1] = radiance.y; pc.sun_radiance[2] = radiance.z;
         pc.sky_zenith[0] = sky_zenith.x; pc.sky_zenith[1] = sky_zenith.y; pc.sky_zenith[2] = sky_zenith.z;
         pc.sky_horizon[0] = sky_horizon.x; pc.sky_horizon[1] = sky_horizon.y; pc.sky_horizon[2] = sky_horizon.z;
         pc.ground_color[0] = ground_color.x; pc.ground_color[1] = ground_color.y; pc.ground_color[2] = ground_color.z;

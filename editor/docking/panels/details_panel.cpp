@@ -5,6 +5,7 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/world/editor_selection.h>
 #include <core/rendering/world_gpu.h>
+#include <core/rendering/renderer.h>
 #include <core/world/world.h>
 #include <imgui.h>
 
@@ -93,6 +94,34 @@ bool DetailsPanel::_mesh_field(EditorContext& ctx, Guid& r_mesh)
     return changed;
 }
 
+bool DetailsPanel::_ies_field(EditorContext& ctx, Guid& r_ies)
+{
+    bool changed = false;
+    const AssetRegistry::Entry* asset = ctx.assets ? ctx.assets->find(r_ies) : nullptr;
+    char label[160];
+    if (asset) {
+        snprintf(label, sizeof(label), "%s###ies_field", asset->name.c_str());
+    } else {
+        char guid[Guid::BUFFER];
+        r_ies.to_chars(guid);
+        snprintf(label, sizeof(label), "%s%s###ies_field", guid, r_ies == Guid{} ? "" : " (missing)");
+    }
+    ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
+    // if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : "Drop a ies asset here");
+    // if (ImGui::BeginDragDropTarget()) {
+    //     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
+    //         if (((const AssetDragPayload*)peek->Data)->type == AssetType::IES) {
+    //             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
+    //                 r_ies = ((const AssetDragPayload*)payload->Data)->guid;
+    //                 changed = true;
+    //             }
+    //         }
+    //     }
+    //     ImGui::EndDragDropTarget();
+    // }
+    return changed;
+}
+
 void DetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (!ctx.world || !ctx.selection) return;
@@ -111,6 +140,11 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     }
     if (const NameComponent* name = world.try_get<NameComponent>(e)) {
         ImGui::TextDisabled("%s", name->name);
+    }
+    bool is_static = world.has<StaticTag>(e);
+    if (ImGui::Checkbox("Static", &is_static)) {
+        if (is_static) world.deferred_add<StaticTag>(e);
+        else world.deferred_remove<StaticTag>(e);
     }
     ImGui::Spacing();
 
@@ -131,12 +165,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             }
             changed |= ImGui::DragFloat3("Scale", &xf->scale.x, 0.01f);
             if (changed) world.touch(e);
-
-            bool is_static = world.has<StaticTag>(e);
-            if (ImGui::Checkbox("Static", &is_static)) {
-                if (is_static) world.deferred_add<StaticTag>(e);
-                else world.deferred_remove<StaticTag>(e);
-            }
         }
         _component_end(o, false);
     }
@@ -165,6 +193,63 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             if (changed) world.touch(e);
         }
         if (_component_end(o)) world.deferred_remove<MeshGridComponent>(e);
+    }
+
+    if (LightComponent* light = world.try_get<LightComponent>(e)) {
+        const bool o = _component_begin("Light");
+        if (o) {
+            bool changed = false;
+            int type = (int)light->type;
+            if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
+                light->type = (LightType)type;
+                changed = true;
+            }
+            changed |= ImGui::ColorEdit3("Color", &light->color.x);
+            changed |= ImGui::DragFloat("Intensity", &light->intensity, 0.05f, 0.0f, FLT_MAX, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+
+            switch (light->type) {
+                case LightType::DIRECTIONAL:
+                    changed |= ImGui::DragFloat("Angular Diameter", &light->angular_diameter, 0.01f, 0.0f, 10.0f, "%.2f deg", ImGuiSliderFlags_AlwaysClamp);
+                    break;
+                case LightType::POINT:
+                case LightType::SPOT:
+                    changed |= ImGui::DragFloat("Range", &light->range, 0.1f, 0.01f, FLT_MAX, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                    changed |= ImGui::DragFloat("Source Radius", &light->source_radius, 0.005f, 0.0f, light->range, "%.3f m", ImGuiSliderFlags_AlwaysClamp);
+                    if (light->type == LightType::SPOT) {
+                        changed |= ImGui::DragFloat("Inner Angle", &light->inner_cone_angle, 0.1f, 0.0f, light->outer_cone_angle, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
+                        changed |= ImGui::DragFloat("Outer Angle", &light->outer_cone_angle, 0.1f, 0.1f, 89.9f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
+                    }
+                    changed |= ImGui::DragFloat("Fade Start", &light->fade_start, 1.0f, 0.0f, FLT_MAX, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
+                    changed |= ImGui::DragFloat("Fade End", &light->fade_end, 1.0f, 0.0f, FLT_MAX, light->fade_end > light->fade_start ? "%.0f m" : "off", ImGuiSliderFlags_AlwaysClamp);
+                    break;
+            }
+
+            bool affects_gi = (light->flags & LightComponent::FLAG_AFFECTS_GI) != 0;
+            if (ImGui::Checkbox("Affects GI", &affects_gi)) {
+                light->flags = affects_gi ? (light->flags | LightComponent::FLAG_AFFECTS_GI) : (light->flags & ~LightComponent::FLAG_AFFECTS_GI);
+                changed = true;
+            }
+            bool cast_shadows = (light->flags & LightComponent::FLAG_CAST_SHADOWS) != 0;
+            if (ImGui::Checkbox("Cast Shadows", &cast_shadows)) {
+                light->flags = cast_shadows ? (light->flags | LightComponent::FLAG_CAST_SHADOWS) : (light->flags & ~LightComponent::FLAG_CAST_SHADOWS);
+                changed = true;
+            }
+            if (cast_shadows) {
+                changed |= ImGui::DragFloat("Shadow Bias", &light->shadow_bias, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                changed |= ImGui::DragFloat("Shadow Normal Bias", &light->shadow_normal_bias, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            }
+            if (changed) world.touch(e);
+        }
+        if (_component_end(o)) world.deferred_remove<LightComponent>(e);
+    }
+
+    if (LightProfileComponent* light_prof = world.try_get<LightProfileComponent>(e)) {
+        const bool o = _component_begin("Light Profile");
+        if (o) {
+            bool changed = _ies_field(ctx, light_prof->ies);
+            if (changed) world.touch(e);
+        }
+        if (_component_end(o)) world.deferred_remove<LightProfileComponent>(e);
     }
 
     ImGui::Spacing();

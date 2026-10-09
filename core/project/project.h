@@ -18,6 +18,8 @@ struct Project
     static constexpr const char* DIR_ASSETS = "Data/Assets";
     static constexpr const char* DIR_CONTENT = "Data/Content";
 
+    static constexpr const char* ASSET_PATH_ROOT = "Assets";
+
     std::filesystem::path root;
     std::filesystem::path data_dir;
     std::filesystem::path assets_dir;
@@ -39,8 +41,14 @@ struct Project
 
     static std::string peek_name(const std::filesystem::path& p_root);
 
-    // Turns a serialized resources guid into a path turns the first two characters into the folder name so that we dont have thousands of binary files all in the same folder.
     std::filesystem::path content_path(Guid p_guid) const;
+
+    static std::string asset_path_from(const std::filesystem::path& p_assets_dir, const std::filesystem::path& p_path);
+    static std::filesystem::path asset_path_resolve_from(const std::filesystem::path& p_assets_dir, std::string_view p_asset_path);
+
+    std::string asset_path(const std::filesystem::path& p_path) const { return asset_path_from(assets_dir, p_path); }
+    std::filesystem::path asset_path_resolve(std::string_view p_asset_path) const { return asset_path_resolve_from(assets_dir, p_asset_path); }
+
 
     bool loaded() const { return !root.empty(); }
 };

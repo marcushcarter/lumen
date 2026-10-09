@@ -267,7 +267,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
         if (mesh_guid == Guid{}) continue;
         const Entity e = world.create_persistent(Guid::generate());
         world.add<TransformComponent>(e);
-        world.add<MeshGridComponent>(e, { mesh_guid, uvec3(10, 1, 10), 0.0f });
+        world.add<MeshComponent>(e, { mesh_guid });
         world.add<StaticTag>(e);
     }
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <editor/docking/center_view/debug_tab.h>
 #include <editor/assets/asset_drag_payload.h>
+#include <editor/assets/asset_registry.h>
 #include <editor/editor_context.h>
 #include <core/assets/guid.h>
 #include <imgui.h>
@@ -43,8 +44,9 @@ struct AssetManagerDebugTab : DebugTab
     std::unordered_map<std::filesystem::path, Dir> dirs;
     double last_refresh = -1.0e9;
     bool refresh_requested = false;
+    AssetRegistry* registry = nullptr;
 
-    void request_refresh() { refresh_requested = true; }
+    void request_refresh() { refresh_requested = true; if (registry) registry->request_rebuild(); }
     void _cache_tick(double p_now);
     Dir& _cache_get(const std::filesystem::path& p_dir);
     void _cache_scan(const std::filesystem::path& p_dir, Dir& r_dir);

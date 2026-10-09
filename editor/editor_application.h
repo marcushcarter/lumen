@@ -3,13 +3,13 @@
 #include <core/application/application.h>
 #include <editor/docking/editor.h>
 #include <editor/project_manager/project_manager.h>
-#include <editor/editor_settings.h>
-#include <editor/editor_resources.h>
-#include <editor/editor_camera.h>
-#include <editor/assets/asset_import_tracker.h>
-// #include <editor/popup/popup_manager.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
+#include <editor/editor_settings.h>
+#include <editor/editor_camera.h>
+#include <editor/editor_resources.h>
+#include <editor/assets/asset_import_tracker.h>
+#include <editor/assets/asset_registry.h>
 #include <vector>
 
 namespace lumen {
@@ -25,6 +25,7 @@ struct EditorApplication : Application
     EditorSettings settings;
     EditorResources resources;
     AssetImportTracker imports;
+    AssetRegistry assets;
 
     enum class EditorTab { WORLD, SETTINGS } tab = EditorTab::WORLD;
     bool tab_sync = true;

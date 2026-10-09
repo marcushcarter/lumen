@@ -18,6 +18,7 @@ struct ProfilingSettings;
 struct EditorSettings;
 struct EditorResources;
 struct AssetImportTracker;
+struct AssetRegistry;
 
 struct EditorContext
 {
@@ -38,6 +39,7 @@ struct EditorContext
     ProfilingSettings* profiling = nullptr;
     EditorResources* resources = nullptr;
     AssetImportTracker* imports = nullptr;
+    AssetRegistry* assets = nullptr;
         
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;

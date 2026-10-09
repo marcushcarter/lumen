@@ -1,6 +1,7 @@
 #include <editor/docking/panels/details_panel.h>
 #include <editor/editor_context.h>
 #include <editor/assets/asset_drag_payload.h>
+#include <editor/assets/asset_registry.h>
 #include <core/rendering/world_gpu.h>
 #include <core/world/world.h>
 #include <imgui.h>
@@ -39,13 +40,20 @@ bool DetailsPanel::_component_end(bool p_open, bool p_deletable)
     return remove;
 }
 
-bool DetailsPanel::_mesh_field(Guid& r_mesh)
+bool DetailsPanel::_mesh_field(EditorContext& ctx, Guid& r_mesh)
 {
     bool changed = false;
-    char guid[Guid::BUFFER];
-    r_mesh.to_chars(guid);
-    ImGui::Button(guid, ImVec2(-FLT_MIN, 0.0f));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drop a mesh asset here");
+    const AssetRegistry::Entry* asset = ctx.assets ? ctx.assets->find(r_mesh) : nullptr;
+    char label[160];
+    if (asset) {
+        snprintf(label, sizeof(label), "%s###mesh_field", asset->name.c_str());
+    } else {
+        char guid[Guid::BUFFER];
+        r_mesh.to_chars(guid);
+        snprintf(label, sizeof(label), "%s%s###mesh_field", guid, r_mesh == Guid{} ? "" : " (missing)");
+    }
+    ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : "Drop a mesh asset here");
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
             if (((const AssetDragPayload*)peek->Data)->type == AssetType::MESH) {
@@ -74,6 +82,9 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         char guid[Guid::BUFFER];
         id->guid.to_chars(guid);
         ImGui::TextDisabled("Entity %u  %s", e.index, guid);
+    }
+    if (const NameComponent* name = world.try_get<NameComponent>(e)) {
+        ImGui::TextDisabled("%s", name->name);
     }
     ImGui::Spacing();
 
@@ -106,7 +117,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 
     if (MeshComponent* mesh = world.try_get<MeshComponent>(e)) {
         const bool o = _component_begin("Mesh");
-        if (o && _mesh_field(mesh->mesh)) {
+        if (o && _mesh_field(ctx, mesh->mesh)) {
             mesh->mesh_index = MeshComponent::INVALID_INDEX;
             world.touch(e);
         }
@@ -116,7 +127,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (MeshGridComponent* grid = world.try_get<MeshGridComponent>(e)) {
         const bool o = _component_begin("Mesh Grid");
         if (o) {
-            bool changed = _mesh_field(grid->mesh);
+            bool changed = _mesh_field(ctx, grid->mesh);
             int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
             if (ImGui::DragInt3("Count", count, 0.2f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                 grid->count = uvec3((uint32_t)count[0], (uint32_t)count[1], (uint32_t)count[2]);
@@ -132,6 +143,9 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     }
 
     ImGui::Spacing();
+
+    ImGui::PushID("Add Component");
+    ImGui::BeginChild("##component", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_FrameStyle);
     if (ImGui::Button(ICON_FA_PLUS "  Add Component", ImVec2(-FLT_MIN, 0.0f))) ImGui::OpenPopup("##add_component");
     if (ImGui::BeginPopup("##add_component")) {
         bool any = false;
@@ -144,6 +158,8 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (!any) ImGui::TextDisabled("Nothing to add");
         ImGui::EndPopup();
     }
+    ImGui::EndChild();
+    ImGui::PopID();
 }
 
 }

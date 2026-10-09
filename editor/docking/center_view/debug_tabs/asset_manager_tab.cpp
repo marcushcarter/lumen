@@ -455,6 +455,7 @@ void AssetManagerDebugTab::_list_draw(EditorContext& ctx)
 
 void AssetManagerDebugTab::draw(EditorContext& ctx)
 {
+    registry = ctx.assets;
     if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
     const std::filesystem::path& root = ctx.project->assets_dir;
     _cache_tick(ImGui::GetTime());

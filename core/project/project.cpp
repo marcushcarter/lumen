@@ -171,4 +171,23 @@ std::string Project::peek_name(const std::filesystem::path& p_root)
     return p_root.filename().string();
 }
 
+std::string Project::asset_path_from(const std::filesystem::path& p_assets_dir, const std::filesystem::path& p_path)
+{
+    const std::filesystem::path rel = p_path.lexically_normal().lexically_relative(p_assets_dir.lexically_normal());
+    if (rel.empty() || *rel.begin() == "..") return p_path.generic_string();
+    if (rel == ".") return ASSET_PATH_ROOT;
+    return (std::filesystem::path(ASSET_PATH_ROOT) / rel).generic_string();
+}
+
+std::filesystem::path Project::asset_path_resolve_from(const std::filesystem::path& p_assets_dir, std::string_view p_asset_path)
+{
+    const std::string_view root = ASSET_PATH_ROOT;
+    if (!p_asset_path.starts_with(root)) return std::filesystem::path(p_asset_path);
+    std::string_view rest = p_asset_path.substr(root.size());
+    if (rest.empty()) return p_assets_dir;
+    if (rest[0] != '/' && rest[0] != '\\') return std::filesystem::path(p_asset_path);
+    rest.remove_prefix(1);
+    return (p_assets_dir / rest).lexically_normal();
+}
+
 }

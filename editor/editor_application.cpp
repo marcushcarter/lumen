@@ -84,6 +84,7 @@ void EditorApplication::on_update(float p_dt)
     
     if (project.loaded()) {
         imports.tick();
+        if (!imports.completed.empty()) assets.request_rebuild();
         for (const auto& c : imports.completed) {
             LAssetHeader ah{};
             if (!read_asset_header(c.content_bin, ah)) continue;
@@ -101,6 +102,7 @@ void EditorApplication::on_update(float p_dt)
             }
         }
         imports.completed.clear();
+        assets.tick();
 
         editor.on_update(ctx, p_dt);
     } else {
@@ -116,6 +118,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     if (err == CANCELED) return err;
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    assets.open(project.assets_dir);
     render_path_request(new EditorRenderPath());
     project_manager.add_recent(project.root, project.name);
     tab = EditorTab::WORLD;
@@ -127,7 +130,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 
 void EditorApplication::close_project()
 {
-    pending_transition = [this]{ project_unload(); };
+    pending_transition = [this]{ assets.close(); project_unload(); };
     render_path_request(new ProjectManagerRenderPath());
 }
 
@@ -628,6 +631,7 @@ EditorContext EditorApplication::_make_context()
     ctx.profiling = &profiling;
     ctx.resources = &resources;
     ctx.imports = &imports;
+    ctx.assets = &assets;
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};

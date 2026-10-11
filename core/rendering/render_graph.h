@@ -295,12 +295,25 @@ struct RenderGraph
 
     static constexpr uint32_t BREADCRUMB_NONE = 0xFFFFFFFFu;
 
-    bool breadcrumbs = true;
+    bool breadcrumbs = false;
     bool transient_alloc_failed = false;
     std::vector<drivers::DeviceDriverVulkan::Buffer> breadcrumb_buffers;
     std::vector<std::vector<std::string>> breadcrumb_names;
 
     void _breadcrumb_reset(VkCommandBuffer p_cmd);
+
+    /*********************/
+    /**** FRAME TIMER ****/
+    /*********************/
+
+    std::vector<VkQueryPool> frame_timer_pools;
+    std::vector<uint8_t> frame_timer_written;
+    double frame_timer_period_ns = 1.0;
+    uint64_t frame_timer_mask = ~0ull;
+    double gpu_frame_ms = 0.0;
+    double gpu_frame_ms_avg = 0.0;
+
+    void _frame_timer_read();
     void _breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order);
     void breadcrumb_report();
     

@@ -131,8 +131,10 @@ void main() {
         return;
     }
 
-    vec4 world_h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
-    vec3 world_pos = world_h.xyz / world_h.w;
+    // vec4 world_h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
+    // vec3 world_pos = world_h.xyz / world_h.w;
+    float linear_depth = camera_linear_depth(pc.camera, depth);
+    vec3 world_pos = pc.camera.position.xyz + (near_h.xyz / near_h.w - pc.camera.position.xyz) * (linear_depth / pc.camera.near_z);
 
     vec3 albedo;
     uint flags;
@@ -157,8 +159,15 @@ void main() {
     }
 
     uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
-    if (count > 0u) {
-        uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, camera_linear_depth(pc.camera, depth))];
+    if (count > 0u && count <= LIGHT_TILE_MIN_LIGHTS) {
+        uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, linear_depth)];
+        bool any_light = zb.x <= ~zb.y;
+        uint first = subgroupMin(any_light ? zb.x : 0xFFFFFFFFu);
+        uint last = subgroupMax(any_light ? ~zb.y : 0u);
+        for (uint i = first; i <= last && first != 0xFFFFFFFFu; i++) direct += shade_local(s, pc.sorted.data[i], world_pos);
+    } else if (count > 0u) {
+        // uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, camera_linear_depth(pc.camera, depth))];
+        uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, linear_depth)];
         uint first = zb.x;
         uint last = ~zb.y;
         bool any_light = first <= last;

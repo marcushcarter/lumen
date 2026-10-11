@@ -36,6 +36,7 @@ struct ProfilerDebugTab : DebugTab
 
     void _draw_info(EditorContext& ctx, bool frozen);
     void _draw_timeline(EditorContext& ctx);
+    void _copy_report(EditorContext& ctx);
 };
 
 }

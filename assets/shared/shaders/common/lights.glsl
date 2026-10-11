@@ -21,6 +21,7 @@ const uint MAX_VISIBLE_LIGHTS = 4096u;
 const uint LIGHT_ZBIN_COUNT = 1024u;
 const uint LIGHT_TILE_SIZE = 8u;
 const uint LIGHT_TILE_WORDS = MAX_VISIBLE_LIGHTS / 32u;
+const uint LIGHT_TILE_MIN_LIGHTS = 32u;
 
 struct GpuLight {
     vec3 position;

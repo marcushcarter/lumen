@@ -16,6 +16,9 @@ layout(push_constant, scalar) uniform Push {
 
 shared uint s_scan[WG];
 shared uint s_offsets[LIGHT_ZBIN_COUNT];
+shared uint s_zmin[LIGHT_ZBIN_COUNT];
+shared uint s_zmax[LIGHT_ZBIN_COUNT];
+shared uvec2 s_range[WG];
 
 void main() {
     uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
@@ -40,20 +43,53 @@ void main() {
     s_offsets[lid * 4u + 1u] = excl + h0;
     s_offsets[lid * 4u + 2u] = excl + h0 + h1;
     s_offsets[lid * 4u + 3u] = excl + h0 + h1 + h2;
+    for (uint k = 0u; k < 4u; k++) {
+        s_zmin[lid * 4u + k] = 0xFFFFFFFFu;
+        s_zmax[lid * 4u + k] = 0u;
+    }
     barrier();
 
+    // uint i = gl_GlobalInvocationID.x;
+    // if (i >= count) return;
+    //
+    // uvec2 e = pc.visible.data[i];
+    // uint key = e.y & 1023u;
+    // uint dst = s_offsets[key] + atomicAdd(pc.cull.cursor[key], 1u);
+    // pc.sorted.data[dst] = pc.lights.data[e.x];
+    //
+    // uint bmin = (e.y >> 10) & 1023u;
+    // uint bmax = (e.y >> 20) & 1023u;
+    // for (uint b = bmin; b <= bmax; b++) {
+    //     atomicMin(pc.cull.zbins[b].x, dst);
+    //     atomicMin(pc.cull.zbins[b].y, ~dst);
+    // }
+
     uint i = gl_GlobalInvocationID.x;
-    if (i >= count) return;
+    if (i < count) {
+        uvec2 e = pc.visible.data[i];
+        uint key = e.y & 1023u;
+        uint dst = s_offsets[key] + atomicAdd(pc.cull.cursor[key], 1u);
+        pc.sorted.data[dst] = pc.lights.data[e.x];
+        s_range[lid] = uvec2(dst, ((e.y >> 10) & 1023u) | (((e.y >> 20) & 1023u) << 16));
+    }
+    barrier();
 
-    uvec2 e = pc.visible.data[i];
-    uint key = e.y & 1023u;
-    uint dst = s_offsets[key] + atomicAdd(pc.cull.cursor[key], 1u);
-    pc.sorted.data[dst] = pc.lights.data[e.x];
+    // Each light's z-bin span is filled by the whole workgroup in shared memory, then flushed once per bin.
+    uint n = min(WG, count - gl_WorkGroupID.x * WG);
+    for (uint j = 0u; j < n; j++) {
+        uvec2 r = s_range[j];
+        uint b1 = r.y >> 16;
+        for (uint b = (r.y & 0xFFFFu) + lid; b <= b1; b += WG) {
+            atomicMin(s_zmin[b], r.x);
+            atomicMax(s_zmax[b], r.x);
+        }
+    }
+    barrier();
 
-    uint bmin = (e.y >> 10) & 1023u;
-    uint bmax = (e.y >> 20) & 1023u;
-    for (uint b = bmin; b <= bmax; b++) {
-        atomicMin(pc.cull.zbins[b].x, dst);
-        atomicMin(pc.cull.zbins[b].y, ~dst);
+    for (uint k = 0u; k < 4u; k++) {
+        uint b = lid * 4u + k;
+        if (s_zmin[b] == 0xFFFFFFFFu) continue;
+        atomicMin(pc.cull.zbins[b].x, s_zmin[b]);
+        atomicMin(pc.cull.zbins[b].y, ~s_zmax[b]);
     }
 }

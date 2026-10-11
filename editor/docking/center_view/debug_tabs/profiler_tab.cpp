@@ -1,10 +1,145 @@
 #include <editor/docking/center_view/debug_tabs/profiler_tab.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/renderer.h>
+#include <core/rendering/render_path/editor_render_path.h>
+#include <core/rendering/features/editor/debug_view.h>
+#include <core/base/cpu_profiler.h>
 #include <imgui.h>
 #include <implot.h>
+#include <vulkan/vk_enum_string_helper.h>
+#include <algorithm>
+#include <cstdarg>
+#include <cstdio>
+#include <string>
 
 namespace lumen {
+
+static void _append(std::string& r_out, const char* p_fmt, ...)
+{
+    char buf[512];
+    va_list args;
+    va_start(args, p_fmt);
+    const int n = std::vsnprintf(buf, sizeof(buf), p_fmt, args);
+    va_end(args);
+    if (n > 0) r_out.append(buf, (size_t)std::min(n, (int)sizeof(buf) - 1));
+}
+
+static const char* _kind_name(RenderGraphProfiler::MarkKind p_kind)
+{
+    switch (p_kind) {
+        case RenderGraphProfiler::MarkKind::PASS: return "PASS";
+        case RenderGraphProfiler::MarkKind::DRAW: return "DRAW";
+        case RenderGraphProfiler::MarkKind::BARRIER: return "SYNC";
+        case RenderGraphProfiler::MarkKind::DISPATCH: return "DISPATCH";
+        case RenderGraphProfiler::MarkKind::TRANSFER: return "TRANSFER";
+    }
+    return "?";
+}
+
+void ProfilerDebugTab::_copy_report(EditorContext& ctx)
+{
+    const Renderer& r = *ctx.renderer;
+    const drivers::DeviceDriverVulkan& dd = *r.dd;
+    const RenderGraphProfiler& prof = r.graph.profiler;
+    const std::vector<RenderGraphProfiler::Timing>& results = prof.results;
+
+    std::string out;
+    out.reserve(16 * 1024);
+
+    const VkPhysicalDeviceProperties& p = dd.physical_device_properties;
+    _append(out, "=== Lumen GPU Profile ===\n");
+    _append(out, "GPU: %s (vendor 0x%04x, %s)\n", p.deviceName, p.vendorID, string_VkPhysicalDeviceType(p.deviceType));
+    _append(out, "Vulkan: %u.%u.%u, driver 0x%08x\n", VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion), p.driverVersion);
+    _append(out, "Mesh shaders: %s, task shaders: %s\n", dd.capabilities.mesh.mesh_shader ? "yes" : "no", dd.capabilities.mesh.task_shader ? "yes" : "no");
+
+    _append(out, "\n--- Output ---\n");
+    const drivers::DeviceDriverVulkan::Swapchain& sc = dd.swapchain;
+    if (!sc.images.empty()) _append(out, "Swapchain: %ux%u, %zu images, %s\n", sc.images[0].extent.width, sc.images[0].extent.height, sc.images.size(), string_VkFormat(sc.format));
+    if (sc.surface) _append(out, "Present mode: %s (vsync mode %d)\n", string_VkPresentModeKHR(sc.surface->present_mode), (int)sc.surface->vsync_mode);
+    _append(out, "Render resolution: %ux%u (%.2f MPix)\n", r.width, r.height, (double)r.width * r.height / 1e6);
+    _append(out, "Frames in flight: %u, frame #%llu\n", r.frame_count, (unsigned long long)r.frame_number);
+
+    _append(out, "\n--- Settings ---\n");
+    _append(out, "GPU profiling: %s, pipeline stats: %s, breadcrumbs: %s, frozen: %s\n", ctx.profiling && ctx.profiling->gpu ? "on" : "off", ctx.profiling && ctx.profiling->gpu_pipeline_stats_on() ? "on" : "off", r.graph.breadcrumbs ? "on" : "off", prof.frozen ? "yes" : "no");
+    _append(out, "LOD bias: %.2f\n", r.lod_bias);
+    if (ctx.render_path) {
+        const GeometryFeature& geo = ctx.render_path->geometry;
+        _append(out, "Occlusion: %s (HiZ ok %s, phase-1 history %s), contribution culling: %s (%.2f px)\n", geo.occlusion ? "on" : "off", geo.hiz_ok ? "yes" : "no", geo.hiz_use_prev ? "yes" : "no", geo.contribution_culling ? "on" : "off", geo.contribution_px);
+        const uint32_t view = ctx.render_path->debug.view;
+        _append(out, "Debug view: %s\n", view < (uint32_t)DEBUG_VIEW_COUNT ? DEBUG_VIEWS[view].name : "?");
+    }
+
+    _append(out, "\n--- Scene ---\n");
+    _append(out, "Instances: %u (static %u), cluster ref capacity: %u\n", r.frame.instance_count, (uint32_t)r.frame.static_insts.instances.size(), r.frame.cluster_ref_capacity);
+    _append(out, "Meshes loaded: %zu, cluster pool extent: %u\n", r.geometry.mesh_guids.size() - r.geometry.free_meshes.size(), r.geometry.cluster_extent);
+    _append(out, "Lights: %u directional, %u local\n", r.frame.directional_count, r.frame.light_count > MAX_DIRECTIONAL_LIGHTS ? r.frame.light_count - MAX_DIRECTIONAL_LIGHTS : 0u);
+    if (ctx.render_path && ctx.profiling && ctx.profiling->cull_stats_on()) {
+        const GeometryFeature::CullStats& s = ctx.render_path->geometry.stats;
+        _append(out, "Cull: refs %u, phase1 visible %u, retest %u, phase2 visible %u, instances visible %u / occluded %u / recovered %u\n", s.refs, s.phase1_visible, s.retest, s.phase2_visible, s.instances_visible, s.instances_occluded, s.instances_recovered);
+    } else {
+        _append(out, "Cull stats: off (enable pipeline statistics)\n");
+    }
+
+    _append(out, "\n--- CPU ---\n");
+    const CpuProfiler& cpu = cpu_profiler();
+    double cpu_frame_ms = 0.0;
+    if (const CpuProfiler::Frame* f = cpu.last_complete_frame()) {
+        cpu_frame_ms = (double)(f->end - f->begin) * cpu.ticks_to_ms;
+        _append(out, "Frame: %.3f ms (%.1f fps)\n", cpu_frame_ms, cpu_frame_ms > 0.0 ? 1000.0 / cpu_frame_ms : 0.0);
+        std::vector<const CpuProfiler::Zone*> zones;
+        for (const CpuProfiler::Zone& z : cpu.zones) {
+            if (z.lane != cpu.main_lane || z.depth > 2 || z.begin < f->begin || z.end > f->end) continue;
+            zones.push_back(&z);
+        }
+        std::sort(zones.begin(), zones.end(), [](const CpuProfiler::Zone* a, const CpuProfiler::Zone* b) { return a->begin != b->begin ? a->begin < b->begin : a->depth < b->depth; });
+        for (const CpuProfiler::Zone* z : zones) {
+            char name[48];
+            std::snprintf(name, sizeof(name), "%*s%s", (int)(z->depth * 2), "", z->name);
+            _append(out, "  %-30s %8.3f ms%s\n", name, (double)(z->end - z->begin) * cpu.ticks_to_ms, (z->flags & CpuProfiler::FLAG_WAIT) ? "  (wait)" : "");
+        }
+    } else {
+        _append(out, "No complete CPU frame recorded.\n");
+    }
+
+    _append(out, "\n--- GPU ---\n");
+    if (results.empty()) {
+        _append(out, "No GPU timing (enable GPU profiling).\n");
+    } else {
+        double pass_ms = 0.0, sync_ms = 0.0, gap_ms = 0.0;
+        uint32_t pass_count = 0, sync_count = 0;
+        std::vector<uint32_t> top;
+        for (uint32_t i = 0; i < (uint32_t)results.size(); i++) {
+            const RenderGraphProfiler::Timing& t = results[i];
+            if (t.parent != RenderGraphProfiler::INVALID) continue;
+            gap_ms += t.gap_ms;
+            if (t.kind == RenderGraphProfiler::MarkKind::BARRIER) { sync_ms += t.gpu_ms; sync_count++; }
+            else { pass_ms += t.gpu_ms; pass_count++; top.push_back(i); }
+        }
+        _append(out, "Total: %.3f ms, draws: %u%s\n", prof.total_ms, prof.total_draws, prof.truncated ? " (TRUNCATED)" : "");
+        _append(out, "Passes: %u = %.3f ms, sync: %u = %.3f ms, idle gaps: %.3f ms\n", pass_count, pass_ms, sync_count, sync_ms, gap_ms);
+        if (cpu_frame_ms > 0.0) _append(out, "Graph GPU time vs CPU frame: %.3f / %.3f ms (%.0f%% of the frame is outside measured GPU work)\n", prof.total_ms, cpu_frame_ms, std::max(0.0, 100.0 * (1.0 - prof.total_ms / cpu_frame_ms)));
+
+        std::sort(top.begin(), top.end(), [&](uint32_t a, uint32_t b) { return results[a].gpu_ms > results[b].gpu_ms; });
+        _append(out, "\nTop passes:\n");
+        for (uint32_t i = 0; i < (uint32_t)std::min<size_t>(top.size(), 10); i++) {
+            const RenderGraphProfiler::Timing& t = results[top[i]];
+            _append(out, "  %-28s %8.3f ms  %5.1f%%\n", t.name, t.gpu_ms, prof.total_ms > 0.0 ? 100.0 * t.gpu_ms / prof.total_ms : 0.0);
+        }
+
+        _append(out, "\nTimeline (ms smoothed / raw, gap before):\n");
+        _append(out, "%-9s %-36s %-12s %9s %9s %8s %6s %11s %11s %11s %7s\n", "kind", "name", "category", "gpu", "raw", "gap", "draws", "verts", "prims", "samples", "inst");
+        for (uint32_t i = 0; i < (uint32_t)results.size(); i++) {
+            const RenderGraphProfiler::Timing& t = results[i];
+            uint32_t depth = 0;
+            for (uint32_t pi = t.parent; pi != RenderGraphProfiler::INVALID && pi < results.size() && depth < 8; pi = results[pi].parent) depth++;
+            char name[64];
+            std::snprintf(name, sizeof(name), "%*s%s", (int)(depth * 2), "", t.name);
+            _append(out, "%-9s %-36s %-12s %9.3f %9.3f %8.3f %6u %11llu %11llu %11llu %7u\n", _kind_name(t.kind), name, t.kind == RenderGraphProfiler::MarkKind::PASS || t.kind == RenderGraphProfiler::MarkKind::BARRIER ? t.category : t.type, t.gpu_ms, t.raw_ms, t.gap_ms, t.draw_count, (unsigned long long)t.vertices, (unsigned long long)t.primitives, (unsigned long long)t.samples, t.instances);
+        }
+    }
+
+    ImGui::SetClipboardText(out.c_str());
+}
 
 void ProfilerDebugTab::_draw_info(EditorContext& ctx, bool frozen)
 {
@@ -524,12 +659,15 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
     ImGui::BeginChild("Right", ImVec2(right_width, avail.y), ImGuiChildFlags_Borders);
     {
         ProfilingSettings& prof = *ctx.profiling;
+        if (ImGui::Button(ICON_FA_COPY "  Copy Report", ImVec2(-FLT_MIN, 0.0f))) _copy_report(ctx);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copy passes, timings, counts, resolution and settings to the clipboard.");
         ImGui::BeginDisabled(!profiler.supported);
         ImGui::Checkbox("Enable GPU Profiling", &prof.gpu);
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!prof.gpu || !profiler.stats_supported);
         ImGui::Checkbox("Enable Pipeline Statistics", &prof.gpu_pipeline_stats);
         ImGui::EndDisabled();
+        ImGui::Checkbox("Enable Breadcrumbs", &ctx.renderer->graph.breadcrumbs);
 
 
         imgui_title("Legend");

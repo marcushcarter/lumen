@@ -129,7 +129,7 @@ Error Application::_frame()
     cpu.zone_end();
     if (!swapchain_ok) return OK;
 
-    cpu.zone_begin("Wait GPU + Acquire", CpuProfiler::FLAG_WAIT);
+    cpu.zone_begin("Wait GPU + Acquire");
     err = renderer.acquire_frame();
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -302,7 +302,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
         LightComponent light;
         light.type = LightType::POINT;
         light.intensity = 50000.0f;
-        light.range = 50000.0f;
+        light.range = 1000.0f;
         world.add<LightComponent>(point, light);
     }
 

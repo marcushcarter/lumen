@@ -1,5 +1,4 @@
 #include <core/rendering/render_graph.h>
-// #include <unordered_set>
 
 namespace lumen {
 
@@ -21,6 +20,18 @@ Error RenderGraph::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
 
     profiler.initialize(r_dd, p_frame_count);
 
+    const uint32_t ts_bits = dd->timestamp_valid_bits(dd->cd->graphics_queue_family);
+    frame_timer_mask = ts_bits >= 64 ? ~0ull : ((1ull << ts_bits) - 1ull);
+    frame_timer_period_ns = dd->physical_device_properties.limits.timestampPeriod;
+    frame_timer_pools.assign(ts_bits > 0 ? frame_count : 0, VK_NULL_HANDLE);
+    frame_timer_written.assign(frame_timer_pools.size(), 0);
+    for (VkQueryPool& pool : frame_timer_pools) {
+        VkQueryPoolCreateInfo qci{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+        qci.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        qci.queryCount = 2;
+        LUMEN_ERR_FAIL_COND_V_MSG(vkCreateQueryPool(dd->device, &qci, nullptr, &pool) != VK_SUCCESS, FAILED, "RenderGraph: frame timer query pool creation failed.");
+    }
+
     breadcrumb_buffers.resize(frame_count);
     breadcrumb_names.resize(frame_count);
     for (drivers::DeviceDriverVulkan::Buffer& b : breadcrumb_buffers) {
@@ -37,6 +48,10 @@ void RenderGraph::shutdown()
     _collect_retired(true);
 
     profiler.shutdown();
+
+    for (VkQueryPool pool : frame_timer_pools) if (pool) vkDestroyQueryPool(dd->device, pool, nullptr);
+    frame_timer_pools.clear();
+    frame_timer_written.clear();
 
     for (drivers::DeviceDriverVulkan::Buffer& b : breadcrumb_buffers) dd->buffer_free(b);
     breadcrumb_buffers.clear();
@@ -772,6 +787,7 @@ void RenderGraph::begin(uint32_t p_current_frame)
 {
     release_transients();
     current_frame = p_current_frame;
+    _frame_timer_read();
     _collect_retired(false);
     transient_alloc_failed = false;
     
@@ -1206,8 +1222,24 @@ void RenderGraph::_emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageB
     vkCmdPipelineBarrier2(p_cmd, &dep);
 }
 
+void RenderGraph::_frame_timer_read()
+{
+    if (current_frame >= frame_timer_pools.size() || !frame_timer_written[current_frame]) return;
+    uint64_t ts[2] = {};
+    if (vkGetQueryPoolResults(dd->device, frame_timer_pools[current_frame], 0, 2, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) return;
+    frame_timer_written[current_frame] = 0;
+    const uint64_t delta = ((ts[1] & frame_timer_mask) - (ts[0] & frame_timer_mask)) & frame_timer_mask;
+    gpu_frame_ms = (double)delta * frame_timer_period_ns * 1e-6;
+    gpu_frame_ms_avg = gpu_frame_ms_avg == 0.0 ? gpu_frame_ms : gpu_frame_ms_avg * 0.95 + gpu_frame_ms * 0.05;
+}
+
 void RenderGraph::execute(VkCommandBuffer p_cmd)
 {
+    const bool frame_timer = current_frame < frame_timer_pools.size();
+    if (frame_timer) {
+        vkCmdResetQueryPool(p_cmd, frame_timer_pools[current_frame], 0, 2);
+        vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, frame_timer_pools[current_frame], 0);
+    }
     profiler.frame_begin(p_cmd, current_frame);
     if (breadcrumbs) _breadcrumb_reset(p_cmd);
 
@@ -1240,6 +1272,11 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
     _emit_barriers(p_cmd, final_image_barriers, final_buffer_barriers);
 
     profiler.frame_end();
+    if (frame_timer) {
+        vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_timer_pools[current_frame], 1);
+        frame_timer_written[current_frame] = 1;
+    }
+
     release_transients();
     epoch++;
 }

@@ -207,12 +207,13 @@ uint light_count(ivec2 p_coord, ivec2 p_size, float p_depth, bool p_exact) {
     uint words = (count + 31u) / 32u;
     uint tiles_x = (pc.width + LIGHT_TILE_SIZE - 1u) / LIGHT_TILE_SIZE;
     uint base = (uint(p_coord.y) / LIGHT_TILE_SIZE * tiles_x + uint(p_coord.x) / LIGHT_TILE_SIZE) * words;
+    bool tiled = count > LIGHT_TILE_MIN_LIGHTS;
     uint n = 0u;
     for (uint w = first >> 5u; w <= (last >> 5u); w++) {
         uint lo = w * 32u;
         uint b0 = max(first, lo) - lo;
         uint b1 = min(last, lo + 31u) - lo;
-        uint mask = pc.light_masks.data[base + w] & ((0xFFFFFFFFu >> (31u - b1)) & (0xFFFFFFFFu << b0));
+        uint mask = (tiled ? pc.light_masks.data[base + w] : 0xFFFFFFFFu) & ((0xFFFFFFFFu >> (31u - b1)) & (0xFFFFFFFFu << b0));
         if (!p_exact) {
             n += uint(bitCount(mask));
             continue;

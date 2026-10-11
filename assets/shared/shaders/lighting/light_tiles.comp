@@ -3,6 +3,8 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "common/camera.glsl"
 #include "common/lights.glsl"
@@ -25,6 +27,7 @@ shared uint s_min_depth;
 shared uint s_max_depth;
 shared uint s_first;
 shared uint s_last;
+shared vec3 s_dirs[4];
 shared vec3 s_planes[4];
 shared uint s_mask[LIGHT_TILE_WORDS];
 
@@ -39,37 +42,65 @@ void main() {
     uvec2 tile = gl_WorkGroupID.xy;
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
+    if (count <= LIGHT_TILE_MIN_LIGHTS) return;
     uint words = (count + 31u) / 32u;
 
+    // if (lid == 0u) {
+    //     s_min_depth = 0x7F7FFFFFu;
+    //     s_max_depth = 0u;
+    //     s_first = 0xFFFFFFFFu;
+    //     s_last = 0u;
+    //
+    //     vec2 lo = vec2(tile * LIGHT_TILE_SIZE);
+    //     vec2 hi = min(lo + vec2(LIGHT_TILE_SIZE), vec2(pc.width, pc.height));
+    //     vec3 d00 = corner_dir(vec2(lo.x, lo.y));
+    //     vec3 d10 = corner_dir(vec2(hi.x, lo.y));
+    //     vec3 d01 = corner_dir(vec2(lo.x, hi.y));
+    //     vec3 d11 = corner_dir(vec2(hi.x, hi.y));
+    //     vec3 center = d00 + d10 + d01 + d11;
+    //     vec3 n[4] = vec3[4](cross(d00, d01), cross(d11, d10), cross(d10, d00), cross(d01, d11));
+    //     for (int k = 0; k < 4; k++) {
+    //         vec3 nk = normalize(n[k]);
+    //         s_planes[k] = dot(nk, center) < 0.0 ? -nk : nk;
+    //     }
+    // }
     if (lid == 0u) {
         s_min_depth = 0x7F7FFFFFu;
         s_max_depth = 0u;
         s_first = 0xFFFFFFFFu;
         s_last = 0u;
-
+    }
+    if (lid < 4u) {
         vec2 lo = vec2(tile * LIGHT_TILE_SIZE);
         vec2 hi = min(lo + vec2(LIGHT_TILE_SIZE), vec2(pc.width, pc.height));
-        vec3 d00 = corner_dir(vec2(lo.x, lo.y));
-        vec3 d10 = corner_dir(vec2(hi.x, lo.y));
-        vec3 d01 = corner_dir(vec2(lo.x, hi.y));
-        vec3 d11 = corner_dir(vec2(hi.x, hi.y));
-        vec3 center = d00 + d10 + d01 + d11;
-        vec3 n[4] = vec3[4](cross(d00, d01), cross(d11, d10), cross(d10, d00), cross(d01, d11));
-        for (int k = 0; k < 4; k++) {
-            vec3 nk = normalize(n[k]);
-            s_planes[k] = dot(nk, center) < 0.0 ? -nk : nk;
-        }
+        s_dirs[lid] = corner_dir(vec2((lid & 1u) != 0u ? hi.x : lo.x, (lid & 2u) != 0u ? hi.y : lo.y));
     }
     for (uint w = lid; w < words; w += 64u) s_mask[w] = 0u;
     barrier();
 
+    if (lid < 4u) {
+        vec3 d00 = s_dirs[0], d10 = s_dirs[1], d01 = s_dirs[2], d11 = s_dirs[3];
+        vec3 center = d00 + d10 + d01 + d11;
+        vec3 nk = lid == 0u ? cross(d00, d01) : lid == 1u ? cross(d11, d10) : lid == 2u ? cross(d10, d00) : cross(d01, d11);
+        nk = normalize(nk);
+        s_planes[lid] = dot(nk, center) < 0.0 ? -nk : nk;
+    }
+
+    float z_min = uintBitsToFloat(0x7F7FFFFFu);
+    float z_max = 0.0;
     if (p.x < int(pc.width) && p.y < int(pc.height)) {
         float d = texelFetch(u_textures[pc.depth_index], p, 0).r;
         if (d > 0.0) {
-            uint z = floatBitsToUint(camera_linear_depth(pc.camera, d));
-            atomicMin(s_min_depth, z);
-            atomicMax(s_max_depth, z);
+            float z = camera_linear_depth(pc.camera, d);
+            z_min = z;
+            z_max = z;
         }
+    }
+    z_min = subgroupMin(z_min);
+    z_max = subgroupMax(z_max);
+    if (subgroupElect()) {
+        atomicMin(s_min_depth, floatBitsToUint(z_min));
+        atomicMax(s_max_depth, floatBitsToUint(z_max));
     }
     barrier();
 

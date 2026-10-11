@@ -899,6 +899,9 @@ void GeometryFeature::_create_visbuffer_2_pass()
 /**** MATERIAL ****/
 /******************/
 
+static constexpr uint32_t RESOLVE_WRITE_MOTION = 1u << 0;
+static constexpr uint32_t RESOLVE_WRITE_CUSTOM = 1u << 1;
+
 void GeometryFeature::_create_material_resolve_pass()
 {
     material_resolve_pass.name = "MaterialResolve";
@@ -982,6 +985,7 @@ void GeometryFeature::_create_material_resolve_pass()
             uint32_t motion_slot;
             uint32_t width;
             uint32_t height;
+            uint32_t flags;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -997,6 +1001,9 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.motion_slot = motion->bindless_storage;
         pc.width = vis->extent.width;
         pc.height = vis->extent.height;
+        const RenderGraph::ImageResource* motion_res = cl.graph->image_resource("G_Motion");
+        const RenderGraph::ImageResource* custom_res = cl.graph->image_resource("G_Custom");
+        pc.flags = (motion_res && motion_res->read ? RESOLVE_WRITE_MOTION : 0u) | (custom_res && custom_res->read ? RESOLVE_WRITE_CUSTOM : 0u);
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
@@ -1224,7 +1231,6 @@ void GeometryFeature::build(RenderGraph& g)
     g.add(&material_resolve_pass);
     if (slot < stats_readback.size()) {
         stats_written[slot] = want_stats ? 1 : 0;
-        // if (want_stats) g.add(&stats_pass);
         if (want_stats) {
             g.import_buffer("CullStatsReadback", &stats_readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
             g.add(&stats_pass);

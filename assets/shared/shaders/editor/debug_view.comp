@@ -10,6 +10,7 @@
 #include "common/gbuffer.glsl"
 #include "common/lod.glsl"
 #include "common/lights.glsl"
+#include "common/visbuffer.glsl"
 #include "editor/debug_palette.glsl"
 #include "editor/debug_op.glsl"
 
@@ -125,7 +126,9 @@ bool sample_vis(ivec2 coord, out uvec2 v, out uvec2 ref) {
     float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
     if (d == 0.0) return false;
     v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).xy;
-    ref = pc.cluster_refs.data[v.x];
+    if (vis_is_terrain(v)) return false;
+    ref = pc.cluster_refs.data[vis_cluster_ref(v)];
+    v.y = vis_triangle(v);
     return true;
 }
 

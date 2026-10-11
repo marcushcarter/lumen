@@ -14,7 +14,8 @@ struct GameApplication : Application
     void on_shutdown() override;
 
     bool wants_docking() const override { return false; }
-    RenderPath* GameApplication::create_render_path() { return new GameRenderPath(); }
+    // RenderPath* GameApplication::create_render_path() { return new GameRenderPath(); }
+    RenderPath* create_render_path() override { return new GameRenderPath(); }
 };
 
 }

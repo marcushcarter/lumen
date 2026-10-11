@@ -98,7 +98,7 @@ void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool
         pc.min_screen_radius_px = contribution_culling ? contribution_px : 0.0f;
         pc.hiz_index = hiz->bindless_sampled;
         pc.hiz_mips = hiz->mip_levels;
-        pc.hiz_enabled = p_late ? ((occlusion && hiz_ok) ? 1u : 0u) : (hiz_use_prev ? 1u : 0u);
+        pc.hiz_enabled = p_late ? ((occlusion_frame && hiz_ok) ? 1u : 0u) : (hiz_use_prev ? 1u : 0u);
         pc.phase = p_late ? 1u : 0u;
         pc.screen_size[0] = (float)depth->extent.width;
         pc.screen_size[1] = (float)depth->extent.height;
@@ -122,7 +122,7 @@ void GeometryFeature::_create_cluster_expand_args_pass(RenderGraph::Pass& r_pass
             b.create_buffer("ClusterExpandArgs", args_ci);
 
             drivers::DeviceDriverVulkan::BufferCreateInfo refs_ci{};
-            refs_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
+            refs_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
             refs_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             refs_ci.device_local = true;
             b.create_buffer("ClusterRefs", refs_ci);
@@ -240,14 +240,14 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         b.create_buffer("ClusterCullArgs", args_ci);
         
         drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
-        visible_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
+        visible_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
         visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         visible_ci.device_local = true;
         b.create_buffer("VisibleClusters", visible_ci);
         b.create_buffer("VisibleClusters2", visible_ci);
         
         drivers::DeviceDriverVulkan::BufferCreateInfo retest_ci{};
-        retest_ci.size = (VkDeviceSize)(ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
+        retest_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
         retest_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         retest_ci.device_local = true;
         b.create_buffer("ClusterRetest", retest_ci);
@@ -686,7 +686,7 @@ void GeometryFeature::_create_cluster_retest_pass()
         pc.list_b_addr = vis2->device_address;
         pc.hiz_index = hiz->bindless_sampled;
         pc.hiz_mips = hiz->mip_levels;
-        pc.hiz_enabled = (occlusion && hiz_ok) ? 1u : 0u;
+        pc.hiz_enabled = (occlusion_frame && hiz_ok) ? 1u : 0u;
         pc._pad = 0;
         pc.screen_size[0] = (float)depth->extent.width;
         pc.screen_size[1] = (float)depth->extent.height;
@@ -1023,11 +1023,14 @@ void GeometryFeature::_create_stats_pass()
         b.read_buffer("VisibleInstances", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         b.read_buffer("OccludedInstances", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
         b.read_buffer("VisibleInstances2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.write_buffer("CullStatsReadback", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     };
     stats_pass.execute = [this](RenderGraph::CommandList& cl) {
         const drivers::DeviceDriverVulkan::Buffer& dst = stats_readback[cl.graph->current_frame];
         const char* src_names[7] = { "ClusterRefs", "VisibleClusters", "ClusterRetest", "VisibleClusters2", "VisibleInstances", "OccludedInstances", "VisibleInstances2" };
-        for (uint32_t i = 0; i < 7; i++) cl.dd->command_copy_buffer(cl.cmd, *cl.graph->buffer(src_names[i]), dst, sizeof(uint32_t), 0, i * sizeof(uint32_t));
+        for (uint32_t i = 0; i < 7; i++) {
+            if (const auto* src = cl.graph->buffer(src_names[i])) cl.dd->command_copy_buffer(cl.cmd, *src, dst, sizeof(uint32_t), 0, i * sizeof(uint32_t));
+        }
 
         VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
         mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
@@ -1169,8 +1172,9 @@ void GeometryFeature::build(RenderGraph& g)
 
     const drivers::DeviceDriverVulkan::Image* hiz = g.image("HiZ");
     hiz_ok = hiz && hiz->image && hiz->mip_levels >= HIZ_TILE_MIPS && hiz->mip_levels <= 16 && hiz->extent.width % HIZ_TILE == 0 && hiz->extent.height % HIZ_TILE == 0 && hiz->extent.width / HIZ_TILE <= HIZ_TAIL_MAX && hiz->extent.height / HIZ_TILE <= HIZ_TAIL_MAX;
-    hiz_use_prev = occlusion && hiz_ok && hiz_history && ctx->frame->hiz_history_valid;
-    hiz_history = occlusion && hiz_ok;
+    occlusion_frame = occlusion;
+    hiz_use_prev = occlusion_frame && hiz_ok && hiz_history && ctx->frame->hiz_history_valid;
+    hiz_history = occlusion_frame && hiz_ok;
 
     constexpr bool MESH_PATH_READY = false;
     bool ms_active = MESH_PATH_READY && mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
@@ -1192,7 +1196,7 @@ void GeometryFeature::build(RenderGraph& g)
         g.add(&draw_scatter_pass);
         g.add(&visbuffer_pass);
     }
-    if (occlusion && hiz_ok) {
+    if (occlusion_frame && hiz_ok) {
         g.add(&hiz_build_pass);
         g.add(&hiz_tail_pass);
     }
@@ -1213,14 +1217,18 @@ void GeometryFeature::build(RenderGraph& g)
         g.add(&draw_scatter_pass_2);
         g.add(&visbuffer_pass_2);   
     }
-    if (occlusion && hiz_ok) {
+    if (occlusion_frame && hiz_ok) {
         g.add(&hiz_build_pass_2);
         g.add(&hiz_tail_pass_2);
     }
     g.add(&material_resolve_pass);
     if (slot < stats_readback.size()) {
         stats_written[slot] = want_stats ? 1 : 0;
-        if (want_stats) g.add(&stats_pass);
+        // if (want_stats) g.add(&stats_pass);
+        if (want_stats) {
+            g.import_buffer("CullStatsReadback", &stats_readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+            g.add(&stats_pass);
+        }
     }
 };
 

@@ -288,8 +288,8 @@ static void extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
     out[1] = r3 - r0;  // right
     out[2] = r3 + r1;  // bottom
     out[3] = r3 - r1;  // top
-    out[4] = r3 + r2;  // near
-    out[5] = r3 - r2;  // far
+    out[4] = r2;       // far (reverse-Z, [0,1] depth: z_ndc >= 0)
+    out[5] = r3 - r2;  // near (z_ndc <= 1)
     for (int i = 0; i < 6; i++) out[i] /= glm::length(glm::vec3(out[i])); // normalize
 }
 
@@ -350,6 +350,18 @@ static GpuLight _light_pack(const TransformComponent& p_xf, const LightComponent
     return g;
 }
 
+static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)
+{
+    return (uint32_t)std::min<uint64_t>((uint64_t)p_a + p_b, MAX_CLUSTER_REFS);
+}
+
+static bool _model_sane(const mat4& p_m)
+{
+    constexpr float LIMIT = 1e7f;
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) if (!std::isfinite(p_m[c][r]) || std::abs(p_m[c][r]) > LIMIT) return false;
+    return true;
+}
+
 void Renderer::_frame_build(const World& p_world)
 {
     frame.reset();
@@ -365,20 +377,22 @@ void Renderer::_frame_build(const World& p_world)
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+            if (!_model_sane(model)) return;
             static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, 0 });
             static_insts.transforms.push_back(Transform{ model, model });
-            static_insts.cluster_ref_capacity += mesh->cluster_count;
+            static_insts.cluster_ref_capacity = _ref_capacity_add(static_insts.cluster_ref_capacity, mesh->cluster_count);
         });
         p_world.view<TransformComponent, MeshGridComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid, const StaticTag&) {
             const uint32_t mesh_index = geometry.find(p_grid.mesh);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 root = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+            if (!_model_sane(root)) return;
             _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)static_insts.instances.size(), [&](vec3 p_offset) {
                 const mat4 model = root * translate(mat4(1.0f), p_offset);
                 static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, 0 });
                 static_insts.transforms.push_back(Transform{ model, model });
-                static_insts.cluster_ref_capacity += mesh->cluster_count;
+                static_insts.cluster_ref_capacity = _ref_capacity_add(static_insts.cluster_ref_capacity, mesh->cluster_count);
             });
         });
         static_insts.world_version = p_world.static_version;
@@ -396,12 +410,13 @@ void Renderer::_frame_build(const World& p_world)
         const LMesh* mesh = geometry.get(cache.mesh_index);
         if (!mesh) return;
         const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+        if (!_model_sane(model)) return;
         const mat4 prev_mtx = cache.frame + 1 == frame_number ? cache.prev_mtx : model;
         cache.prev_mtx = model;
         cache.frame = frame_number;
         frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
-        frame.cluster_ref_capacity += mesh->cluster_count;
+        frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
     });
 
     p_world.view<TransformComponent, MeshGridComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const MeshGridComponent& p_grid) {
@@ -412,6 +427,7 @@ void Renderer::_frame_build(const World& p_world)
         const LMesh* mesh = geometry.get(cache.mesh_index);
         if (!mesh) return;
         const mat4 root = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+        if (!_model_sane(root)) return;
         const mat4 prev_root = cache.frame + 1 == frame_number ? cache.prev_mtx : root;
         cache.prev_mtx = root;
         cache.frame = frame_number;
@@ -419,12 +435,12 @@ void Renderer::_frame_build(const World& p_world)
             const mat4 offset = translate(mat4(1.0f), p_offset);
             frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
             frame.transforms_scratch.push_back(Transform{ prev_root * offset, root * offset });
-            frame.cluster_ref_capacity += mesh->cluster_count;
+            frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
         });
     });
 
     frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
-    frame.cluster_ref_capacity += static_insts.cluster_ref_capacity;
+    frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, static_insts.cluster_ref_capacity);
 
     StaticLights& static_lights = frame.static_lights;
     if (static_lights.world_version != p_world.static_version) {
@@ -559,9 +575,6 @@ Error Renderer::acquire_frame()
     }
     images_in_flight[sc.image_index] = in_flight_fences[current_frame];
 
-    err = dd->fence_reset(in_flight_fences[current_frame]);
-    LUMEN_ERR_FAIL_COND_V(err != OK, err);
-
     frame_acquired = true;
     return OK;
 }
@@ -579,6 +592,8 @@ Error Renderer::begin_frame(const World& p_world)
         LUMEN_ERR_FAIL_COND_V(!frame_acquired, FAILED);
     }
 
+    _collect_hiz_retired(false);
+    textures.begin_frame(frame_number, frame_count);
     geometry.begin_frame(frame_number, current_frame);
 
     cpu.zone_begin("Scene Gather");
@@ -602,11 +617,12 @@ Error Renderer::begin_frame(const World& p_world)
     return OK;
 }
 
-void Renderer::compile()
+Error Renderer::compile()
 {
     cpu_profiler().zone_begin("Graph Compile");
-    graph.compile();
+    const Error err = graph.compile();
     cpu_profiler().zone_end();
+    return err;
 }
 
 Error Renderer::record()
@@ -651,6 +667,8 @@ Error Renderer::end_frame()
     submit_info.pSignalSemaphores = &sc.present_semaphores[sc.image_index];
 
     VkQueue graphics_queue = dd->queue_families[dd->cd->graphics_queue_family][0].queue;
+    Error ferr = dd->fence_reset(in_flight_fences[current_frame]);
+    LUMEN_ERR_FAIL_COND_V(ferr != OK, ferr);
     cpu.zone_begin("Queue Submit");
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
     cpu.zone_end();
@@ -674,6 +692,7 @@ Error Renderer::end_frame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         dd->swapchain.surface->needs_resize = true;
     } else {
+        if (result == VK_ERROR_DEVICE_LOST) graph.breadcrumb_report();
         LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "Failed to present Vulkan queue");
     }
 

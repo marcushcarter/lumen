@@ -178,9 +178,12 @@ bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 
     if (p_size.x < 2.0f || p_size.y < 2.0f) return false;
 
-    if (ImGuizmo::Manipulate(value_ptr(view), value_ptr(proj), gizmo_op, mode, value_ptr(model), nullptr, io.KeyCtrl ? snap : nullptr)) {
+    const bool input_ok = ImGui::IsMousePosValid() && !io.AppFocusLost;
+    ImGuizmo::Enable(input_ok);
+    if (ImGuizmo::Manipulate(value_ptr(view), value_ptr(proj), gizmo_op, mode, value_ptr(model), nullptr, io.KeyCtrl ? snap : nullptr) && input_ok) {
+        constexpr float MODEL_LIMIT = 1e6f;
         bool finite = true;
-        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) finite = finite && std::isfinite(model[c][r]);
+        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) finite = finite && std::isfinite(model[c][r]) && std::abs(model[c][r]) < MODEL_LIMIT;
         if (!finite) return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
 
         vec3 axis[3] = { vec3(model[0]), vec3(model[1]), vec3(model[2]) };
@@ -191,7 +194,7 @@ bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         switch (gizmo_op) {
             case ImGuizmo::TRANSLATE: xf->position = vec3(model[3]); break;
             case ImGuizmo::ROTATE: if (s.x != 0.0f && s.y != 0.0f && s.z != 0.0f) xf->rotation = normalize(quat_cast(mat3(axis[0] / s.x, axis[1] / s.y, axis[2] / s.z))); break;
-            case ImGuizmo::SCALE: xf->scale = s; break;
+            case ImGuizmo::SCALE: xf->scale = mix(vec3(1.0f), vec3(-1.0f), lessThan(s, vec3(0.0f))) * max(abs(s), vec3(1e-4f)); break;
             default: break;
         }
         ctx.world->touch(selected);
@@ -264,7 +267,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
             ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
             ImGui::Checkbox("Task Shading", &geo.task_shading);
         }
-        right_overlay.end_menu();
+        left_overlay.end_menu();
     }
     left_overlay.gap();
     if (left_overlay.begin_menu(view_btn)) {

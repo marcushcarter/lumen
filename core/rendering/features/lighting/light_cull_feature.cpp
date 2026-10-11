@@ -7,7 +7,7 @@ void LightCullFeature::_create_clear_pass()
 {
     clear_pass.name = "LightCullClear";
     clear_pass.category = PASS_CATEGORY_LIGHTING;
-    clear_pass.setup = [](RenderGraph::Builder& b) {
+    clear_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo data_ci{};
         data_ci.size = LIGHT_CULL_DATA_SIZE;
         data_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -28,7 +28,8 @@ void LightCullFeature::_create_clear_pass()
 
         const uint32_t tiles = std::max(1u, ((b.graph->width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE) * ((b.graph->height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE));
         drivers::DeviceDriverVulkan::BufferCreateInfo masks_ci{};
-        masks_ci.size = (VkDeviceSize)tiles * LIGHT_TILE_WORDS * sizeof(uint32_t);
+        const uint32_t mask_words = std::max(1u, (std::min(_local_count(), MAX_VISIBLE_LIGHTS) + 31u) / 32u);
+        masks_ci.size = (VkDeviceSize)tiles * mask_words * sizeof(uint32_t);
         masks_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         masks_ci.device_local = true;
         b.create_buffer("LightTileMasks", masks_ci);

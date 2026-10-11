@@ -105,7 +105,8 @@ struct Renderer
 
     Error acquire_frame();
     Error begin_frame(const World& p_world);
-    void compile();
+    // void compile();
+    Error compile();
     Error record();
     Error end_frame();
     

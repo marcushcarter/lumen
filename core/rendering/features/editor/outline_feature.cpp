@@ -20,10 +20,10 @@ void OutlineFeature::set_selection(const Entity* p_entities, uint32_t p_count)
 bool OutlineFeature::_pixel_rect(VkExtent2D p_extent, uint32_t (&r_rect)[4]) const
 {
     const float pad = (float)std::clamp(radius, 1, 8) + 1.0f;
-    const float x0 = std::floor(rect_min.x * (float)p_extent.width - pad);
-    const float y0 = std::floor(rect_min.y * (float)p_extent.height - pad);
-    const float x1 = std::ceil(rect_max.x * (float)p_extent.width + pad);
-    const float y1 = std::ceil(rect_max.y * (float)p_extent.height + pad);
+    const float x0 = std::floor(pass_rect_min.x * (float)p_extent.width - pad);
+    const float y0 = std::floor(pass_rect_min.y * (float)p_extent.height - pad);
+    const float x1 = std::ceil(pass_rect_max.x * (float)p_extent.width + pad);
+    const float y1 = std::ceil(pass_rect_max.y * (float)p_extent.height + pad);
     r_rect[0] = (uint32_t)std::clamp(x0, 0.0f, (float)p_extent.width);
     r_rect[1] = (uint32_t)std::clamp(y0, 0.0f, (float)p_extent.height);
     r_rect[2] = (uint32_t)std::clamp(x1, 0.0f, (float)p_extent.width);
@@ -184,6 +184,8 @@ void OutlineFeature::build(RenderGraph& g)
         slot_version[slot] = version;
     }
     pass_word_count = (uint32_t)words.size();
+    pass_rect_min = rect_min;
+    pass_rect_max = rect_max;
 
     g.import_buffer("SelectionWords", &buf, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     g.add(&mask_pass);

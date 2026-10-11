@@ -41,7 +41,7 @@ bool _keep(Cluster cluster, mat4 model, float scale, vec3 cam, float ppu) {
 }
 
 void main() {
-    uint t = gl_GlobalInvocationID.x;
+    uint t = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 64u + gl_LocalInvocationID.x;
     uint n = pc.visible_instances.count;
     uint total = pc.offsets.data[n];
 

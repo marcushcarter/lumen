@@ -8,6 +8,7 @@
 #include <core/rendering/renderer.h>
 #include <core/world/world.h>
 #include <imgui.h>
+#include <cmath>
 
 namespace lumen {
 
@@ -107,8 +108,8 @@ bool DetailsPanel::_ies_field(EditorContext& ctx, Guid& r_ies)
         snprintf(label, sizeof(label), "%s%s###ies_field", guid, r_ies == Guid{} ? "" : " (missing)");
     }
     ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
-    // if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : "Drop a ies asset here");
-    // if (ImGui::BeginDragDropTarget()) {
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : "Drop a ies asset here");
+    if (ImGui::BeginDragDropTarget()) {
     //     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
     //         if (((const AssetDragPayload*)peek->Data)->type == AssetType::IES) {
     //             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
@@ -117,8 +118,8 @@ bool DetailsPanel::_ies_field(EditorContext& ctx, Guid& r_ies)
     //             }
     //         }
     //     }
-    //     ImGui::EndDragDropTarget();
-    // }
+        ImGui::EndDragDropTarget();
+    }
     return changed;
 }
 
@@ -164,7 +165,14 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
                 changed = true;
             }
             changed |= ImGui::DragFloat3("Scale", &xf->scale.x, 0.01f);
-            if (changed) world.touch(e);
+            if (changed) {
+                for (int i = 0; i < 3; i++) {
+                    if (!std::isfinite(xf->position[i]) || std::abs(xf->position[i]) > 1e6f) xf->position[i] = 0.0f;
+                    if (!std::isfinite(xf->scale[i])) xf->scale[i] = 1.0f;
+                }
+                if (!std::isfinite(xf->rotation.x) || !std::isfinite(xf->rotation.y) || !std::isfinite(xf->rotation.z) || !std::isfinite(xf->rotation.w)) xf->rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+                world.touch(e);
+            }
         }
         _component_end(o, false);
     }

@@ -13,7 +13,8 @@ layout(push_constant) uniform Push {
 } pc;
 
 void main() {
-    pc.retest_args.x = (pc.cluster_retest.count + 63u) / 64u;
-    pc.retest_args.y = 1u;
+    uint groups = (pc.cluster_retest.count + 63u) / 64u;
+    pc.retest_args.x = min(groups, 65535u);
+    pc.retest_args.y = (groups + 65534u) / 65535u;
     pc.retest_args.z = 1u;
 }

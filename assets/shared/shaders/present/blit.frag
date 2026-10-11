@@ -9,6 +9,7 @@ layout(set = 0, binding = 2) uniform sampler u_samplers[];
 layout(push_constant) uniform PC {
     uint src_index;
     uint sampler_index;
+    uint encode_srgb;
 } pc;
 
 vec4 sample_bindless(uint tex_id, uint sampler_id, vec2 uv) {
@@ -22,6 +23,6 @@ void main()
 {
     vec2 flipped_uv = vec2(vUV.x, 1.0 - vUV.y);
     vec4 color = sample_bindless(pc.src_index, pc.sampler_index, flipped_uv);
-    color.rgb = linear_to_srgb(color.rgb);
+    if (pc.encode_srgb != 0u) color.rgb = linear_to_srgb(color.rgb);
     oColor = color;
 }

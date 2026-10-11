@@ -34,7 +34,7 @@ layout(push_constant) uniform Push {
 } pc;
 
 void main() {
-    uint id = gl_GlobalInvocationID.x;
+    uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 64u + gl_LocalInvocationID.x;
     bool valid = id < pc.cluster_refs.count;
 
     bool occluded = false;

@@ -24,8 +24,9 @@ void main() {
     pc.cluster_refs.requested = requested;
     pc.cluster_refs.count = count;
 
-    pc.cull_args.x = (count + 63u) / 64u;
-    pc.cull_args.y = 1u;
+    uint groups = (count + 63u) / 64u;
+    pc.cull_args.x = min(groups, 65535u);
+    pc.cull_args.y = (groups + 65534u) / 65535u;
     pc.cull_args.z = 1u;
 
     pc.visible_clusters.count = 0u;

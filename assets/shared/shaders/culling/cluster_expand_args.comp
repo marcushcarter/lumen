@@ -61,8 +61,9 @@ void main() {
 
     if (lid == 0u) {
         pc.offsets.data[n] = carry;
-        pc.expand_args.x = (carry + 63u) / 64u;
-        pc.expand_args.y = 1u;
+        uint groups = (carry + 63u) / 64u;
+        pc.expand_args.x = min(groups, 65535u);
+        pc.expand_args.y = (groups + 65534u) / 65535u;
         pc.expand_args.z = 1u;
         if (pc.append == 0u) pc.cluster_refs.count = 0u;
     }

@@ -23,8 +23,8 @@ Error ContextDriverVulkan::_initialize_vulkan_version()
         instance_api_version = VK_API_VERSION_1_0;
     }
 
-    LUMEN_ERR_FAIL_COND_V_MSG(instance_api_version < VK_API_VERSION_1_2, FAILED,
-        "Your graphics driver only supports an older version of Vulkan than this engine requires (1.2 minimum)."
+    LUMEN_ERR_FAIL_COND_V_MSG(instance_api_version < VK_API_VERSION_1_3, FAILED,
+        "Your graphics driver only supports an older version of Vulkan than this engine requires (1.3 minimum). "
         "Please update your GPU drvier.");
 
     return OK;

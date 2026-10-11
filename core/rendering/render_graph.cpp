@@ -256,6 +256,11 @@ void RenderGraph::_image_materialize_transient(ImageResource& r)
     } else {
         img = dd->image_create_dedicated(image_ci, extent);
         ++image_reuse_misses;
+        if (!img.image) {
+            log_write("RenderGraph: transient image '%s' (%ux%u) allocation failed.", image_ci.name, extent.width, extent.height);
+            transient_alloc_failed = true;
+            return;
+        }
     }
 
     img.state = {};
@@ -381,6 +386,11 @@ void RenderGraph::_buffer_materialize_transient(BufferResource& r)
         alloc_ci.size = size_class;
         buf = dd->buffer_create(alloc_ci);
         ++buffer_reuse_misses;
+        if (!buf.buffer) {
+            log_write("RenderGraph: transient buffer '%s' (%llu B) allocation failed.", buffer_ci.name, (unsigned long long)size_class);
+            transient_alloc_failed = true;
+            return;
+        }
     }
 
     buf.size = logical;
@@ -607,6 +617,7 @@ void RenderGraph::_breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order)
 
 void RenderGraph::breadcrumb_report()
 {
+    if (dd) dd->device_fault_report();
     if (!breadcrumbs) return;
     for (uint32_t f = 0; f < (uint32_t)breadcrumb_buffers.size(); f++) {
         drivers::DeviceDriverVulkan::Buffer& b = breadcrumb_buffers[f];
@@ -759,8 +770,10 @@ VkFramebuffer RenderGraph::_get_or_create_framebuffer(Node& node)
 
 void RenderGraph::begin(uint32_t p_current_frame)
 {
+    release_transients();
     current_frame = p_current_frame;
     _collect_retired(false);
+    transient_alloc_failed = false;
     
     image_resources.clear();
     image_resources.reserve(64);
@@ -950,10 +963,12 @@ Error RenderGraph::compile()
                     _image_materialize_transient(r);
                 }
             }
+            if (!r.image) continue;
             auto& img = *r.image;
 
             constexpr VkAccessFlags2 WRITE_MASK =
                 VK_ACCESS_2_SHADER_WRITE_BIT |
+                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
                 VK_ACCESS_2_TRANSFER_WRITE_BIT |
@@ -1003,7 +1018,8 @@ Error RenderGraph::compile()
                 }
                 img.state.layout = a.layout;
                 img.state.stage = a.stage;
-                img.state.access = curr_write ? a.access : VK_ACCESS_2_MEMORY_WRITE_BIT;
+                // img.state.access = curr_write ? a.access : VK_ACCESS_2_MEMORY_WRITE_BIT;
+                img.state.access = curr_write ? ((a.access & WRITE_MASK) ? a.access : (a.access | VK_ACCESS_2_MEMORY_WRITE_BIT)) : VK_ACCESS_2_MEMORY_WRITE_BIT;
                 img.state.read_stages = curr_write ? 0 : a.stage;
                 img.state.read_access = curr_write ? 0 : a.access;
             } else {
@@ -1057,7 +1073,8 @@ Error RenderGraph::compile()
             }
             if (curr_write) {
                 buf.state.stage = a.stage;
-                buf.state.access = a.access;
+                // buf.state.access = a.access;
+                buf.state.access = (a.access & BUF_WRITE_MASK) ? a.access : (a.access | VK_ACCESS_2_MEMORY_WRITE_BIT);
                 buf.state.read_stages = 0;
                 buf.state.read_access = 0;
             } else {
@@ -1100,6 +1117,7 @@ Error RenderGraph::compile()
 
     for (ImageResource& r : image_resources) {
         if (r.final_layout == VK_IMAGE_LAYOUT_UNDEFINED) continue;
+        if (!r.image) continue;
         auto& img = *r.image;
         if (img.state.layout == r.final_layout) continue;
 
@@ -1121,7 +1139,28 @@ Error RenderGraph::compile()
         img.state.read_access = r.final_access;
     }
 
-    return OK;
+    constexpr VkAccessFlags2 FINAL_BUF_WRITE_MASK = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    for (BufferResource& r : buffer_resources) {
+        if (r.kind != ResourceKind::IMPORTED || !r.buffer || r.final_access == 0) continue;
+        auto& buf = *r.buffer;
+        if ((buf.state.access & FINAL_BUF_WRITE_MASK) == 0) continue;
+        BufferBarrier b{};
+        b.buffer = buf.buffer;
+        b.offset = 0;
+        b.size = VK_WHOLE_SIZE;
+        b.src_stage = buf.state.stage;
+        b.dst_stage = r.final_stage;
+        b.src_access = buf.state.access & FINAL_BUF_WRITE_MASK;
+        b.dst_access = r.final_access;
+        final_buffer_barriers.push_back(b);
+        buf.state.stage = r.final_stage;
+        buf.state.access = 0;
+        buf.state.read_stages = 0;
+        buf.state.read_access = 0;
+    }
+
+    // return OK;
+    return transient_alloc_failed ? FAILED : OK;
 }
 
 void RenderGraph::_emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageBarrier>& p_images, const std::vector<BufferBarrier>& p_buffers)

@@ -92,6 +92,9 @@ struct DeviceDriverVulkan
 
     Error device_wait_idle();
 
+    bool device_fault_enabled = false;
+    void device_fault_report();
+
     /****************/
     /**** MEMORY ****/
     /****************/

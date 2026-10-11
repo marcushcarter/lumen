@@ -13,6 +13,21 @@ Error TextureCache::initialize(drivers::DeviceDriverVulkan& r_dd)
     return OK;
 }
 
+void TextureCache::begin_frame(uint64_t p_frame_number, uint32_t p_frame_count)
+{
+    frame_number = p_frame_number;
+    frame_count = p_frame_count;
+    for (size_t i = 0; i < retired.size();) {
+        if (frame_number >= retired[i].frame + frame_count) {
+            dd->image_free(retired[i].image);
+            retired[i] = std::move(retired.back());
+            retired.pop_back();
+        } else {
+            ++i;
+        }
+    }
+}
+
 uint32_t TextureCache::load(Guid p_guid, const std::filesystem::path& p_path)
 {
     if (auto it = by_guid.find(p_guid); it != by_guid.end()) return it->second;
@@ -78,7 +93,7 @@ void TextureCache::unload(Guid p_guid)
     auto it = by_guid.find(p_guid);
     if (it == by_guid.end()) return;
     const uint32_t slot = it->second;
-    dd->image_free(slots[slot].image);
+    retired.push_back({ frame_number, std::move(slots[slot].image) });
     slots[slot] = LTexture{};
     free_slots.push_back(slot);
     by_guid.erase(it);
@@ -87,6 +102,8 @@ void TextureCache::unload(Guid p_guid)
 void TextureCache::clear()
 {
     for (auto& kv : by_guid) dd->image_free(slots[kv.second].image);
+    for (Retired& r : retired) dd->image_free(r.image);
+    retired.clear();
     slots.clear();
     free_slots.clear();
     by_guid.clear();

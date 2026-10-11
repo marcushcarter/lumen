@@ -296,6 +296,7 @@ struct RenderGraph
     static constexpr uint32_t BREADCRUMB_NONE = 0xFFFFFFFFu;
 
     bool breadcrumbs = true;
+    bool transient_alloc_failed = false;
     std::vector<drivers::DeviceDriverVulkan::Buffer> breadcrumb_buffers;
     std::vector<std::vector<std::string>> breadcrumb_names;
 

@@ -16,12 +16,18 @@ Error PresentFeature::create_resources()
         auto* bb = cl.graph->image("Backbuffer");
         auto* out_color = cl.graph->image("SceneColor");
 
+        if (!bb || !out_color) return;
+
         struct Push{
             uint32_t src_id;
             uint32_t sampler_id;
+            uint32_t encode_srgb;
         } pc;
         pc.src_id = out_color->bindless_sampled;
         pc.sampler_id = cl.dd->default_sampler.bindless_sampler;
+        const VkFormat f = bb->format;
+        const bool hw_srgb = f == VK_FORMAT_B8G8R8A8_SRGB || f == VK_FORMAT_R8G8B8A8_SRGB || f == VK_FORMAT_A8B8G8R8_SRGB_PACK32;
+        pc.encode_srgb = hw_srgb ? 0u : 1u;
 
         cl.dd->command_render_set_viewport(cl.cmd, {{{0,0},bb->extent}});
         cl.dd->command_render_set_scissor(cl.cmd, {{{0,0},bb->extent}});

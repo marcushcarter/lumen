@@ -75,8 +75,10 @@ Error WindowDriverWin32::window_create(const std::string& p_title, int p_width, 
 
     LUMEN_ERR_FAIL_COND_V_MSG(!window.hwnd, FAILED, "Couldn't create Win32 window.");
 
-    window.width = static_cast<uint32_t>(p_width);
-    window.height = static_cast<uint32_t>(p_height);
+    RECT client{};
+    GetClientRect(window.hwnd, &client);
+    window.width = static_cast<uint32_t>(client.right - client.left);
+    window.height = static_cast<uint32_t>(client.bottom - client.top);
 
     return OK;
 }
@@ -296,7 +298,7 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
                 if (in(window->ctrl_min))   return HTMINBUTTON;
             }
 
-            if (ImGui::IsAnyItemHovered()) return HTCLIENT;
+            if (ImGui::GetCurrentContext() && ImGui::IsAnyItemHovered()) return HTCLIENT;
 
             bool over_widget = false;
             if (cursor.y < window->titlebar_height) {

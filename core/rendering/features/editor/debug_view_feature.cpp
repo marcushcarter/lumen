@@ -10,6 +10,7 @@ static constexpr const char* OVERDRAW_DRAW_CMDS[2] = { "ClusterDrawCmds", "Clust
 static constexpr const char* OVERDRAW_DRAW_COUNT[2] = { "ClusterDrawCount", "ClusterDrawCount2" };
 static constexpr const char* OVERDRAW_DRAW_META[2] = { "ClusterDrawMeta", "ClusterDrawMeta2" };
 static constexpr const char* OVERDRAW_SCATTER[2] = { "ClusterScatter", "ClusterScatter2" };
+static constexpr uint32_t INVALID_OP = 0xFFFFFFFFu;
 
 void DebugViewFeature::_create_viewport(RenderGraph::Builder& b)
 {
@@ -89,7 +90,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
     viewport_resolve_pass.name = "ViewportResolve";
     viewport_resolve_pass.category = PASS_CATEGORY_EDITOR;
     viewport_resolve_pass.setup = [this](RenderGraph::Builder& b) {
-        const DebugView& d = DEBUG_VIEWS[view];
+        const DebugView& d = DEBUG_VIEWS[pass_view];
 
         _create_viewport(b);
         
@@ -122,9 +123,9 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
     };
     viewport_resolve_pass.execute = [this](RenderGraph::CommandList& cl) {
-        const DebugView& d = DEBUG_VIEWS[view];
-        if (d.op == DebugViewOp::OVERDRAW && !overdraw_active) return;
+        const DebugView& d = DEBUG_VIEWS[pass_view];
         auto out = cl.graph->image("Viewport");
+        if (!out) return;
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -144,6 +145,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         } pc{};
         pc.out_slot = out->bindless_storage;
         pc.op = (uint32_t)d.op;
+        if (d.op == DebugViewOp::OVERDRAW && !overdraw_active) pc.op = INVALID_OP;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
         pc.px_per_unit = ctx->frame->px_per_unit;
@@ -151,24 +153,24 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         pc.camera_addr = cl.graph->buffer("Camera")->device_address;
 
         if (d.inputs & DebugViewInputs::SOURCE) {
-            if (auto* s = cl.graph->image(d.image)) pc.src_index = s->bindless_sampled; else return;
+            if (auto* s = cl.graph->image(d.image)) pc.src_index = s->bindless_sampled; else pc.op = INVALID_OP;
         }
         if (d.inputs & (DebugViewInputs::VISBUF | DebugViewInputs::DEPTH)) {
-            if (auto* s = cl.graph->image("G_Depth")) pc.depth_index = s->bindless_sampled; else return;
+            if (auto* s = cl.graph->image("G_Depth")) pc.depth_index = s->bindless_sampled; else pc.op = INVALID_OP;
         }
         if (d.inputs & DebugViewInputs::VISBUF) {
-            if (auto* s = cl.graph->image("G_Visibility")) pc.vis_index = s->bindless_sampled; else return;
-            if (auto* r = cl.graph->buffer("ClusterRefs")) pc.cluster_refs_addr = r->device_address; else return;
-            if (auto* r = cl.graph->buffer("Instances")) pc.instances_addr = r->device_address; else return;
+            if (auto* s = cl.graph->image("G_Visibility")) pc.vis_index = s->bindless_sampled; else pc.op = INVALID_OP;
+            if (auto* r = cl.graph->buffer("ClusterRefs")) pc.cluster_refs_addr = r->device_address; else pc.op = INVALID_OP;
+            if (auto* r = cl.graph->buffer("Instances")) pc.instances_addr = r->device_address; else pc.op = INVALID_OP;
         }
         if (d.inputs & DebugViewInputs::GEOMETRY) {
-            if (auto* r = cl.graph->buffer("Geometry")) pc.geometry_addr = r->device_address; else return;
-            if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else return;
+            if (auto* r = cl.graph->buffer("Geometry")) pc.geometry_addr = r->device_address; else pc.op = INVALID_OP;
+            if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else pc.op = INVALID_OP;
         }
         if (d.inputs & DebugViewInputs::LIGHTS) {
-            if (auto* r = cl.graph->buffer("LightCullData")) pc.light_cull_addr = r->device_address; else return;
-            if (auto* r = cl.graph->buffer("LightTileMasks")) pc.light_masks_addr = r->device_address; else return;
-            if (auto* r = cl.graph->buffer("SortedLights")) pc.light_sorted_addr = r->device_address; else return;
+            if (auto* r = cl.graph->buffer("LightCullData")) pc.light_cull_addr = r->device_address; else pc.op = INVALID_OP;
+            if (auto* r = cl.graph->buffer("LightTileMasks")) pc.light_masks_addr = r->device_address; else pc.op = INVALID_OP;
+            if (auto* r = cl.graph->buffer("SortedLights")) pc.light_sorted_addr = r->device_address; else pc.op = INVALID_OP;
         }
 
         uint32_t gx = (out->extent.width + 7) / 8;
@@ -231,7 +233,8 @@ void DebugViewFeature::destroy_resources()
 void DebugViewFeature::build(RenderGraph& g)
 {
     if (!enabled) return;
-    overdraw_active = DEBUG_VIEWS[view].op == DebugViewOp::OVERDRAW && g.buffer_resource("ClusterDrawCount2");
+    pass_view = view < (uint32_t)DEBUG_VIEW_COUNT ? view : 0;
+    overdraw_active = DEBUG_VIEWS[pass_view].op == DebugViewOp::OVERDRAW && g.buffer_resource("ClusterDrawCount2");
     if (overdraw_active) {
         g.add(&overdraw_raster_pass);
         g.add(&overdraw_raster_pass_2);

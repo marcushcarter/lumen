@@ -61,7 +61,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = render_path->create_resources();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    tasks.start(std::max(1u, std::thread::hardware_concurrency() - 1u), 1);
+    tasks.start(std::max(2u, std::thread::hardware_concurrency()) - 1u, 1);
     
     err = on_init();
     if (err == CANCELED) {
@@ -69,10 +69,12 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
         shutdown();
         return err;
     }
+    if (err != OK) tasks.stop();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     frame_stats.initialize(win32.window.hwnd);
     err = frame_limiter.initialize();
+    if (err != OK) tasks.stop();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     win32.window_show();
@@ -148,13 +150,15 @@ Error Application::_frame()
     cpu.zone_end();
 
     cpu.zone_begin("Frame Build");
-    renderer.begin_frame(world);
+    err = renderer.begin_frame(world);
     cpu.zone_end();
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Graph Build");
     render_path->build(renderer.graph);
-    renderer.compile();
+    err = renderer.compile();
     cpu.zone_end();
+    LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Render graph compile failed (transient allocation).");
 
     cpu.zone_begin("Update");
     on_update((float)delta);
@@ -210,6 +214,8 @@ Error Application::run()
         if (err != OK) break;
     }
 
+    tasks.stop();
+    dd.device_wait_idle();
     on_shutdown();
     shutdown();
     return err;

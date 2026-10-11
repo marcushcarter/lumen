@@ -7,6 +7,7 @@ namespace lumen {
 struct DebugViewFeature : Feature
 {
     uint32_t view = 0;
+    uint32_t pass_view = 0;
     bool overdraw_active = false;
 
     RenderGraph::Pass overdraw_raster_pass;

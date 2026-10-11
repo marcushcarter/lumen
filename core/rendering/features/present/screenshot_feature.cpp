@@ -15,9 +15,11 @@ Error ScreenshotFeature::create_resources()
     screenshot_pass.never_cull = true;
     screenshot_pass.setup = [](RenderGraph::Builder& b) {
         b.read_image("Backbuffer", VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.write_buffer("ScreenshotStaging", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     };
     screenshot_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto bb = cl.graph->image("Backbuffer");
+        if (!bb || !staging.buffer) return;
         cl.dd->command_copy_image_to_buffer(cl.cmd, *bb, staging, bb->extent);
     };
 
@@ -36,6 +38,7 @@ void ScreenshotFeature::_writeback()
     
     if (!staging.mapped) { log_write("Screenshot: staging buffer not mapped."); return; }
 
+    ctx->dd->buffer_invalidate(staging);
     const uint8_t* src = static_cast<const uint8_t*>(staging.mapped);
     const size_t px = (size_t)capture_width * capture_height;
 
@@ -99,13 +102,16 @@ void ScreenshotFeature::build(RenderGraph& g)
         ci.name = "Screenshot_Staging";
         ci.size = bytes;
         ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        ci.device_local = false;
         ci.host_visible = true;
+        ci.cpu_read = true;
         staging = ctx->dd->buffer_create(ci);
         if (!staging.buffer) { log_write("Screenshot: staging alloc failed."); return; }
     } else if (ctx->dd->buffer_ensure_capacity(staging, bytes) != Error::OK) {
         return;
     }
 
+    g.import_buffer("ScreenshotStaging", &staging, VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
     g.add(&screenshot_pass);
     pending = true;
 };

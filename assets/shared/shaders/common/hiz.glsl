@@ -1,4 +1,3 @@
-// assets/shared/shaders/common/hiz.glsl
 #ifndef HIZ_GLSL
 #define HIZ_GLSL
 
@@ -9,7 +8,7 @@ layout(set = 0, binding = 0) uniform texture2D u_hiz_textures[];
 
 bool _hiz_rect_occluded(uint p_hiz, uint p_mips, vec2 p_screen, vec2 p_lo, vec2 p_hi, float p_nearest)
 {
-    if (p_nearest >= 1.0) return false;
+    if (!(p_nearest < 1.0) || any(isnan(p_lo)) || any(isnan(p_hi)) || any(isinf(p_lo)) || any(isinf(p_hi))) return false;
     if (any(lessThan(p_hi, vec2(-1.0))) || any(greaterThan(p_lo, vec2(1.0)))) return true;
 
     vec2 px_lo = clamp((p_lo * 0.5 + 0.5) * p_screen, vec2(0.0), p_screen - 1.0);
@@ -22,8 +21,8 @@ bool _hiz_rect_occluded(uint p_hiz, uint p_mips, vec2 p_screen, vec2 p_lo, vec2 
     mip = min(mip, int(p_mips) - 1);
 
     ivec2 size = textureSize(u_hiz_textures[p_hiz], mip);
-    ivec2 a = min(t_lo >> mip, size - 1);
-    ivec2 b = min(t_hi >> mip, size - 1);
+    ivec2 a = clamp(t_lo >> mip, ivec2(0), size - 1);
+    ivec2 b = clamp(t_hi >> mip, a, size - 1);
 
     float d = 3.402823466e38;
     for (int y = a.y; y <= b.y; y++)
@@ -44,7 +43,7 @@ bool hiz_occluded(uint p_hiz, uint p_mips, vec2 p_screen, mat4 p_view_proj, vec3
     float nearest = 0.0;
     for (uint i = 0u; i < 8u; i++) {
         vec4 p = c + (((i & 1u) != 0u) ? ax : -ax) + (((i & 2u) != 0u) ? ay : -ay) + (((i & 4u) != 0u) ? az : -az);
-        if (p.w <= 1e-6) return false;
+        if (!(p.w > 1e-6)) return false;
         vec3 ndc = p.xyz / p.w;
         lo = min(lo, ndc.xy);
         hi = max(hi, ndc.xy);
@@ -66,7 +65,7 @@ bool hiz_occluded_box(uint p_hiz, uint p_mips, vec2 p_screen, mat4 p_view_proj, 
     float nearest = 0.0;
     for (uint i = 0u; i < 8u; i++) {
         vec4 p = c + (((i & 1u) != 0u) ? ax : vec4(0.0)) + (((i & 2u) != 0u) ? ay : vec4(0.0)) + (((i & 4u) != 0u) ? az : vec4(0.0));
-        if (p.w <= 1e-6) return false;
+        if (!(p.w > 1e-6)) return false;
         vec3 ndc = p.xyz / p.w;
         lo = min(lo, ndc.xy);
         hi = max(hi, ndc.xy);

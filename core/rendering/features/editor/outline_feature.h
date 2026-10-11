@@ -30,6 +30,8 @@ struct OutlineFeature : Feature
 
     glm::vec2 rect_min = glm::vec2(0.0f);
     glm::vec2 rect_max = glm::vec2(1.0f);
+    glm::vec2 pass_rect_min = glm::vec2(0.0f);
+    glm::vec2 pass_rect_max = glm::vec2(1.0f);
 
     void set_selection(const Entity* p_entities, uint32_t p_count);
     void set_rect(glm::vec2 p_min, glm::vec2 p_max) { rect_min = p_min; rect_max = p_max; }

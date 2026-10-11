@@ -30,6 +30,7 @@ struct GeometryFeature : Feature
     };
 
     bool occlusion = true;
+    bool occlusion_frame = true;
     bool contribution_culling = true;
     bool mesh_shading = true;
     bool task_shading = true;

@@ -58,9 +58,8 @@ Error EditorApplication::on_init()
 
     _load_state();
     settings.theme.apply();
-
-    err = win32.window_set_titlebar_color((COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]));
-    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    
+    if (win32.window_set_titlebar_color((COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg])) != OK) log_write("Editor: custom titlebar color unsupported (needs Windows 11).");
 
     return OK;
 }
@@ -90,6 +89,7 @@ void EditorApplication::on_update(float p_dt)
             if (!read_asset_header(c.content_bin, ah)) continue;
             switch (ah.type) {
                 case AssetType::TEXTURE:
+                    if (const LTexture* old = renderer.textures.get(c.guid)) imgui.texture_cache.retire(old->image.image_view, renderer.frame_number, renderer.frame_count);
                     renderer.textures.unload(c.guid);
                     renderer.textures.load(c.guid, c.content_bin);
                     break;
@@ -123,6 +123,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     
     Error err = project_load(p_root);
     if (err == CANCELED) return err;
+    if (err != OK) project_unload();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     assets.open(project.assets_dir);
@@ -578,9 +579,8 @@ void EditorApplication::_titlebar_editor_menu()
 
         // if (ImGui::MenuItem("Enable Fullscreen", "Alt+F11")) {}
         
-        if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) {   
-            EditorRenderPath* path = static_cast<EditorRenderPath*>(render_path);
-            path->screenshot.requested = true;
+        if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) {
+            if (EditorRenderPath* path = dynamic_cast<EditorRenderPath*>(render_path)) path->screenshot.requested = true;
         }
         
         ImGui::Separator();
@@ -635,7 +635,7 @@ EditorContext EditorApplication::_make_context()
     ctx.editor = &editor;
     ctx.selection = &selection;
     
-    ctx.render_path = static_cast<EditorRenderPath*>(render_path);
+    ctx.render_path = dynamic_cast<EditorRenderPath*>(render_path);
     ctx.settings = &settings;
     ctx.profiling = &profiling;
     ctx.resources = &resources;

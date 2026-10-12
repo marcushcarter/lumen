@@ -57,6 +57,7 @@ layout(buffer_reference, scalar) readonly buffer ClusterGroupBuffer { ClusterGro
 layout(buffer_reference, scalar) readonly buffer SkinVerticesBuffer { SkinVertex data[]; };
 layout(buffer_reference, scalar) readonly buffer BVHNodeBuffer { BVHNode data[]; };
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
+layout(buffer_reference, scalar) readonly buffer UintBuffer { uint data[]; };
 
 layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     VertexPositionBuffer vertices;
@@ -69,6 +70,9 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     SkinVerticesBuffer skin_vertices;
     BVHNodeBuffer bvh_nodes;
     MeshBuffer meshes;
+    UintBuffer meshlet_vertices; // global vertex index per (cluster, local vertex)
+    UintBuffer cluster_vertex_base; // per cluster: first entry in meshlet_vertices
+    UintBuffer local_triangles; // per triangle: 3 x 8-bit cluster-local vertex indices
 };
 
 vec3 vertex_position_unorm(uvec2 p_p) { return vec3(unpackUnorm2x16(p_p.x), unpackUnorm2x16(p_p.y).x); }

@@ -65,6 +65,7 @@ void ProfilerDebugTab::_copy_report(EditorContext& ctx)
     if (ctx.render_path) {
         const GeometryFeature& geo = ctx.render_path->geometry;
         _append(out, "Occlusion: %s (HiZ ok %s, phase-1 history %s), contribution culling: %s (%.2f px)\n", geo.occlusion ? "on" : "off", geo.hiz_ok ? "yes" : "no", geo.hiz_use_prev ? "yes" : "no", geo.contribution_culling ? "on" : "off", geo.contribution_px);
+        _append(out, "Raster path: %s\n", geo.single_draw_frame ? "single draw (compacted indices)" : "multi-draw indirect per cluster");
         const uint32_t view = ctx.render_path->debug.view;
         _append(out, "Debug view: %s\n", view < (uint32_t)DEBUG_VIEW_COUNT ? DEBUG_VIEWS[view].name : "?");
     }

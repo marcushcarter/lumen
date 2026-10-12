@@ -263,6 +263,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
             GeometryFeature& geo = ctx.render_path->geometry;
             ImGui::Checkbox("Occlusion Culling", &geo.occlusion);
             ImGui::Checkbox("Contribution Culling", &geo.contribution_culling);
+            ImGui::Checkbox("Single Draw (compacted indices)", &geo.single_draw);
             ImGui::SliderFloat("Min Screen Radius (px)", &geo.contribution_px, 0.25f, 8.0f);
             ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
             ImGui::Checkbox("Task Shading", &geo.task_shading);

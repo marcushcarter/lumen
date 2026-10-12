@@ -201,31 +201,15 @@ struct RenderGraph
         uint32_t draw_count = 0;
 
         void draw(std::string_view p_name, uint32_t p_vertex_count, uint32_t p_instance_count = 1, uint32_t p_base_vertex = 0, uint32_t p_first_instance = 0);
-
-        // void draw_indexed(std::string_view p_name, uint32_t p_index_count, uint32_t p_instance_count = 1, uint32_t p_first_index = 0, int32_t p_vertex_offset = 0, uint32_t p_first_instance = 0) {
-        //     graph->profiler.draw_begin(cmd, _name(p_name));
-        //     dd->command_render_draw_indexed(cmd, p_index_count, p_instance_count, p_first_index, p_vertex_offset, p_first_instance);
-        //     ++draw_count;
-        //     graph->profiler.draw_end(cmd);
-        // }
-
-        // void draw_indexed_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {
-        //     graph->profiler.draw_begin(cmd, _name(p_name));
-        //     dd->command_render_draw_indexed_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
-        //     ++draw_count;
-        //     graph->profiler.draw_end(cmd);
-        // }
-
+        void draw_indexed(std::string_view p_name, uint32_t p_index_count, uint32_t p_instance_count = 1, uint32_t p_first_index = 0, int32_t p_vertex_offset = 0, uint32_t p_first_instance = 0);
+        void draw_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
+        void draw_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride);
+        void draw_indexed_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
         void draw_indexed_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride);
 
-        // void draw_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {
-        //     graph->profiler.draw_begin(cmd, _name(p_name));
-        //     dd->command_render_draw_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
-        //     ++draw_count;
-        //     graph->profiler.draw_end(cmd);
-        // }
-
-        void draw_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride);
+        void draw_mesh_tasks(std::string_view p_name, uint32_t p_x, uint32_t p_y = 1, uint32_t p_z = 1);
+        void draw_mesh_tasks_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
+        void draw_mesh_tasks_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride);
 
         void dispatch(std::string_view p_name, uint32_t p_x, uint32_t p_y = 1, uint32_t p_z = 1);
         void dispatch_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset = 0);

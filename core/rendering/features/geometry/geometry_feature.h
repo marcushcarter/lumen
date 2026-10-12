@@ -14,6 +14,8 @@ struct GeometryFeature : Feature
     static constexpr uint32_t HIZ_TAIL_MAX = 64;
     static constexpr uint32_t HIZ_MAX_MIPS = 16;
     static constexpr uint32_t VIS_EMPTY = 0xFFFFFFFFu;
+    static constexpr uint32_t COMPACT_MAX_TRIS = 4u * 1024 * 1024;
+    static constexpr uint32_t COMPACT_ARGS_SIZE = 56;
 
     struct CullPush
     {
@@ -36,6 +38,8 @@ struct GeometryFeature : Feature
     bool contribution_culling = true;
     bool mesh_shading = true;
     bool task_shading = true;
+    bool single_draw = true;
+    bool single_draw_frame = true;
 
     float contribution_px = 1.0f;
     bool hiz_history = false;
@@ -65,6 +69,10 @@ struct GeometryFeature : Feature
     RenderGraph::Pass draw_scatter_pass_2;
     RenderGraph::Pass visbuffer_pass_2;
     RenderGraph::Pass hiz_build_pass_2;
+    RenderGraph::Pass draw_compact_pass;
+    RenderGraph::Pass draw_compact_pass_2;
+    RenderGraph::Pass visbuffer_compact_pass;
+    RenderGraph::Pass visbuffer_compact_pass_2;
 
     drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_expand_args_pipe;
@@ -78,6 +86,8 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline hiz_build_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_args_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
+    drivers::DeviceDriverVulkan::Pipeline draw_compact_pipe;
+    drivers::DeviceDriverVulkan::Pipeline visbuffer_compact_pipe;
 
     void _create_clear_visible_pass();
     void _create_instance_cull_pass(RenderGraph::Pass& r_pass, bool p_late);
@@ -96,6 +106,9 @@ struct GeometryFeature : Feature
     void _create_draw_build_2_pass();
     void _create_draw_scatter_2_pass();
     void _create_visbuffer_2_pass();
+    void _create_draw_compact_pass(RenderGraph::Pass& r_pass, bool p_late);
+    void _create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, bool p_late);
+    uint32_t _compact_capacity_tris() const;
 
     /*****************/
     /**** TERRAIN ****/

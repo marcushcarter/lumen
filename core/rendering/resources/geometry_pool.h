@@ -25,6 +25,9 @@ struct GeometryAddresses
     VkDeviceAddress skin_vertices;
     VkDeviceAddress bvh_nodes;
     VkDeviceAddress meshes;
+    VkDeviceAddress meshlet_vertices;
+    VkDeviceAddress cluster_vertex_base;
+    VkDeviceAddress local_triangles;
 };
 
 struct LMesh
@@ -53,6 +56,7 @@ struct GeometryPool
     static constexpr uint32_t MAX_SKIN_VERTS = 4u * 1024 * 1024;
     static constexpr uint32_t MAX_BVH_NODES = 8u * 1024 * 1024;
     static constexpr uint32_t MAX_MESHES = 64u * 1024;
+    static constexpr uint32_t MAX_MESHLET_VERTS = 2u * MAX_VERTS;
     static constexpr uint32_t INVALID_MESH = UINT32_MAX;
     
     /***************/
@@ -86,6 +90,9 @@ struct GeometryPool
         ARENA_SKIN,
         ARENA_BVH_NODES,
         ARENA_MESHES,
+        ARENA_MESHLET_VERTICES, // global vertex index per (cluster, local vertex)
+        ARENA_CLUSTER_VERTEX_BASE, // parallel to clusters: first entry in meshlet vertices
+        ARENA_LOCAL_TRIANGLES, // parallel to triangles: 3 x 8-bit cluster-local vertex indices
         ARENA_COUNT,
     };
 
@@ -107,6 +114,7 @@ struct GeometryPool
         uint32_t group = RangeAllocator::INVALID, group_count = 0;
         uint32_t skin = RangeAllocator::INVALID, skin_count = 0;
         uint32_t bvh = RangeAllocator::INVALID, bvh_count = 0;
+        uint32_t meshlet_vertex = RangeAllocator::INVALID, meshlet_vertex_count = 0;
     };
 
     Arena arenas[ARENA_COUNT];
@@ -119,8 +127,10 @@ struct GeometryPool
     RangeAllocator group_alloc;
     RangeAllocator skin_alloc;
     RangeAllocator bvh_alloc;
+    RangeAllocator meshlet_vertex_alloc;
     
     uint32_t cluster_extent = 0;
+    uint32_t max_cluster_tris = 0;
     
     void _arena_setup(ArenaKind p_kind, uint32_t p_stride, uint32_t p_initial, uint32_t p_max, VkBufferUsageFlags p_usage, const char* p_name);
     Error _arena_create(Arena& r_arena, uint32_t p_capacity);

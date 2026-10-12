@@ -30,6 +30,9 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     _arena_setup(ARENA_SKIN, sizeof(SkinVertex), 64u << 10, MAX_SKIN_VERTS, 0, "geo_skin");
     _arena_setup(ARENA_BVH_NODES, sizeof(BVHNode), 64u << 10, MAX_BVH_NODES, 0, "geo_bvh_nodes");
     _arena_setup(ARENA_MESHES, sizeof(LMesh), 1u << 10, MAX_MESHES, 0, "geo_meshes");
+    _arena_setup(ARENA_MESHLET_VERTICES, sizeof(uint32_t), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_meshlet_vertices");
+    _arena_setup(ARENA_CLUSTER_VERTEX_BASE, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_vertex_base");
+    _arena_setup(ARENA_LOCAL_TRIANGLES, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_local_triangles");
 
     address_buffers.resize(frame_count);
     for (Buffer& b : address_buffers) {
@@ -87,7 +90,9 @@ void GeometryPool::clear()
     group_alloc.reset(arenas[ARENA_GROUPS].capacity);
     skin_alloc.reset(arenas[ARENA_SKIN].capacity);
     bvh_alloc.reset(arenas[ARENA_BVH_NODES].capacity);
+    meshlet_vertex_alloc.reset(arenas[ARENA_MESHLET_VERTICES].capacity);
     cluster_extent = 0;
+    max_cluster_tris = 0;
 }
 
 VkDeviceSize GeometryPool::resident_bytes() const
@@ -170,6 +175,8 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
     const uint32_t live = r_alloc.extent();
     if (p_kind == ARENA_INDICES && _arena_grow(ARENA_TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ARENA_VERTICES && _arena_grow(ARENA_VERTEX_ATTRIBUTES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ARENA_INDICES && _arena_grow(ARENA_LOCAL_TRIANGLES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ARENA_CLUSTERS && _arena_grow(ARENA_CLUSTER_VERTEX_BASE, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (_arena_grow(p_kind, capacity, live) != Error::OK) return RangeAllocator::INVALID;
 
     r_alloc.grow(capacity);
@@ -185,6 +192,7 @@ void GeometryPool::_release(const MeshRanges& p_r)
     group_alloc.free(p_r.group, p_r.group_count);
     skin_alloc.free(p_r.skin, p_r.skin_count);
     bvh_alloc.free(p_r.bvh, p_r.bvh_count);
+    meshlet_vertex_alloc.free(p_r.meshlet_vertex, p_r.meshlet_vertex_count);
 }
 
 void GeometryPool::_retire_buffer(Buffer& r_buffer)
@@ -362,6 +370,45 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         }
     }
 
+    std::vector<uint32_t> meshlet_verts;
+    std::vector<uint32_t> cluster_vbase(ph.cluster_count);
+    std::vector<uint32_t> local_tris(ph.tri_count, 0u);
+    uint32_t mesh_max_tris = 0;
+    if (!bad) {
+        std::vector<uint32_t> stamp(ph.vertex_count, UINT32_MAX);
+        std::vector<uint8_t> local_of(ph.vertex_count, 0);
+        meshlet_verts.reserve(ph.index_count / 2);
+        for (uint32_t ci = 0; ci < ph.cluster_count && !bad; ci++) {
+            const Cluster& cl = clus[ci];
+            const uint32_t first = cl.index_base - index_base;
+            if (first % 3 != 0 || cl.index_count % 3 != 0) { bad = "cluster index range not triangle aligned"; break; }
+            const uint32_t vbase = (uint32_t)meshlet_verts.size();
+            cluster_vbase[ci] = vbase;
+            mesh_max_tris = std::max(mesh_max_tris, cl.index_count / 3);
+            for (uint32_t i = 0; i < cl.index_count && !bad; i += 3) {
+                uint32_t packed = 0;
+                for (uint32_t k = 0; k < 3; k++) {
+                    const uint32_t v = idx[first + i + k] - r.vertex;
+                    if (stamp[v] != ci) {
+                        const uint32_t n = (uint32_t)meshlet_verts.size() - vbase;
+                        if (n >= 256) { bad = "cluster has more than 256 unique vertices"; break; }
+                        stamp[v] = ci;
+                        local_of[v] = (uint8_t)n;
+                        meshlet_verts.push_back(v + r.vertex);
+                    }
+                    packed |= (uint32_t)local_of[v] << (8 * k);
+                }
+                local_tris[(first + i) / 3] = packed;
+            }
+        }
+        if (mesh_max_tris > 256) bad = "cluster has more than 256 triangles";
+    }
+    if (!bad) {
+        r.meshlet_vertex_count = (uint32_t)meshlet_verts.size();
+        if (!reserve(r.meshlet_vertex, meshlet_vertex_alloc, ARENA_MESHLET_VERTICES, r.meshlet_vertex_count)) bad = "meshlet vertex arena exhausted";
+        else for (uint32_t& b : cluster_vbase) b += r.meshlet_vertex;
+    }
+
     if (bad) {
         _release(r);
         return fail(bad);
@@ -398,6 +445,9 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     add(ARENA_SKIN, r.skin, p_skin, skin_bytes);
     add(ARENA_BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
     add(ARENA_MESHES, id, &m, sizeof(LMesh));
+    add(ARENA_MESHLET_VERTICES, r.meshlet_vertex, meshlet_verts.data(), meshlet_verts.size() * sizeof(uint32_t));
+    add(ARENA_CLUSTER_VERTEX_BASE, r.cluster, cluster_vbase.data(), cluster_vbase.size() * sizeof(uint32_t));
+    add(ARENA_LOCAL_TRIANGLES, r.tri, local_tris.data(), local_tris.size() * sizeof(uint32_t));
 
     if (dd->buffer_upload_batch(uploads, upload_count) != Error::OK) {
         _release(r);
@@ -415,9 +465,10 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         mesh_guids[id] = p_guid;
     }
     by_guid.emplace(p_guid, id);
+    max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
     version++;
 
-    // log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
+    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
     return id;
 }
 
@@ -455,6 +506,9 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot)
     a.skin_vertices = arenas[ARENA_SKIN].buffer.device_address;
     a.bvh_nodes = arenas[ARENA_BVH_NODES].buffer.device_address;
     a.meshes = arenas[ARENA_MESHES].buffer.device_address;
+    a.meshlet_vertices = arenas[ARENA_MESHLET_VERTICES].buffer.device_address;
+    a.cluster_vertex_base = arenas[ARENA_CLUSTER_VERTEX_BASE].buffer.device_address;
+    a.local_triangles = arenas[ARENA_LOCAL_TRIANGLES].buffer.device_address;
 
     Buffer& b = address_buffers[p_slot];
     dd->buffer_update(b, &a, sizeof(a));

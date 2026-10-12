@@ -1,0 +1,99 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+#include "common/geometry.glsl"
+#include "common/visbuffer.glsl"
+#include "common/compact_draw.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) readonly buffer VisibleClusterBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) writeonly buffer HiZArgsBuffer { uvec3 build; };
+
+layout(push_constant) uniform Push {
+    GeometryBuffer geometry;
+    ClusterRefsBuffer cluster_refs;
+    VisibleClusterBuffer visible;
+    CompactIndexBuffer indices;
+    CompactPrimBuffer prims;
+    CompactDrawArgs args;
+    HiZArgsBuffer hiz_args;
+    uint phase;
+    uint capacity_tris;
+    uint hiz_groups_x;
+    uint hiz_groups_y;
+} pc;
+
+shared uint s_total;
+shared uint s_base_tri;
+shared uint s_first[64];
+shared uint s_count[64];
+shared uint s_out[64];
+shared uint s_ref[64];
+
+void main() {
+    const uint lid = gl_LocalInvocationID.x;
+    const uint first_slot = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 64u;
+    const uint visible_count = pc.visible.count;
+    const uint phase_base = pc.phase == 0u ? 0u : pc.args.cmd[0].index_count / 3u;
+    const uint capacity = pc.capacity_tris - min(phase_base, pc.capacity_tris);
+
+    if (first_slot < visible_count) {
+        const uint slot = first_slot + lid;
+        uint n = 0u;
+        uint tri_first = 0u;
+        uint ref_idx = 0u;
+        if (slot < visible_count) {
+            ref_idx = pc.visible.data[slot];
+            const uint cluster_id = pc.cluster_refs.data[ref_idx].y;
+            tri_first = pc.geometry.clusters.data[cluster_id].index_base / 3u;
+            n = pc.geometry.clusters.data[cluster_id].index_count / 3u;
+        }
+
+        if (lid == 0u) s_total = 0u;
+        barrier();
+        const uint local_off = atomicAdd(s_total, n);
+        barrier();
+        if (lid == 0u) {
+            s_base_tri = atomicAdd(pc.args.tris[pc.phase], s_total);
+            if (pc.hiz_groups_x != 0u && s_total > 0u) pc.hiz_args.build = uvec3(pc.hiz_groups_x, pc.hiz_groups_y, 1u);
+        }
+        barrier();
+
+        s_first[lid] = tri_first;
+        s_count[lid] = n;
+        s_out[lid] = s_base_tri + local_off;
+        s_ref[lid] = ref_idx;
+        barrier();
+
+        const uint lanes = min(64u, visible_count - first_slot);
+        for (uint j = 0u; j < lanes; j++) {
+            const uint cnt = s_count[j];
+            const uint vbase = (first_slot + j) << COMPACT_LOCAL_BITS;
+            for (uint t = lid; t < cnt; t += 64u) {
+                const uint o = s_out[j] + t;
+                if (o >= capacity) break;
+                const uint lt = pc.geometry.local_triangles.data[s_first[j] + t];
+                const uint w = (phase_base + o) * 3u;
+                pc.indices.data[w + 0u] = vbase | (lt & 0xFFu);
+                pc.indices.data[w + 1u] = vbase | ((lt >> 8) & 0xFFu);
+                pc.indices.data[w + 2u] = vbase | ((lt >> 16) & 0xFFu);
+                pc.prims.data[phase_base + o] = vis_encode_cluster(s_ref[j], t);
+            }
+        }
+    }
+
+    if (lid == 0u) {
+        const uint groups = gl_NumWorkGroups.x * gl_NumWorkGroups.y;
+        memoryBarrierBuffer();
+        if (atomicAdd(pc.args.done[pc.phase], 1u) == groups - 1u) {
+            const uint total = min(atomicAdd(pc.args.tris[pc.phase], 0u), capacity);
+            pc.args.cmd[pc.phase].index_count = total * 3u;
+            pc.args.cmd[pc.phase].first_index = phase_base * 3u;
+        }
+    }
+}

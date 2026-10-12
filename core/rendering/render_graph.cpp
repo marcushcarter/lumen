@@ -443,10 +443,18 @@ void RenderGraph::CommandList::draw(std::string_view p_name, uint32_t p_vertex_c
     graph->profiler.draw_end(cmd);
 }
 
-void RenderGraph::CommandList::draw_indexed_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride)
+void RenderGraph::CommandList::draw_indexed(std::string_view p_name, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect Count", p_max_draws);
-    dd->command_render_draw_indexed_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
+    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed", p_instance_count);
+    dd->command_render_draw_indexed(cmd, p_index_count, p_instance_count, p_first_index, p_vertex_offset, p_first_instance);
+    ++draw_count;
+    graph->profiler.draw_end(cmd);
+}
+
+void RenderGraph::CommandList::draw_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
+{
+    graph->profiler.draw_begin(cmd, p_name, "Draw Indirect", p_draw_count);
+    dd->command_render_draw_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
     ++draw_count;
     graph->profiler.draw_end(cmd);
 }
@@ -455,6 +463,46 @@ void RenderGraph::CommandList::draw_indirect_count(std::string_view p_name, cons
 {
     graph->profiler.draw_begin(cmd, p_name, "Draw Indirect Count", p_max_draws);
     dd->command_render_draw_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
+    ++draw_count;
+    graph->profiler.draw_end(cmd);
+}
+
+void RenderGraph::CommandList::draw_indexed_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
+{
+    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect", p_draw_count);
+    dd->command_render_draw_indexed_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
+    ++draw_count;
+    graph->profiler.draw_end(cmd);
+}
+
+void RenderGraph::CommandList::draw_indexed_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride)
+{
+    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect Count", p_max_draws);
+    dd->command_render_draw_indexed_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
+    ++draw_count;
+    graph->profiler.draw_end(cmd);
+}
+
+void RenderGraph::CommandList::draw_mesh_tasks(std::string_view p_name, uint32_t p_x, uint32_t p_y, uint32_t p_z)
+{
+    graph->profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks", 1);
+    dd->command_render_draw_mesh_tasks(cmd, p_x, p_y, p_z);
+    ++draw_count;
+    graph->profiler.draw_end(cmd);
+}
+
+void RenderGraph::CommandList::draw_mesh_tasks_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
+{
+    graph->profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks Indirect", p_draw_count);
+    dd->command_render_draw_mesh_tasks_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
+    ++draw_count;
+    graph->profiler.draw_end(cmd);
+}
+
+void RenderGraph::CommandList::draw_mesh_tasks_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride)
+{
+    graph->profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks Indirect Count", p_max_draws);
+    dd->command_render_draw_mesh_tasks_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
     ++draw_count;
     graph->profiler.draw_end(cmd);
 }
@@ -1034,7 +1082,6 @@ Error RenderGraph::compile()
                 }
                 img.state.layout = a.layout;
                 img.state.stage = a.stage;
-                // img.state.access = curr_write ? a.access : VK_ACCESS_2_MEMORY_WRITE_BIT;
                 img.state.access = curr_write ? ((a.access & WRITE_MASK) ? a.access : (a.access | VK_ACCESS_2_MEMORY_WRITE_BIT)) : VK_ACCESS_2_MEMORY_WRITE_BIT;
                 img.state.read_stages = curr_write ? 0 : a.stage;
                 img.state.read_access = curr_write ? 0 : a.access;
@@ -1089,7 +1136,6 @@ Error RenderGraph::compile()
             }
             if (curr_write) {
                 buf.state.stage = a.stage;
-                // buf.state.access = a.access;
                 buf.state.access = (a.access & BUF_WRITE_MASK) ? a.access : (a.access | VK_ACCESS_2_MEMORY_WRITE_BIT);
                 buf.state.read_stages = 0;
                 buf.state.read_access = 0;
@@ -1175,7 +1221,6 @@ Error RenderGraph::compile()
         buf.state.read_access = 0;
     }
 
-    // return OK;
     return transient_alloc_failed ? FAILED : OK;
 }
 

@@ -2,11 +2,13 @@
 #pragma once
 #include <core/application/application.h>
 #include <core/rendering/render_path/game_render_path.h>
+#include <filesystem>
 
 namespace lumen {
 
 struct GameApplication : Application
 {
+    std::filesystem::path project_root;
     float title_frame_avg = 0.0f;
     
     Error on_init() override;
@@ -14,7 +16,6 @@ struct GameApplication : Application
     void on_shutdown() override;
 
     bool wants_docking() const override { return false; }
-    // RenderPath* GameApplication::create_render_path() { return new GameRenderPath(); }
     RenderPath* create_render_path() override { return new GameRenderPath(); }
 };
 

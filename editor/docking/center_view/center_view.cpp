@@ -218,7 +218,6 @@ void CenterView::_draw_scene(EditorContext& ctx)
             if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
         }
     }
-    if (ctx.render_path) ctx.render_path->outline.enabled = !(ctx.pie_is_playing && ctx.pie_is_playing());
     if (ctx.render_path && ctx.selection && ctx.render_path->outline.source_version != ctx.selection->version) {
         ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
         ctx.render_path->outline.source_version = ctx.selection->version;
@@ -242,7 +241,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
         ImGui::Image((ImTextureID)set, size, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
         const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         const bool image_hovered = ImGui::IsItemHovered();
-        const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
+        const bool playing = false;
         const bool gizmo_hot = !playing && _draw_gizmo(ctx, pos, size);
         pick_click = !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
 

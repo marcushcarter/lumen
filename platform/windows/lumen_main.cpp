@@ -1,14 +1,17 @@
 #include <windows.h>
 #include <core/application/application.h>
+#include <core/application/launch_args.h>
+#include <game/game_application.h>
 #include <cstdio>
 
 #if defined(LUMEN_EDITOR)
     #include <editor/editor_application.h>
     #include <core/io/path.h>
     #include <filesystem>
-#elif defined(LUMEN_GAME)
-    #include <game/game_application.h>
-#else
+// #elif defined(LUMEN_GAME)
+//     #include <game/game_application.h>
+// #else
+#elif !defined(LUMEN_GAME)
     #error "lumen_main.cpp requires LUMEN_EDITOR or LUMEN_GAME"
 #endif
 
@@ -29,22 +32,27 @@ static void attach_console_or_null()
 #endif
 
 static std::unique_ptr<lumen::Application> create_application(
-    lumen::ApplicationCreateInfo& info, [[maybe_unused]] std::string& ini_storage)
+    const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info, [[maybe_unused]] std::string& ini_storage)
 {
 #if defined(LUMEN_EDITOR)
-    info.window_title = "Lumen Editor";
-    ini_storage = (lumen::Paths::roaming_data() / "editor_layout.cfg").string();
-    info.ini_path = ini_storage.c_str();
-    return std::make_unique<lumen::EditorApplication>();
-
-#elif defined(LUMEN_GAME)
-  #if defined(LUMEN_DEV_TOOLS)
-    info.window_title = "Lumen Game (Dev Tools)";
-  #else
-    info.window_title = "Lumen Game";
-  #endif
-    return std::make_unique<lumen::GameApplication>();
+    if (!p_args.game) {
+        info.window_title = "Lumen Editor";
+        ini_storage = (lumen::Paths::roaming_data() / "editor_layout.cfg").string();
+        info.ini_path = ini_storage.c_str();
+        return std::make_unique<lumen::EditorApplication>();
+    }
 #endif
+
+#if defined(LUMEN_DEV_TOOLS)
+    info.window_title = p_args.pie ? "Lumen Game (PIE)" : "Lumen Game (Dev Tools)";
+#else
+    info.window_title = "Lumen Game";
+#endif
+    auto game = std::make_unique<lumen::GameApplication>();
+    game->project_root = p_args.project;
+    // Editor already showed the GPU capability prompt before Play.
+    game->gpu_support_confirmed = p_args.pie;
+    return game;
 }
 
 static int run_app()
@@ -53,8 +61,10 @@ static int run_app()
     info.width  = 1280;
     info.height = 720;
 
+    const lumen::LaunchArgs args = lumen::LaunchArgs::parse_command_line();
+
     std::string ini_storage;
-    auto app = create_application(info, ini_storage);
+    auto app = create_application(args, info, ini_storage);
     
     lumen::Error err = app->initialize(info);
     if (err == lumen::Error::OK) err = app->run();

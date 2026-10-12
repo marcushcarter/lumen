@@ -16,7 +16,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     using enum Error;
     Error err;
 
-    log_write("%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
+    log_write("\n\n%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
 
     cpu_profiler().initialize();
 
@@ -353,7 +353,7 @@ Error Application::_apply_pending_render_path()
 
     const auto t2 = std::chrono::steady_clock::now();
     auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
-    log_write("RenderPath switch: teardown %.1f ms, create %.1f ms", ms(t0, t1), ms(t1, t2));
+    // log_write("RenderPath switch: teardown %.1f ms, create %.1f ms", ms(t0, t1), ms(t1, t2));
     return OK;
 }
 

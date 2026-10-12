@@ -238,7 +238,6 @@ Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
 
     if (p_width == 0 || p_height == 0) return OK;
     if (p_width == width && p_height == height) return OK;
-    log_write("Renderer: resize %ux%u -> %ux%u (frame %llu)", width, height, p_width, p_height, (unsigned long long)frame_number);
     width = p_width;
     height = p_height;
     resize_epoch++;

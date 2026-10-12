@@ -131,7 +131,7 @@ void Editor::_draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_
     dock_menu_push_style();
     if (ImGui::BeginPopup("##options_menu", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         ImGui::TextDisabled("MODES");
-        ImGui::MenuItem(ICON_FA_PLAY "  Selected Viewport", nullptr, true);
+        ImGui::MenuItem(ICON_FA_WINDOW_MAXIMIZE "  New Window", nullptr, true);
         ImGui::EndPopup();
     }
     dock_menu_pop_style();

@@ -55,6 +55,8 @@ Error EditorApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = editor.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = play.initialize();
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     _load_state();
     settings.theme.apply();
@@ -66,6 +68,7 @@ Error EditorApplication::on_init()
 
 void EditorApplication::on_shutdown()
 {
+    play.shutdown();
     resources.shutdown();
     
     _save_state();
@@ -77,6 +80,7 @@ void EditorApplication::on_shutdown()
 
 void EditorApplication::on_update(float p_dt)
 {
+    play.poll();
     _draw_titlebar();
 
     EditorContext ctx = _make_context();
@@ -140,6 +144,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 
 void EditorApplication::close_project()
 {
+    play.stop();
     pending_transition = [this]{ assets.close(); folders.clear(); selection.clear(); project_unload(); };
     render_path_request(new ProjectManagerRenderPath());
 }
@@ -478,7 +483,6 @@ void EditorApplication::_titlebar_help_menu()
             ImGui::SetClipboardText(buf);
         }
         ImGui::Separator();
-        // if (ImGui::MenuItem("About Lumen")) popups.open("About Lumen");
         if (ImGui::MenuItem("Support Development")) ShellExecuteA(nullptr, "open", "https://lumengames.ca", nullptr, nullptr, SW_SHOWNORMAL);
         ImGui::EndMenu();
     }
@@ -647,26 +651,20 @@ EditorContext EditorApplication::_make_context()
     ctx.close_project_callback = [this](){this->close_project();};
     ctx.confirm_gpu_support = [this]{ return confirm_gpu_support(); };
     
-    ctx.pie_is_playing = [this]{ return mode == EditorMode::PLAY; };
-    ctx.pie_toggle_play = [this]{ mode = (mode == EditorMode::PLAY) ? EditorMode::EDIT : EditorMode::PLAY; paused = false; renderer.camera_cut(); };
-    ctx.pie_is_paused = [this]{ return paused; };
-    ctx.pie_toggle_pause = [this]{ paused = !paused; };
+    ctx.pie_is_playing = [this]{ return play.is_running(); };
+    ctx.pie_toggle_play = [this]{ if (play.is_running()) play.stop(); else play.launch(project.root); };
     
     return ctx;
 }
 
 void EditorApplication::update_camera(float p_dt)
 {
-    if (mode == EditorMode::EDIT) editor_camera.update(p_dt);
-    if (mode == EditorMode::PLAY) {
-        
-    }
+    editor_camera.update(p_dt);
 }
 
 const Camera& EditorApplication::active_camera() const
 {
-    if (mode == EditorMode::EDIT) return editor_camera.camera;
-    return *world.active_camera;
+    return editor_camera.camera;
 }
 
 }

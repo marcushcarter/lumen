@@ -15,8 +15,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin/Release)
 
 set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} /I\"${CMAKE_SOURCE_DIR}\" /I\"${CMAKE_BINARY_DIR}/generated\"")
 
-option(LUMEN_BUILD_EDITOR "Build the editor" ON)
-option(LUMEN_BUILD_GAME "Build the game runtime" ON)
+option(LUMEN_BUILD_EDITOR "Build lumen_engine (editor + runtime, dev)" ON)
+option(LUMEN_BUILD_GAME "Build lumen_game (runtime only, ship)" ON)
 option(LUMEN_BUILD_CONSOLE_WRAPPER "Build the console wrapper" ON)
 
 configure_file(
@@ -35,6 +35,7 @@ include(EmbedAssets)
 add_subdirectory(thirdparty)
 add_subdirectory(drivers)
 add_subdirectory(core)
+add_subdirectory(game)
 add_subdirectory(editor)
 
 set(LUMEN_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)

@@ -10,8 +10,8 @@ Error GameApplication::on_init()
 {
     using enum Error;
 
-    // Error err = project_load(Paths::executable_dir());
-    Error err = project_load("D:/TestLumen");
+    if (project_root.empty()) project_root = "D:/TestLumen";
+    Error err = project_load(project_root);
     if (err == CANCELED) return err;
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     

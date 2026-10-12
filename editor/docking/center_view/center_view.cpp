@@ -310,28 +310,37 @@ void CenterView::_draw_scene(EditorContext& ctx)
     if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
 }
 
+float CenterView::layout(ImVec2 p_min, ImVec2 p_max)
+{
+    const float h = p_max.y - p_min.y;
+    usable_h = ImMax(1.0f, h - TabStrip::height() - DOCK_GAP);
+    if (debugger.collapsed) {
+        scene_h = usable_h;
+        content_h = 0.0f;
+    } else {
+        float min_r = 1.0f - MAX_DEBUG;
+        float max_r = 1.0f - MIN_DEBUG;
+        if (max_r < min_r) max_r = min_r;
+        split_ratio = ImClamp(split_ratio, min_r, max_r);
+        scene_h = ImFloor(usable_h * split_ratio);
+        content_h = usable_h - scene_h;
+    }
+    return p_min.y + scene_h;
+}
+
+void CenterView::apply_split_delta(float p_delta, bool p_activated)
+{
+    if (debugger.collapsed && p_activated) split_ratio = 1.0f;
+    split_ratio += p_delta / usable_h;
+    debugger.collapsed = (1.0f - split_ratio < MIN_DEBUG);
+}
+
 void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
     const DockColors colors = DockColors::get();
     const float w = p_max.x - p_min.x;
-    const float h = p_max.y - p_min.y;
     const float strip_h = TabStrip::height();
-    const float min_debug = 0.025f;
-    const float max_debug = 0.7f;
-
-    const float usable = ImMax(1.0f, h - strip_h - DOCK_GAP);
-    float scene_h, content_h;
-    if (debugger.collapsed) {
-        scene_h = usable;
-        content_h = 0.0f;
-    } else {
-        float min_r = 1.0f - max_debug;
-        float max_r = 1.0f - min_debug;
-        if (max_r < min_r) max_r = min_r;
-        split_ratio = ImClamp(split_ratio, min_r, max_r);
-        scene_h = ImFloor(usable * split_ratio);
-        content_h = usable - scene_h;
-    }
+    layout(p_min, p_max);
 
     ImGui::SetCursorScreenPos(p_min);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -342,11 +351,7 @@ void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h));
     SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, DOCK_GAP), 0.0f);
-    if (s.active) {
-        if (debugger.collapsed && s.activated) split_ratio = 1.0f;
-        split_ratio += s.delta / usable;
-        debugger.collapsed = (1.0f - split_ratio < min_debug);
-    }
+    if (s.active) apply_split_delta(s.delta, s.activated);
 
     if (!debugger.collapsed && content_h >= 1.0f) {
         ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h + DOCK_GAP));
@@ -361,7 +366,7 @@ void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     const bool was_collapsed = debugger.collapsed;
     debugger.draw_strip(ImVec2(p_min.x, p_max.y - strip_h), p_max);
-    if (was_collapsed && !debugger.collapsed) split_ratio = 1.0f - max_debug / 3.0f;
+    if (was_collapsed && !debugger.collapsed) split_ratio = 1.0f - MAX_DEBUG / 3.0f;
 }
 
 }

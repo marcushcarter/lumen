@@ -130,7 +130,7 @@ SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float 
 {
     ImGui::InvisibleButton(id, size);
     SplitterState s;
-    s.hovered = ImGui::IsItemHovered();
+    s.hovered = ImGui::IsItemHovered() && ImGui::GetHoveredID() == ImGui::GetItemID();
     s.active = ImGui::IsItemActive();
     s.activated = ImGui::IsItemActivated();
 
@@ -143,7 +143,6 @@ SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float 
     float cy = ImFloor((mn.y + mx.y) * 0.5f);
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    // Hover/drag: full-length accent line. Idle: optional grip (grip_len <= 0 -> nothing, the gap itself reads as the divider).
     if (s.hovered || s.active) {
         ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered);
         if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - 1.0f, mn.y), ImVec2(cx + 1.0f, mx.y), col);
@@ -182,4 +181,4 @@ void imgui_property_grid_end()
     ImGui::EndTable();
 }
 
-}
+}

@@ -13,12 +13,18 @@ struct DebugViewCategory;
 
 struct CenterView
 {
+    static constexpr float MIN_DEBUG = 0.025f;
+    static constexpr float MAX_DEBUG = 0.7f;
+
     Debugger debugger;
     OverlayBar left_overlay;
     OverlayBar right_overlay;
 
     int selected_view = 0;
     float split_ratio = 1.0f;
+    float usable_h = 1.0f;
+    float scene_h = 0.0f;
+    float content_h = 0.0f;
     float screen_percentage = 1.0f;
     float item_w = 240.0f;
     
@@ -27,6 +33,9 @@ struct CenterView
     bool popup_open_last_frame = false;
 
     void initialize();
+
+    float layout(ImVec2 p_min, ImVec2 p_max);
+    void apply_split_delta(float p_delta, bool p_activated);
 
     bool _view_item(const char* p_icon, const char* p_name, int p_id);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);

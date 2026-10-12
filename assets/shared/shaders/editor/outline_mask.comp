@@ -6,6 +6,7 @@
 
 #include "common/instances.glsl"
 #include "common/visbuffer.glsl"
+#include "editor/outline_common.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -20,26 +21,40 @@ layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
     InstanceBuffer instances;
     SelectionWordsBuffer mask;
+    OutlineArgsBuffer args;
     uint word_count;
     uint vis_index;
     uint depth_index;
     uint out_slot;
-    uint rect[4];
 } pc;
 
+const uint NO_ENTITY = OUTLINE_NO_ENTITY;
+const uint HOVER_BIT = OUTLINE_HOVER_BIT;
+
+uint entity_at(ivec2 p) {
+    if (texelFetch(u_textures[pc.depth_index], p, 0).r == 0.0) return NO_ENTITY;
+    uint v = texelFetch(u_textures_uint[pc.vis_index], p, 0).x;
+    if (vis_is_empty(v) || vis_is_terrain(v)) return NO_ENTITY;
+    return pc.instances.data[pc.cluster_refs.data[vis_cluster_ref(v)].x].entity_id;
+}
+
+bool is_selected(uint p_entity) {
+    uint w = p_entity >> 5u;
+    return w < pc.word_count && ((pc.mask.words[w] >> (p_entity & 31u)) & 1u) != 0u;
+}
+
 void main() {
-    ivec2 p = ivec2(pc.rect[0], pc.rect[1]) + ivec2(gl_GlobalInvocationID.xy);
-    if (p.x >= int(pc.rect[2]) || p.y >= int(pc.rect[3])) return;
+    const uvec4 rect = pc.args.rect;
+    ivec2 p = ivec2(rect.xy) + ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(rect.z) || p.y >= int(rect.w)) return;
+
+    const uint hovered = pc.args.hovered;
 
     uint id = 0u;
-    float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
-    if (depth != 0.0) {
-        uint v = texelFetch(u_textures_uint[pc.vis_index], p, 0).x;
-        if (!vis_is_terrain(v)) {
-            uint entity = pc.instances.data[pc.cluster_refs.data[vis_cluster_ref(v)].x].entity_id;
-            uint w = entity >> 5u;
-            if (w < pc.word_count && ((pc.mask.words[w] >> (entity & 31u)) & 1u) != 0u) id = entity + 1u;
-        }
+    const uint entity = entity_at(p);
+    if (entity != NO_ENTITY) {
+        if (is_selected(entity)) id = entity + 1u;
+        else if (entity == hovered) id = (entity + 1u) | HOVER_BIT;
     }
     imageStore(u_storage_r32ui[pc.out_slot], p, uvec4(id));
 }

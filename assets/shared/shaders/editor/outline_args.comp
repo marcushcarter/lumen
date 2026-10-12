@@ -1,0 +1,53 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/instances.glsl"
+#include "common/visbuffer.glsl"
+#include "editor/outline_common.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) readonly buffer SelectionWordsBuffer { uint words[]; };
+
+layout(push_constant) uniform Push {
+    ClusterRefsBuffer cluster_refs;
+    InstanceBuffer instances;
+    SelectionWordsBuffer mask;
+    OutlineArgsBuffer args;
+    uint word_count;
+    uint vis_index;
+    uint depth_index;
+    uint hover_enabled;
+    uint hover_x;
+    uint hover_y;
+    uint width;
+    uint height;
+    uint selection_rect[4];
+} pc;
+
+void main() {
+    uint hovered = OUTLINE_NO_ENTITY;
+    if (pc.hover_enabled != 0u) {
+        ivec2 p = ivec2(pc.hover_x, pc.hover_y);
+        uint v = texelFetch(u_textures_uint[pc.vis_index], p, 0).x;
+        if (texelFetch(u_textures[pc.depth_index], p, 0).r != 0.0 && !vis_is_empty(v) && !vis_is_terrain(v)) {
+            uint e = pc.instances.data[pc.cluster_refs.data[vis_cluster_ref(v)].x].entity_id;
+            uint w = e >> 5u;
+            bool selected = w < pc.word_count && ((pc.mask.words[w] >> (e & 31u)) & 1u) != 0u;
+            if (!selected) hovered = e;
+        }
+    }
+
+    uvec4 r = hovered != OUTLINE_NO_ENTITY ? uvec4(0u, 0u, pc.width, pc.height) : uvec4(pc.selection_rect[0], pc.selection_rect[1], pc.selection_rect[2], pc.selection_rect[3]);
+    bool empty = r.z <= r.x || r.w <= r.y;
+    pc.args.hovered = hovered;
+    pc.args.rect = r;
+    pc.args.dispatch = empty ? uvec3(0u, 1u, 1u) : uvec3((r.z - r.x + 7u) / 8u, (r.w - r.y + 7u) / 8u, 1u);
+}

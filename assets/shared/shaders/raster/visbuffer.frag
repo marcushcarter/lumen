@@ -1,8 +1,8 @@
 #version 460
 
-layout(location = 0) flat in uint v_draw_id;
-layout(location = 0) out uvec2 o_vis;
+layout(location = 0) flat in uint v_vis_base;
+layout(location = 0) out uint o_vis;
 
 void main() {
-    o_vis = uvec2(v_draw_id, uint(gl_PrimitiveID));
+    o_vis = v_vis_base | uint(gl_PrimitiveID);
 }

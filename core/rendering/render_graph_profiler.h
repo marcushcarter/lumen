@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <deque>
 #include <vector>
 #include <cstdint>
 
@@ -33,7 +34,7 @@ struct RenderGraphProfiler
     /**** NAMES ****/
     /***************/
     
-    std::unordered_map<uint64_t, std::string> name_table;
+    std::deque<std::string> name_table;
     IdMap _named_ids;
     
     static uint64_t intern(std::string_view p_s);
@@ -73,7 +74,8 @@ struct RenderGraphProfiler
     bool truncated = false;
 
     struct Smoothed { double gap = 0.0; double dur = 0.0; };
-    std::unordered_map<uint64_t, Smoothed> smoothed;
+    std::vector<Smoothed> smoothed;
+    IdMap smoothed_index;
     double smoothing = 0.001;
 
     /*******************/
@@ -108,7 +110,6 @@ struct RenderGraphProfiler
         uint32_t open_draw = INVALID;
         uint32_t open_barrier = INVALID;
         uint32_t pass_ordinal = 0;
-        // std::unordered_map<uint64_t, uint32_t> name_occurrence;
         IdMap name_occurrence;
         bool recorded = false;
         bool overflowed = false;

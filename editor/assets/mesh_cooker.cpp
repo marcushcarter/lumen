@@ -182,13 +182,14 @@ void _pack_vertices(std::vector<SrcVert>& r_verts, MeshSource& r_src)
 std::pair<uint32_t, uint32_t> _build_meshlets(const std::vector<SrcVert>& p_verts, const std::vector<uint32_t>& p_idx, uint32_t p_self_group, const MeshCooker::CookSettings& p_settings, std::vector<uint32_t>& r_flat, MeshSource& r_src)
 {
     const float cone_weight = 0.0f;
-
-    const size_t max_meshlets = meshopt_buildMeshletsBound(p_idx.size(), p_settings.max_verts, p_settings.max_tris);
+    const uint32_t max_tris = std::min(p_settings.max_tris, 256u);
+    
+    const size_t max_meshlets = meshopt_buildMeshletsBound(p_idx.size(), p_settings.max_verts, max_tris);
     std::vector<meshopt_Meshlet> meshlets(max_meshlets);
     std::vector<unsigned int> mv(max_meshlets * p_settings.max_verts);
-    std::vector<unsigned char> mt(max_meshlets * p_settings.max_tris * 3);
+    std::vector<unsigned char> mt(max_meshlets * max_tris * 3);
 
-    const size_t count = meshopt_buildMeshlets(meshlets.data(), mv.data(), mt.data(), p_idx.data(), p_idx.size(), &p_verts[0].p.x, p_verts.size(), sizeof(SrcVert), p_settings.max_verts, p_settings.max_tris, cone_weight);
+    const size_t count = meshopt_buildMeshlets(meshlets.data(), mv.data(), mt.data(), p_idx.data(), p_idx.size(), &p_verts[0].p.x, p_verts.size(), sizeof(SrcVert), p_settings.max_verts, max_tris, cone_weight);
 
     const uint32_t begin = (uint32_t)r_src.clusters.size();
     for (size_t mi = 0; mi < count; mi++) {
@@ -407,7 +408,15 @@ Error MeshCooker::_cook(const Job& p_job)
     ph.uv_extent = src.uv_extent;
     ph.bounds_sphere = src.bounds_sphere;
 
-    const size_t vtx_bytes = src.vertices.size() * sizeof(Vertex);
+    std::vector<VertexPosition> positions(src.vertices.size());
+    std::vector<VertexAttributes> attributes(src.vertices.size());
+    for (size_t i = 0; i < src.vertices.size(); i++) {
+        positions[i] = { src.vertices[i].position, 0 };
+        attributes[i] = { src.vertices[i].normal, src.vertices[i].uv };
+    }
+    const size_t pos_bytes = positions.size() * sizeof(VertexPosition);
+    const size_t attr_bytes = attributes.size() * sizeof(VertexAttributes);
+    const size_t vtx_bytes = pos_bytes + attr_bytes;
     const size_t idx_bytes = src.indices.size() * sizeof(uint32_t);
     const size_t tri_bytes = src.tri_slots.size() * sizeof(uint32_t);
     const size_t slot_bytes = src.slot_table.size() * sizeof(uint32_t);
@@ -418,7 +427,7 @@ Error MeshCooker::_cook(const Job& p_job)
 
     LAssetHeader ah{};
     ah.magic = BCON_MAGIC;
-    ah.version = LASSET_VERSION;
+    ah.version = LMESH_VERSION;
     ah.guid = p_job.guid;
     ah.type = AssetType::MESH;
     ah.payload_size = (uint32_t)(sizeof(ph) + vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
@@ -429,7 +438,8 @@ Error MeshCooker::_cook(const Job& p_job)
     if (!f) { return FAILED; }
     f.write(reinterpret_cast<const char*>(&ah), sizeof(ah));
     f.write(reinterpret_cast<const char*>(&ph), sizeof(ph));
-    f.write(reinterpret_cast<const char*>(src.vertices.data()), vtx_bytes);
+    f.write(reinterpret_cast<const char*>(positions.data()), pos_bytes);
+    f.write(reinterpret_cast<const char*>(attributes.data()), attr_bytes);
     f.write(reinterpret_cast<const char*>(src.indices.data()), idx_bytes);
     if (tri_bytes) f.write(reinterpret_cast<const char*>(src.tri_slots.data()), tri_bytes);
     if (slot_bytes) f.write(reinterpret_cast<const char*>(src.slot_table.data()), slot_bytes);

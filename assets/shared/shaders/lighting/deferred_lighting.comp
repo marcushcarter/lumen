@@ -36,12 +36,19 @@ layout(push_constant, scalar) uniform Push {
 } pc;
 
 const float PI = 3.14159265359;
+const uint LIGHTING_FLAG_LOCAL_LIGHTS = 1u << 16;
+
+uint directional_count() { return pc.directional_count & 0xFFFFu; }
+bool has_local_lights() { return (pc.directional_count & LIGHTING_FLAG_LOCAL_LIGHTS) != 0u; }
+
+// 0: no local lights, 1: z-bins only (<= LIGHT_TILE_MIN_LIGHTS, no tile masks), 2: z-bins + tile masks
+layout(constant_id = 0) const uint LIGHT_MODE = 2u;
 
 vec3 sky_radiance(vec3 p_dir) {
     float h = p_dir.y;
-    vec3 sky = mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, pow(clamp(h, 0.0, 1.0), 0.5));
+    vec3 sky = mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, sqrt(clamp(h, 0.0, 1.0)));
     vec3 col = h >= 0.0 ? sky : mix(pc.sky_horizon.rgb, pc.ground_color.rgb, clamp(-h * 4.0, 0.0, 1.0));
-    if (pc.directional_count > 0u) {
+    if (directional_count() > 0u) {
         GpuLight sun = pc.lights.data[0];
         float cos_r = cos(max(sun.source_radius, 0.001));
         float disc = smoothstep(cos_r - 0.0002, cos_r, dot(p_dir, -sun.direction));
@@ -67,7 +74,9 @@ float v_smith_ggx_correlated(float p_n_v, float p_n_l, float p_a2) {
 }
 
 vec3 f_schlick(float p_v_h, vec3 p_f0) {
-    return p_f0 + (1.0 - p_f0) * pow(1.0 - p_v_h, 5.0);
+    float x = 1.0 - p_v_h;
+    float x2 = x * x;
+    return p_f0 + (1.0 - p_f0) * (x2 * x2 * x);
 }
 
 struct Surface {
@@ -122,17 +131,19 @@ void main() {
     vec4 near_h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
     vec3 view_dir = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
 
-    float roughness, metallic, ao;
-    uint shading_model;
-    gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
-
-    if (depth == 0.0 || shading_model == SHADING_MODEL_SKY) {
+    if (depth == 0.0) {
         imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(sky_radiance(view_dir), 1.0));
         return;
     }
 
-    // vec4 world_h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
-    // vec3 world_pos = world_h.xyz / world_h.w;
+    float roughness, metallic, ao;
+    uint shading_model;
+    gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
+    if (shading_model == SHADING_MODEL_SKY) {
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(sky_radiance(view_dir), 1.0));
+        return;
+    }
+
     float linear_depth = camera_linear_depth(pc.camera, depth);
     vec3 world_pos = pc.camera.position.xyz + (near_h.xyz / near_h.w - pc.camera.position.xyz) * (linear_depth / pc.camera.near_z);
 
@@ -152,21 +163,20 @@ void main() {
 
     vec3 direct = vec3(0.0);
 
-    for (uint i = 0u; i < pc.directional_count; i++) {
+    for (uint i = 0u; i < directional_count(); i++) {
         GpuLight light = pc.lights.data[i];
         vec3 l = -light.direction;
         direct += shade_light(s, l, l, 0.0, light.radiance);
     }
 
-    uint count = min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS);
-    if (count > 0u && count <= LIGHT_TILE_MIN_LIGHTS) {
+    uint count = (LIGHT_MODE != 0u && has_local_lights()) ? min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS) : 0u;
+    if (count > 0u && (LIGHT_MODE == 1u || count <= LIGHT_TILE_MIN_LIGHTS)) {
         uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, linear_depth)];
         bool any_light = zb.x <= ~zb.y;
         uint first = subgroupMin(any_light ? zb.x : 0xFFFFFFFFu);
         uint last = subgroupMax(any_light ? ~zb.y : 0u);
         for (uint i = first; i <= last && first != 0xFFFFFFFFu; i++) direct += shade_local(s, pc.sorted.data[i], world_pos);
-    } else if (count > 0u) {
-        // uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, camera_linear_depth(pc.camera, depth))];
+    } else if (LIGHT_MODE == 2u && count > 0u) {
         uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, linear_depth)];
         uint first = zb.x;
         uint last = ~zb.y;

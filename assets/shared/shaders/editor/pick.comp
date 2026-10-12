@@ -32,7 +32,7 @@ void main() {
     uint entity = PICK_NONE;
     float depth = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
     if (depth != 0.0) {
-        uvec2 v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).xy;
+        uint v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).x;
         if (!vis_is_terrain(v)) {
             uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(v)];
             entity = pc.instances.data[ref.x].entity_id;

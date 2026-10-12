@@ -15,6 +15,7 @@ struct DebugViewFeature : Feature
     RenderGraph::Pass viewport_resolve_pass;
     drivers::DeviceDriverVulkan::Pipeline overdraw_raster_pipe;
     drivers::DeviceDriverVulkan::Pipeline viewport_resolve_pipe;
+    drivers::DeviceDriverVulkan::Pipeline viewport_copy_pipe;
 
     void _create_viewport(RenderGraph::Builder& b);
     void _overdraw_raster_setup(RenderGraph::Builder& b, uint32_t phase);

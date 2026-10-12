@@ -3,14 +3,14 @@
 #include <algorithm>
 
 namespace lumen {
-void LightCullFeature::_create_clear_pass()
+void LightCullFeature::_create_cull_pass()
 {
-    clear_pass.name = "LightCullClear";
-    clear_pass.category = PASS_CATEGORY_LIGHTING;
-    clear_pass.setup = [this](RenderGraph::Builder& b) {
+    cull_pass.name = "LightCull";
+    cull_pass.category = PASS_CATEGORY_LIGHTING;
+    cull_pass.setup = [this](RenderGraph::Builder& b) {
         drivers::DeviceDriverVulkan::BufferCreateInfo data_ci{};
         data_ci.size = LIGHT_CULL_DATA_SIZE;
-        data_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        data_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         data_ci.device_local = true;
         b.create_buffer("LightCullData", data_ci);
 
@@ -26,32 +26,10 @@ void LightCullFeature::_create_clear_pass()
         sorted_ci.device_local = true;
         b.create_buffer("SortedLights", sorted_ci);
 
-        const uint32_t tiles = std::max(1u, ((b.graph->width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE) * ((b.graph->height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE));
-        drivers::DeviceDriverVulkan::BufferCreateInfo masks_ci{};
-        const uint32_t mask_words = std::max(1u, (std::min(_local_count(), MAX_VISIBLE_LIGHTS) + 31u) / 32u);
-        masks_ci.size = (VkDeviceSize)tiles * mask_words * sizeof(uint32_t);
-        masks_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-        masks_ci.device_local = true;
-        b.create_buffer("LightTileMasks", masks_ci);
 
-        b.write_buffer("LightCullData", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-    };
-    clear_pass.execute = [](RenderGraph::CommandList& cl) {
-        auto* data = cl.graph->buffer("LightCullData");
-        if (!data) return;
-        cl.fill_buffer("Clear light counters", *data, 0u, 0, LIGHT_CULL_ZBINS_OFFSET);
-        cl.fill_buffer("Clear light zbins", *data, 0xFFFFFFFFu, LIGHT_CULL_ZBINS_OFFSET, (VkDeviceSize)LIGHT_ZBIN_COUNT * 2 * sizeof(uint32_t));
-    };
-}
-
-void LightCullFeature::_create_cull_pass()
-{
-    cull_pass.name = "LightCull";
-    cull_pass.category = PASS_CATEGORY_LIGHTING;
-    cull_pass.setup = [](RenderGraph::Builder& b) {
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.write_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("VisibleLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     cull_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -79,7 +57,7 @@ void LightCullFeature::_create_cull_pass()
 
         cl.dd->command_bind_pipeline(cl.cmd, cull_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Light cull", (local + 63) / 64);
+        cl.dispatch("Light cull", 1);
     };
 }
 
@@ -121,7 +99,15 @@ void LightCullFeature::_create_tiles_pass()
 {
     tiles_pass.name = "LightTiles";
     tiles_pass.category = PASS_CATEGORY_LIGHTING;
-    tiles_pass.setup = [](RenderGraph::Builder& b) {
+    tiles_pass.setup = [this](RenderGraph::Builder& b) {
+        const uint32_t tiles = std::max(1u, ((b.graph->width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE) * ((b.graph->height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE));
+        drivers::DeviceDriverVulkan::BufferCreateInfo masks_ci{};
+        const uint32_t mask_words = std::max(1u, (std::min(_local_count(), MAX_VISIBLE_LIGHTS) + 31u) / 32u);
+        masks_ci.size = (VkDeviceSize)tiles * mask_words * sizeof(uint32_t);
+        masks_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        masks_ci.device_local = true;
+        b.create_buffer("LightTileMasks", masks_ci);
+
         b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -161,7 +147,6 @@ void LightCullFeature::_create_tiles_pass()
 
 Error LightCullFeature::create_resources()
 {
-    _create_clear_pass();
     _create_cull_pass();
     _create_bin_pass();
     _create_tiles_pass();
@@ -194,11 +179,11 @@ void LightCullFeature::destroy_resources()
 
 void LightCullFeature::build(RenderGraph& g)
 {
-    if (!g.image_resource("G_Depth")) return;
-    g.add(&clear_pass);
+    if (!g.image_resource("G_Depth") || _local_count() == 0) return;
     g.add(&cull_pass);
     g.add(&bin_pass);
-    g.add(&tiles_pass);
+    // only built when tiles can be used; lighting and the debug view treat a missing LightTileMasks as z-bin-only
+    if (_local_count() > LIGHT_TILE_MIN_LIGHTS) g.add(&tiles_pass);
 }
 
 }

@@ -2,17 +2,25 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 
-layout(local_size_x = 1) in;
+// Also zeroes ClusterCounts2 (one thread per cluster), replacing a transfer fill and its compute -> transfer switch.
+layout(local_size_x = 256) in;
 
 layout(buffer_reference, scalar) readonly buffer ClusterRetestBuffer { uint count; uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
+layout(buffer_reference, scalar) writeonly buffer CountBuffer { uint data[]; };
 
 layout(push_constant) uniform Push {
     ClusterRetestBuffer cluster_retest;
     IndirectDispatch retest_args;
+    CountBuffer counts;
+    uint cluster_count;
 } pc;
 
 void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid < pc.cluster_count) pc.counts.data[gid] = 0u;
+    if (gid != 0u) return;
+
     uint groups = (pc.cluster_retest.count + 63u) / 64u;
     pc.retest_args.x = min(groups, 65535u);
     pc.retest_args.y = (groups + 65534u) / 65535u;

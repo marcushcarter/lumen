@@ -2998,6 +2998,7 @@ DeviceDriverVulkan::Pipeline DeviceDriverVulkan::_compute_pipeline_create(const 
     stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     stage.module = p_ci.compute_shader;
     stage.pName = "main";
+    stage.pSpecializationInfo = p_ci.specialization;
 
     VkComputePipelineCreateInfo pipeline_ci{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
     pipeline_ci.stage = stage;

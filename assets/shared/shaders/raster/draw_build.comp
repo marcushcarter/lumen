@@ -3,10 +3,14 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "common/geometry.glsl"
 
 #define WG_SIZE 256u
+#define ITEMS 4u
+#define TILE (WG_SIZE * ITEMS)
 layout(local_size_x = 256) in;
 
 struct DrawIndexedIndirectCommand {
@@ -20,66 +24,84 @@ struct DrawIndexedIndirectCommand {
 layout(buffer_reference, scalar) readonly buffer CountBuffer { uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer OffsetBuffer { uint data[]; };
 layout(buffer_reference, scalar) writeonly buffer DrawCmdBuffer { DrawIndexedIndirectCommand cmds[]; };
-layout(buffer_reference, scalar) writeonly buffer DrawMetaBuffer { uint base[]; };
 layout(buffer_reference, scalar) writeonly buffer DrawCountBuffer { uint value; };
+layout(buffer_reference, scalar) writeonly buffer HiZArgsBuffer { uvec3 build; };
 
 layout(push_constant) uniform Push {
     GeometryBuffer geometry;
     CountBuffer counts;
     OffsetBuffer offsets;
     DrawCmdBuffer draw_cmds;
-    DrawMetaBuffer draw_meta;
     DrawCountBuffer draw_count;
+    HiZArgsBuffer hiz_args;
     uint cluster_count;
+    uint hiz_groups_x;
+    uint hiz_groups_y;
 } pc;
 
-shared uvec2 s_scan[WG_SIZE];
+shared uvec2 s_sub[WG_SIZE];
+shared uvec2 s_total;
 
 void main() {
-    uint lid = gl_LocalInvocationID.x;
+    const uint lid = gl_LocalInvocationID.x;
+    const uint slot = gl_SubgroupID * gl_SubgroupSize + gl_SubgroupInvocationID;
+    uvec2 running = uvec2(0u);
 
-    uint carry_inst = 0u;
-    uint carry_draw = 0u;
-    uint tiles = (pc.cluster_count + WG_SIZE - 1u) / WG_SIZE;
-
-    for (uint t = 0u; t < tiles; t++) {
-        uint cid = t * WG_SIZE + lid;
-        uint c = (cid < pc.cluster_count) ? pc.counts.data[cid] : 0u;
-        uvec2 v = uvec2(c, c > 0u ? 1u : 0u);
-
-        s_scan[lid] = v;
-        barrier();
-        for (uint off = 1u; off < WG_SIZE; off <<= 1u) {
-            uvec2 a = (lid >= off) ? s_scan[lid - off] : uvec2(0u);
-            barrier();
-            s_scan[lid] += a;
-            barrier();
+    for (uint t = 0u; t < pc.cluster_count; t += TILE) {
+        const uint base = t + slot * ITEMS;
+        uint c[ITEMS];
+        uvec2 pre[ITEMS];
+        uvec2 local = uvec2(0u);
+        for (uint k = 0u; k < ITEMS; k++) {
+            const uint cid = base + k;
+            c[k] = cid < pc.cluster_count ? pc.counts.data[cid] : 0u;
+            pre[k] = local;
+            local += uvec2(c[k], c[k] > 0u ? 1u : 0u);
         }
 
-        uvec2 exclusive = uvec2(carry_inst, carry_draw) + s_scan[lid] - v;
+        const uvec2 incl = subgroupInclusiveAdd(local);
+        if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) s_sub[gl_SubgroupID] = incl;
+        barrier();
 
-        if (cid < pc.cluster_count) {
-            pc.offsets.data[cid] = exclusive.x;
+        if (gl_SubgroupID == 0u) {
+            uvec2 carry = uvec2(0u);
+            for (uint i = 0u; i < gl_NumSubgroups; i += gl_SubgroupSize) {
+                const uint idx = i + gl_SubgroupInvocationID;
+                const uvec2 v = idx < gl_NumSubgroups ? s_sub[idx] : uvec2(0u);
+                const uvec2 x = subgroupExclusiveAdd(v) + carry;
+                if (idx < gl_NumSubgroups) s_sub[idx] = x;
+                carry += subgroupAdd(v);
+            }
+            if (gl_SubgroupInvocationID == 0u) s_total = carry;
+        }
+        barrier();
 
-            if (c > 0u) {
-                Cluster cluster = pc.geometry.clusters.data[cid];
-
+        const uvec2 thread_base = running + s_sub[gl_SubgroupID] + incl - local;
+        for (uint k = 0u; k < ITEMS; k++) {
+            const uint cid = base + k;
+            if (cid >= pc.cluster_count) break;
+            const uvec2 ex = thread_base + pre[k];
+            pc.offsets.data[cid] = ex.x;
+            if (c[k] > 0u) {
                 DrawIndexedIndirectCommand cmd;
-                cmd.index_count = cluster.index_count;
-                cmd.instance_count = c;
-                cmd.first_index = cluster.index_base;
+                cmd.index_count = pc.geometry.clusters.data[cid].index_count;
+                cmd.instance_count = c[k];
+                cmd.first_index = pc.geometry.clusters.data[cid].index_base;
                 cmd.vertex_offset = 0;
-                cmd.first_instance = 0u;
-                pc.draw_cmds.cmds[exclusive.y] = cmd;
-                pc.draw_meta.base[exclusive.y] = exclusive.x;
+                cmd.first_instance = ex.x;
+                pc.draw_cmds.cmds[ex.y] = cmd;
             }
         }
 
-        uvec2 total = s_scan[WG_SIZE - 1u];
-        carry_inst += total.x;
-        carry_draw += total.y;
+        running += s_total;
         barrier();
     }
 
-    if (lid == 0u) pc.draw_count.value = carry_draw;
+    if (lid == 0u) {
+        pc.draw_count.value = running.y;
+        if (pc.hiz_groups_x != 0u) {
+            const bool any = running.y > 0u;
+            pc.hiz_args.build = any ? uvec3(pc.hiz_groups_x, pc.hiz_groups_y, 1u) : uvec3(0u, 1u, 1u);
+        }
+    }
 }

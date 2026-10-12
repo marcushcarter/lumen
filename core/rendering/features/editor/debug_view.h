@@ -63,7 +63,7 @@ static constexpr DebugViewCategory DV_CAT_GI = { ICON_FA_IMAGE, "Radiance GI" };
 
 static constexpr DebugView DEBUG_VIEWS[] = {
     { ICON_FA_IMAGE, "Lit", nullptr, "SceneColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
-    { ICON_FA_IMAGE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
+    { ICON_FA_IMAGE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { ICON_FA_IMAGE, "Wireframe", nullptr, nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     // wireframe only
     { ICON_FA_IMAGE, "Clay", nullptr, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
@@ -85,7 +85,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     // mip level
     // texel density
 
-    { nullptr, "Base Color", &DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE },
+    { nullptr, "Base Color", &DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { nullptr, "World Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { nullptr, "Roughness", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::ROUGHNESS, DebugViewInputs::SOURCE },
     { nullptr, "Metallic", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::METALLIC, DebugViewInputs::SOURCE },

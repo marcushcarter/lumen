@@ -7,10 +7,10 @@ namespace lumen {
 
 struct LightingFeature : Feature
 {
+    enum : uint32_t { LIGHT_MODE_NONE, LIGHT_MODE_ZBIN, LIGHT_MODE_TILED, LIGHT_MODE_COUNT };
+
     RenderGraph::Pass lighting_pass;
-    drivers::DeviceDriverVulkan::Pipeline lighting_pipe;
-    
-    drivers::DeviceDriverVulkan::Pipeline _compute_pipeline(const wchar_t* p_resource, const char* p_name);
+    drivers::DeviceDriverVulkan::Pipeline lighting_pipes[LIGHT_MODE_COUNT];
 
     glm::vec3 sky_zenith = glm::vec3(0.18f, 0.32f, 0.62f);
     glm::vec3 sky_horizon = glm::vec3(0.62f, 0.72f, 0.85f);

@@ -2,15 +2,17 @@
 #define VISBUFFER_GLSL
 
 const uint VIS_TERRAIN_BIT = 1u << 31;
-const uint VIS_PHASE2_BIT = 1u << 31;
+const uint VIS_TRI_BITS = 8u;
+const uint VIS_TRI_MASK = (1u << VIS_TRI_BITS) - 1u;
+const uint VIS_EMPTY = 0xFFFFFFFFu;
 
-bool vis_is_terrain(uvec2 v) { return (v.x & VIS_TERRAIN_BIT) != 0u; }
-uint vis_cluster_ref(uvec2 v) { return v.x; }
-uint vis_terrain_patch(uvec2 v) { return v.x & ~VIS_TERRAIN_BIT; }
-uint vis_triangle(uvec2 v) { return v.y & ~VIS_PHASE2_BIT; }
-uint vis_phase(uvec2 v) { return v.y >> 31; }
+bool vis_is_empty(uint v) { return v == VIS_EMPTY; }
+bool vis_is_terrain(uint v) { return (v & VIS_TERRAIN_BIT) != 0u; }
+uint vis_cluster_ref(uint v) { return v >> VIS_TRI_BITS; }
+uint vis_terrain_patch(uint v) { return (v & ~VIS_TERRAIN_BIT) >> VIS_TRI_BITS; }
+uint vis_triangle(uint v) { return v & VIS_TRI_MASK; }
 
-uvec2 vis_encode_cluster(uint ref_idx, uint tri, uint phase) { return uvec2(ref_idx, tri | (phase << 31)); }
-uvec2 vis_encode_terrain(uint patch_idx, uint tri, uint phase) { return uvec2(patch_idx | VIS_TERRAIN_BIT, tri | (phase << 31)); }
+uint vis_encode_cluster(uint ref_idx, uint tri) { return (ref_idx << VIS_TRI_BITS) | tri; }
+uint vis_encode_terrain(uint patch_idx, uint tri) { return VIS_TERRAIN_BIT | (patch_idx << VIS_TRI_BITS) | tri; }
 
 #endif

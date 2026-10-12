@@ -8,7 +8,6 @@ namespace lumen {
 
 static constexpr const char* OVERDRAW_DRAW_CMDS[2] = { "ClusterDrawCmds", "ClusterDrawCmds2" };
 static constexpr const char* OVERDRAW_DRAW_COUNT[2] = { "ClusterDrawCount", "ClusterDrawCount2" };
-static constexpr const char* OVERDRAW_DRAW_META[2] = { "ClusterDrawMeta", "ClusterDrawMeta2" };
 static constexpr const char* OVERDRAW_SCATTER[2] = { "ClusterScatter", "ClusterScatter2" };
 static constexpr uint32_t INVALID_OP = 0xFFFFFFFFu;
 
@@ -36,7 +35,6 @@ void DebugViewFeature::_overdraw_raster_setup(RenderGraph::Builder& b, uint32_t 
     b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     b.read_buffer(OVERDRAW_SCATTER[phase], VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    b.read_buffer(OVERDRAW_DRAW_META[phase], VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 }
 
 void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, uint32_t phase)
@@ -52,7 +50,6 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
         VkDeviceAddress transforms_addr;
         VkDeviceAddress cluster_refs_addr;
         VkDeviceAddress scatter_addr;
-        VkDeviceAddress draw_meta_addr;
     } pc;
     pc.camera_addr = cl.graph->buffer("Camera")->device_address;
     pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
@@ -60,7 +57,6 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
     pc.transforms_addr = cl.graph->buffer("Transforms")->device_address;
     pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
     pc.scatter_addr = cl.graph->buffer(OVERDRAW_SCATTER[phase])->device_address;
-    pc.draw_meta_addr = cl.graph->buffer(OVERDRAW_DRAW_META[phase])->device_address;
 
     cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, out->extent }});
     cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, out->extent }});
@@ -111,9 +107,9 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
         
-        if (d.inputs & DebugViewInputs::LIGHTS) {
+        if ((d.inputs & DebugViewInputs::LIGHTS) && b.graph->buffer_resource("LightCullData")) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-            b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            if (b.graph->buffer_resource("LightTileMasks")) b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
             b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
 
@@ -142,6 +138,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             uint32_t out_slot;
             uint32_t op, width, height;
             float px_per_unit;
+            uint32_t has_local_lights;
         } pc{};
         pc.out_slot = out->bindless_storage;
         pc.op = (uint32_t)d.op;
@@ -168,13 +165,32 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else pc.op = INVALID_OP;
         }
         if (d.inputs & DebugViewInputs::LIGHTS) {
-            if (auto* r = cl.graph->buffer("LightCullData")) pc.light_cull_addr = r->device_address; else pc.op = INVALID_OP;
-            if (auto* r = cl.graph->buffer("LightTileMasks")) pc.light_masks_addr = r->device_address; else pc.op = INVALID_OP;
-            if (auto* r = cl.graph->buffer("SortedLights")) pc.light_sorted_addr = r->device_address; else pc.op = INVALID_OP;
+            auto* cull = cl.graph->buffer("LightCullData");
+            auto* masks = cl.graph->buffer("LightTileMasks");
+            auto* sorted = cl.graph->buffer("SortedLights");
+            pc.has_local_lights = cull && sorted ? 1u : 0u;
+            if (pc.has_local_lights) {
+                pc.light_cull_addr = cull->device_address;
+                pc.light_masks_addr = masks ? masks->device_address : 0;
+                pc.light_sorted_addr = sorted->device_address;
+            }
         }
 
         uint32_t gx = (out->extent.width + 7) / 8;
         uint32_t gy = (out->extent.height + 7) / 8;
+
+        if (pc.op == (uint32_t)DebugViewOp::COPY) {
+            struct {
+                uint32_t src_index;
+                uint32_t out_slot;
+                uint32_t width;
+                uint32_t height;
+            } copy_pc{ pc.src_index, pc.out_slot, pc.width, pc.height };
+            cl.dd->command_bind_pipeline(cl.cmd, viewport_copy_pipe);
+            cl.dd->command_bind_push_constants(cl.cmd, sizeof(copy_pc), &copy_pc);
+            cl.dispatch("Viewport copy", gx, gy);
+            return;
+        }
 
         cl.dd->command_bind_pipeline(cl.cmd, viewport_resolve_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -197,6 +213,13 @@ Error DebugViewFeature::create_pipelines()
     EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_EDITOR_DEBUG_VIEW_COMP");
     VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/debug_view.comp" });
     viewport_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "editor/debug_view"});
+    ctx->dd->shader_free(cs);
+    }
+
+    {
+    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_EDITOR_VIEWPORT_COPY_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/viewport_copy.comp" });
+    viewport_copy_pipe = ctx->dd->compute_pipeline_create({cs, "editor/viewport_copy"});
     ctx->dd->shader_free(cs);
     }
 
@@ -228,6 +251,7 @@ void DebugViewFeature::destroy_resources()
 {
     ctx->dd->pipeline_free(overdraw_raster_pipe);
     ctx->dd->pipeline_free(viewport_resolve_pipe);
+    ctx->dd->pipeline_free(viewport_copy_pipe);
 }
 
 void DebugViewFeature::build(RenderGraph& g)

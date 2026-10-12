@@ -1,47 +1,94 @@
 #version 460
 #extension GL_EXT_samplerless_texture_functions : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
 
 layout(local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, r32f) uniform writeonly image2D u_storage_r32f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+layout(buffer_reference, scalar) coherent buffer HiZTailBuffer { uint counter; uint _pad0; uint _pad1; uint _pad2; float mip6[]; };
 
 layout(push_constant) uniform Push {
+    HiZTailBuffer tail;
     ivec2 depth_size;
     uint depth_index;
     uint mips;
-    uint mip_slot[7];
+    uint sampler_index;
+    uint _pad;
+    uint mip_slot[16];
 } pc;
 
 const uint TILE = 64u;
+const uint TILE1 = TILE / 2u;
+const uint TILE_MIPS = 7u;
 const float NEUTRAL = 3.402823466e38;
 
-shared float s_mip[TILE * TILE + (TILE / 2u) * (TILE / 2u)];
+shared float s_mip[TILE1 * TILE1 + (TILE1 / 2u) * (TILE1 / 2u)];
+shared bool s_last;
 
-float depth_at(ivec2 p) { return texelFetch(u_textures[pc.depth_index], p, 0).r; }
+float mip0_at(ivec2 p_t, vec2 p_inv) {
+    ivec2 s = p_t * 2;
+    if (s.x >= pc.depth_size.x || s.y >= pc.depth_size.y) return NEUTRAL;
+    vec4 g = textureGather(sampler2D(u_textures[pc.depth_index], u_samplers[pc.sampler_index]), vec2(s + 1) * p_inv, 0);
+    return min(min(g.x, g.y), min(g.z, g.w));
+}
+
+void build_tail() {
+    uint lid = gl_LocalInvocationIndex;
+    ivec2 ssize = ivec2(gl_NumWorkGroups.xy);
+    uint src = 0u;
+    uint dst = 0u;
+
+    for (uint m = TILE_MIPS; m < pc.mips; m++) {
+        ivec2 dsize = max(ssize >> 1, ivec2(1));
+        for (uint i = lid; i < uint(dsize.x * dsize.y); i += 256u) {
+            ivec2 d = ivec2(int(i) % dsize.x, int(i) / dsize.x);
+            ivec2 lo = d * 2;
+            ivec2 hi = min(mix(lo + 1, ssize - 1, equal(d, dsize - 1)), ssize - 1);
+            float v = NEUTRAL;
+            for (int y = lo.y; y <= hi.y; y++)
+                for (int x = lo.x; x <= hi.x; x++)
+                    v = min(v, m == TILE_MIPS ? pc.tail.mip6[uint(y * ssize.x + x)] : s_mip[src + uint(y * ssize.x + x)]);
+            s_mip[dst + i] = v;
+            imageStore(u_storage_r32f[pc.mip_slot[m]], d, vec4(v));
+        }
+        barrier();
+        src = dst;
+        dst = (dst == 0u) ? TILE1 * TILE1 : 0u;
+        ssize = dsize;
+    }
+}
 
 void main() {
     uint lid = gl_LocalInvocationIndex;
     ivec2 tile = ivec2(gl_WorkGroupID.xy);
+    vec2 inv = 1.0 / vec2(pc.depth_size);
 
-    for (uint i = lid; i < TILE * TILE; i += 256u) {
-        ivec2 t = tile * int(TILE) + ivec2(i % TILE, i / TILE);
-        ivec2 s = t * 2;
-        float d = NEUTRAL;
-        if (s.x < pc.depth_size.x && s.y < pc.depth_size.y) {
-            ivec2 s1 = min(s + 1, pc.depth_size - 1);
-            d = min(min(depth_at(s), depth_at(ivec2(s1.x, s.y))), min(depth_at(ivec2(s.x, s1.y)), depth_at(s1)));
-        }
-        s_mip[i] = d;
-        imageStore(u_storage_r32f[pc.mip_slot[0]], t, vec4(d));
+    for (uint i = lid; i < TILE1 * TILE1; i += 256u) {
+        ivec2 m = tile * int(TILE1) + ivec2(i % TILE1, i / TILE1);
+        ivec2 t = m * 2;
+        float d00 = mip0_at(t, inv);
+        float d10 = mip0_at(t + ivec2(1, 0), inv);
+        float d01 = mip0_at(t + ivec2(0, 1), inv);
+        float d11 = mip0_at(t + ivec2(1, 1), inv);
+        imageStore(u_storage_r32f[pc.mip_slot[0]], t, vec4(d00));
+        imageStore(u_storage_r32f[pc.mip_slot[0]], t + ivec2(1, 0), vec4(d10));
+        imageStore(u_storage_r32f[pc.mip_slot[0]], t + ivec2(0, 1), vec4(d01));
+        imageStore(u_storage_r32f[pc.mip_slot[0]], t + ivec2(1, 1), vec4(d11));
+        float v = min(min(d00, d10), min(d01, d11));
+        s_mip[i] = v;
+        if (pc.mips > 1u) imageStore(u_storage_r32f[pc.mip_slot[1]], m, vec4(v));
     }
     barrier();
 
     uint src = 0u;
-    uint dst = TILE * TILE;
-    uint dim = TILE / 2u;
-    for (uint m = 1u; m < 7u && m < pc.mips; m++) {
+    uint dst = TILE1 * TILE1;
+    uint dim = TILE1 / 2u;
+    for (uint m = 2u; m < TILE_MIPS && m < pc.mips; m++) {
         uint sdim = dim * 2u;
         for (uint i = lid; i < dim * dim; i += 256u) {
             uint x = i % dim;
@@ -55,4 +102,19 @@ void main() {
         uint tmp = src; src = dst; dst = tmp;
         dim >>= 1u;
     }
+
+    if (pc.mips <= TILE_MIPS) return;
+
+    uint groups = gl_NumWorkGroups.x * gl_NumWorkGroups.y;
+    if (lid == 0u) {
+        pc.tail.mip6[gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x] = s_mip[src];
+        memoryBarrierBuffer();
+        s_last = atomicAdd(pc.tail.counter, 1u) == groups - 1u;
+    }
+    barrier();
+    if (!s_last) return;
+
+    memoryBarrierBuffer();
+    build_tail();
+    if (lid == 0u) pc.tail.counter = 0u;
 }

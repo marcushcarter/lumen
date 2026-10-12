@@ -12,6 +12,8 @@ struct GeometryFeature : Feature
     static constexpr uint32_t HIZ_TILE = 64;
     static constexpr uint32_t HIZ_TILE_MIPS = 7;
     static constexpr uint32_t HIZ_TAIL_MAX = 64;
+    static constexpr uint32_t HIZ_MAX_MIPS = 16;
+    static constexpr uint32_t VIS_EMPTY = 0xFFFFFFFFu;
 
     struct CullPush
     {
@@ -38,6 +40,8 @@ struct GeometryFeature : Feature
     float contribution_px = 1.0f;
     bool hiz_history = false;
     bool hiz_use_prev = false;
+    drivers::DeviceDriverVulkan::Sampler hiz_sampler;
+    drivers::DeviceDriverVulkan::Buffer hiz_tail_buffer;
     bool hiz_ok = false;
 
     RenderGraph::Pass clear_visible_pass;
@@ -51,7 +55,6 @@ struct GeometryFeature : Feature
     RenderGraph::Pass draw_scatter_pass;
     RenderGraph::Pass visbuffer_pass;
     RenderGraph::Pass hiz_build_pass;
-    RenderGraph::Pass hiz_tail_pass;
     RenderGraph::Pass instance_cull_pass_2;
     RenderGraph::Pass cluster_expand_args_pass_2;
     RenderGraph::Pass cluster_expand_pass_2;
@@ -62,7 +65,6 @@ struct GeometryFeature : Feature
     RenderGraph::Pass draw_scatter_pass_2;
     RenderGraph::Pass visbuffer_pass_2;
     RenderGraph::Pass hiz_build_pass_2;
-    RenderGraph::Pass hiz_tail_pass_2;
 
     drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_expand_args_pipe;
@@ -74,7 +76,6 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline draw_scatter_pipe;
     drivers::DeviceDriverVulkan::Pipeline visbuffer_pipe;
     drivers::DeviceDriverVulkan::Pipeline hiz_build_pipe;
-    drivers::DeviceDriverVulkan::Pipeline hiz_tail_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_args_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
 
@@ -88,7 +89,7 @@ struct GeometryFeature : Feature
     void _create_draw_build_pass();
     void _create_draw_scatter_pass();
     void _create_visbuffer_pass();
-    void _create_hiz_passes(RenderGraph::Pass& r_build, RenderGraph::Pass& r_tail, const char* p_build_name, const char* p_tail_name);
+    void _create_hiz_pass(RenderGraph::Pass& r_build, const char* p_build_name, const char* p_args);
     void _create_cluster_retest_args_pass();
     void _create_cluster_retest_pass();
     void _create_draw_count_2_pass();

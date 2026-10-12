@@ -51,5 +51,6 @@ static_assert(sizeof(LAssetHeader) == 24, "LAssetHeader layout changed");
 
 AssetInfo read_asset_info(const std::filesystem::path& p_path);
 bool read_asset_header(const std::filesystem::path& p_path, LAssetHeader& r_header);
+bool asset_version_supported(AssetType p_type, uint32_t p_version);
 
 }

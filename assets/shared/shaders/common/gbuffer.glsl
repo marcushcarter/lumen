@@ -7,11 +7,11 @@ const uint SHADING_MODEL_SKY = 0u;
 const uint SHADING_MODEL_DEFAULT_LIT = 1u;
 
 vec4 gbuffer_encode_albedo(vec3 albedo, uint flags) {
-    return vec4(linear_to_srgb(clamp(albedo, 0.0, 1.0)), float(flags & 3u) / 3.0);
+    return vec4(sqrt(clamp(albedo, 0.0, 1.0)), float(flags & 3u) / 3.0);
 }
 
 void gbuffer_decode_albedo(vec4 g, out vec3 albedo, out uint flags) {
-    albedo = srgb_to_linear(g.rgb);
+    albedo = g.rgb * g.rgb;
     flags = uint(g.a * 3.0 + 0.5);
 }
 

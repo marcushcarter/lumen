@@ -39,6 +39,7 @@ layout(push_constant) uniform Push {
     uint width;
     uint height;
     float px_per_unit;
+    uint has_local_lights;
 } pc;
 
 const float EDGE_SCALE = 2.5;
@@ -125,10 +126,10 @@ vec3 clay_shade(vec3 n, vec3 p) {
 bool sample_vis(ivec2 coord, out uvec2 v, out uvec2 ref) {
     float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
     if (d == 0.0) return false;
-    v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).xy;
-    if (vis_is_terrain(v)) return false;
-    ref = pc.cluster_refs.data[vis_cluster_ref(v)];
-    v.y = vis_triangle(v);
+    const uint raw = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).x;
+    if (vis_is_empty(raw) || vis_is_terrain(raw)) return false;
+    ref = pc.cluster_refs.data[vis_cluster_ref(raw)];
+    v = uvec2(raw, vis_triangle(raw));
     return true;
 }
 
@@ -140,8 +141,7 @@ const float TRI_DENSITY_LOG2_MIN = -2.0;
 const float TRI_DENSITY_LOG2_MAX = 6.0;
 
 vec3 project_vertex_px(uint index, Mesh mesh, mat4 mvp, vec2 size) {
-    Vertex v = pc.geometry.vertices.data[pc.geometry.indices.data[index]];
-    vec3 local = mesh.pos_min + (vec3(v.position) / 65535.0) * mesh.pos_extent;
+    vec3 local = mesh.pos_min + vertex_position_unorm(pc.geometry.vertices.data[pc.geometry.indices.data[index]]) * mesh.pos_extent;
     vec4 clip = mvp * vec4(local, 1.0);
     return vec3((clip.xy * 0.5 + 0.5 * clip.w) * size, clip.w);
 }
@@ -195,6 +195,7 @@ bool light_reaches(GpuLight p_light, vec3 p_world_pos) {
 }
 
 uint light_count(ivec2 p_coord, ivec2 p_size, float p_depth, bool p_exact) {
+    if (pc.has_local_lights == 0u) return 0u;
     uint count = min(pc.light_cull.visible_count, MAX_VISIBLE_LIGHTS);
     if (count == 0u) return 0u;
     uvec2 zb = pc.light_cull.zbins[light_zbin(pc.camera, camera_linear_depth(pc.camera, p_depth))];
@@ -238,10 +239,13 @@ void main() {
     if (pc.op == OP_COPY) {
         color = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb;
     } else if (pc.op == OP_ALBEDO) {
-        vec3 albedo;
-        uint flags;
-        gbuffer_decode_albedo(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), albedo, flags);
-        color = albedo;
+        color = vec3(0.0);
+        if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) {
+            vec3 albedo;
+            uint flags;
+            gbuffer_decode_albedo(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), albedo, flags);
+            color = albedo;
+        }
     } else if (pc.op == OP_WIREFRAME) {
         uvec2 v, ref;
         color = vec3(0);

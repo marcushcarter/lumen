@@ -11,12 +11,26 @@ enum MeshFlags : uint32_t {
 };
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
+static constexpr uint32_t LMESH_VERSION_INTERLEAVED = 1;
+static constexpr uint32_t LMESH_VERSION = 2;
 
 struct Vertex {
     u16vec3 position;
     i16vec2 normal;
     u16vec2 uv;
 };
+
+struct VertexPosition {
+    u16vec3 position;
+    uint16_t _pad;
+};
+
+struct VertexAttributes {
+    i16vec2 normal;
+    u16vec2 uv;
+};
+
+static_assert(sizeof(VertexPosition) == 8 && sizeof(VertexAttributes) == 8, "vertex streams must stay 8 B (one aligned 64-bit GPU load)");
 
 struct SkinVertex {
     u8vec4 joints;

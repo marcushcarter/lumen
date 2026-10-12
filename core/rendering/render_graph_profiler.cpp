@@ -83,7 +83,7 @@ uint64_t RenderGraphProfiler::intern(std::string_view p_s)
 uint64_t RenderGraphProfiler::intern_named(std::string_view p_s)
 {
     uint64_t id = intern(p_s);
-    if (_named_ids.insert(id, 0)) name_table.emplace(id, std::string(p_s));
+    if (_named_ids.insert(id, (uint32_t)name_table.size())) name_table.emplace_back(p_s);
     return id;
 }
 
@@ -97,8 +97,8 @@ uint64_t RenderGraphProfiler::draw_key(uint64_t p_pass_name_id, uint64_t p_name_
 
 const char* RenderGraphProfiler::name_of(uint64_t p_id) const
 {
-    auto it = name_table.find(p_id);
-    return (it != name_table.end()) ? it->second.c_str() : "?";
+    const uint32_t i = _named_ids.get(p_id);
+    return i != IdMap::NONE ? name_table[i].c_str() : "?";
 }
 
 /*******************/
@@ -109,6 +109,7 @@ void RenderGraphProfiler::_clear_results()
 {
     results.clear();
     smoothed.clear();
+    smoothed_index.clear();
     total_ms = 0.0;
     total_draws = 0;
     truncated = false;
@@ -165,8 +166,14 @@ void RenderGraphProfiler::_resolve()
         const double gap = delta_ms(m.lead_query,  m.begin_query);
         const double dur = delta_ms(m.begin_query, m.end_query);
 
-        auto [it, fresh] = smoothed.try_emplace(m.key, Smoothed{ gap, dur });
-        Smoothed& acc = it->second;
+        uint32_t si = smoothed_index.get(m.key);
+        const bool fresh = si == IdMap::NONE;
+        if (fresh) {
+            si = (uint32_t)smoothed.size();
+            smoothed_index.insert(m.key, si);
+            smoothed.push_back(Smoothed{ gap, dur });
+        }
+        Smoothed& acc = smoothed[si];
         if (!fresh) {
             acc.gap += smoothing * (gap - acc.gap);
             acc.dur += smoothing * (dur - acc.dur);

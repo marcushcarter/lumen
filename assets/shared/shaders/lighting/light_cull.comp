@@ -7,7 +7,8 @@
 #include "common/camera.glsl"
 #include "common/lights.glsl"
 
-layout(local_size_x = 64) in;
+#define WG 256u
+layout(local_size_x = 256) in;
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
@@ -18,38 +19,57 @@ layout(push_constant, scalar) uniform Push {
     uint local_count;
 } pc;
 
+shared uint s_hist[LIGHT_ZBIN_COUNT];
+shared uint s_count;
+
 void main() {
-    uint id = gl_GlobalInvocationID.x;
-    bool keep = false;
-    uvec2 entry = uvec2(0u);
+    uint lid = gl_LocalInvocationID.x;
 
-    if (id < pc.local_count) {
-        uint index = pc.first_light + id;
-        GpuLight light = pc.lights.data[index];
-        vec4 b = light_bounds(light);
-        bool lit = any(greaterThan(light.radiance, vec3(0.0)));
-        bool faded = light_camera_fade(light, distance(light.position, pc.camera.position.xyz)) <= 0.0;
-        if (lit && !faded && !frustum_cull_sphere(pc.camera, b.xyz, b.w)) {
-            float d = camera_view_depth(pc.camera, b.xyz);
-            uint key = light_zbin(pc.camera, d);
-            uint bmin = light_zbin(pc.camera, d - b.w);
-            uint bmax = light_zbin(pc.camera, d + b.w);
-            entry = uvec2(index, key | (bmin << 10) | (bmax << 20));
-            keep = true;
+    for (uint b = lid; b < LIGHT_ZBIN_COUNT; b += WG) {
+        s_hist[b] = 0u;
+        pc.cull.cursor[b] = 0u;
+        pc.cull.zbins[b] = uvec2(0xFFFFFFFFu);
+    }
+    if (lid == 0u) s_count = 0u;
+    barrier();
+
+    for (uint first = 0u; first < pc.local_count; first += WG) {
+        uint id = first + lid;
+        bool keep = false;
+        uvec2 entry = uvec2(0u);
+
+        if (id < pc.local_count) {
+            uint index = pc.first_light + id;
+            GpuLight light = pc.lights.data[index];
+            vec4 b = light_bounds(light);
+            bool lit = any(greaterThan(light.radiance, vec3(0.0)));
+            bool faded = light_camera_fade(light, distance(light.position, pc.camera.position.xyz)) <= 0.0;
+            if (lit && !faded && !frustum_cull_sphere(pc.camera, b.xyz, b.w)) {
+                float d = camera_view_depth(pc.camera, b.xyz);
+                uint key = light_zbin(pc.camera, d);
+                uint bmin = light_zbin(pc.camera, d - b.w);
+                uint bmax = light_zbin(pc.camera, d + b.w);
+                entry = uvec2(index, key | (bmin << 10) | (bmax << 20));
+                keep = true;
+            }
+        }
+
+        uvec4 ballot = subgroupBallot(keep);
+        uint n = subgroupBallotBitCount(ballot);
+        uint base = 0u;
+        if (subgroupElect() && n > 0u) base = atomicAdd(s_count, n);
+        base = subgroupBroadcastFirst(base);
+
+        if (keep) {
+            uint slot = base + subgroupBallotExclusiveBitCount(ballot);
+            if (slot < MAX_VISIBLE_LIGHTS) {
+                pc.visible.data[slot] = entry;
+                atomicAdd(s_hist[entry.y & 1023u], 1u);
+            }
         }
     }
+    barrier();
 
-    uvec4 ballot = subgroupBallot(keep);
-    uint n = subgroupBallotBitCount(ballot);
-    uint base = 0u;
-    if (subgroupElect() && n > 0u) base = atomicAdd(pc.cull.visible_count, n);
-    base = subgroupBroadcastFirst(base);
-
-    if (keep) {
-        uint slot = base + subgroupBallotExclusiveBitCount(ballot);
-        if (slot < MAX_VISIBLE_LIGHTS) {
-            pc.visible.data[slot] = entry;
-            atomicAdd(pc.cull.histogram[entry.y & 1023u], 1u);
-        }
-    }
+    for (uint b = lid; b < LIGHT_ZBIN_COUNT; b += WG) pc.cull.histogram[b] = s_hist[b];
+    if (lid == 0u) pc.cull.visible_count = s_count;
 }

@@ -4,12 +4,14 @@
 
 namespace lumen {
 
-    // core/rendering/features/lighting/lighting_feature.cpp, _create_lighting_pass
+static constexpr uint32_t LIGHTING_FLAG_LOCAL_LIGHTS = 1u << 16;
+
 void LightingFeature::_create_lighting_pass()
 {
     lighting_pass.name = "DeferredLighting";
     lighting_pass.category = PASS_CATEGORY_LIGHTING;
     lighting_pass.setup = [](RenderGraph::Builder& b) {
+        const bool local_lights = b.graph->buffer_resource("LightCullData") != nullptr;
         drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
         ci.name = "SceneColor";
         ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -21,9 +23,11 @@ void LightingFeature::_create_lighting_pass()
         b.read_image("G_Material", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        if (local_lights) {
+            b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            if (b.graph->buffer_resource("LightTileMasks")) b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
         b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -37,7 +41,9 @@ void LightingFeature::_create_lighting_pass()
         auto* sorted = cl.graph->buffer("SortedLights");
         auto* masks = cl.graph->buffer("LightTileMasks");
         auto* out = cl.graph->image("SceneColor");
-        if (!depth || !albedo || !normal || !material || !camera || !lights || !cull || !sorted || !masks || !out) return;
+        if (!depth || !albedo || !normal || !material || !camera || !lights || !out) return;
+        const bool local_lights = cull && sorted;
+        const uint32_t mode = !local_lights ? LIGHT_MODE_NONE : (masks ? LIGHT_MODE_TILED : LIGHT_MODE_ZBIN);
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -53,7 +59,6 @@ void LightingFeature::_create_lighting_pass()
             uint32_t width;
             uint32_t height;
             uint32_t directional_count;
-            // uint32_t light_count;
             float ambient_intensity;
             float sky_zenith[4];
             float sky_horizon[4];
@@ -61,9 +66,9 @@ void LightingFeature::_create_lighting_pass()
         } pc{};
         pc.camera_addr = camera->device_address;
         pc.lights_addr = lights->device_address;
-        pc.cull_addr = cull->device_address;
-        pc.sorted_addr = sorted->device_address;
-        pc.masks_addr = masks->device_address;
+        pc.cull_addr = local_lights ? cull->device_address : 0;
+        pc.sorted_addr = local_lights ? sorted->device_address : 0;
+        pc.masks_addr = masks ? masks->device_address : 0;
         pc.depth_index = depth->bindless_sampled;
         pc.albedo_index = albedo->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
@@ -71,14 +76,13 @@ void LightingFeature::_create_lighting_pass()
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
-        pc.directional_count = ctx->frame->directional_count;
-        // pc.light_count = ctx->frame->light_count;
+        pc.directional_count = (ctx->frame->directional_count & 0xFFFFu) | (local_lights ? LIGHTING_FLAG_LOCAL_LIGHTS : 0u);
         pc.ambient_intensity = ambient_intensity;
         pc.sky_zenith[0] = sky_zenith.x; pc.sky_zenith[1] = sky_zenith.y; pc.sky_zenith[2] = sky_zenith.z;
         pc.sky_horizon[0] = sky_horizon.x; pc.sky_horizon[1] = sky_horizon.y; pc.sky_horizon[2] = sky_horizon.z;
         pc.ground_color[0] = ground_color.x; pc.ground_color[1] = ground_color.y; pc.ground_color[2] = ground_color.z;
 
-        cl.dd->command_bind_pipeline(cl.cmd, lighting_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, lighting_pipes[mode]);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.dispatch("Deferred lighting", (pc.width + 7) / 8, (pc.height + 7) / 8);
     };
@@ -90,24 +94,24 @@ Error LightingFeature::create_resources()
     return Error::OK;
 }
 
-drivers::DeviceDriverVulkan::Pipeline LightingFeature::_compute_pipeline(const wchar_t* p_resource, const char* p_name)
-{
-    EmbeddedResource::Blob blob = EmbeddedResource::load(p_resource);
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = p_name });
-    drivers::DeviceDriverVulkan::Pipeline pipe = ctx->dd->compute_pipeline_create({ cs, p_name });
-    ctx->dd->shader_free(cs);
-    return pipe;
-}
-
 Error LightingFeature::create_pipelines()
 {
-    lighting_pipe = _compute_pipeline(L"SHADERS_LIGHTING_DEFERRED_LIGHTING_COMP", "lighting/deferred_lighting.comp");
+    // one pipeline per LIGHT_MODE spec constant, so dead light paths are compiled out and don't cost registers
+    static const char* NAMES[LIGHT_MODE_COUNT] = { "lighting/deferred_lighting (no local)", "lighting/deferred_lighting (zbin)", "lighting/deferred_lighting (tiled)" };
+    EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_LIGHTING_DEFERRED_LIGHTING_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "lighting/deferred_lighting.comp" });
+    for (uint32_t m = 0; m < LIGHT_MODE_COUNT; m++) {
+        const VkSpecializationMapEntry entry{ 0, 0, sizeof(uint32_t) };
+        const VkSpecializationInfo spec{ 1, &entry, sizeof(uint32_t), &m };
+        lighting_pipes[m] = ctx->dd->compute_pipeline_create({ .compute_shader = cs, .name = NAMES[m], .specialization = &spec });
+    }
+    ctx->dd->shader_free(cs);
     return Error::OK;
 }
 
 void LightingFeature::destroy_resources()
 {
-    ctx->dd->pipeline_free(lighting_pipe);
+    for (drivers::DeviceDriverVulkan::Pipeline& p : lighting_pipes) ctx->dd->pipeline_free(p);
 }
 
 void LightingFeature::build(RenderGraph& g)

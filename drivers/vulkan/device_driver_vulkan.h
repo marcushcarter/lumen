@@ -518,6 +518,7 @@ struct DeviceDriverVulkan
         VkShaderModule compute_shader = VK_NULL_HANDLE;
         
         const char* name = nullptr;
+        const VkSpecializationInfo* specialization = nullptr;
     };
 
     struct Pipeline {

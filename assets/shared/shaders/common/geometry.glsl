@@ -6,12 +6,6 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
-struct Vertex {
-    u16vec3 position;
-    i16vec2 normal;
-    u16vec2 uv;
-};
-
 struct SkinVertex {
     u8vec4 joints;
     u8vec4 weights;
@@ -53,7 +47,8 @@ struct Mesh {
     vec4 bounds_sphere;
 };
 
-layout(buffer_reference, scalar) readonly buffer VertexBuffer { Vertex data[]; };
+layout(buffer_reference, scalar, buffer_reference_align = 8) readonly buffer VertexPositionBuffer { uvec2 data[]; };
+layout(buffer_reference, scalar, buffer_reference_align = 8) readonly buffer VertexAttributeBuffer { uvec2 data[]; };
 layout(buffer_reference, scalar) readonly buffer IndexBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer TriSlotBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer SlotTableBuffer { uint data[]; };
@@ -64,7 +59,8 @@ layout(buffer_reference, scalar) readonly buffer BVHNodeBuffer { BVHNode data[];
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
 
 layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
-    VertexBuffer vertices;
+    VertexPositionBuffer vertices;
+    VertexAttributeBuffer attributes;
     IndexBuffer indices;
     TriSlotBuffer tri_slots;
     SlotTableBuffer slot_table;
@@ -74,5 +70,16 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     BVHNodeBuffer bvh_nodes;
     MeshBuffer meshes;
 };
+
+vec3 vertex_position_unorm(uvec2 p_p) { return vec3(unpackUnorm2x16(p_p.x), unpackUnorm2x16(p_p.y).x); }
+vec2 vertex_normal_oct(uvec2 p_a) { return unpackSnorm2x16(p_a.x); }
+vec2 vertex_uv_unorm(uvec2 p_a) { return unpackUnorm2x16(p_a.y); }
+
+vec3 oct_decode(vec2 p_f) {
+    vec3 n = vec3(p_f, 1.0 - abs(p_f.x) - abs(p_f.y));
+    float t = clamp(-n.z, 0.0, 1.0);
+    n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+    return normalize(n);
+}
 
 #endif

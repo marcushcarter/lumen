@@ -20,7 +20,8 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     dd = &r_dd;
     frame_count = p_frame_count ? p_frame_count : 1;
 
-    _arena_setup(ARENA_VERTICES, sizeof(Vertex), 1u << 20, MAX_VERTS, 0, "geo_vertices");
+    _arena_setup(ARENA_VERTICES, sizeof(VertexPosition), 1u << 20, MAX_VERTS, 0, "geo_vertex_positions");
+    _arena_setup(ARENA_VERTEX_ATTRIBUTES, sizeof(VertexAttributes), 1u << 20, MAX_VERTS, 0, "geo_vertex_attributes");
     _arena_setup(ARENA_INDICES, 3 * sizeof(uint32_t), 1u << 20, MAX_TRIS, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "geo_indices");
     _arena_setup(ARENA_TRI_SLOTS, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_tri_slots");
     _arena_setup(ARENA_SLOT_TABLE, sizeof(uint32_t), 16u << 10, MAX_SLOT_TABLE, 0, "geo_slot_table");
@@ -153,7 +154,6 @@ Error GeometryPool::_arena_grow(ArenaKind p_kind, uint32_t p_capacity, uint32_t 
     }
 
     _retire_buffer(old);
-    // log_write("GeometryPool: %s -> %u elements (%s)", a.name, p_capacity, fmt_bytes(a.buffer.capacity));
     return OK;
 }
 
@@ -169,6 +169,7 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
 
     const uint32_t live = r_alloc.extent();
     if (p_kind == ARENA_INDICES && _arena_grow(ARENA_TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ARENA_VERTICES && _arena_grow(ARENA_VERTEX_ATTRIBUTES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (_arena_grow(p_kind, capacity, live) != Error::OK) return RangeAllocator::INVALID;
 
     r_alloc.grow(capacity);
@@ -234,14 +235,16 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
 
     LAssetHeader ah{};
     std::memcpy(&ah, bytes.data(), sizeof(ah));
-    if (ah.magic != BCON_MAGIC || ah.version != LASSET_VERSION || ah.type != AssetType::MESH) return fail("bad asset header");
+    if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) return fail("bad asset header");
+    if (ah.version != LMESH_VERSION && ah.version != LMESH_VERSION_INTERLEAVED) return fail("unsupported mesh version");
+    const bool interleaved = ah.version == LMESH_VERSION_INTERLEAVED;
 
     LMeshPayloadHeader ph{};
     std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
     if (ah.payload_size < sizeof(ph)) return fail("payload_size underflow");
 
     const bool skinned = (ph.flags & MESH_FLAG_SKINNED) != 0;
-    const size_t vtx_bytes = (size_t)ph.vertex_count * sizeof(Vertex);
+    const size_t vtx_bytes = (size_t)ph.vertex_count * (interleaved ? sizeof(Vertex) : sizeof(VertexPosition) + sizeof(VertexAttributes));
     const size_t idx_bytes = (size_t)ph.index_count * sizeof(uint32_t);
     const size_t tri_bytes = (size_t)ph.tri_count * sizeof(uint32_t);
     const size_t slot_bytes = (size_t)ph.slot_table_count * sizeof(uint32_t);
@@ -293,6 +296,25 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
 
     uint8_t* p = bytes.data() + payload_off;
     uint8_t* p_vtx = p; p += vtx_bytes;
+
+    const size_t pos_bytes = (size_t)ph.vertex_count * sizeof(VertexPosition);
+    const size_t attr_bytes = (size_t)ph.vertex_count * sizeof(VertexAttributes);
+    const void* p_pos = p_vtx;
+    const void* p_attr = p_vtx + pos_bytes;
+    std::vector<VertexPosition> legacy_pos;
+    std::vector<VertexAttributes> legacy_attr;
+    if (interleaved) {
+        legacy_pos.resize(ph.vertex_count);
+        legacy_attr.resize(ph.vertex_count);
+        for (uint32_t i = 0; i < ph.vertex_count; i++) {
+            Vertex v;
+            std::memcpy(&v, p_vtx + (size_t)i * sizeof(Vertex), sizeof(Vertex));
+            legacy_pos[i] = { v.position, 0 };
+            legacy_attr[i] = { v.normal, v.uv };
+        }
+        p_pos = legacy_pos.data();
+        p_attr = legacy_attr.data();
+    }
     uint8_t* p_idx = p; p += idx_bytes;
     uint8_t* p_tri = p; p += tri_bytes;
     uint8_t* p_slot = p; p += slot_bytes;
@@ -366,7 +388,8 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     auto add = [&](ArenaKind p_kind, uint32_t p_offset, const void* p_data, size_t p_bytes) {
         if (p_bytes) uploads[upload_count++] = { &arenas[p_kind].buffer, p_data, (VkDeviceSize)p_bytes, (VkDeviceSize)p_offset * arenas[p_kind].stride };
     };
-    add(ARENA_VERTICES, r.vertex, p_vtx, vtx_bytes);
+    add(ARENA_VERTICES, r.vertex, p_pos, pos_bytes);
+    add(ARENA_VERTEX_ATTRIBUTES, r.vertex, p_attr, attr_bytes);
     add(ARENA_INDICES, r.tri, p_idx, idx_bytes);
     add(ARENA_TRI_SLOTS, r.tri, p_tri, tri_bytes);
     add(ARENA_SLOT_TABLE, r.slot_table, p_slot, slot_bytes);
@@ -423,6 +446,7 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot)
 
     GeometryAddresses a{};
     a.vertices = arenas[ARENA_VERTICES].buffer.device_address;
+    a.attributes = arenas[ARENA_VERTEX_ATTRIBUTES].buffer.device_address;
     a.indices = arenas[ARENA_INDICES].buffer.device_address;
     a.tri_slots = arenas[ARENA_TRI_SLOTS].buffer.device_address;
     a.slot_table = arenas[ARENA_SLOT_TABLE].buffer.device_address;

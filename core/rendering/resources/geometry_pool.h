@@ -16,6 +16,7 @@ using namespace glm;
 struct GeometryAddresses
 {
     VkDeviceAddress vertices;
+    VkDeviceAddress attributes;
     VkDeviceAddress indices;
     VkDeviceAddress tri_slots;
     VkDeviceAddress slot_table;
@@ -76,6 +77,7 @@ struct GeometryPool
 
     enum ArenaKind : uint32_t {
         ARENA_VERTICES,
+        ARENA_VERTEX_ATTRIBUTES,
         ARENA_INDICES,
         ARENA_TRI_SLOTS,
         ARENA_SLOT_TABLE,

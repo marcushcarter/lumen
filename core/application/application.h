@@ -30,6 +30,8 @@ struct ApplicationCreateInfo
 
 struct Application
 {
+    static constexpr float UNFOCUSED_FPS_CAP = 30.0f;
+
     drivers::WindowDriverWin32 win32;
 
     drivers::ContextDriverVulkan cd;

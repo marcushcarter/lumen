@@ -4,7 +4,9 @@
 #include <core/io/path.h>
 #include <core/version.h>
 #include <drivers/windows/dialogs_win32.h>
+#include <imgui.h>
 #include <windows.h>
+#include <cfloat>
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -140,6 +142,9 @@ Error Application::_frame()
     last_time = now;
     if (delta > 0.25) delta = 0.25;
 
+    // Unfocused: park the mouse off-screen so nothing (UI, viewport hover outline, gizmo) reacts to it.
+    if (!win32.window_is_focused()) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+
     cpu.zone_begin("ImGui Begin");
     imgui.begin_frame(renderer.frame_number, renderer.frame_count, renderer.resize_epoch);
     cpu.zone_end();
@@ -195,7 +200,8 @@ Error Application::run()
 
     Error err = OK;
     while (!win32.window_should_close()) {
-        const float cap = fps_cap();
+        float cap = fps_cap();
+        if (!win32.window_is_focused() && (cap <= 0.0f || cap > UNFOCUSED_FPS_CAP)) cap = UNFOCUSED_FPS_CAP;
         if (cap > 0.0f) {
             cpu.zone_begin("Frame Limiter", CpuProfiler::FLAG_WAIT);
             frame_limiter.wait(cap);
@@ -286,7 +292,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
         world.add<NameComponent>(sun, name);
         LightComponent light;
         light.type = LightType::DIRECTIONAL;
-        light.intensity = 3.0f;
+        light.intensity = 1.0f;
         world.add<LightComponent>(sun, light);
         world.add<EditorHiddenTag>(sun);
     }
@@ -352,8 +358,6 @@ Error Application::_apply_pending_render_path()
     dd.pipeline_cache_save();
 
     const auto t2 = std::chrono::steady_clock::now();
-    auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
-    // log_write("RenderPath switch: teardown %.1f ms, create %.1f ms", ms(t0, t1), ms(t1, t2));
     return OK;
 }
 

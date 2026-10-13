@@ -16,7 +16,7 @@ struct OverlayBar
     float cursor_x;
     ImU32 active_col;
 
-    void begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_margin = 8.0f, float p_spacing = 4.0f);
+    void begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_margin = -1.0f, float p_spacing = -1.0f);
     void end();
 
     bool _emit(const char* p_label, ImVec2 p_size, bool p_active);
@@ -27,7 +27,7 @@ struct OverlayBar
     bool begin_menu(const char* p_label, ImVec2 p_size = ImVec2(0,0));
     void end_menu();
 
-    void gap(float p_w = 5.0f);
+    void gap(float p_w = -1.0f);
 };
 
 }

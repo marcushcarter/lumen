@@ -1,6 +1,5 @@
 #include <editor/project_manager/project_manager.h>
-// #include <editor/popup/popup_manager.h>
-// #include <editor/popup/project/delete_project.h>
+#include <drivers/imgui/ui_style.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <drivers/toml/toml_helpers.h>
 #include <core/project/project.h>
@@ -112,10 +111,11 @@ void ProjectManager::add_recent(const std::filesystem::path& p_root, std::string
 
 void ProjectManager::_draw_list(EditorContext& ctx)
 {
-    const float row_h = 48.0f;
-    const float row_pad = 4.0f;
-    const float rounding = 5.0f;
-    const float pad = 8.0f;
+    const UiStyle& ui = ui_style();
+    const float row_h = ui.list_row.height;
+    const float row_pad = ui.list_row.spacing;
+    const float rounding = ui.list_row.rounding;
+    const float pad = ui.list_row.pad;
 
     auto to_lower = [](std::string s) {
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
@@ -168,8 +168,8 @@ void ProjectManager::_draw_list(EditorContext& ctx)
         float thumb = row_h - pad * 2;
         float thumb_x = rmin.x + pad * 4;
         float thumb_y = rmin.y + pad;
-        dl->AddRectFilled(ImVec2(thumb_x, thumb_y), ImVec2(thumb_x + thumb, thumb_y + thumb), ImGui::GetColorU32(ImGuiCol_TextDisabled), 4.0f);
-        dl->AddRect(ImVec2(thumb_x, thumb_y), ImVec2(thumb_x + thumb, thumb_y + thumb), ImGui::GetColorU32(ImGuiCol_Text), 4.0f);
+        dl->AddRectFilled(ImVec2(thumb_x, thumb_y), ImVec2(thumb_x + thumb, thumb_y + thumb), ImGui::GetColorU32(ImGuiCol_TextDisabled), ui.list_row.thumb_rounding);
+        dl->AddRect(ImVec2(thumb_x, thumb_y), ImVec2(thumb_x + thumb, thumb_y + thumb), ImGui::GetColorU32(ImGuiCol_Text), ui.list_row.thumb_rounding);
 
         ImGui::PushID(idx);
 
@@ -180,7 +180,7 @@ void ProjectManager::_draw_list(EditorContext& ctx)
             ImGui::SetCursorScreenPos(ImVec2(star_c.x - star_r, star_c.y - star_r));
             if (ImGui::InvisibleButton("##fav", ImVec2(star_r * 2, star_r * 2))) { e.favorite = !e.favorite; save_recents(); }
             bool star_hover = ImGui::IsItemHovered();
-            ImU32 star_col = e.favorite ? IM_COL32(255, 180, 0, 255) : star_hover ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+            ImU32 star_col = e.favorite ? ui.color.favorite : star_hover ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
             
             ImVec2 pts[10];
             for (int i = 0; i < 10; ++i) {
@@ -189,7 +189,7 @@ void ProjectManager::_draw_list(EditorContext& ctx)
                 pts[i] = ImVec2(star_c.x + std::cos(ang) * rad, star_c.y + std::sin(ang) * rad);
             }
             if (e.favorite) dl->AddConcavePolyFilled(pts, 10, star_col);
-            else dl->AddPolyline(pts, 10, star_col, ImDrawFlags_Closed, 1.5f);
+            else dl->AddPolyline(pts, 10, star_col, ImDrawFlags_Closed, ui.list_row.star_stroke);
         }
 
         ImGui::SetCursorScreenPos(ImVec2(thumb_x, rmin.y));
@@ -200,7 +200,7 @@ void ProjectManager::_draw_list(EditorContext& ctx)
 
         float text_x = thumb_x + thumb + pad;
         dl->AddText(ImVec2(text_x, thumb_y), ImGui::GetColorU32(ImGuiCol_Text), e.name.c_str());
-        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.85f, ImVec2(text_x, thumb_y + ImGui::GetTextLineHeight() + 3.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), e.path.string().c_str());
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * ui.list_row.subtitle_scale, ImVec2(text_x, thumb_y + ImGui::GetTextLineHeight() + ui.list_row.subtitle_gap), ImGui::GetColorU32(ImGuiCol_TextDisabled), e.path.string().c_str());
         if (!e.last_opened.empty()) {
             float mw = ImGui::CalcTextSize(e.last_opened.c_str()).x;
             dl->AddText(ImVec2(rmax.x - mw - pad, rmin.y + (row_h - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), e.last_opened.c_str());
@@ -212,7 +212,7 @@ void ProjectManager::_draw_list(EditorContext& ctx)
     ImGui::Dummy(ImVec2(0, row_pad));
     ImGui::PopStyleVar();
 }
-// editor/project_manager/project_manager.cpp, line 215
+
 void ProjectManager::on_update(EditorContext& ctx)
 {
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -220,12 +220,11 @@ void ProjectManager::on_update(EditorContext& ctx)
     ImGui::SetNextWindowSize(vp->WorkSize);
     ImGui::Begin("ProjectManager", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
     
-    // if (ImGui::Button("New Project")) ctx.popups->open("New Project");
-    // if (ImGui::Button("New Project")) new_project_popup.open();
     if (ImGui::Button("New Project")) new_project_request = true;
     ImGui::SameLine();
 
-    const float sort_w = 160.0f;
+    const UiStyle& ui = ui_style();
+    const float sort_w = ui.project_manager.sort_width;
     float sort_label_w = ImGui::CalcTextSize("Sort:").x + ImGui::GetStyle().ItemSpacing.x;
     float filter_w = ImGui::GetContentRegionAvail().x - sort_w - sort_label_w - ImGui::GetStyle().ItemSpacing.x * 2.0f;
     ImGui::SetNextItemWidth(filter_w);
@@ -239,7 +238,7 @@ void ProjectManager::on_update(EditorContext& ctx)
 
     ImGui::Spacing();
 
-    const float actions_w = 150.0f;
+    const float actions_w = ui.project_manager.actions_width;
     float list_w = ImGui::GetContentRegionAvail().x - actions_w - ImGui::GetStyle().ItemSpacing.x;
 
     ImGui::BeginChild("list", ImVec2(list_w, 0), ImGuiChildFlags_Borders);
@@ -285,9 +284,9 @@ void ProjectManager::on_update(EditorContext& ctx)
         new_project_request = false;
     }
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(ui.project_manager.modal_width, 0.0f), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) {
-        const float browse_w = 90.0f;
+        const float browse_w = ui.project_manager.browse_width;
 
         ImGui::InputText("Name", new_project_name, sizeof(new_project_name));
 
@@ -309,26 +308,22 @@ void ProjectManager::on_update(EditorContext& ctx)
 
         if (!has_name) ImGui::TextDisabled("Enter a project name");
         else if (!has_location) ImGui::TextDisabled("Choose a location that exists");
-        else if (taken) ImGui::TextColored(ImVec4(0.86f, 0.35f, 0.35f, 1.0f), "That folder already contains a project");
+        else if (taken) ImGui::TextColored(ui_vec4(ui.color.danger), "That folder already contains a project");
         else ImGui::TextDisabled("%s", root.string().c_str());
 
         ImGui::Spacing();
         ImGui::BeginDisabled(!has_name || !has_location || taken);
-        // if (ImGui::Button("Create", ImVec2(120.0f, 0)) && Project::create(root, new_project_name) == Error::OK) {
-        // GPU prompt runs before anything is written, so Cancel leaves no project folder behind.
-        if (ImGui::Button("Create", ImVec2(120.0f, 0)) && ctx.confirm_gpu_support() && Project::create(root, new_project_name) == Error::OK) {
+        if (ImGui::Button("Create", ImVec2(ui.project_manager.button_width, 0)) && ctx.confirm_gpu_support() && Project::create(root, new_project_name) == Error::OK) {
             add_recent(root, new_project_name);
             ImGui::CloseCurrentPopup();
             ctx.open_project_callback(root);
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120.0f, 0))) ImGui::CloseCurrentPopup();
+        if (ImGui::Button("Cancel", ImVec2(ui.project_manager.button_width, 0))) ImGui::CloseCurrentPopup();
 
         ImGui::EndPopup();
     }
-
-    // new_project_popup.draw(ctx);
-    // delete_project_popup.draw(ctx);
 }
+
 }

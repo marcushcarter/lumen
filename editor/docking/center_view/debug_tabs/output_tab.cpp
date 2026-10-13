@@ -1,4 +1,5 @@
 #include <editor/docking/center_view/debug_tabs/output_tab.h>
+#include <drivers/imgui/ui_style.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <core/base/error.h>
 #include <imgui.h>
@@ -25,7 +26,7 @@ void OutputDebugTab::draw(EditorContext&)
     static char input_buffer[512] = {0};
     bool enter_pressed = false;
 
-    float button_w = 70.0f;
+    const float button_w = ui_style().data_table.button_width;
     int button_count = 3;
     float spacing = ImGui::GetStyle().ItemSpacing.x;
     float reserved = button_count * (button_w + spacing);
@@ -34,7 +35,6 @@ void OutputDebugTab::draw(EditorContext&)
     if (ImGui::InputTextWithHint("##console_input", "Enter a command", input_buffer, IM_ARRAYSIZE(input_buffer), ImGuiInputTextFlags_EnterReturnsTrue)) {
         if (input_buffer[0] != '\0') {
             log_write("> %s", input_buffer);
-            // command dispatch
             input_buffer[0] = '\0';
         }
         enter_pressed = true;

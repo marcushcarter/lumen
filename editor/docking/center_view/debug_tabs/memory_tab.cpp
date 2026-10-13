@@ -1,5 +1,6 @@
 #include <editor/docking/center_view/debug_tabs/memory_tab.h>
 #include <drivers/imgui/imgui_helpers.h>
+#include <drivers/imgui/ui_style.h>
 #include <core/rendering/renderer.h>
 #include <core/base/utils.h>
 #include <vulkan/vk_enum_string_helper.h>
@@ -12,7 +13,8 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
 {
     RenderGraph* graph = &ctx.renderer->graph;
 
-    const ImVec4 warn_color = ImVec4(0.82f, 0.66f, 0.27f, 1.0f);
+    const UiStyle& ui = ui_style();
+    const ImVec4 warn_color = ui_vec4(ui.color.warning);
 
     // Transient images.
     {
@@ -42,8 +44,8 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
             if (ImGui::BeginTable("transient_img", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody)) {
                 ImGui::TableSetupColumn("Transient Images", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("format", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("dims", ImGuiTableColumnFlags_WidthFixed, 70);
-                ImGui::TableSetupColumn("size", ImGuiTableColumnFlags_WidthFixed, 50);
+                ImGui::TableSetupColumn("dims", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_md);
+                ImGui::TableSetupColumn("size", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_xs);
                 ImGui::TableHeadersRow();
                 uint32_t shown = 0;
                 for (const RenderGraph::ImageResource& r : graph->image_resources) {
@@ -94,8 +96,8 @@ void MemoryDebugTab::_draw_transients(EditorContext& ctx)
             if (ImGui::BeginTable("transient_buf", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody)) {
                 ImGui::TableSetupColumn("Transient Buffers", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("memory", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("requested", ImGuiTableColumnFlags_WidthFixed, 70);
-                ImGui::TableSetupColumn("allocated", ImGuiTableColumnFlags_WidthFixed, 70);
+                ImGui::TableSetupColumn("requested", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_md);
+                ImGui::TableSetupColumn("allocated", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_md);
                 ImGui::TableHeadersRow();
                 uint32_t shown = 0;
                 for (const RenderGraph::BufferResource& r : graph->buffer_resources) {
@@ -138,7 +140,8 @@ void MemoryDebugTab::draw(EditorContext& ctx)
     for (uint32_t h = 0; h < heap_count; ++h) peak_now += budgets[h].usage;
     if (peak_now > peak_bytes) peak_bytes = peak_now;
     
-    const ImVec4 warn_color = ImVec4(0.82f, 0.66f, 0.27f, 1.0f);
+    const UiStyle& ui = ui_style();
+    const ImVec4 warn_color = ui_vec4(ui.color.warning);
 
     ImGui::Text("Frame %llu", (unsigned long long)frame_counter++);
     ImGui::SameLine();
@@ -155,12 +158,12 @@ void MemoryDebugTab::draw(EditorContext& ctx)
         ImGui::SameLine(0, gap);
         ImVec2 c = ImGui::GetCursorScreenPos();
         float h = ImGui::GetFontSize();
-        ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(c.x, c.y + h * 0.72f), ImVec2(c.x + tri, c.y + h * 0.72f), ImVec2(c.x + tri * 0.5f,c.y + h * 0.28f), IM_COL32(210,120,90,255));
+        ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(c.x, c.y + h * 0.72f), ImVec2(c.x + tri, c.y + h * 0.72f), ImVec2(c.x + tri * 0.5f,c.y + h * 0.28f), ui.color.notice);
         ImGui::Dummy(ImVec2(tri, h));
         ImGui::SameLine(0, gap);
-        ImGui::TextColored(ImVec4(0.90f, 0.55f, 0.40f, 1.0f), "%s", fmt_bytes(peak_bytes));
+        ImGui::TextColored(ui_vec4(ui.color.notice), "%s", fmt_bytes(peak_bytes));
     }
-    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::Dummy(ImVec2(0, ui.data_table.block_gap));
 
     auto heap_label = [](VkMemoryHeapFlags flags, uint32_t index, char* buf, size_t n) -> const char* {
         std::snprintf(buf, n, "%u  %s", index, (flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? "DEVICE_LOCAL" : "HOST");
@@ -174,8 +177,8 @@ void MemoryDebugTab::draw(EditorContext& ctx)
         ImVec2 p = ImGui::GetCursorScreenPos();
         float fullW  = ImGui::GetContentRegionAvail().x;
         float h = ImGui::GetFontSize();
-        dl->AddRectFilled(p, ImVec2(p.x + fullW, p.y + h), IM_COL32(38,40,46,255), 3.0f);
-        dl->AddRectFilled(p, ImVec2(p.x + fullW * ImMin(pct, 1.0f), p.y + h), imgui_pct_col(pct), 3.0f);
+        dl->AddRectFilled(p, ImVec2(p.x + fullW, p.y + h), ui.color.field, ui.data_table.bar_rounding);
+        dl->AddRectFilled(p, ImVec2(p.x + fullW * ImMin(pct, 1.0f), p.y + h), imgui_pct_col(pct), ui.data_table.bar_rounding);
         ImGui::Dummy(ImVec2(fullW, h));
     };
 
@@ -184,7 +187,7 @@ void MemoryDebugTab::draw(EditorContext& ctx)
         heap_label(mem_props.memoryHeaps[h].flags, h, label, sizeof(label));
         uint64_t total = budgets[h].budget ? budgets[h].budget : mem_props.memoryHeaps[h].size;
         bar(label, budgets[h].usage, total);
-        if (h + 1 < heap_count) ImGui::Dummy(ImVec2(0, 4));
+        if (h + 1 < heap_count) ImGui::Dummy(ImVec2(0, ui.data_table.block_gap));
     }
 
     if (!budget_ext_enabled) ImGui::TextDisabled("VK_EXT_memory_budget unavailable - totals are VMA estimates.");
@@ -199,10 +202,10 @@ void MemoryDebugTab::draw(EditorContext& ctx)
     {
         if (ImGui::BeginTable("heaps", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody)) {
             ImGui::TableSetupColumn("Heaps", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("size", ImGuiTableColumnFlags_WidthFixed, 90);
-            ImGui::TableSetupColumn("allocs", ImGuiTableColumnFlags_WidthFixed, 60);
-            ImGui::TableSetupColumn("blocks", ImGuiTableColumnFlags_WidthFixed, 60);
-            ImGui::TableSetupColumn("frag", ImGuiTableColumnFlags_WidthFixed, 60);
+            ImGui::TableSetupColumn("size", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_lg);
+            ImGui::TableSetupColumn("allocs", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_sm);
+            ImGui::TableSetupColumn("blocks", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_sm);
+            ImGui::TableSetupColumn("frag", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_sm);
             ImGui::TableHeadersRow();
             for (uint32_t h = 0; h < heap_count; ++h) {
                 char label[32];
@@ -242,16 +245,16 @@ void MemoryDebugTab::draw(EditorContext& ctx)
         };
         if (ImGui::BeginTable("pools", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody)) {
             ImGui::TableSetupColumn("VMA Pools", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("used", ImGuiTableColumnFlags_WidthFixed, 90);
-            ImGui::TableSetupColumn("committed", ImGuiTableColumnFlags_WidthFixed, 90);
-            ImGui::TableSetupColumn("allocs", ImGuiTableColumnFlags_WidthFixed, 60);
+            ImGui::TableSetupColumn("used", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_lg);
+            ImGui::TableSetupColumn("committed", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_lg);
+            ImGui::TableSetupColumn("allocs", ImGuiTableColumnFlags_WidthFixed, ui.data_table.column_sm);
             ImGui::TableHeadersRow();
             for (const PoolRow& row : pools) {
                 if (!row.pool) continue;
                 VmaStatistics s{};
                 vmaGetPoolStatistics(dd->allocator, row.pool, &s);
                 ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); imgui_tri_right(IM_COL32(150, 155, 165, 255)); ImGui::Text(row.name);
+                ImGui::TableSetColumnIndex(0); imgui_tri_right(ui.color.text_dim); ImGui::Text(row.name);
                 ImGui::TableSetColumnIndex(1); ImGui::Text(fmt_bytes(s.allocationBytes));
                 ImGui::TableSetColumnIndex(2); if (s.blockBytes > 0 && s.allocationBytes * 4 < s.blockBytes) ImGui::TextColored(warn_color, "%s", fmt_bytes(s.blockBytes)); else ImGui::Text(fmt_bytes(s.blockBytes));
                 ImGui::TableSetColumnIndex(3); ImGui::Text("%u", s.allocationCount);

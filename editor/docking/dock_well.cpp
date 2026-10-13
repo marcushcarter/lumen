@@ -1,5 +1,6 @@
 #include <editor/docking/dock_well.h>
 #include <editor/docking/tab_strip.h>
+#include <drivers/imgui/ui_style.h>
 #include <imgui_internal.h>
 
 namespace lumen {
@@ -33,10 +34,10 @@ void DockWell::_drop_target(ImVec2 p_min, ImVec2 p_max)
 
     if (!ImGui::BeginDragDropTargetCustom(ImRect(p_min, p_max), ImGui::GetID("##drop"))) return;
     if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-        const DockColors colors = DockColors::get();
+        const UiStyle& ui = ui_style();
         ImDrawList* fg = ImGui::GetForegroundDrawList(ImGui::GetWindowViewport());
-        fg->AddRectFilled(p_min, p_max, colors.drop_fill);
-        fg->AddRect(p_min, p_max, colors.drop_line, 0.0f, 0, 2.0f);
+        fg->AddRectFilled(p_min, p_max, ui.color.drop_fill);
+        fg->AddRect(p_min, p_max, ui.color.drop_line, 0.0f, 0, ui.dock.drop_outline);
         if (pl->IsDelivery()) {
             dragged->zone = zone;
             active_name = dragged->name();
@@ -48,7 +49,7 @@ void DockWell::_drop_target(ImVec2 p_min, ImVec2 p_max)
 void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
     Panel* active = _resolve_active();
-    const DockColors colors = DockColors::get();
+    const UiStyle& ui = ui_style();
     const float tab_h = TabStrip::dock_height();
     const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
 
@@ -59,8 +60,8 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     Panel* closed = nullptr;
     TabStrip strip;
-    strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, TabStrip::DOCK_INSET_X);
-    strip.cursor_x += TabStrip::DOCK_INSET_X;
+    strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, ui.dock_tab.inset_x);
+    strip.cursor_x += ui.dock_tab.inset_x;
     for (Panel* p : panels) {
         if (!p->open) continue;
         bool close = false;
@@ -85,9 +86,9 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     const float content_h = ImMax(1.0f, size.y - tab_h);
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + tab_h));
     ImGui::PushID(active ? active->name() : "##empty");
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.pane);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->window_padding() : ImVec2(10.0f, 8.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 10.0f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->window_padding() : ui.dock.panel_padding);
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, ui.dock.panel_scrollbar);
     const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, active ? active->window_flags() : ImGuiWindowFlags_NoScrollbar);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
@@ -99,7 +100,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
             const ImVec2 ts = ImGui::CalcTextSize(hint);
             const ImVec2 wp = ImGui::GetWindowPos();
             const ImVec2 ws = ImGui::GetWindowSize();
-            ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(wp.x + (ws.x - ts.x) * 0.5f), ImFloor(wp.y + (ws.y - ts.y) * 0.5f)), colors.text_dim, hint);
+            ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(wp.x + (ws.x - ts.x) * 0.5f), ImFloor(wp.y + (ws.y - ts.y) * 0.5f)), ui.color.text_dim, hint);
         }
     }
     ImGui::EndChild();

@@ -1,4 +1,5 @@
 #include <drivers/imgui/imgui_driver.h>
+#include <drivers/imgui/ui_style.h>
 #include <backends/imgui_impl_win32.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <implot.h>
@@ -29,6 +30,8 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
     }
     
     ImGui::StyleColorsDark();
+    ui_style().build();
+    ui_style().apply_to_imgui();
 
     VkDescriptorPoolSize pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_SAMPLER, 100 },

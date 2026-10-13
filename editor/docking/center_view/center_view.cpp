@@ -2,6 +2,7 @@
 #include <editor/docking/tab_strip.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/imgui_helpers.h>
+#include <drivers/imgui/ui_style.h>
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_graph.h>
 #include <core/rendering/render_path/editor_render_path.h>
@@ -27,18 +28,19 @@ void CenterView::initialize()
 
 static void _view_row_decor(ImDrawList* dl, ImVec2 p, float h, const char* p_icon, const char* p_text, bool p_filled)
 {
+    const UiStyle::ViewMenuRow& row = ui_style().view_menu;
     const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
     const float cy = p.y + h * 0.5f;
     const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
-    dl->AddCircle(ImVec2(p.x + 12.0f, cy), 5.0f, col, 20, 1.5f);
-    if (p_filled) dl->AddCircleFilled(ImVec2(p.x + 12.0f, cy), 2.5f, col, 20);
+    dl->AddCircle(ImVec2(p.x + row.indicator_x, cy), row.indicator_radius, col, 20, row.indicator_stroke);
+    if (p_filled) dl->AddCircleFilled(ImVec2(p.x + row.indicator_x, cy), row.indicator_dot_radius, col, 20);
 
-    float tx = p.x + 28.0f;
+    float tx = p.x + row.label_x;
     if (p_icon) {
-        const float slot = ImGui::GetFontSize() * 1.4f;
+        const float slot = ImGui::GetFontSize() * row.icon_slot_scale;
         const float iw = ImGui::CalcTextSize(p_icon).x;
         dl->AddText(ImVec2(tx + (slot - iw) * 0.5f, ty), col, p_icon);
-        tx += slot + 4.0f;
+        tx += slot + row.icon_gap;
     }
     dl->AddText(ImVec2(tx, ty), col, p_text);
 }
@@ -72,7 +74,7 @@ bool CenterView::_view_submenu(const DebugViewCategory& p_category, bool p_activ
     const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
 
     _view_row_decor(window->DrawList, p, h, p_category.icon, p_category.name, p_active);
-    ImGui::RenderArrow(window->DrawList, ImVec2(p.x + item_w - g.FontSize - 4.0f, p.y + (h - g.FontSize) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), ImGuiDir_Right);
+    ImGui::RenderArrow(window->DrawList, ImVec2(p.x + item_w - g.FontSize - ui_style().view_menu.arrow_inset, p.y + (h - g.FontSize) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), ImGuiDir_Right);
 
     if (hovered && !open) {
         ImGui::OpenPopupEx(popup_id, ImGuiPopupFlags_None);
@@ -249,7 +251,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
         if (ctx.render_path) ctx.render_path->outline.set_hover(hover, vec2((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y));
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(25, 25, 25, 255));
+        dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.sunken);
         if (ctx.render_path) ctx.render_path->outline.set_hover(false, vec2(0.0f));
     }
 
@@ -313,7 +315,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
 float CenterView::layout(ImVec2 p_min, ImVec2 p_max)
 {
     const float h = p_max.y - p_min.y;
-    usable_h = ImMax(1.0f, h - TabStrip::height() - DOCK_GAP);
+    usable_h = ImMax(1.0f, h - TabStrip::height() - ui_style().dock.gap);
     if (debugger.collapsed) {
         scene_h = usable_h;
         content_h = 0.0f;
@@ -337,7 +339,8 @@ void CenterView::apply_split_delta(float p_delta, bool p_activated)
 
 void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
-    const DockColors colors = DockColors::get();
+    const UiStyle& ui = ui_style();
+    const float gap = ui.dock.gap;
     const float w = p_max.x - p_min.x;
     const float strip_h = TabStrip::height();
     layout(p_min, p_max);
@@ -350,13 +353,13 @@ void CenterView::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h));
-    SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, DOCK_GAP), 0.0f);
+    SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
     if (s.active) apply_split_delta(s.delta, s.activated);
 
     if (!debugger.collapsed && content_h >= 1.0f) {
-        ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h + DOCK_GAP));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.pane);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+        ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h + gap));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ui.dock.drawer_padding);
         ImGui::BeginChild("##drawer", ImVec2(w, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar);
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();

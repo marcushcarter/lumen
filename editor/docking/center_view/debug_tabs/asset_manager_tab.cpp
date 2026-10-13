@@ -1,4 +1,5 @@
 #include <editor/docking/center_view/debug_tabs/asset_manager_tab.h>
+#include <drivers/imgui/ui_style.h>
 #include <editor/assets/asset_import_any.h>
 #include <editor/assets/asset_import_tracker.h>
 #include <editor/editor_resources.h>
@@ -85,8 +86,9 @@ void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, i
     const bool has_children = !node.subdirs.empty();
     if (!has_children) open = false;
 
-    float indent_w = 14.0f;
-    const float row_h = ImGui::GetTextLineHeight() + 4.0f;
+    const UiStyle& ui = ui_style();
+    const float indent_w = ImGui::GetFontSize();
+    const float row_h = ImGui::GetTextLineHeight() + ui.asset_browser.row_pad_y;
     const float full_w = ImGui::GetContentRegionAvail().x;
     const ImVec2 row_min = ImGui::GetCursorScreenPos();
     const ImVec2 row_max = ImVec2(row_min.x + full_w, row_min.y + row_h);
@@ -99,7 +101,7 @@ void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, i
     if (selected_here) dl->AddRectFilled(row_min, row_max, ImGui::GetColorU32(ImGuiCol_Header));
     else if (hovered) dl->AddRectFilled(row_min, row_max, ImGui::GetColorU32(ImGuiCol_HeaderHovered));
 
-    float chevron_w = 18.0f;
+    const float chevron_w = ui.asset_browser.chevron_width;
     const ImVec2 chev_min(row_min.x + indent, row_min.y);
     if (has_children) {
         ImGui::SetCursorScreenPos(chev_min);
@@ -132,9 +134,9 @@ void AssetManagerDebugTab::_draw_folder_node(const std::filesystem::path& dir, i
 
     const char* icon = open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
     const ImVec2 is = ImGui::CalcTextSize(icon);
-    dl->AddText(ImVec2(body_x, row_min.y + (row_h - is.y) * 0.5f), IM_COL32(224, 187, 88, 255), icon);
+    dl->AddText(ImVec2(body_x, row_min.y + (row_h - is.y) * 0.5f), ui.color.folder, icon);
 
-    float icon_gap = 6.0f;
+    const float icon_gap = ui.asset_browser.icon_gap;
     const float name_x = body_x + is.x + icon_gap;
     dl->PushClipRect(ImVec2(name_x, row_min.y), row_max, true);
     dl->AddText(ImVec2(name_x, row_min.y + (row_h - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), node.name.c_str());
@@ -163,12 +165,13 @@ void AssetManagerDebugTab::_toolbar_breadcrumb(const std::filesystem::path& root
         }
     }
 
-    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    const UiStyle& ui = ui_style();
+    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
     for (size_t k = 0; k < chain.size(); ++k) {
         if (k > 0) {
-            ImGui::SameLine(0.0f, 4.0f);
+            ImGui::SameLine(0.0f, ui.asset_browser.crumb_gap);
             ImGui::TextDisabled("/");
-            ImGui::SameLine(0.0f, 4.0f);
+            ImGui::SameLine(0.0f, ui.asset_browser.crumb_gap);
         }
         
         const bool is_last = (k + 1 == chain.size());
@@ -232,10 +235,11 @@ Guid AssetManagerDebugTab::_resolve_texture_guid(const std::filesystem::path& p_
 
 bool AssetManagerDebugTab::_list_item(ImTextureID p_texture, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
 {
-    const float list_item_height = 48.0f;
-    const float icon_size = 36.0f;
-    const float pad = 6.0f;
-    const float rounding = 4.0f;
+    const UiStyle& ui = ui_style();
+    const float list_item_height = ui.list_row.height;
+    const float icon_size = ui.asset_browser.item_icon;
+    const float pad = ui.asset_browser.item_pad;
+    const float rounding = ui.radius.md;
     const float width = ImGui::GetContentRegionAvail().x;
 
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
@@ -272,12 +276,12 @@ bool AssetManagerDebugTab::_list_item(ImTextureID p_texture, const char* p_name,
 
     const ImVec2 icon0(p0.x + pad, p0.y + (list_item_height - icon_size) * 0.5f);
     const ImVec2 icon1(icon0.x + icon_size, icon0.y + icon_size);
-    const ImVec2 text0(icon1.x + pad, p0.y + 7.0f);
+    const ImVec2 text0(icon1.x + pad, p0.y + ui.asset_browser.item_text_top);
 
     dl->AddRectFilled(p0, p1, ImGui::IsItemHovered() ? ImGui::GetColorU32(ImGuiCol_FrameBgHovered) : ImGui::GetColorU32(ImGuiCol_FrameBg), rounding);
     if (p_texture) dl->AddImage(p_texture, icon0, icon1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
     else dl->AddRectFilled(icon0, icon1, ImGui::GetColorU32(ImGuiCol_FrameBgActive), rounding);
-    if (ImGui::IsItemHovered()) dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Text), rounding, 0, 1.0f);
+    if (ImGui::IsItemHovered()) dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Text), rounding, 0, ui.stroke.hairline);
 
     if (renaming) {
         const float text_width = width - (text0.x - p0.x) - pad;
@@ -300,14 +304,14 @@ bool AssetManagerDebugTab::_list_item(ImTextureID p_texture, const char* p_name,
         dl->PushClipRect(text0, text_max, true);
         dl->AddText(text0, ImGui::GetColorU32(ImGuiCol_Text), p_name);
         if (p_type && *p_type) {
-            const ImVec2 subtext_pos(text0.x, text0.y + ImGui::GetTextLineHeight() + 1.0f);
+            const ImVec2 subtext_pos(text0.x, text0.y + ImGui::GetTextLineHeight() + ui.asset_browser.item_subtitle_gap);
             dl->AddText(subtext_pos, ImGui::GetColorU32(ImGuiCol_TextDisabled), p_type);
         }
         dl->PopClipRect();
     }
 
     if (p_progress >= 0.0f && p_progress < 1.0f) {
-        const float bar_h = 2.0f;
+        const float bar_h = ui.asset_browser.progress_height;
         const ImVec2 bar0(p0.x, p1.y - bar_h);
         const ImVec2 bar1(p1.x, p1.y);
         dl->AddRectFilled(bar0, bar1, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg));
@@ -325,10 +329,7 @@ bool AssetManagerDebugTab::_list_item(ImTextureID p_texture, const char* p_name,
 
 void AssetManagerDebugTab::_list_draw(EditorContext& ctx)
 {
-    const float min_gap = 16.0f;
-    const float row_gap = 8.0f;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(min_gap, row_gap));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ui_style().asset_browser.grid_spacing);
 
     Dir* dir = selected_folder.empty() ? nullptr : &_cache_get(selected_folder);
     if (dir && dir->exists) {
@@ -455,12 +456,13 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     
     const ImVec2 region_p0 = ImGui::GetCursorScreenPos();
 
-    const float thick = 6.0f;
+    const UiStyle& ui = ui_style();
+    const float thick = ui.asset_browser.splitter;
     ImVec2 avail = ImGui::GetContentRegionAvail();
 
     float body_w = avail.x - thick;
     if (body_w < 1.0f) body_w = 1.0f;
-    const float min_side = 120.0f;
+    const float min_side = ui.asset_browser.min_side;
     float left_w = ImFloor(ImClamp(body_w * 0.18f, ImMin(min_side, body_w * 0.5f), body_w - ImMin(min_side, body_w * 0.5f)));
     float right_w = body_w - left_w;
 
@@ -468,9 +470,9 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     if (_cache_get(root).exists) _draw_folder_node(root, 0);
     {
         const float divider_x = region_p0.x + left_w;
-        const float shadow_w  = 20.0f;
-        const ImU32 c_edge = IM_COL32(0, 0, 0, 80);
-        const ImU32 c_fade = IM_COL32(0, 0, 0, 0);
+        const float shadow_w = ui.asset_browser.divider_shadow;
+        const ImU32 c_edge = ui.color.shadow;
+        const ImU32 c_fade = ui.color.transparent;
         ImGui::GetWindowDrawList()->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
     }
     ImGui::EndChild();
@@ -478,20 +480,11 @@ void AssetManagerDebugTab::draw(EditorContext& ctx)
     ImGui::SameLine(0, thick);
 
     ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
-    // ImGui::InputTextWithHint("##search", "Search..", search_buf, sizeof(search_buf));
     dock_search_bar("##search", search_buf, sizeof(search_buf), -FLT_MIN);
     ImGui::BeginChild("##bottom_right", ImVec2(0, 0), true);
     _list_draw(ctx);
     ImGui::EndChild();
     ImGui::EndChild();
-    
-    // const float divider_x = region_p0.x + left_w;
-    // const float shadow_w  = 20.0f;
-    // const ImU32 c_edge = IM_COL32(0, 0, 0, 80);
-    // const ImU32 c_fade = IM_COL32(0, 0, 0, 0);
-    // ImDrawList* dl = ImGui::GetForegroundDrawList();
-    // dl->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
-
 }
 
 }

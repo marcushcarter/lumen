@@ -6,6 +6,7 @@
 #include <core/io/path.h>
 #include <core/version.h>
 #include <editor/docking/tab_strip.h>
+#include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
@@ -38,16 +39,16 @@ Error EditorApplication::on_init()
         EmbeddedResource::Blob jb = EmbeddedResource::load(L"FONTS_JETBRAINS_MONO_REGULAR_TTF");
         ImFontConfig jb_cfg;
         jb_cfg.FontDataOwnedByAtlas = false;
-        io.Fonts->AddFontFromMemoryTTF((void*)jb.data, (int)jb.size, 14.0f, &jb_cfg);
+        io.Fonts->AddFontFromMemoryTTF((void*)jb.data, (int)jb.size, ui_style().font.size, &jb_cfg);
 
         EmbeddedResource::Blob fa = EmbeddedResource::load(L"FONTS_FA_SOLID_900_OTF");
         static const ImWchar fa_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
         ImFontConfig fa_cfg;
         fa_cfg.MergeMode = true;
         fa_cfg.PixelSnapH = true;
-        fa_cfg.GlyphOffset.y = 1.0f;
+        fa_cfg.GlyphOffset.y = ui_style().font.icon_offset_y;
         fa_cfg.FontDataOwnedByAtlas = false;
-        io.Fonts->AddFontFromMemoryTTF((void*)fa.data, (int)fa.size, 14.0f, &fa_cfg, fa_ranges);
+        io.Fonts->AddFontFromMemoryTTF((void*)fa.data, (int)fa.size, ui_style().font.size, &fa_cfg, fa_ranges);
         io.Fonts->Build();
     }
 
@@ -258,10 +259,11 @@ void EditorApplication::_titlebar_block(const TitlebarLayout& L, ImVec2 min, ImV
 
 void EditorApplication::_draw_titlebar()
 {
-    const float TAB_H = 24.0f;
-    const float BTN_W = 46.0f;
+    const UiStyle& ui = ui_style();
+    const float TAB_H = ui.titlebar.tab_height;
+    const float BTN_W = ui.titlebar.caption_width;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12, 7));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ui.titlebar.menu_padding);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
     const bool  show_tabs = project.loaded();
@@ -286,11 +288,10 @@ void EditorApplication::_draw_titlebar()
 
     win32.window_titlebar_reset((int)H);
 
-    const DockColors colors = DockColors::get();
     const float width = ImGui::GetWindowWidth();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + L.menu_h), ImVec2(L.origin.x + width, L.origin.y + H), ImGui::GetColorU32(ImGuiCol_MenuBarBg)); 
-    dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + H - 1.0f), ImVec2(L.origin.x + width, L.origin.y + H), colors.line);
+    dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + H - ui.stroke.hairline), ImVec2(L.origin.x + width, L.origin.y + H), ui.color.line);
 
     _titlebar_menus(L);
     if (show_tabs) _titlebar_tabs(L);
@@ -300,7 +301,7 @@ void EditorApplication::_draw_titlebar()
         char perf[48];
         std::snprintf(perf, sizeof(perf), "%.2f ms  %.0f fps", frame_stats.frame_avg, 1000.0f / frame_stats.frame_avg);
         const ImVec2 ts = ImGui::CalcTextSize(perf);
-        const ImVec2 pos(L.origin.x + L.width - ts.x - 10.0f, L.origin.y + L.menu_h + (L.tab_h - ts.y) * 0.5f);
+        const ImVec2 pos(L.origin.x + L.width - ts.x - ui.titlebar.stats_margin, L.origin.y + L.menu_h + (L.tab_h - ts.y) * 0.5f);
         ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImGuiCol_TextDisabled), perf);
     }
 
@@ -315,7 +316,7 @@ void EditorApplication::_titlebar_menus(const TitlebarLayout& L)
     dock_menu_push_style();
     if (!ImGui::BeginMenuBar()) { dock_menu_pop_style(); return; }
         
-    ImGui::SetCursorPosX(L.logo + 6.0f);
+    ImGui::SetCursorPosX(L.logo + ui_style().titlebar.menu_offset_x);
     float menu_x0 = ImGui::GetCursorScreenPos().x;
 
     if (project.loaded()) _titlebar_editor_menu();
@@ -327,7 +328,7 @@ void EditorApplication::_titlebar_menus(const TitlebarLayout& L)
     const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
     ImVec2 ts = ImGui::CalcTextSize(title.c_str());
     float right_pad = win32.window.custom_titlebar ? (L.width - L.btn_w * 3.0f) : L.width;
-    float title_x = L.origin.x + right_pad - ts.x - 16.0f;
+    float title_x = L.origin.x + right_pad - ts.x - ui_style().titlebar.title_margin;
     dl->AddText(ImVec2(title_x, L.origin.y + (L.menu_h - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), title.c_str());
     
     if (win32.window.custom_titlebar) _titlebar_caption_buttons(L);
@@ -339,7 +340,7 @@ void EditorApplication::_titlebar_menus(const TitlebarLayout& L)
 void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& L)
 {
     ImDrawList* fg = ImGui::GetForegroundDrawList();
-    const DockColors colors = DockColors::get();
+    const UiStyle& ui = ui_style();
 
     const float btns_x = L.origin.x + L.width - L.btn_w * 3.0f;
     fg->AddRectFilled(ImVec2(btns_x, L.origin.y), ImVec2(btns_x + L.btn_w * 3.0f, L.origin.y + L.menu_h), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
@@ -353,21 +354,23 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& L)
     auto ctrl = [&](float x0, int glyph, bool danger) {
         ImVec2 p(x0, L.origin.y);
         bool hovered = mouse.x >= x0 && mouse.x < x0 + L.btn_w && mouse.y >= L.origin.y && mouse.y < L.origin.y + L.menu_h;
-        if (hovered) fg->AddRectFilled(p, ImVec2(p.x + L.btn_w, p.y + L.menu_h), danger ? IM_COL32(196, 43, 28, 255) : colors.tab_hovered);
+        if (hovered) fg->AddRectFilled(p, ImVec2(p.x + L.btn_w, p.y + L.menu_h), danger ? ui.color.danger_strong : ui.color.hover);
         ImVec2 c(p.x + L.btn_w * 0.5f, p.y + L.menu_h * 0.5f);
         ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-        float s = 5.0f;
+        const float s = ui.titlebar.caption_glyph;
+        const float o = ui.titlebar.caption_glyph_offset;
+        const float w = ui.titlebar.caption_stroke;
         switch (glyph) {
-            case 0: fg->AddLine(ImVec2(c.x-s,c.y), ImVec2(c.x+s,c.y), col, 1.0f); break;
-            case 1: fg->AddRect(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, 0,0,1.0f); break;
+            case 0: fg->AddLine(ImVec2(c.x-s,c.y), ImVec2(c.x+s,c.y), col, w); break;
+            case 1: fg->AddRect(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, 0,0,w); break;
             case 2:
-                fg->AddRect(ImVec2(c.x-s+2,c.y-s-2), ImVec2(c.x+s+2,c.y+s-2), col, 0,0,1.0f);
-                fg->AddRectFilled(ImVec2(c.x-s-2,c.y-s+2), ImVec2(c.x+s-2,c.y+s+2), hovered ? colors.tab_hovered : colors.strip);
-                fg->AddRect(ImVec2(c.x-s-2,c.y-s+2), ImVec2(c.x+s-2,c.y+s+2), col, 0,0,1.0f);
+                fg->AddRect(ImVec2(c.x-s+o,c.y-s-o), ImVec2(c.x+s+o,c.y+s-o), col, 0,0,w);
+                fg->AddRectFilled(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), hovered ? ui.color.hover : ui.color.chrome);
+                fg->AddRect(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), col, 0,0,w);
                 break;
             case 3:
-                fg->AddLine(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, 1.2f);
-                fg->AddLine(ImVec2(c.x-s,c.y+s), ImVec2(c.x+s,c.y-s), col, 1.2f);
+                fg->AddLine(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, ui.titlebar.caption_close_stroke);
+                fg->AddLine(ImVec2(c.x-s,c.y+s), ImVec2(c.x+s,c.y-s), col, ui.titlebar.caption_close_stroke);
                 break;
         }
     };
@@ -388,21 +391,21 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& L)
 
 void EditorApplication::_titlebar_tabs(const TitlebarLayout& L)
 {
-    const DockColors colors = DockColors::get();
-    const ImU32 clear = IM_COL32(0, 0, 0, 0);
-    ImGui::SetCursorScreenPos(ImVec2(L.origin.x + L.logo + 6.0f, L.origin.y + L.menu_h));
+    const UiStyle& ui = ui_style();
+    const ImU32 clear = ui.color.transparent;
+    ImGui::SetCursorScreenPos(ImVec2(L.origin.x + L.logo + ui.titlebar.menu_offset_x, L.origin.y + L.menu_h));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f, ImFloor((L.tab_h - ImGui::GetFontSize()) * 0.5f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui.titlebar.tab_pad_x, ImFloor((L.tab_h - ImGui::GetFontSize()) * 0.5f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, ui.titlebar.tab_rounding);
     ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_TabBarOverlineSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(2.0f, ImGui::GetStyle().ItemInnerSpacing.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(ui.titlebar.tab_inner_spacing, ImGui::GetStyle().ItemInnerSpacing.y));
     ImGui::PushStyleColor(ImGuiCol_Tab, clear);
-    ImGui::PushStyleColor(ImGuiCol_TabSelected, colors.strip);
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, ui.color.chrome);
     ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, clear);
     ImGui::PushStyleColor(ImGuiCol_TabDimmed, clear);
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, colors.strip);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, ui.color.chrome);
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, clear);
 
     if (ImGui::BeginTabBar("##TitlebarTabs", ImGuiTabBarFlags_None)) {
@@ -410,8 +413,8 @@ void EditorApplication::_titlebar_tabs(const TitlebarLayout& L)
             const bool selected = tab == p_tab;
             ImGuiTabItemFlags flags = ImGuiTabItemFlags_NoTooltip;
             if (tab_sync && selected) flags |= ImGuiTabItemFlags_SetSelected;
-            ImGui::PushStyleColor(ImGuiCol_Text, selected ? colors.text : colors.text_dim);
-            ImGui::PushStyleColor(ImGuiCol_TabHovered, selected ? colors.strip : colors.tab_hovered);
+            ImGui::PushStyleColor(ImGuiCol_Text, selected ? ui.color.text : ui.color.text_dim);
+            ImGui::PushStyleColor(ImGuiCol_TabHovered, selected ? ui.color.chrome : ui.color.hover);
             const bool open = ImGui::BeginTabItem(p_label, nullptr, flags);
             ImGui::PopStyleColor(2);
             _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
@@ -434,14 +437,15 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& L)
 {
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    const float m = 6.0f;
+    const UiStyle& ui = ui_style();
+    const float m = ui.titlebar.logo_margin;
     const ImVec2 mn(L.origin.x + m, L.origin.y + m);
     const ImVec2 mx(L.origin.x + L.logo - m, L.origin.y + L.bar_h - m);
 
     VkDescriptorSet logo_set = imgui.texture_cache.get(resources.icon_image.image_view);
     dl->PushClipRect(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + L.bar_h), false);
     if (logo_set) dl->AddImage(logo_set, mn, mx);
-    else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), 4.0f);
+    else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), ui.titlebar.logo_rounding);
     dl->PopClipRect();
 }
 

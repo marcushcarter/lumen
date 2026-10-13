@@ -1,5 +1,6 @@
 #include <editor/editor_settings.h>
 #include <drivers/windows/window_driver_win32.h>
+#include <drivers/imgui/ui_style.h>
 #include <cmath>
 
 namespace lumen {
@@ -119,6 +120,10 @@ void Theme::apply() const
     c[ImGuiCol_TableBorderLight]           = shade(base, 1.50f);
     c[ImGuiCol_TableRowBg]                 = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     c[ImGuiCol_TableRowBgAlt]              = ImVec4(1.0f, 1.0f, 1.0f, 0.03f);
+
+    UiStyle& ui = ui_style();
+    ui.build();
+    ui.apply_to_imgui();
 }
 
 uint32_t Theme::to_colorref(const ImVec4& p_color)

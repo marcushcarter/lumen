@@ -4,24 +4,6 @@
 
 namespace lumen {
 
-inline constexpr float DOCK_GAP = 4.0f;
-
-struct DockColors
-{
-    ImU32 gap;
-    ImU32 strip;
-    ImU32 pane;
-    ImU32 tab_hovered;
-    ImU32 line;
-    ImU32 accent;
-    ImU32 text;
-    ImU32 text_dim;
-    ImU32 drop_fill;
-    ImU32 drop_line;
-
-    static DockColors get();
-};
-
 void dock_menu_push_style();
 void dock_menu_pop_style();
 void dock_field_push_style();
@@ -32,17 +14,8 @@ struct TabStrip
 {
     enum class Edge { TOP, BOTTOM };
 
-    static constexpr float PAD_X = 12.0f;
-    static constexpr float MIN_TAB_W = 36.0f;
-    static constexpr float ACCENT_H = 2.0f;
-    static constexpr float DOCK_INSET_X = 4.0f;
-    static constexpr float DOCK_INSET_TOP = 3.0f;
-    static constexpr float DOCK_TAB_GAP = 2.0f;
-    static constexpr float DOCK_ROUNDING = 4.0f;
-    static constexpr float CLOSE_PAD = 6.0f;
-
-    DockColors colors;
     ImDrawList* draw_list = nullptr;
+    ImU32 background = 0;
     ImVec2 min;
     ImVec2 max;
     Edge edge = Edge::TOP;

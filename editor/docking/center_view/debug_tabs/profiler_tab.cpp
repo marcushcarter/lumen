@@ -1,4 +1,5 @@
 #include <editor/docking/center_view/debug_tabs/profiler_tab.h>
+#include <drivers/imgui/ui_style.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_path/editor_render_path.h>
@@ -195,12 +196,12 @@ void ProfilerDebugTab::_draw_info(EditorContext& ctx, bool frozen)
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     const float width  = avail.x;
-    const float height = width * 2.0f / 3.0f;
+    const float height = width * ui_style().profiler.plot_aspect;
     const double y_max = (tmax > 0.0) ? tmax : 1.0;
     double ticks[2] = { 0.0, y_max };
 
     imgui_title("Time distribution");
-    ImPlot::PushStyleColor(ImPlotCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImPlot::PushStyleColor(ImPlotCol_FrameBg, ui_vec4(ui_style().color.transparent));
     if (ImPlot::BeginPlot("##dist", ImVec2(width, height), ImPlotFlags_NoInputs | ImPlotFlags_NoLegend | ImPlotFlags_NoMenus | ImPlotFlags_NoTitle | ImPlotFlags_NoMouseText)) {
         ImPlot::SetupAxis(ImAxis_X1, nullptr, ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit);
         ImPlot::SetupAxis(ImAxis_Y1, nullptr, ImPlotAxisFlags_NoDecorations);
@@ -214,7 +215,8 @@ void ProfilerDebugTab::_draw_info(EditorContext& ctx, bool frozen)
 void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
 {
     RenderGraphProfiler& prof = ctx.renderer->graph.profiler;
-    
+    const UiStyle& ui = ui_style();
+
     ImGuiIO& io = ImGui::GetIO();
 
     if (!io.WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
@@ -398,22 +400,22 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
                 float x1 = origin.x + (t + block_ms - visible_start) * px;
 
                 bool dark = (i & 1) == 0;
-                dl->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x1, origin.y + H), dark ? IM_COL32(45, 45, 45, 255) : IM_COL32(55, 55, 55, 255));
+                dl->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x1, origin.y + H), dark ? ui.color.viz_stripe_even : ui.color.viz_stripe_odd);
 
                 char label[32];
                 if (block_ms == 1.0f) snprintf(label, sizeof(label), "%.0f ms", t);
                 else if (block_ms == 0.1f) snprintf(label, sizeof(label), "%.1f ms", t);
                 else snprintf(label, sizeof(label), "%.2f ms", t);
 
-                dl->AddText(ImVec2(x0 + 3.0f, origin.y + H - ImGui::GetTextLineHeight()), IM_COL32(220, 220, 220, 180), label);
+                dl->AddText(ImVec2(x0 + ui.profiler.ruler_text_pad, origin.y + H - ImGui::GetTextLineHeight()), ui.color.viz_label, label);
             }
         }
 
-        const float gap = 3.0f;
-        const float sec_h = 18.0f;
-        const float pass_h = 22.0f;
-        const float barr_h = 8.0f;
-        const float draw_h = 14.0f;
+        const float gap = ui.profiler.lane_gap;
+        const float sec_h = ui.profiler.section_height;
+        const float pass_h = ui.profiler.pass_height;
+        const float barr_h = ui.profiler.barrier_height;
+        const float draw_h = ui.profiler.draw_height;
 
         float y_sec0  = origin.y;
         float y_sec1 = y_sec0 + sec_h;
@@ -427,14 +429,15 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         auto label_in = [&](ImVec2 a, ImVec2 b, const char* txt, ImU32 col) {
             if (!txt || !txt[0]) return;
             float w = b.x - a.x;
-            if (w < 6.0f) return;
+            if (w < ui.profiler.label_min_width) return;
+            const float lp = ui.profiler.label_pad;
             ImVec2 ts = ImGui::CalcTextSize(txt);
-            float x = a.x + 4.0f;
-            x = std::max(x, origin.x + 4.0f);
-            if (x + ts.x > b.x - 4.0f) ts.x = b.x - x - 4.0f;
+            float x = a.x + lp;
+            x = std::max(x, origin.x + lp);
+            if (x + ts.x > b.x - lp) ts.x = b.x - x - lp;
             dl->PushClipRect(a, b, true);
             ImVec2 p(x, a.y + ((b.y - a.y) - ts.y) * 0.5f);
-            dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 140), txt);
+            dl->AddText(ImVec2(p.x + ui.stroke.hairline, p.y + ui.stroke.hairline), ui.color.shadow_text, txt);
             dl->AddText(p, col, txt);
             dl->PopClipRect();
         };
@@ -445,12 +448,12 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         auto bar = [&](float ms_start, float ms_len, float y0, float y1, ImU32 fill, bool* r_hovered = nullptr) -> ImVec2 {
             float x0 = origin.x + (ms_start - visible_start) * px;
             float x1 = origin.x + (ms_start + ms_len - visible_start) * px;
-            ImVec2 a(x0 + 1.0f, y0);
-            ImVec2 b(x1 - 1.0f, y1);
+            ImVec2 a(x0 + ui.profiler.bar_inset, y0);
+            ImVec2 b(x1 - ui.profiler.bar_inset, y1);
             const bool in_canvas = io.MousePos.x >= origin.x && io.MousePos.x <= origin.x + canvas_w && io.MousePos.y >= origin.y && io.MousePos.y <= origin.y + H;
             bool is_hovered = in_canvas && !dragging && io.MousePos.x >= a.x && io.MousePos.x <= b.x && io.MousePos.y >= a.y && io.MousePos.y <= b.y;
             if (r_hovered) *r_hovered = is_hovered;
-            if (b.x > a.x) dl->AddRectFilled(a, b, (r_hovered && is_hovered) ? IM_COL32(255, 50, 50, 255) : fill, 3.0f);
+            if (b.x > a.x) dl->AddRectFilled(a, b, (r_hovered && is_hovered) ? ui.color.viz_hovered : fill, ui.profiler.bar_rounding);
             return ImVec2(a.x, b.x);
         };
 
@@ -505,7 +508,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
                     snprintf(sel_name, sizeof(sel_name), "%s", t.name ? t.name : "");
                 }
             }
-            if (&t == selected_pass && x.y > x.x) dl->AddRect(ImVec2(x.x, y_pass0), ImVec2(x.y, y_pass1), IM_COL32_WHITE, 3.0f, 0, 1.0f);
+            if (&t == selected_pass && x.y > x.x) dl->AddRect(ImVec2(x.x, y_pass0), ImVec2(x.y, y_pass1), IM_COL32_WHITE, ui.profiler.bar_rounding, 0, ui.stroke.hairline);
             label_in(ImVec2(x.x, y_pass0), ImVec2(x.y, y_pass1), t.name, IM_COL32_WHITE);
 
             if (bar_hovered) {
@@ -532,7 +535,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
             const float len_ms = std::min((float)t.gpu_ms, parent_end - a_ms);
 
             bool bar_hovered = false;
-            ImVec2 x = bar(a_ms, len_ms, y_draw0, y_draw1, imgui_rg_category_u32(src[p].category, 0.45f), &bar_hovered);
+            ImVec2 x = bar(a_ms, len_ms, y_draw0, y_draw1, imgui_rg_category_u32(src[p].category, ui.alpha.category_fill), &bar_hovered);
             if (bar_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 bar_click_consumed = true;
                 if (sel_draw_key == t.key) {
@@ -544,7 +547,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
                     snprintf(sel_name, sizeof(sel_name), "%s", parent.name ? parent.name : "");
                 }
             }
-            if (&t == selected_draw && x.y > x.x) dl->AddRect(ImVec2(x.x, y_draw0), ImVec2(x.y, y_draw1), IM_COL32_WHITE, 3.0f, 0, 1.0f);
+            if (&t == selected_draw && x.y > x.x) dl->AddRect(ImVec2(x.x, y_draw0), ImVec2(x.y, y_draw1), IM_COL32_WHITE, ui.profiler.bar_rounding, 0, ui.stroke.hairline);
 
             const bool named = t.name && t.name[0];
             char lbl[16];
@@ -592,7 +595,7 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
             if (t.gpu_ms <= 0.0) continue;
 
             bool bar_hovered = false;
-            bar(start[i], (float)t.gpu_ms, y_barr0, y_barr1, IM_COL32(90, 130, 180, 220), &bar_hovered);
+            bar(start[i], (float)t.gpu_ms, y_barr0, y_barr1, ui.color.viz_barrier, &bar_hovered);
 
             if (bar_hovered) {
                 ImGui::BeginTooltip();
@@ -607,21 +610,22 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
         if (selecting) {
             float a = std::min(select_start_ms, select_end_ms);
             float b = std::max(select_start_ms, select_end_ms);
-            dl->AddRectFilled(ImVec2(origin.x + (a - visible_start) * px, origin.y), ImVec2(origin.x + (b - visible_start) * px, origin.y + H), IM_COL32(100, 150, 255, 50));
+            dl->AddRectFilled(ImVec2(origin.x + (a - visible_start) * px, origin.y), ImVec2(origin.x + (b - visible_start) * px, origin.y + H), ui.color.selection);
         }
 
         // Hover bar.
         if (hovered) {
-            dl->AddLine(ImVec2(io.MousePos.x, origin.y), ImVec2(io.MousePos.x, origin.y + H), IM_COL32(255, 255, 255, 120), 1.0f);
+            dl->AddLine(ImVec2(io.MousePos.x, origin.y), ImVec2(io.MousePos.x, origin.y + H), ui.color.viz_cursor, ui.profiler.cursor_stroke);
         }
 
         // Live / Frozen status.
         {
             const char* status = prof.frozen ? "Frozen" : "Live View";
             ImVec2 ts = ImGui::CalcTextSize(status);
-            float tx = origin.x + 4.0f;
-            float ty = origin.y + H - ts.y - 2.0f;
-            dl->AddRectFilled(ImVec2(tx - 2.0f, ty - 1.0f), ImVec2(tx + ts.x + 2.0f, ty + ts.y + 1.0f), IM_COL32(20, 20, 20, 180));
+            const ImVec2 sp = ui.profiler.status_pad;
+            float tx = origin.x + ui.profiler.label_pad;
+            float ty = origin.y + H - ts.y - sp.x;
+            dl->AddRectFilled(ImVec2(tx - sp.x, ty - sp.y), ImVec2(tx + ts.x + sp.x, ty + ts.y + sp.y), ui.color.overlay_label);
             dl->AddText(ImVec2(tx, ty), ImGui::GetColorU32(ImGuiCol_TextDisabled), status);
         }
 
@@ -643,7 +647,7 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
 
-    const float right_width = avail.x * 0.2f;
+    const float right_width = avail.x * ui_style().profiler.side_panel_ratio;
     const float leftWidth = avail.x - right_width - ImGui::GetStyle().ItemSpacing.x;
 
     ImGui::BeginGroup();

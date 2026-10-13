@@ -31,10 +31,10 @@ struct SplitterState {
     float delta = 0.0f;
 };
 
-SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float grip_len = 40.0f);
+SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float grip_len = -1.0f);
 
 // Two-column label | widget layout; widgets fill the value column so nothing runs past the panel edge.
-bool imgui_property_grid_begin(const char* p_id, float p_label_ratio = 0.4f);
+bool imgui_property_grid_begin(const char* p_id, float p_label_ratio = -1.0f);
 void imgui_property(const char* p_label);
 void imgui_property_grid_end();
 

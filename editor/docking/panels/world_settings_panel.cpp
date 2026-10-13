@@ -6,6 +6,7 @@
 #include <core/base/profiling.h>
 #include <imgui.h>
 #include <drivers/imgui/imgui_helpers.h>
+#include <drivers/imgui/ui_style.h>
 #include <cfloat>
 #include <editor/assets/mesh_cooker.h>
 
@@ -49,7 +50,7 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
         auto draw_occlusion = [](const char* p_title, const char* p_input_label, uint32_t p_input, uint32_t p_drawn_1, uint32_t p_deferred, uint32_t p_drawn_2) {
             const uint32_t occluded = p_deferred - p_drawn_2;
             ImGui::SeparatorText(p_title);
-            if (!imgui_property_grid_begin(p_title, 0.55f)) return;
+            if (!imgui_property_grid_begin(p_title, ui_style().property.label_ratio_wide)) return;
             imgui_property(p_input_label); ImGui::Text("%u", p_input);
             imgui_property("Phase 1 drawn"); ImGui::Text("%u", p_drawn_1);
             imgui_property("Phase 1 deferred"); ImGui::Text("%u", p_deferred);

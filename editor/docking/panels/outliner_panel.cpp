@@ -1,6 +1,7 @@
 #include <editor/docking/panels/outliner_panel.h>
 #include <editor/editor_context.h>
 #include <editor/docking/tab_strip.h>
+#include <drivers/imgui/ui_style.h>
 #include <editor/world/editor_folders.h>
 #include <editor/world/editor_selection.h>
 #include <editor/world/editor_spawn.h>
@@ -13,8 +14,6 @@
 #include <cstring>
 
 namespace lumen {
-
-static constexpr float ROW_PAD_Y = 3.0f;
 
 static bool _is_digit(char c) { return c >= '0' && c <= '9'; }
 
@@ -219,9 +218,10 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
 
 void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
 {
+    const float pad_x = ui_style().outliner.pad_x;
     const float bw = ImGui::GetFrameHeight();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + PAD_X);
-    if (dock_search_bar("##outliner_search", filter, sizeof(filter), -(bw + ImGui::GetStyle().ItemSpacing.x + PAD_X))) dirty = true;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
+    if (dock_search_bar("##outliner_search", filter, sizeof(filter), -(bw + ImGui::GetStyle().ItemSpacing.x + pad_x))) dirty = true;
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_FOLDER_PLUS, ImVec2(bw, bw))) _new_folder(ctx);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create folder (moves the selection into it)");
@@ -231,19 +231,20 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
 {
     World& world = *ctx.world;
     EditorFolders& folders = *ctx.folders;
-    const float row_h = ImMax(ImGui::GetFrameHeight(), ImGui::GetFontSize() + ROW_PAD_Y * 2.0f);
+    const UiStyle::Outliner& style = ui_style().outliner;
+    const float row_h = ImMax(ImGui::GetFrameHeight(), ImGui::GetFontSize() + style.row_pad_y * 2.0f);
 
     const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings;
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, ROW_PAD_Y));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, ROW_PAD_Y * 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.cell_pad_x, style.row_pad_y));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, style.row_pad_y * 2.0f));
     if (!ImGui::BeginTable("##outliner", 3, flags, ImVec2(0.0f, -p_footer_h))) {
         ImGui::PopStyleVar(2);
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("##visibility", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, row_h);
-    ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, 0.6f);
-    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoReorder, 0.4f);
+    ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, style.label_column_weight);
+    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoReorder, style.type_column_weight);
 
     ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
     ImGui::TableSetColumnIndex(0);
@@ -325,8 +326,9 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     const bool selected = _row_selected(selection, p_row);
     const bool hidden = is_folder ? folder_total[p_row.folder] > 0 && folder_hidden[p_row.folder] == folder_total[p_row.folder] : world.has<EditorHiddenTag>(p_row.entity);
     const bool v_open = is_folder && (filter[0] != '\0' || folders.folders[p_row.folder].expanded);
+    const UiStyle& ui = ui_style();
     const float font = ImGui::GetFontSize();
-    const float content_h = p_row_h - ROW_PAD_Y * 2.0f;
+    const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
 
     char label[96];
     const char* icon;
@@ -349,7 +351,6 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     const ImVec2 cell = ImGui::GetCursorScreenPos();
     const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
     const ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick;
-    // pressed on click-release, so pressing on an already selected row and dragging keeps the multi-selection
     if (ImGui::Selectable("##row", selected, sel_flags, ImVec2(0.0f, content_h))) {
         const ImGuiIO& io = ImGui::GetIO();
         _click(ctx, p_index, io.KeyCtrl, io.KeyShift);
@@ -390,18 +391,18 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
             dirty = true;
         }
         const ImU32 arrow_col = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-        ImGui::RenderArrow(dl, ImVec2(x, text_y + font * 0.15f), arrow_col, v_open ? ImGuiDir_Down : ImGuiDir_Right, 0.7f);
+        ImGui::RenderArrow(dl, ImVec2(x, text_y + font * ui.outliner.arrow_offset_scale), arrow_col, v_open ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
     }
     x += font;
 
-    const float icon_w = font * 1.25f;
+    const float icon_w = font * ui.outliner.icon_width_scale;
     const ImVec2 icon_size = ImGui::CalcTextSize(icon);
-    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), is_folder ? IM_COL32(144, 100, 41, 255) : text_col, icon);
-    x += icon_w + 4.0f;
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), is_folder ? ui.color.folder : text_col, icon);
+    x += icon_w + ui.outliner.icon_gap;
 
     if (_renaming(p_row)) {
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 0.0f));
-        ImGui::SetCursorScreenPos(ImVec2(x - 2.0f, text_y));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui.outliner.rename_pad_x, 0.0f));
+        ImGui::SetCursorScreenPos(ImVec2(x - ui.outliner.rename_pad_x, text_y));
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (rename_focus) {
             ImGui::SetKeyboardFocusHere();
@@ -445,7 +446,7 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
 
 void OutlinerPanel::_draw_footer(EditorContext& ctx)
 {
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + PAD_X);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
     ImGui::TextDisabled("%u entities (%u selected)", (uint32_t)items.size(), ctx.selection->count());
 }
 

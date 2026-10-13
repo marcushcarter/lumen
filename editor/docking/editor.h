@@ -13,14 +13,6 @@ struct Editor
 {
     static constexpr int VERSION = 1;
 
-    static constexpr float PLAY_MARGIN = 6.0f;
-    static constexpr float PLAY_INSET = 2.0f;
-    static constexpr float PLAY_ROUNDING = 3.0f;
-    static constexpr float PLAY_KEBAB_W = 14.0f;
-    static constexpr float PLAY_KEBAB_GAP = 4.0f;
-    static constexpr ImU32 PLAY_GREEN = IM_COL32(29, 124, 18, 255);
-    static constexpr ImU32 PLAY_DISABLED_ALPHA = 0x60;
-
     static constexpr float MIN_DOCKWELL = 0.025f;
     static constexpr float MAX_DOCKWELL = 0.5f;
     static constexpr float MIN_WELL = 0.15f;
@@ -43,7 +35,6 @@ struct Editor
     float split_x = 0.8f;
     float split_y = 0.5f;
     bool right_collapsed = false;
-    float bar_h = 36.0f;
 
     template <class T, class... A>
     T* add_panel(A&&... a) {

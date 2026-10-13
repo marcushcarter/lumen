@@ -1,6 +1,7 @@
 #include <editor/docking/panels/details_panel.h>
 #include <editor/editor_context.h>
 #include <editor/docking/tab_strip.h>
+#include <drivers/imgui/ui_style.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/world/editor_selection.h>
@@ -12,34 +13,36 @@
 
 namespace lumen {
 
-static ImVec4 _accent_tint(float p_t)
+static void _push_accent_soft(ImGuiCol p_idle, ImGuiCol p_hovered, ImGuiCol p_active)
 {
-    const DockColors dc = DockColors::get();
-    const ImVec4 card = ImGui::ColorConvertU32ToFloat4(dc.strip);
-    const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(dc.accent);
-    return ImVec4(card.x + (accent.x - card.x) * p_t, card.y + (accent.y - card.y) * p_t, card.z + (accent.z - card.z) * p_t, 1.0f);
+    const UiStyle& ui = ui_style();
+    ImGui::PushStyleColor(p_idle, ui.color.accent_soft);
+    ImGui::PushStyleColor(p_hovered, ui.color.accent_soft_hover);
+    ImGui::PushStyleColor(p_active, ui.color.accent_soft_active);
+}
+
+static void _accent_underline()
+{
+    const UiStyle& ui = ui_style();
+    const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - ui.details.accent_bar), mx, ui.color.accent);
 }
 
 bool DetailsPanel::_component_begin(const char* p_title)
 {
-    const DockColors dc = DockColors::get();
-    const ImVec4 card = ImGui::ColorConvertU32ToFloat4(dc.strip);
-    const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(dc.accent);
+    const UiStyle& ui = ui_style();
 
     ImGui::PushID(p_title);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 3.0f));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, dc.strip);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ui.details.card_frame_padding);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.chrome);
     ImGui::BeginChild("##component", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_FrameStyle);
     ImGui::PopStyleColor();
     dock_field_push_style();
-    ImGui::PushStyleColor(ImGuiCol_Header, _accent_tint(0.18f));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, _accent_tint(0.30f));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, _accent_tint(0.42f));
+    _push_accent_soft(ImGuiCol_Header, ImGuiCol_HeaderHovered, ImGuiCol_HeaderActive);
     const bool op = ImGui::TreeNodeEx(p_title, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen);
     ImGui::PopStyleColor(3);
 
-    const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - 2.0f), mx, dc.accent);
+    _accent_underline();
     return op;
 }
 
@@ -51,9 +54,10 @@ bool DetailsPanel::_component_end(bool p_open, bool p_deletable)
             const float size = ImGui::GetFrameHeight();
             ImGui::Spacing();
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - size) * 0.5f);
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.60f, 0.15f, 0.15f, 0.60f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.75f, 0.20f, 0.20f, 0.80f));
+            const UiStyle& ui = ui_style();
+            ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_soft_active);
             remove = ImGui::Button(ICON_FA_TRASH_CAN, ImVec2(size, size));
             ImGui::PopStyleColor(3);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove component");
@@ -196,7 +200,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             }
             changed |= ImGui::DragFloat("Spacing", &grid->spacing, 0.1f, 0.0f, FLT_MAX, grid->spacing > 0.0f ? "%.2f" : "auto");
             const uint64_t total = (uint64_t)grid->count.x * grid->count.y * grid->count.z;
-            if (total > MAX_INSTANCES) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%llu instances (over %u, not drawn)", (unsigned long long)total, MAX_INSTANCES);
+            if (total > MAX_INSTANCES) ImGui::TextColored(ui_vec4(ui_style().color.danger), "%llu instances (over %u, not drawn)", (unsigned long long)total, MAX_INSTANCES);
             else ImGui::TextDisabled("%llu instances", (unsigned long long)total);
             if (changed) world.touch(e);
         }
@@ -263,18 +267,13 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     ImGui::Spacing();
 
     ImGui::PushID("Add Component");
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, DockColors::get().strip);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui_style().color.chrome);
     ImGui::BeginChild("##component", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_FrameStyle);
     ImGui::PopStyleColor();
-    ImGui::PushStyleColor(ImGuiCol_Button, _accent_tint(0.18f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, _accent_tint(0.30f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, _accent_tint(0.42f));
+    _push_accent_soft(ImGuiCol_Button, ImGuiCol_ButtonHovered, ImGuiCol_ButtonActive);
     const bool add_pressed = ImGui::Button(ICON_FA_PLUS "  Add Component", ImVec2(-FLT_MIN, 0.0f));
     ImGui::PopStyleColor(3);
-    {
-        const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
-        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - 2.0f), mx, DockColors::get().accent);
-    }
+    _accent_underline();
     if (add_pressed) ImGui::OpenPopup("##add_component");
     dock_menu_push_style();
     if (ImGui::BeginPopup("##add_component")) {

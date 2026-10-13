@@ -1,4 +1,5 @@
 #include <drivers/imgui/imgui_helpers.h>
+#include <drivers/imgui/ui_style.h>
 #include <core/rendering/pass_category.h>
 #include <imgui_internal.h>
 #include <cstdarg>
@@ -20,7 +21,7 @@ void imgui_title(const char* p_fmt, ...)
 
 void imgui_link(const char* label, const char* url)
 {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 0.5f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextLink));
     ImGui::TextUnformatted(label);
     if (ImGui::IsItemHovered()) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -39,17 +40,18 @@ void imgui_spacing()
     ImGui::Spacing();
 }
 
-void imgui_section_gap() {
-    ImGui::Dummy(ImVec2(0, 2));
+void imgui_section_gap()
+{
+    const float gap = ui_style().property.section_gap;
+    ImGui::Dummy(ImVec2(0, gap));
     ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 2));
+    ImGui::Dummy(ImVec2(0, gap));
 }
 
 void imgui_property_row(const char* p_name, const char* p_fmt, ...)
 {
-    constexpr float tab_width = 200.0f;
     ImGui::TextUnformatted(p_name);
-    ImGui::SameLine(tab_width);
+    ImGui::SameLine(ui_style().property.row_label_width);
     va_list args;
     va_start(args, p_fmt);
     ImGui::TextV(p_fmt, args);
@@ -99,13 +101,15 @@ void imgui_tri_right(ImU32 p_color)
     float s = h * 0.42f;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddTriangleFilled(ImVec2(c.x, c.y + h * 0.28f), ImVec2(c.x, c.y + h * 0.72f), ImVec2(c.x + s, c.y + h * 0.50f), p_color);
-    ImGui::Dummy(ImVec2(s + 4.0f, h));
-    ImGui::SameLine(0, 4.0f);
+    const float gap = ui_style().space.sm;
+    ImGui::Dummy(ImVec2(s + gap, h));
+    ImGui::SameLine(0, gap);
 }
 
 ImU32 imgui_rg_category_u32(const char* cat, float alpha)
 {
-    ImVec4 c(0.70f, 0.70f, 0.70f, alpha);
+    ImVec4 c = ImGui::ColorConvertU32ToFloat4(ui_style().color.viz_neutral);
+    c.w = alpha;
     if (cat && cat[0]) {
         if (const PassCategory* pc = pass_category_find(cat)) {
             c = ImVec4(pc->r / 255.0f, pc->g / 255.0f, pc->b / 255.0f, alpha);
@@ -121,13 +125,16 @@ ImU32 imgui_rg_category_u32(const char* cat, float alpha)
 
 ImU32 imgui_pct_col(float pct)
 {
-    if (pct < 0.75f) return IM_COL32( 88, 180, 120, 255);
-    if (pct < 0.90f) return IM_COL32(210, 170,  70, 255);
-    return IM_COL32(210,  90,  80, 255);
+    const UiStyle& ui = ui_style();
+    if (pct < 0.75f) return ui.color.viz_ok;
+    if (pct < 0.90f) return ui.color.viz_warn;
+    return ui.color.viz_full;
 }
 
 SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float grip_len)
 {
+    const UiStyle& ui = ui_style();
+    if (grip_len < 0.0f) grip_len = ui.splitter.grip_length;
     ImGui::InvisibleButton(id, size);
     SplitterState s;
     s.hovered = ImGui::IsItemHovered() && ImGui::GetHoveredID() == ImGui::GetItemID();
@@ -145,11 +152,12 @@ SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float 
 
     if (s.hovered || s.active) {
         ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered);
-        if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - 1.0f, mn.y), ImVec2(cx + 1.0f, mx.y), col);
-        else dl->AddRectFilled(ImVec2(mn.x, cy - 1.0f), ImVec2(mx.x, cy + 1.0f), col);
+        const float half = ui.splitter.line_width * 0.5f;
+        if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - half, mn.y), ImVec2(cx + half, mx.y), col);
+        else dl->AddRectFilled(ImVec2(mn.x, cy - half), ImVec2(mx.x, cy + half), col);
     } else if (grip_len > 0.0f) {
         ImU32 col = ImGui::GetColorU32(ImGuiCol_Separator);
-        const float t = 2.0f;
+        const float t = ui.splitter.grip_half_width;
         if (axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - t, cy - grip_len * 0.5f), ImVec2(cx + t, cy + grip_len * 0.5f), col, t);
         else dl->AddRectFilled(ImVec2(cx - grip_len * 0.5f, cy - t), ImVec2(cx + grip_len * 0.5f, cy + t), col, t);
     }
@@ -159,6 +167,7 @@ SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float 
 
 bool imgui_property_grid_begin(const char* p_id, float p_label_ratio)
 {
+    if (p_label_ratio < 0.0f) p_label_ratio = ui_style().property.label_ratio;
     if (!ImGui::BeginTable(p_id, 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings)) return false;
     ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthStretch, p_label_ratio);
     ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch, 1.0f - p_label_ratio);

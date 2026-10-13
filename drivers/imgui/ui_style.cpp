@@ -193,6 +193,11 @@ void UiStyle::_build_components()
     data_table.button_width = 70.0f;
     data_table.bar_rounding = radius.sm;
     data_table.block_gap = space.sm;
+
+    console_bar.pad = space.lg;
+    console_bar.field_width = 360.0f;
+    console_bar.field_min_width = 120.0f;
+    console_bar.rounding = radius.sm;
 }
 
 void UiStyle::_build_colors()

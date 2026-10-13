@@ -33,6 +33,7 @@ struct TabStrip
     bool tab(const char* p_label, bool p_selected);
     bool dock_tab(const char* p_label, bool p_selected, bool* p_close);
     bool trailing_button(const char* p_icon);
+    bool console_field(const char* p_id, const char* p_label, const char* p_hint, char* p_buf, size_t p_size, float p_field_width);
     void end();
 };
 

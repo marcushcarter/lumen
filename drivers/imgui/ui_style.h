@@ -329,6 +329,13 @@ struct UiStyle
         float block_gap;
     };
 
+    struct ConsoleBar {
+        float pad;
+        float field_width;
+        float field_min_width;
+        float rounding;
+    };
+
     Typography font;
     Space space;
     Radius radius;
@@ -358,6 +365,7 @@ struct UiStyle
     AssetBrowser asset_browser;
     Profiler profiler;
     DataTable data_table;
+    ConsoleBar console_bar;
 
     void build();
     void apply_to_imgui() const;

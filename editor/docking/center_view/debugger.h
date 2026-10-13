@@ -11,6 +11,7 @@ struct Debugger
     std::vector<std::unique_ptr<DebugTab>> tabs;
     int active = 0;
     bool collapsed = true;
+    char console_buffer[512] = {};
 
     void initialize();
     void draw_content(EditorContext& ctx);

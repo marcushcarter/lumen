@@ -8,6 +8,12 @@
 
 namespace lumen {
 
+void console_submit(const char* p_command)
+{
+    if (!p_command || p_command[0] == '\0') return;
+    log_write("> %s", p_command);
+}
+
 void OutputDebugTab::draw(EditorContext&)
 {    
     LogSink& sink = log_sink();
@@ -33,10 +39,8 @@ void OutputDebugTab::draw(EditorContext&)
     ImGui::PushItemWidth(-reserved);
 
     if (ImGui::InputTextWithHint("##console_input", "Enter a command", input_buffer, IM_ARRAYSIZE(input_buffer), ImGuiInputTextFlags_EnterReturnsTrue)) {
-        if (input_buffer[0] != '\0') {
-            log_write("> %s", input_buffer);
-            input_buffer[0] = '\0';
-        }
+        console_submit(input_buffer);
+        input_buffer[0] = '\0';
         enter_pressed = true;
     }
     ImGui::PopItemWidth();

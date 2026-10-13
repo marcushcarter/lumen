@@ -294,7 +294,6 @@ Error Application::project_load(const std::filesystem::path &p_root)
         light.type = LightType::DIRECTIONAL;
         light.intensity = 1.0f;
         world.add<LightComponent>(sun, light);
-        world.add<EditorHiddenTag>(sun);
     }
 
     {
@@ -310,6 +309,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
         light.intensity = 50000.0f;
         light.range = 1000.0f;
         world.add<LightComponent>(point, light);
+        world.add<EditorHiddenTag>(point);
     }
 
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());

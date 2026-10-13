@@ -49,19 +49,22 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
     Panel* active = _resolve_active();
     const DockColors colors = DockColors::get();
-    const float tab_h = TabStrip::height();
+    const float tab_h = TabStrip::dock_height();
     const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
 
     ImGui::PushID(to_string(zone));
 
     float natural = 0.0f;
-    for (Panel* p : panels) if (p->open) natural += TabStrip::natural_width(p->name());
+    for (Panel* p : panels) if (p->open) natural += TabStrip::dock_natural_width(p->name());
 
+    Panel* closed = nullptr;
     TabStrip strip;
-    strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural);
+    strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, TabStrip::DOCK_INSET_X);
+    strip.cursor_x += TabStrip::DOCK_INSET_X;
     for (Panel* p : panels) {
         if (!p->open) continue;
-        if (strip.tab(p->name(), p == active)) {
+        bool close = false;
+        if (strip.dock_tab(p->name(), p == active, &close)) {
             active = p;
             active_name = p->name();
         }
@@ -70,8 +73,14 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
             ImGui::TextUnformatted(p->name());
             ImGui::EndDragDropSource();
         }
+        if (close) closed = p;
     }
     strip.end();
+
+    if (closed) {
+        closed->open = false;
+        if (closed == active) active = _resolve_active();
+    }
 
     const float content_h = ImMax(1.0f, size.y - tab_h);
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + tab_h));

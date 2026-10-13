@@ -659,7 +659,10 @@ EditorContext EditorApplication::_make_context()
 
 void EditorApplication::update_camera(float p_dt)
 {
-    editor_camera.update(p_dt);
+    // editor_camera.update(p_dt);
+    
+    (void)p_dt;
+    editor_camera.update(0.0f);
 }
 
 const Camera& EditorApplication::active_camera() const

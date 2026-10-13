@@ -54,7 +54,6 @@ void dock_menu_pop_style()
     ImGui::PopStyleColor(9);
 }
 
-// widgets on a dock pane: neutral steps up from the pane instead of the accent-tinted theme frames
 void dock_field_push_style()
 {
     const ImVec4* c = ImGui::GetStyle().Colors;
@@ -92,6 +91,21 @@ float TabStrip::height()
 float TabStrip::natural_width(const char* p_label)
 {
     return ImGui::CalcTextSize(p_label, nullptr, true).x + PAD_X * 2.0f;
+}
+
+float TabStrip::close_size()
+{
+    return ImFloor(ImGui::GetFontSize() + 2.0f);
+}
+
+float TabStrip::dock_height()
+{
+    return height() + DOCK_INSET_TOP;
+}
+
+float TabStrip::dock_natural_width(const char* p_label)
+{
+    return ImGui::CalcTextSize(p_label, nullptr, true).x + ImGui::CalcTextSize(" ").x + PAD_X + close_size() + CLOSE_PAD + DOCK_TAB_GAP;
 }
 
 void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right, ImU32 p_bg)
@@ -147,6 +161,58 @@ bool TabStrip::tab(const char* p_label, bool p_selected)
     ImGui::RenderTextEllipsis(draw_list, tmin, tmax, tmax.x, p_label, end, &ts);
     ImGui::PopStyleColor();
 
+    return pressed;
+}
+
+bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close)
+{
+    const float cs = close_size();
+    const float w = ImMax(MIN_TAB_W + cs, ImFloor(dock_natural_width(p_label) * scale) - DOCK_TAB_GAP);
+    const ImVec2 a(cursor_x, min.y + DOCK_INSET_TOP);
+    const ImVec2 b(cursor_x + w, max.y);
+    cursor_x += w + DOCK_TAB_GAP;
+
+    const ImVec2 ca(ImFloor(b.x - CLOSE_PAD * 0.5f - cs), ImFloor(a.y + (b.y - a.y - cs) * 0.5f));
+    const ImVec2 cb(ca.x + cs, ca.y + cs);
+
+    ImGui::PushID(p_label);
+    ImGui::SetCursorScreenPos(ca);
+    const bool close_pressed = ImGui::InvisibleButton("##close", ImVec2(cs, cs));
+    const bool close_hovered = ImGui::IsItemHovered();
+    const bool close_held = ImGui::IsItemActive();
+    ImGui::PopID();
+
+    ImGui::SetCursorScreenPos(a);
+    const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(w, b.y - a.y), ImGuiButtonFlags_PressedOnClick);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool hot = hovered || close_hovered || close_held;
+
+    if (p_selected) {
+        draw_list->AddRectFilled(a, b, colors.pane, DOCK_ROUNDING, ImDrawFlags_RoundCornersTop);
+    } else if (hot) {
+        draw_list->AddRectFilled(a, ImVec2(b.x, b.y - 1.0f), colors.tab_hovered, DOCK_ROUNDING, ImDrawFlags_RoundCornersTop);
+    }
+
+    const float h = b.y - a.y;
+    const char* end = ImGui::FindRenderedTextEnd(p_label);
+    const ImVec2 ts = ImGui::CalcTextSize(p_label, end);
+    const float pad = ImMax(6.0f, ImFloor(PAD_X * scale));
+    const ImVec2 tmin(a.x + pad, ImFloor(a.y + (h - ts.y) * 0.5f));
+    const ImVec2 tmax(ca.x - 2.0f, b.y);
+    ImGui::PushStyleColor(ImGuiCol_Text, (p_selected || hot) ? colors.text : colors.text_dim);
+    ImGui::RenderTextEllipsis(draw_list, tmin, tmax, tmax.x, p_label, end, &ts);
+    ImGui::PopStyleColor();
+
+    if (p_selected || hot) {
+        if (close_hovered || close_held) draw_list->AddRectFilled(ca, cb, colors.line, 3.0f);
+        const ImVec2 c(ca.x + cs * 0.5f, ca.y + cs * 0.5f);
+        const float r = ImFloor(cs * 0.22f) + 0.5f;
+        const ImU32 xc = (close_hovered || close_held) ? colors.text : colors.text_dim;
+        draw_list->AddLine(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), xc, 1.5f);
+        draw_list->AddLine(ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), xc, 1.5f);
+    }
+
+    if (p_close) *p_close = close_pressed || (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle));
     return pressed;
 }
 

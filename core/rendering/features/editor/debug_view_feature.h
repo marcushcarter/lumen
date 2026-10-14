@@ -9,12 +9,10 @@ struct DebugViewFeature : Feature
     uint32_t view = 0;
     uint32_t pass_view = 0;
     bool overdraw_active = false;
-    bool overdraw_compact = false;
 
     RenderGraph::Pass overdraw_raster_pass;
     RenderGraph::Pass overdraw_raster_pass_2;
     RenderGraph::Pass viewport_resolve_pass;
-    drivers::DeviceDriverVulkan::Pipeline overdraw_raster_pipe;
     drivers::DeviceDriverVulkan::Pipeline overdraw_compact_pipe;
     drivers::DeviceDriverVulkan::Pipeline viewport_resolve_pipe;
     drivers::DeviceDriverVulkan::Pipeline viewport_copy_pipe;

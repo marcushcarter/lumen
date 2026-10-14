@@ -6,9 +6,6 @@
 
 namespace lumen {
 
-static constexpr const char* OVERDRAW_DRAW_CMDS[2] = { "ClusterDrawCmds", "ClusterDrawCmds2" };
-static constexpr const char* OVERDRAW_DRAW_COUNT[2] = { "ClusterDrawCount", "ClusterDrawCount2" };
-static constexpr const char* OVERDRAW_SCATTER[2] = { "ClusterScatter", "ClusterScatter2" };
 static constexpr uint32_t INVALID_OP = 0xFFFFFFFFu;
 
 void DebugViewFeature::_create_viewport(RenderGraph::Builder& b)
@@ -32,77 +29,42 @@ void DebugViewFeature::_overdraw_raster_setup(RenderGraph::Builder& b, uint32_t 
     b.read_buffer("Instances", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    if (overdraw_compact) {
-        b.read_buffer("CompactIndices", VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT);
-        b.read_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-        b.read_buffer(phase == 0 ? "VisibleClusters" : "VisibleClusters2", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        return;
-    }
-    b.read_buffer(OVERDRAW_DRAW_CMDS[phase], VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-    b.read_buffer(OVERDRAW_DRAW_COUNT[phase], VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-    b.read_buffer(OVERDRAW_SCATTER[phase], VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+    b.read_buffer("CompactIndices", VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT);
+    b.read_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+    b.read_buffer(phase == 0 ? "VisibleClusters" : "VisibleClusters2", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 }
 
 void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, uint32_t phase)
 {
     auto out = cl.graph->image("Viewport");
-    if (overdraw_compact) {
-        auto* indices = cl.graph->buffer("CompactIndices");
-        auto* args = cl.graph->buffer("CompactDrawArgs");
-        struct Push {
-            VkDeviceAddress camera_addr;
-            VkDeviceAddress geometry_addr;
-            VkDeviceAddress instances_addr;
-            VkDeviceAddress transforms_addr;
-            VkDeviceAddress cluster_refs_addr;
-            VkDeviceAddress visible_addr;
-            VkDeviceAddress prims_addr;
-            VkDeviceAddress args_addr;
-            uint32_t phase;
-        } pc{};
-        pc.camera_addr = cl.graph->buffer("Camera")->device_address;
-        pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
-        pc.instances_addr = cl.graph->buffer("Instances")->device_address;
-        pc.transforms_addr = cl.graph->buffer("Transforms")->device_address;
-        pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
-        pc.visible_addr = cl.graph->buffer(phase == 0 ? "VisibleClusters" : "VisibleClusters2")->device_address;
-        pc.args_addr = args->device_address;
-        pc.phase = phase;
-
-        cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, out->extent }});
-        cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, out->extent }});
-        cl.dd->command_bind_pipeline(cl.cmd, overdraw_compact_pipe);
-        cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.draw_indexed_indirect(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *args, phase * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
-        return;
-    }
-    auto draw_cmds = cl.graph->buffer(OVERDRAW_DRAW_CMDS[phase]);
-    auto draw_count = cl.graph->buffer(OVERDRAW_DRAW_COUNT[phase]);
-
+    auto* indices = cl.graph->buffer("CompactIndices");
+    auto* args = cl.graph->buffer("CompactDrawArgs");
     struct Push {
         VkDeviceAddress camera_addr;
         VkDeviceAddress geometry_addr;
         VkDeviceAddress instances_addr;
         VkDeviceAddress transforms_addr;
         VkDeviceAddress cluster_refs_addr;
-        VkDeviceAddress scatter_addr;
-    } pc;
+        VkDeviceAddress visible_addr;
+        VkDeviceAddress prims_addr;
+        VkDeviceAddress args_addr;
+        uint32_t phase;
+    } pc{};
     pc.camera_addr = cl.graph->buffer("Camera")->device_address;
     pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
     pc.instances_addr = cl.graph->buffer("Instances")->device_address;
     pc.transforms_addr = cl.graph->buffer("Transforms")->device_address;
     pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
-    pc.scatter_addr = cl.graph->buffer(OVERDRAW_SCATTER[phase])->device_address;
+    pc.visible_addr = cl.graph->buffer(phase == 0 ? "VisibleClusters" : "VisibleClusters2")->device_address;
+    pc.args_addr = args->device_address;
+    pc.phase = phase;
 
     cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, out->extent }});
     cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, out->extent }});
-
-    if (!ctx->geometry->index_buffer().buffer) return;
-    cl.dd->command_bind_pipeline(cl.cmd, overdraw_raster_pipe);
-    cl.dd->command_bind_index_buffer(cl.cmd, ctx->geometry->index_buffer().buffer, 0, VK_INDEX_TYPE_UINT32);
+    cl.dd->command_bind_pipeline(cl.cmd, overdraw_compact_pipe);
+    cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
     cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-    cl.draw_indexed_indirect_count(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *draw_cmds, 0, *draw_count, 0, ctx->geometry->cluster_extent, sizeof(VkDrawIndexedIndirectCommand));
+    cl.draw_indexed_indirect(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *args, phase * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
 }
 
 void DebugViewFeature::_create_overdraw_raster_passes()
@@ -263,9 +225,9 @@ Error DebugViewFeature::create_pipelines()
     {
     ctx->graph->declare_image_format("G_Depth", VK_FORMAT_D32_SFLOAT);
     VkRenderPass rp = ctx->graph->acquire_render_pass(overdraw_raster_pass);
-    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_VERT");
+    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_COMPACT_VERT");
     EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_EDITOR_OVERDRAW_FRAG");
-    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster/visbuffer.vert" });
+    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "raster/visbuffer_compact.vert" });
     VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "editor/overdraw.frag" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.vertex_shader = vs; pipeline_ci.fragment_shader = fs; pipeline_ci.render_pass = rp;
@@ -277,15 +239,8 @@ Error DebugViewFeature::create_pipelines()
     pipeline_ci.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL;
     pipeline_ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::ADDITIVE };
     pipeline_ci.name = "editor/overdraw_raster";
-    overdraw_raster_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
-    ctx->dd->shader_free(vs);
-
-    EmbeddedResource::Blob cvs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_COMPACT_VERT");
-    VkShaderModule cvs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)cvs_blob.data, .glsl_size = cvs_blob.size, .name = "raster/visbuffer_compact.vert" });
-    pipeline_ci.vertex_shader = cvs;
-    pipeline_ci.name = "editor/overdraw_raster_compact";
     overdraw_compact_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
-    ctx->dd->shader_free(cvs); ctx->dd->shader_free(fs);
+    ctx->dd->shader_free(vs); ctx->dd->shader_free(fs);
     }
     
     return OK;
@@ -293,7 +248,6 @@ Error DebugViewFeature::create_pipelines()
 
 void DebugViewFeature::destroy_resources()
 {
-    ctx->dd->pipeline_free(overdraw_raster_pipe);
     ctx->dd->pipeline_free(overdraw_compact_pipe);
     ctx->dd->pipeline_free(viewport_resolve_pipe);
     ctx->dd->pipeline_free(viewport_copy_pipe);
@@ -303,8 +257,7 @@ void DebugViewFeature::build(RenderGraph& g)
 {
     if (!enabled) return;
     pass_view = view < (uint32_t)DEBUG_VIEW_COUNT ? view : 0;
-    overdraw_compact = g.buffer_resource("CompactDrawArgs") != nullptr;
-    overdraw_active = DEBUG_VIEWS[pass_view].op == DebugViewOp::OVERDRAW && (overdraw_compact || g.buffer_resource("ClusterDrawCount2"));
+    overdraw_active = DEBUG_VIEWS[pass_view].op == DebugViewOp::OVERDRAW && g.buffer_resource("CompactDrawArgs");
     if (overdraw_active) {
         g.add(&overdraw_raster_pass);
         g.add(&overdraw_raster_pass_2);

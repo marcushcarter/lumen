@@ -513,7 +513,9 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     const bool playing = ctx.run_is_running && ctx.run_is_running(e.path);
     if (playing) _push_neutral_button();
     else _push_run_button();
-    if (ImGui::Button(playing ? ICON_FA_STOP "  Stop" : ICON_FA_PLAY "  Run", ImVec2(full, pm.action_height)) && ctx.run_toggle) ctx.run_toggle(e.path);
+    if (ImGui::Button(playing ? ICON_FA_STOP "  Stop" : ICON_FA_PLAY "  Run", ImVec2(full, pm.action_height)) && ctx.run_toggle) {
+        if (playing || (ctx.confirm_gpu_support && ctx.confirm_gpu_support())) ctx.run_toggle(e.path);
+    }
     ImGui::PopStyleColor(4);
     ImGui::EndDisabled();
 

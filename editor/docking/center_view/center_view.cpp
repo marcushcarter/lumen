@@ -11,7 +11,6 @@
 #include <core/world/components.h>
 #include <editor/world/editor_selection.h>
 #include <IconsFontAwesome6.h>
-#include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
 #include <cfloat>
@@ -148,68 +147,44 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
     else r_outline.set_rect(lo, hi);
 }
 
-bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+bool CenterView::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok)
 {
-    if (!ctx.world || !ctx.selection || p_size.x <= 0.0f || p_size.y <= 0.0f) return false;
+    if (!ctx.world || !ctx.selection || p_size.x < 2.0f || p_size.y < 2.0f) {
+        gizmo.reset();
+        return false;
+    }
     const Entity selected = ctx.selection->primary();
     TransformComponent* xf = ctx.world->try_get<TransformComponent>(selected);
-    if (!xf) return false;
+    if (!xf) {
+        gizmo.reset();
+        return false;
+    }
 
     const ImGuiIO& io = ImGui::GetIO();
-    if (ImGui::IsWindowHovered() && !ImGuizmo::IsUsing() && !io.WantTextInput && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-        if (ImGui::IsKeyPressed(ImGuiKey_W, false)) gizmo_op = ImGuizmo::TRANSLATE;
-        if (ImGui::IsKeyPressed(ImGuiKey_E, false)) gizmo_op = ImGuizmo::ROTATE;
-        if (ImGui::IsKeyPressed(ImGuiKey_R, false)) gizmo_op = ImGuizmo::SCALE;
-    }
-
     const Camera& cam = ctx.renderer->active_camera;
-    const mat4 view = cam.view();
     const mat4 proj = cam.proj(p_size.x / p_size.y);
-    mat4 model = translate(mat4(1.0f), xf->position) * mat4_cast(xf->rotation) * glm::scale(mat4(1.0f), xf->scale);
 
-    const vec4 pivot_clip = proj * view * vec4(xf->position, 1.0f);
-    if (pivot_clip.w <= cam.near_z && !ImGuizmo::IsUsing()) return false;
+    TransformGizmo::Frame frame;
+    frame.view_proj = proj * cam.view();
+    frame.cam_position = cam.position;
+    frame.cam_rotation = cam.rotation;
+    frame.near_z = cam.near_z;
+    frame.proj_x = proj[0][0];
+    frame.proj_y = proj[1][1];
+    frame.min = p_pos;
+    frame.size = p_size;
 
-    ImGuizmo::SetOrthographic(false);
-    ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
-    ImGuizmo::SetRect(p_pos.x, p_pos.y, p_size.x, p_size.y);
-
-    const float step = gizmo_op == ImGuizmo::ROTATE ? 15.0f : (gizmo_op == ImGuizmo::SCALE ? 0.1f : 1.0f);
-    const float snap[3] = { step, step, step };
-    const ImGuizmo::MODE mode = gizmo_world ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
-
-    if (p_size.x < 2.0f || p_size.y < 2.0f) return false;
-
-    const bool input_ok = ImGui::IsMousePosValid() && !io.AppFocusLost;
-    ImGuizmo::Enable(input_ok);
-    if (ImGuizmo::Manipulate(value_ptr(view), value_ptr(proj), gizmo_op, mode, value_ptr(model), nullptr, io.KeyCtrl ? snap : nullptr) && input_ok) {
-        constexpr float MODEL_LIMIT = 1e6f;
-        bool finite = true;
-        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) finite = finite && std::isfinite(model[c][r]) && std::abs(model[c][r]) < MODEL_LIMIT;
-        if (!finite) return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
-
-        vec3 axis[3] = { vec3(model[0]), vec3(model[1]), vec3(model[2]) };
-        vec3 s = vec3(length(axis[0]), length(axis[1]), length(axis[2]));
-        if (dot(cross(axis[0], axis[1]), axis[2]) < 0.0f) {
-            s.x = -s.x;
-        }
-        switch (gizmo_op) {
-            case ImGuizmo::TRANSLATE: xf->position = vec3(model[3]); break;
-            case ImGuizmo::ROTATE: if (s.x != 0.0f && s.y != 0.0f && s.z != 0.0f) xf->rotation = normalize(quat_cast(mat3(axis[0] / s.x, axis[1] / s.y, axis[2] / s.z))); break;
-            case ImGuizmo::SCALE: xf->scale = mix(vec3(1.0f), vec3(-1.0f), lessThan(s, vec3(0.0f))) * max(abs(s), vec3(1e-4f)); break;
-            default: break;
-        }
-        ctx.world->touch(selected);
-    }
-    return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+    const bool input_ok = ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
+    bool changed = false;
+    const bool hot = gizmo.update(frame, gizmo_world, p_hover_ok && input_ok, *xf, changed);
+    if (changed) ctx.world->touch(selected);
+    return hot;
 }
 
 void CenterView::_draw_scene(EditorContext& ctx)
 {
     ImVec2 size = ImGui::GetContentRegionAvail();
     ImVec2 pos = ImGui::GetCursorScreenPos();
-
-    ImGuizmo::BeginFrame();
 
     uint32_t picked = PickFeature::NONE;
     if (ctx.render_path && ctx.world && ctx.selection && ctx.render_path->pick.take_result(picked)) {
@@ -244,7 +219,8 @@ void CenterView::_draw_scene(EditorContext& ctx)
         const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         const bool image_hovered = ImGui::IsItemHovered();
         const bool playing = false;
-        const bool gizmo_hot = !playing && _draw_gizmo(ctx, pos, size);
+        const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+        const bool gizmo_hot = !playing && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
         pick_click = !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
 
         const bool hover = !playing && !gizmo_hot && image_hovered && !popup_open_last_frame && size.x > 0.0f && size.y > 0.0f && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);

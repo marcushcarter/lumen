@@ -10,7 +10,7 @@ struct UiStyle
     /*****************/
 
     struct Typography {
-        float size = 14.0f;
+        float size = 12.0f;
         float icon_offset_y = 1.0f;
     };
 
@@ -114,6 +114,12 @@ struct UiStyle
         ImU32 overlay_hover;
         ImU32 overlay_active;
         ImU32 overlay_label;
+
+        ImU32 gizmo_x;
+        ImU32 gizmo_y;
+        ImU32 gizmo_z;
+        ImU32 gizmo_center;
+        ImU32 gizmo_hot;
 
         ImU32 shadow;
         ImU32 shadow_text;
@@ -355,6 +361,21 @@ struct UiStyle
         float rounding;
     };
 
+    struct Gizmo {
+        float arrow_ratio;
+        float ring_scale;
+        float scale_handle_scale;
+        float axis_thickness;
+        float ring_thickness;
+        float head_length;
+        float head_width;
+        float handle_size;
+        float center_radius;
+        float label_offset;
+        float hit_tolerance;
+        float drag_alpha;
+    };
+
     Typography font;
     Space space;
     Radius radius;
@@ -385,6 +406,7 @@ struct UiStyle
     Profiler profiler;
     DataTable data_table;
     ConsoleBar console_bar;
+    Gizmo gizmo;
 
     void build();
     void apply_to_imgui() const;

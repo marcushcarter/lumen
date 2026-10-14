@@ -211,6 +211,19 @@ void UiStyle::_build_components()
     console_bar.field_width = 360.0f;
     console_bar.field_min_width = 120.0f;
     console_bar.rounding = radius.sm;
+
+    gizmo.arrow_ratio = 0.22f;
+    gizmo.ring_scale = 0.63f;
+    gizmo.scale_handle_scale = 1.3f;
+    gizmo.axis_thickness = 3.0f;
+    gizmo.ring_thickness = 2.25f;
+    gizmo.head_length = 14.0f;
+    gizmo.head_width = 11.0f;
+    gizmo.handle_size = 12.0f;
+    gizmo.center_radius = 6.5f;
+    gizmo.label_offset = space.xl;
+    gizmo.hit_tolerance = space.md;
+    gizmo.drag_alpha = 0.7f;
 }
 
 void UiStyle::_build_colors()
@@ -263,6 +276,12 @@ void UiStyle::_build_colors()
     color.overlay_hover = IM_COL32(60, 62, 66, 190);
     color.overlay_active = IM_COL32(80, 82, 88, 220);
     color.overlay_label = IM_COL32(20, 20, 20, 180);
+
+    color.gizmo_x = IM_COL32(228, 15, 15, 255);
+    color.gizmo_y = IM_COL32(15, 183, 15, 255);
+    color.gizmo_z = IM_COL32(15, 48, 245, 255);
+    color.gizmo_center = IM_COL32(255, 255, 255, 255);
+    color.gizmo_hot = IM_COL32(255, 214, 64, 255);
 
     color.shadow = IM_COL32(0, 0, 0, 80);
     color.shadow_text = IM_COL32(0, 0, 0, 140);

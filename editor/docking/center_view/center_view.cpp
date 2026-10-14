@@ -222,13 +222,9 @@ void CenterView::_draw_scene(EditorContext& ctx)
         const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
         const bool gizmo_hot = !playing && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
         pick_click = !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
-
-        const bool hover = !playing && !gizmo_hot && image_hovered && !popup_open_last_frame && size.x > 0.0f && size.y > 0.0f && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-        if (ctx.render_path) ctx.render_path->outline.set_hover(hover, vec2((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y));
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.sunken);
-        if (ctx.render_path) ctx.render_path->outline.set_hover(false, vec2(0.0f));
     }
 
     const DebugView& cur = DEBUG_VIEWS[selected_view];

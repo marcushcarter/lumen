@@ -1,10 +1,6 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_scalar_block_layout : require
-
-#include "editor/outline_common.glsl"
 
 const int TILE = 8;
 const int MAX_RADIUS = 8;
@@ -17,15 +13,12 @@ layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
 
 layout(push_constant) uniform Push {
     vec4 color;
-    vec4 hover_color;
     uint id_index;
     uint out_slot;
     int radius;
     uint _pad;
-    OutlineArgsBuffer args;
+    uvec4 rect;
 } pc;
-
-const uint HOVER_BIT = OUTLINE_HOVER_BIT;
 
 shared uint s_ids[MAX_SIDE * MAX_SIDE];
 shared uint s_any;
@@ -33,8 +26,8 @@ shared uint s_any;
 void main() {
     const int r = pc.radius;
     const int side = TILE + 2 * r;
-    const ivec2 rect_min = ivec2(pc.args.rect.xy);
-    const ivec2 rect_max = ivec2(pc.args.rect.zw);
+    const ivec2 rect_min = ivec2(pc.rect.xy);
+    const ivec2 rect_max = ivec2(pc.rect.zw);
     const ivec2 origin = rect_min + ivec2(gl_WorkGroupID.xy) * TILE - r;
 
     if (gl_LocalInvocationIndex == 0u) s_any = 0u;
@@ -55,23 +48,18 @@ void main() {
     if (p.x >= rect_max.x || p.y >= rect_max.y) return;
 
     const ivec2 l = ivec2(gl_LocalInvocationID.xy) + r;
-    const uint self_id = s_ids[l.y * side + l.x] & ~HOVER_BIT;
+    const uint self_id = s_ids[l.y * side + l.x];
     int best = 0x7FFFFFFF;
-    uint best_id = 0u;
     for (int y = -r; y <= r; y++) {
         for (int x = -r; x <= r; x++) {
             const uint n = s_ids[(l.y + y) * side + l.x + x];
             const int d = x * x + y * y;
-            if ((n & ~HOVER_BIT) > self_id && d < best) {
-                best = d;
-                best_id = n;
-            }
+            if (n > self_id && d < best) best = d;
         }
     }
     if (best == 0x7FFFFFFF) return;
 
-    const vec4 color = (best_id & HOVER_BIT) != 0u ? pc.hover_color : pc.color;
-    float a = clamp(float(r) + 0.5 - sqrt(float(best)), 0.0, 1.0) * color.a;
+    float a = clamp(float(r) + 0.5 - sqrt(float(best)), 0.0, 1.0) * pc.color.a;
     vec4 c = imageLoad(u_storage_rgba8[pc.out_slot], p);
-    imageStore(u_storage_rgba8[pc.out_slot], p, vec4(mix(c.rgb, color.rgb, a), c.a));
+    imageStore(u_storage_rgba8[pc.out_slot], p, vec4(mix(c.rgb, pc.color.rgb, a), c.a));
 }

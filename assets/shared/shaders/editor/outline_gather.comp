@@ -1,0 +1,30 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/instances.glsl"
+#include "editor/outline_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+
+layout(push_constant) uniform Push {
+    ClusterRefsBuffer cluster_refs;
+    InstanceBuffer instances;
+    SelectionWordsBuffer mask;
+    SelectionClustersBuffer clusters;
+    uint capacity;
+} pc;
+
+void main() {
+    uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 64u + gl_LocalInvocationID.x;
+    if (id >= pc.cluster_refs.count) return;
+
+    uint entity = pc.instances.data[pc.cluster_refs.data[id].x].entity_id;
+    if (!selection_contains(pc.mask, entity)) return;
+
+    uint slot = atomicAdd(pc.clusters.instance_count, 1u);
+    if (slot < pc.capacity) pc.clusters.data[slot] = id;
+    else atomicAdd(pc.clusters.instance_count, 0xFFFFFFFFu);
+}

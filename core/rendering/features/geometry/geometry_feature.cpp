@@ -69,6 +69,7 @@ void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool
         auto occluded = cl.graph->buffer("OccludedInstances");
         auto hiz = cl.graph->image("HiZ");
         auto depth = cl.graph->image("G_Depth");
+        auto selection = cl.graph->buffer("SelectionWords");
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -84,8 +85,9 @@ void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool
             uint32_t hiz_mips;
             uint32_t hiz_enabled;
             uint32_t phase;
-            uint32_t _pad;
+            uint32_t selection_enabled;
             float screen_size[2];
+            VkDeviceAddress selection_addr;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -100,6 +102,8 @@ void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool
         pc.hiz_mips = hiz->mip_levels;
         pc.hiz_enabled = p_late ? ((occlusion_frame && hiz_ok) ? 1u : 0u) : (hiz_use_prev ? 1u : 0u);
         pc.phase = p_late ? 1u : 0u;
+        pc.selection_enabled = selection ? 1u : 0u;
+        pc.selection_addr = selection ? selection->device_address : 0;
         pc.screen_size[0] = (float)depth->extent.width;
         pc.screen_size[1] = (float)depth->extent.height;
 

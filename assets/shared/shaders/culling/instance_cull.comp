@@ -12,6 +12,7 @@
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/hiz.glsl"
+#include "editor/outline_common.glsl"
 
 layout(local_size_x = 64) in;
 
@@ -34,9 +35,9 @@ layout(push_constant) uniform Push {
     uint hiz_mips;
     uint hiz_enabled;
     uint phase;
-    uint _pad;
+    uint selection_enabled;
     vec2 screen_size;
-
+    SelectionWordsBuffer selection;
 } pc;
 
 bool contribution_cull(vec3 p_center, float p_radius) {
@@ -67,6 +68,8 @@ void main() {
 
         if (late) {
             to_visible = pc.hiz_enabled == 0u || !hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, mesh.pos_min, mesh.pos_extent);
+        } else if (pc.selection_enabled != 0u && selection_contains(pc.selection, instance.entity_id)) {
+            to_visible = !frustum_cull_sphere(pc.camera, center, radius);
         } else if (!frustum_cull_sphere(pc.camera, center, radius) && !contribution_cull(center, radius)) {
             if (pc.hiz_enabled != 0u) {
                 mat4 prev_model = pc.transforms.data[instance.transform_id].prev_mtx;

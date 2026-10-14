@@ -37,6 +37,7 @@ struct EditorApplication : Application
     EditorSelection selection;
 
     PlaySession play;
+    PlaySession run;
 
     Error on_init() override;
     void on_shutdown() override;
@@ -73,7 +74,6 @@ struct EditorApplication : Application
 
     bool wants_docking() const override { return true; }
     bool wants_custom_titlebar() const override { return false; }
-    // bool should_tick_game() const override { return mode == EditorMode::PLAY && !paused; }
     bool should_tick_game() const override { return false; }
     VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
     float fps_cap() const override { return (float)settings.fps_cap; }

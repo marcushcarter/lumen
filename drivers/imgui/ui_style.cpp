@@ -151,8 +151,21 @@ void UiStyle::_build_components()
     list_row.subtitle_scale = 0.85f;
     list_row.subtitle_gap = space.xs;
 
+    project_manager.inspector_width = 300.0f;
+    project_manager.filter_width = 300.0f;
     project_manager.sort_width = 160.0f;
-    project_manager.actions_width = 150.0f;
+    project_manager.chip_pad_x = space.xxl;
+    project_manager.row_height = 56.0f;
+    project_manager.row_pad_x = space.xxxl;
+    project_manager.row_gap = space.xxl;
+    project_manager.row_accent_bar = stroke.thick;
+    project_manager.thumb_size = 40.0f;
+    project_manager.thumb_rounding = radius.md;
+    project_manager.hero_height = 170.0f;
+    project_manager.inspector_padding = ImVec2(space.xxxl, space.xxxl);
+    project_manager.title_font_size = 18.0f;
+    project_manager.action_height = 34.0f;
+    project_manager.action_gap = space.lg;
     project_manager.modal_width = 520.0f;
     project_manager.browse_width = 90.0f;
     project_manager.button_width = 120.0f;
@@ -225,12 +238,18 @@ void UiStyle::_build_colors()
     color.accent_soft = _mix(chrome, accent, accent_mix.soft);
     color.accent_soft_hover = _mix(chrome, accent, accent_mix.soft_hover);
     color.accent_soft_active = _mix(chrome, accent, accent_mix.soft_active);
+    color.accent_hover = _mix(accent, fg, 0.12f);
+    color.accent_active = _mix(accent, fg, 0.24f);
     color.selection = ui_with_alpha(color.accent, alpha.selection);
 
     color.drop_fill = ImGui::GetColorU32(c[ImGuiCol_DragDropTargetBg]);
     color.drop_line = ImGui::GetColorU32(c[ImGuiCol_DragDropTarget]);
 
     color.success = IM_COL32(29, 124, 18, 255);
+    color.success_soft = _mix(chrome, ui_vec4(color.success), 0.30f);
+    color.success_soft_hover = _mix(chrome, ui_vec4(color.success), 0.42f);
+    color.success_soft_active = _mix(chrome, ui_vec4(color.success), 0.54f);
+    color.success_text = IM_COL32(127, 224, 143, 255);
     color.warning = IM_COL32(209, 168, 69, 255);
     color.danger = IM_COL32(219, 89, 89, 255);
     color.danger_strong = IM_COL32(196, 43, 28, 255);

@@ -21,14 +21,21 @@ struct PlaySession
     bool last_crashed = false;
     uint32_t last_exit_code = 0;
 
+    std::filesystem::path root;
+    std::filesystem::path pending_root;
+
     Error initialize();
     void shutdown();
 
     Error launch(const std::filesystem::path& p_project_root);
+    void relaunch(const std::filesystem::path& p_project_root);
     void stop();
     void poll();
 
     bool is_running() const { return running; }
+    bool is_running_for(const std::filesystem::path& p_project_root) const;
+
+    static std::filesystem::path _normalize_root(const std::filesystem::path& p_project_root);
 
     void _close_handles();
     void _on_exit();

@@ -58,6 +58,8 @@ Error EditorApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = play.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = run.initialize();
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     _load_state();
     settings.theme.apply();
@@ -70,6 +72,7 @@ Error EditorApplication::on_init()
 void EditorApplication::on_shutdown()
 {
     play.shutdown();
+    run.shutdown();
     resources.shutdown();
     
     _save_state();
@@ -82,6 +85,7 @@ void EditorApplication::on_shutdown()
 void EditorApplication::on_update(float p_dt)
 {
     play.poll();
+    run.poll();
     _draw_titlebar();
 
     EditorContext ctx = _make_context();
@@ -136,6 +140,10 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     selection.clear();
     render_path_request(new EditorRenderPath());
     project_manager.add_recent(project.root, project.name);
+    if (!run.is_running_for(p_root)) {
+        run.pending_root.clear();
+        run.stop();
+    }
     tab = EditorTab::WORLD;
     tab_sync = true;
 
@@ -657,6 +665,8 @@ EditorContext EditorApplication::_make_context()
     
     ctx.pie_is_playing = [this]{ return play.is_running(); };
     ctx.pie_toggle_play = [this]{ if (play.is_running()) play.stop(); else play.launch(project.root); };
+    ctx.run_is_running = [this](const std::filesystem::path& p_root){ return run.is_running_for(p_root); };
+    ctx.run_toggle = [this](const std::filesystem::path& p_root){ if (run.is_running_for(p_root)) run.stop(); else run.relaunch(p_root); };
     
     return ctx;
 }

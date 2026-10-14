@@ -89,12 +89,18 @@ struct UiStyle
         ImU32 accent_soft;
         ImU32 accent_soft_hover;
         ImU32 accent_soft_active;
+        ImU32 accent_hover;
+        ImU32 accent_active;
         ImU32 selection;
 
         ImU32 drop_fill;
         ImU32 drop_line;
 
         ImU32 success;
+        ImU32 success_soft;
+        ImU32 success_soft_hover;
+        ImU32 success_soft_active;
+        ImU32 success_text;
         ImU32 warning;
         ImU32 danger;
         ImU32 danger_strong;
@@ -279,8 +285,21 @@ struct UiStyle
     };
 
     struct ProjectManager {
+        float inspector_width;
+        float filter_width;
         float sort_width;
-        float actions_width;
+        float chip_pad_x;
+        float row_height;
+        float row_pad_x;
+        float row_gap;
+        float row_accent_bar;
+        float thumb_size;
+        float thumb_rounding;
+        float hero_height;
+        ImVec2 inspector_padding;
+        float title_font_size;
+        float action_height;
+        float action_gap;
         float modal_width;
         float browse_width;
         float button_width;

@@ -644,11 +644,15 @@ void ProfilerDebugTab::_draw_timeline(EditorContext& ctx)
 void ProfilerDebugTab::draw(EditorContext& ctx)
 {
     auto& profiler = ctx.renderer->graph.profiler;
+    const UiStyle& ui = ui_style();
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
 
-    const float right_width = avail.x * ui_style().profiler.side_panel_ratio;
+    const float right_width = avail.x * ui.profiler.side_panel_ratio;
     const float leftWidth = avail.x - right_width - ImGui::GetStyle().ItemSpacing.x;
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.chrome);
+    ImGui::PushStyleColor(ImGuiCol_Border, ui.color.line);
 
     ImGui::BeginGroup();
 
@@ -661,7 +665,7 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
     ImGui::EndGroup();
     ImGui::SameLine();
     
-    ImGui::BeginChild("Right", ImVec2(right_width, avail.y), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("Right", ImVec2(right_width, avail.y), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
     {
         ProfilingSettings& prof = *ctx.profiling;
         if (ImGui::Button(ICON_FA_COPY "  Copy Report", ImVec2(-FLT_MIN, 0.0f))) _copy_report(ctx);
@@ -688,6 +692,8 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
         _draw_info(ctx, profiler.frozen);
     }
     ImGui::EndChild();
+
+    ImGui::PopStyleColor(2);
 }
 
 }

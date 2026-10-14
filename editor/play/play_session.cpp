@@ -47,13 +47,12 @@ Error PlaySession::launch(const std::filesystem::path& p_project_root)
     const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
     LUMEN_ERR_FAIL_COND_V_MSG(n == 0 || n == MAX_PATH, FAILED, "PlaySession: GetModuleFileName failed.");
 
-    std::filesystem::path root = p_project_root.lexically_normal();
-    if (!root.has_filename()) root = root.parent_path();
+    const std::filesystem::path v_root = _normalize_root(p_project_root);
 
     std::wstring cmd = L"\"";
     cmd += exe;
     cmd += L"\" --game --pie --project \"";
-    cmd += root.wstring();
+    cmd += v_root.wstring();
     cmd += L"\"";
     std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
     cmd_buf.push_back(L'\0');
@@ -74,6 +73,7 @@ Error PlaySession::launch(const std::filesystem::path& p_project_root)
 
     process = pi.hProcess;
     process_id = pi.dwProcessId;
+    this->root = v_root;
     running = true;
     stopping = false;
     terminated = false;
@@ -81,6 +81,28 @@ Error PlaySession::launch(const std::filesystem::path& p_project_root)
 
     log_write("Play: launched game (pid %lu) for '%s'.", pi.dwProcessId, root.string().c_str());
     return OK;
+}
+
+void PlaySession::relaunch(const std::filesystem::path& p_project_root)
+{
+    if (!running) {
+        launch(p_project_root);
+        return;
+    }
+    pending_root = p_project_root;
+    stop();
+}
+
+bool PlaySession::is_running_for(const std::filesystem::path& p_project_root) const
+{
+    return running && root == _normalize_root(p_project_root);
+}
+
+std::filesystem::path PlaySession::_normalize_root(const std::filesystem::path& p_project_root)
+{
+    std::filesystem::path r = p_project_root.lexically_normal();
+    if (!r.has_filename()) r = r.parent_path();
+    return r;
 }
 
 static BOOL CALLBACK _close_process_windows(HWND p_hwnd, LPARAM p_pid)
@@ -108,7 +130,14 @@ void PlaySession::stop()
 
 void PlaySession::poll()
 {
-    if (!running) return;
+    if (!running) {
+        if (!pending_root.empty()) {
+            const std::filesystem::path next = pending_root;
+            pending_root.clear();
+            launch(next);
+        }
+        return;
+    }
 
     if (WaitForSingleObject((HANDLE)process, 0) == WAIT_OBJECT_0) {
         _on_exit();
@@ -136,6 +165,7 @@ void PlaySession::_on_exit()
     else log_write("Play: game exited with error code %lu (see its crash log). Editor unaffected.", code);
 
     _close_handles();
+    root.clear();
     running = false;
     stopping = false;
     terminated = false;

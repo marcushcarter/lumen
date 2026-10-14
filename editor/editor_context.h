@@ -47,6 +47,9 @@ struct EditorContext
     std::function<void()> close_project_callback;
     std::function<bool()> confirm_gpu_support;
 
+    std::function<bool(const std::filesystem::path&)> run_is_running;
+    std::function<void(const std::filesystem::path&)> run_toggle;
+
     std::function<bool()> pie_is_playing;
     std::function<void()> pie_toggle_play;
     std::function<bool()> pie_is_paused;

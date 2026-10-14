@@ -29,6 +29,8 @@ struct EditorFolders
     bool valid(uint32_t p_folder) const { return p_folder < folders.size() && folders[p_folder].alive; }
     uint32_t create(const char* p_name, uint32_t p_parent);
     void destroy(World& world, uint32_t p_folder);
+    void destroy_recursive(World& world, uint32_t p_folder);
+    uint32_t count_contents(const World& world, uint32_t p_folder, uint32_t& r_subfolders) const;
     void rename(uint32_t p_folder, const char* p_name);
     bool set_parent(uint32_t p_folder, uint32_t p_parent);
     bool is_ancestor(uint32_t p_ancestor, uint32_t p_folder) const;

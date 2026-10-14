@@ -48,6 +48,36 @@ void EditorFolders::destroy(World& world, uint32_t p_folder)
     version++;
 }
 
+void EditorFolders::destroy_recursive(World& world, uint32_t p_folder)
+{
+    if (!valid(p_folder)) return;
+    world.view<EditorFolderComponent>([&](Entity p_entity, EditorFolderComponent& p_f) {
+        if (valid(p_f.folder) && is_ancestor(p_folder, p_f.folder)) world.deferred_destroy(p_entity);
+    });
+    for (uint32_t f = 0; f < (uint32_t)folders.size(); f++) {
+        if (f == p_folder || !folders[f].alive || !is_ancestor(p_folder, f)) continue;
+        folders[f].alive = false;
+        free_list.push_back(f);
+    }
+    folders[p_folder].alive = false;
+    free_list.push_back(p_folder);
+    version++;
+}
+
+uint32_t EditorFolders::count_contents(const World& world, uint32_t p_folder, uint32_t& r_subfolders) const
+{
+    r_subfolders = 0;
+    if (!valid(p_folder)) return 0;
+    for (uint32_t f = 0; f < (uint32_t)folders.size(); f++) {
+        if (f != p_folder && folders[f].alive && is_ancestor(p_folder, f)) r_subfolders++;
+    }
+    uint32_t entities = 0;
+    world.view<EditorFolderComponent>([&](Entity, const EditorFolderComponent& p_f) {
+        if (valid(p_f.folder) && is_ancestor(p_folder, p_f.folder)) entities++;
+    });
+    return entities;
+}
+
 void EditorFolders::rename(uint32_t p_folder, const char* p_name)
 {
     if (!valid(p_folder) || !p_name || !p_name[0]) return;

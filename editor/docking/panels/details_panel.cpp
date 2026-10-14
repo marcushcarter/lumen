@@ -2,6 +2,7 @@
 #include <editor/editor_context.h>
 #include <editor/docking/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
+#include <drivers/imgui/imgui_helpers.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/world/editor_selection.h>
@@ -25,50 +26,13 @@ static void _accent_underline()
 {
     const UiStyle& ui = ui_style();
     const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - ui.details.accent_bar), mx, ui.color.accent);
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - ui.details.line * 2.0f), mx, ui.color.accent);
 }
 
-bool DetailsPanel::_component_begin(const char* p_title)
+bool DetailsPanel::_component_begin(const char* p_title, bool* r_remove)
 {
-    const UiStyle& ui = ui_style();
-
-    ImGui::PushID(p_title);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ui.details.card_frame_padding);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.chrome);
-    ImGui::BeginChild("##component", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_FrameStyle);
-    ImGui::PopStyleColor();
-    dock_field_push_style();
-    _push_accent_soft(ImGuiCol_Header, ImGuiCol_HeaderHovered, ImGuiCol_HeaderActive);
-    const bool op = ImGui::TreeNodeEx(p_title, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen);
-    ImGui::PopStyleColor(3);
-
-    _accent_underline();
-    return op;
-}
-
-bool DetailsPanel::_component_end(bool p_open, bool p_deletable)
-{
-    bool remove = false;
-    if (p_open) {
-        if (p_deletable) {
-            const float size = ImGui::GetFrameHeight();
-            ImGui::Spacing();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - size) * 0.5f);
-            const UiStyle& ui = ui_style();
-            ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_soft_active);
-            remove = ImGui::Button(ICON_FA_TRASH_CAN, ImVec2(size, size));
-            ImGui::PopStyleColor(3);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove component");
-        }
-        ImGui::Spacing();
-    }
-    dock_field_pop_style();
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
-    ImGui::PopID();
-    return remove;
+    if (r_remove) *r_remove = false;
+    return imgui_category(p_title, r_remove);
 }
 
 bool DetailsPanel::_mesh_field(EditorContext& ctx, Guid& r_mesh)
@@ -153,22 +117,22 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     }
     ImGui::Spacing();
 
+    dock_field_push_style();
     if (TransformComponent* xf = world.try_get<TransformComponent>(e)) {
-        const bool o = _component_begin("Transform");
-        if (o) {
+        if (_component_begin("Transform")) {
             bool changed = false;
-            changed |= ImGui::DragFloat3("Position", &xf->position.x, 0.1f);
+            changed |= imgui_drag_float3_axes("Position", &xf->position.x, 0.1f);
             if (rotation_entity != e || rotation_seen != xf->rotation) {
                 rotation_euler = degrees(eulerAngles(xf->rotation));
                 rotation_entity = e;
                 rotation_seen = xf->rotation;
             }
-            if (ImGui::DragFloat3("Rotation", &rotation_euler.x, 0.5f)) {
+            if (imgui_drag_float3_axes("Rotation", &rotation_euler.x, 0.5f)) {
                 xf->rotation = quat(radians(rotation_euler));
                 rotation_seen = xf->rotation;
                 changed = true;
             }
-            changed |= ImGui::DragFloat3("Scale", &xf->scale.x, 0.01f);
+            changed |= imgui_drag_float3_axes("Scale", &xf->scale.x, 0.01f);
             if (changed) {
                 for (int i = 0; i < 3; i++) {
                     if (!std::isfinite(xf->position[i]) || std::abs(xf->position[i]) > 1e6f) xf->position[i] = 0.0f;
@@ -178,19 +142,20 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
                 world.touch(e);
             }
         }
-        _component_end(o, false);
     }
 
     if (MeshComponent* mesh = world.try_get<MeshComponent>(e)) {
-        const bool o = _component_begin("Mesh");
+        bool remove = false;
+        const bool o = _component_begin("Mesh", &remove);
         if (o && _mesh_field(ctx, mesh->mesh)) {
             world.touch(e);
         }
-        if (_component_end(o)) world.deferred_remove<MeshComponent>(e);
+        if (remove) world.deferred_remove<MeshComponent>(e);
     }
 
     if (MeshGridComponent* grid = world.try_get<MeshGridComponent>(e)) {
-        const bool o = _component_begin("Mesh Grid");
+        bool remove = false;
+        const bool o = _component_begin("Mesh Grid", &remove);
         if (o) {
             bool changed = _mesh_field(ctx, grid->mesh);
             int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
@@ -204,11 +169,12 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             else ImGui::TextDisabled("%llu instances", (unsigned long long)total);
             if (changed) world.touch(e);
         }
-        if (_component_end(o)) world.deferred_remove<MeshGridComponent>(e);
+        if (remove) world.deferred_remove<MeshGridComponent>(e);
     }
 
     if (LightComponent* light = world.try_get<LightComponent>(e)) {
-        const bool o = _component_begin("Light");
+        bool remove = false;
+        const bool o = _component_begin("Light", &remove);
         if (o) {
             bool changed = false;
             int type = (int)light->type;
@@ -252,24 +218,23 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             }
             if (changed) world.touch(e);
         }
-        if (_component_end(o)) world.deferred_remove<LightComponent>(e);
+        if (remove) world.deferred_remove<LightComponent>(e);
     }
 
     if (LightProfileComponent* light_prof = world.try_get<LightProfileComponent>(e)) {
-        const bool o = _component_begin("Light Profile");
+        bool remove = false;
+        const bool o = _component_begin("Light Profile", &remove);
         if (o) {
             bool changed = _ies_field(ctx, light_prof->ies);
             if (changed) world.touch(e);
         }
-        if (_component_end(o)) world.deferred_remove<LightProfileComponent>(e);
+        if (remove) world.deferred_remove<LightProfileComponent>(e);
     }
 
+    dock_field_pop_style();
     ImGui::Spacing();
 
     ImGui::PushID("Add Component");
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui_style().color.chrome);
-    ImGui::BeginChild("##component", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_FrameStyle);
-    ImGui::PopStyleColor();
     _push_accent_soft(ImGuiCol_Button, ImGuiCol_ButtonHovered, ImGuiCol_ButtonActive);
     const bool add_pressed = ImGui::Button(ICON_FA_PLUS "  Add Component", ImVec2(-FLT_MIN, 0.0f));
     ImGui::PopStyleColor(3);
@@ -288,7 +253,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::EndPopup();
     }
     dock_menu_pop_style();
-    ImGui::EndChild();
     ImGui::PopID();
 }
 

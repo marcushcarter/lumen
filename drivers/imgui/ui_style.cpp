@@ -139,8 +139,14 @@ void UiStyle::_build_components()
     outliner.label_column_weight = 0.6f;
     outliner.type_column_weight = 0.4f;
 
-    details.card_frame_padding = ImVec2(space.xs, space.xs);
-    details.accent_bar = stroke.thick;
+    details.header_pad_y = space.sm;
+    details.header_indent = space.huge;
+    details.button_inset = space.lg;
+    details.arrow_x = space.md;
+    details.arrow_scale = 0.7f;
+    details.line = stroke.hairline;
+    details.axis_tab_width = 18.0f;
+    details.axis_gap = space.sm;
 
     list_row.height = 48.0f;
     list_row.spacing = space.sm;
@@ -282,6 +288,15 @@ void UiStyle::_build_colors()
     color.gizmo_z = IM_COL32(15, 48, 245, 255);
     color.gizmo_center = IM_COL32(255, 255, 255, 255);
     color.gizmo_hot = IM_COL32(255, 214, 64, 255);
+
+    color.category_header = color.field;
+    color.category_header_hover = color.field_hover;
+    color.category_line = color.sunken;
+    color.axis_x = IM_COL32(216, 58, 50, 255);
+    color.axis_y = IM_COL32(63, 174, 58, 255);
+    color.axis_z = IM_COL32(58, 98, 224, 255);
+    color.axis_w = IM_COL32(150, 150, 156, 255);
+    color.axis_text = IM_COL32(255, 255, 255, 255);
 
     color.shadow = IM_COL32(0, 0, 0, 80);
     color.shadow_text = IM_COL32(0, 0, 0, 140);

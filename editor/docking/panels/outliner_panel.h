@@ -68,6 +68,9 @@ struct OutlinerPanel : Panel
     char rename_buffer[64] = {};
     bool rename_focus = false;
 
+    bool delete_confirm_open = false;
+    char delete_message[160] = {};
+
     const char* name() const override { return ICON_FA_IMAGE "  Outliner"; }
     DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
     ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; }
@@ -94,7 +97,10 @@ struct OutlinerPanel : Panel
 
     void _reveal(EditorContext& ctx, Entity p_entity);
     void _new_folder(EditorContext& ctx);
+    void _new_entity(EditorContext& ctx);
     void _delete_selection(EditorContext& ctx);
+    void _delete_now(EditorContext& ctx, bool p_keep_contents);
+    void _draw_delete_confirm(EditorContext& ctx);
     bool _can_drop(const EditorContext& ctx, uint32_t p_target) const;
     void _drop(EditorContext& ctx, uint32_t p_target);
     void _set_hidden(World& world, const EditorFolders& folders, uint32_t p_slot, bool p_hidden);

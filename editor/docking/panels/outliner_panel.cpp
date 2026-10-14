@@ -214,17 +214,28 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) _delete_selection(ctx);
     }
+    _draw_delete_confirm(ctx);
 }
 
 void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
 {
-    const float pad_x = ui_style().outliner.pad_x;
+    const UiStyle& ui = ui_style();
+    const float pad_x = ui.outliner.pad_x;
     const float bw = ImGui::GetFrameHeight();
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-    if (dock_search_bar("##outliner_search", filter, sizeof(filter), -(bw + ImGui::GetStyle().ItemSpacing.x + pad_x))) dirty = true;
+    if (dock_search_bar("##outliner_search", filter, sizeof(filter), -(bw * 2.0f + spacing * 2.0f + pad_x))) dirty = true;
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.transparent);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.transparent);
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_SQUARE_PLUS, ImVec2(bw, bw))) _new_entity(ctx);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create entity");
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_FOLDER_PLUS, ImVec2(bw, bw))) _new_folder(ctx);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create folder (moves the selection into it)");
+    ImGui::PopStyleColor(3);
 }
 
 void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
@@ -476,7 +487,10 @@ void OutlinerPanel::_row_menu(EditorContext& ctx, const Row& p_row)
     char del[48];
     snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
     if (ImGui::MenuItem(del, "Del")) _delete_selection(ctx);
-    if (!ctx.selection->folders.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Deleted folders move their contents to the parent folder");
+    if (!ctx.selection->folders.empty()) {
+        if (ImGui::MenuItem(ICON_FA_FOLDER_MINUS "  Delete Folder Only")) _delete_now(ctx, true);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the folder and moves its contents to the parent folder");
+    }
 }
 
 bool OutlinerPanel::_row_selected(const EditorSelection& selection, const Row& p_row) const
@@ -563,13 +577,98 @@ void OutlinerPanel::_new_folder(EditorContext& ctx)
     dirty = true;
 }
 
+void OutlinerPanel::_new_entity(EditorContext& ctx)
+{
+    World& world = *ctx.world;
+    EditorFolders& folders = *ctx.folders;
+    const EditorSelection& selection = *ctx.selection;
+    uint32_t folder = EditorFolders::ROOT;
+    if (world.valid(selection.primary())) folder = folders.entity_folder(world, selection.primary());
+    else if (folders.valid(selection.primary_folder())) folder = selection.primary_folder();
+    const Entity e = editor_spawn(ctx, SpawnType::EMPTY, folder);
+    folders.expand_to(folder);
+    _rename_begin_entity(world, e);
+    scroll_to_selected = true;
+    dirty = true;
+}
+
 void OutlinerPanel::_delete_selection(EditorContext& ctx)
 {
+    const EditorFolders& folders = *ctx.folders;
+    const EditorSelection& selection = *ctx.selection;
+    uint32_t entities = 0;
+    uint32_t subfolders = 0;
+    uint32_t top_folders = 0;
+    uint32_t first = NONE;
+    for (const uint32_t f : selection.folders) {
+        if (!folders.valid(f)) continue;
+        bool nested = false;
+        for (const uint32_t o : selection.folders) nested = nested || (o != f && folders.is_ancestor(o, f));
+        if (nested) continue;
+        uint32_t sub = 0;
+        entities += folders.count_contents(*ctx.world, f, sub);
+        subfolders += sub;
+        if (first == NONE) first = f;
+        top_folders++;
+    }
+    if (entities == 0 && subfolders == 0) {
+        _delete_now(ctx, false);
+        return;
+    }
+
+    if (top_folders == 1) snprintf(delete_message, sizeof(delete_message), "Delete '%s' with %u entities and %u subfolders?", folders.folders[first].name, entities, subfolders);
+    else snprintf(delete_message, sizeof(delete_message), "Delete %u folders with %u entities and %u subfolders?", top_folders, entities, subfolders);
+    delete_confirm_open = true;
+}
+
+void OutlinerPanel::_delete_now(EditorContext& ctx, bool p_keep_contents)
+{
+    World& world = *ctx.world;
+    EditorFolders& folders = *ctx.folders;
     EditorSelection& selection = *ctx.selection;
-    for (const uint32_t f : selection.folders) ctx.folders->destroy(*ctx.world, f);
-    for (const Entity e : selection.entities) ctx.world->deferred_destroy(e);
-    if (!selection.entities.empty()) expect_world_change = true;
+    for (const Entity e : selection.entities) {
+        bool covered = false;
+        if (!p_keep_contents) {
+            const uint32_t ef = folders.entity_folder(world, e);
+            for (const uint32_t f : selection.folders) covered = covered || (ef != EditorFolders::ROOT && folders.is_ancestor(f, ef));
+        }
+        if (!covered) world.deferred_destroy(e);
+    }
+    for (const uint32_t f : selection.folders) {
+        if (p_keep_contents) folders.destroy(world, f);
+        else folders.destroy_recursive(world, f);
+    }
+    if (!selection.entities.empty() || !p_keep_contents) expect_world_change = true;
     _clear_selection(ctx);
+    dirty = true;
+}
+
+void OutlinerPanel::_draw_delete_confirm(EditorContext& ctx)
+{
+    static constexpr const char* POPUP = "Delete Folder###outliner_delete";
+    if (delete_confirm_open) {
+        ImGui::OpenPopup(POPUP);
+        delete_confirm_open = false;
+    }
+    const UiStyle& ui = ui_style();
+    dock_menu_push_style();
+    if (ImGui::BeginPopupModal(POPUP, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::TextUnformatted(delete_message);
+        ImGui::TextDisabled("This can't be undone.");
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.danger_soft);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft_active);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_strong);
+        if (ImGui::Button("Delete", ImVec2(ui.project_manager.button_width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            _delete_now(ctx, false);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(ui.project_manager.button_width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    dock_menu_pop_style();
 }
 
 bool OutlinerPanel::_can_drop(const EditorContext& ctx, uint32_t p_target) const

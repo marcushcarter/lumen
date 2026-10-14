@@ -271,7 +271,7 @@ void CenterView::_draw_scene(EditorContext& ctx)
     left_overlay.end();
 
     right_overlay.begin(pos, size, OverlayBar::Align::RIGHT);
-    right_overlay.toggle(gizmo_world ? ICON_FA_GLOBE "###gizmo_space" : ICON_FA_CUBE "###gizmo_space", gizmo_world);
+    right_overlay.toggle(gizmo_world ? ICON_FA_GLOBE "  World###gizmo_space" : ICON_FA_CUBE "  Object###gizmo_space", gizmo_world);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(gizmo_world ? "World space" : "Object space");
     right_overlay.end();
 

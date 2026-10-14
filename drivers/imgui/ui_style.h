@@ -121,6 +121,15 @@ struct UiStyle
         ImU32 gizmo_center;
         ImU32 gizmo_hot;
 
+        ImU32 category_header;
+        ImU32 category_header_hover;
+        ImU32 category_line;
+        ImU32 axis_x;
+        ImU32 axis_y;
+        ImU32 axis_z;
+        ImU32 axis_w;
+        ImU32 axis_text;
+
         ImU32 shadow;
         ImU32 shadow_text;
         ImU32 transparent;
@@ -275,8 +284,14 @@ struct UiStyle
     };
 
     struct Details {
-        ImVec2 card_frame_padding;
-        float accent_bar;
+        float header_pad_y;
+        float header_indent;
+        float button_inset;
+        float arrow_x;
+        float arrow_scale;
+        float line;
+        float axis_tab_width;
+        float axis_gap;
     };
 
     struct ListRow {

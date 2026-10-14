@@ -33,9 +33,13 @@ struct SplitterState {
 
 SplitterState imgui_splitter(const char* id, SplitAxis axis, ImVec2 size, float grip_len = -1.0f);
 
-// Two-column label | widget layout; widgets fill the value column so nothing runs past the panel edge.
 bool imgui_property_grid_begin(const char* p_id, float p_label_ratio = -1.0f);
 void imgui_property(const char* p_label);
 void imgui_property_grid_end();
 
-}
+bool imgui_category(const char* p_label, bool* r_remove = nullptr);
+
+bool imgui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p_count, float p_speed, const void* p_min = nullptr, const void* p_max = nullptr, const char* p_format = nullptr, ImGuiSliderFlags p_flags = 0);
+bool imgui_drag_float3_axes(const char* p_label, float* r_values, float p_speed = 1.0f, const char* p_format = "%.3f");
+
+}

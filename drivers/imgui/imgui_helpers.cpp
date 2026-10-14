@@ -1,6 +1,7 @@
 #include <drivers/imgui/imgui_helpers.h>
 #include <drivers/imgui/ui_style.h>
 #include <core/rendering/pass_category.h>
+#include <IconsFontAwesome6.h>
 #include <imgui_internal.h>
 #include <cstdarg>
 #include <cfloat>
@@ -188,6 +189,103 @@ void imgui_property(const char* p_label)
 void imgui_property_grid_end()
 {
     ImGui::EndTable();
+}
+
+bool imgui_category(const char* p_label, bool* r_remove)
+{
+    const UiStyle& ui = ui_style();
+    const UiStyle::Details& d = ui.details;
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    ImDrawList* dl = window->DrawList;
+
+    const float min_x = window->InnerRect.Min.x;
+    const float max_x = window->InnerRect.Max.x;
+    const float h = ImGui::GetFrameHeight() + d.header_pad_y * 2.0f;
+    const float y0 = ImGui::GetCursorScreenPos().y;
+    const float y1 = y0 + h;
+    const float button = ImGui::GetFrameHeight();
+    const float button_x = max_x - d.button_inset - button;
+
+    ImGui::PushID(p_label);
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    const ImGuiID open_id = ImGui::GetID("##open");
+    bool open = storage->GetBool(open_id, true);
+
+    const ImVec2 mouse = ImGui::GetMousePos();
+    const bool in_row = ImGui::IsWindowHovered() && mouse.x >= min_x && mouse.x < max_x && mouse.y >= y0 && mouse.y < y1;
+    const bool hovered = in_row && !(r_remove && mouse.x >= button_x);
+
+    dl->PushClipRect(ImVec2(min_x, y0), ImVec2(max_x, y1), false);
+    dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(max_x, y1 - d.line), hovered ? ui.color.category_header_hover : ui.color.category_header);
+    dl->AddRectFilled(ImVec2(min_x, y1 - d.line), ImVec2(max_x, y1), ui.color.category_line);
+    const float text_y = y0 + (h - d.line - ImGui::GetFontSize()) * 0.5f;
+    ImGui::RenderArrow(dl, ImVec2(min_x + d.arrow_x, text_y), ui.color.text, open ? ImGuiDir_Down : ImGuiDir_Right, d.arrow_scale);
+    dl->AddText(ImVec2(min_x + d.header_indent, text_y), ui.color.text, p_label, ImGui::FindRenderedTextEnd(p_label));
+    dl->PopClipRect();
+
+    if (r_remove) {
+        ImGui::SetCursorScreenPos(ImVec2(button_x, y0 + (h - d.line - button) * 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_soft_active);
+        *r_remove = ImGui::Button(ICON_FA_TRASH_CAN "##remove", ImVec2(button, button));
+        ImGui::PopStyleColor(3);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove component");
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(min_x, y0));
+    if (ImGui::InvisibleButton("##header", ImVec2((r_remove ? button_x : max_x) - min_x, h))) {
+        open = !open;
+        storage->SetBool(open_id, open);
+    }
+    ImGui::PopID();
+    return open;
+}
+
+bool imgui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p_count, float p_speed, const void* p_min, const void* p_max, const char* p_format, ImGuiSliderFlags p_flags)
+{
+    static const char* AXES[4] = { "X", "Y", "Z", "W" };
+    const UiStyle& ui = ui_style();
+    const UiStyle::Details& d = ui.details;
+    const ImU32 colors[4] = { ui.color.axis_x, ui.color.axis_y, ui.color.axis_z, ui.color.axis_w };
+    const size_t stride = ImGui::DataTypeGetInfo(p_type)->Size;
+    p_count = ImClamp(p_count, 1, 4);
+
+    const float h = ImGui::GetFrameHeight();
+    const float part = ImMax(1.0f, ImFloor((ImGui::CalcItemWidth() - d.axis_gap * (float)(p_count - 1)) / (float)p_count));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    bool changed = false;
+    ImGui::BeginGroup();
+    ImGui::PushID(p_label);
+    for (int i = 0; i < p_count; i++) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        dl->AddRectFilled(p, ImVec2(p.x + d.axis_tab_width, p.y + h), colors[i], ui.base.frame_rounding, ImDrawFlags_RoundCornersLeft);
+        const ImVec2 t = ImGui::CalcTextSize(AXES[i]);
+        dl->AddText(ImVec2(p.x + ImFloor((d.axis_tab_width - t.x) * 0.5f), p.y + ImFloor((h - t.y) * 0.5f)), ui.color.axis_text, AXES[i]);
+        ImGui::Dummy(ImVec2(d.axis_tab_width, h));
+        ImGui::SameLine(0.0f, 0.0f);
+
+        ImGui::PushID(i);
+        ImGui::SetNextItemWidth(ImMax(1.0f, part - d.axis_tab_width));
+        changed |= ImGui::DragScalar("##v", p_type, (uint8_t*)p_data + stride * (size_t)i, p_speed, p_min, p_max, p_format, p_flags);
+        ImGui::PopID();
+        if (i + 1 < p_count) ImGui::SameLine(0.0f, d.axis_gap);
+    }
+    ImGui::PopID();
+
+    const char* label_end = ImGui::FindRenderedTextEnd(p_label);
+    if (label_end != p_label) {
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextUnformatted(p_label, label_end);
+    }
+    ImGui::EndGroup();
+    return changed;
+}
+
+bool imgui_drag_float3_axes(const char* p_label, float* r_values, float p_speed, const char* p_format)
+{
+    return imgui_drag_axes(p_label, ImGuiDataType_Float, r_values, 3, p_speed, nullptr, nullptr, p_format);
 }
 
 }

@@ -1,0 +1,39 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/atmosphere.glsl"
+
+layout(push_constant, scalar) uniform Push {
+    AtmosphereBuffer atmosphere;
+    uint transmittance_index;
+    uint multiscatter_index;
+    uint sampler_index;
+    uint sun_slot;
+    uint moon_slot;
+    uint width;
+    uint height;
+} pc;
+
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (id.x >= int(pc.width) || id.y >= int(pc.height)) return;
+    g_atmo = pc.atmosphere;
+    g_lut_sampler = pc.sampler_index;
+    g_transmittance_lut = pc.transmittance_index;
+    g_multiscatter_lut = pc.multiscatter_index;
+
+    vec2 uv = (vec2(id) + 0.5) / vec2(pc.width, pc.height);
+    vec3 ro = atmo_observer();
+    vec3 rd = skyview_dir(uv, length(ro));
+    ScatterResult s = integrate_scattering(ro, rd, 1e9, 32.0, true);
+    imageStore(u_storage_rgba16f[pc.sun_slot], id, vec4(s.sun, 1.0));
+    imageStore(u_storage_rgba16f[pc.moon_slot], id, vec4(s.moon, 1.0));
+}

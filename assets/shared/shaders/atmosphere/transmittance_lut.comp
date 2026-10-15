@@ -1,0 +1,41 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/atmosphere.glsl"
+
+layout(push_constant, scalar) uniform Push {
+    AtmosphereBuffer atmosphere;
+    uint out_slot;
+    uint width;
+    uint height;
+} pc;
+
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (id.x >= int(pc.width) || id.y >= int(pc.height)) return;
+    g_atmo = pc.atmosphere;
+
+    vec2 uv = (vec2(id) + 0.5) / vec2(pc.width, pc.height);
+    float r, mu;
+    transmittance_params(uv, r, mu);
+    vec3 ro = vec3(0.0, r, 0.0);
+    vec3 rd = vec3(0.0, mu, sqrt(max(1.0 - mu * mu, 0.0)));
+    float t_max = max(ray_sphere(ro, rd, atmo_rt()), 0.0);
+
+    const int STEPS = 64;
+    float dt = t_max / float(STEPS);
+    vec3 depth = vec3(0.0);
+    for (int i = 0; i < STEPS; i++) {
+        vec3 p = ro + rd * ((float(i) + 0.5) * dt);
+        depth += atmo_medium(length(p) - atmo_rg()).extinction * dt;
+    }
+    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(exp(-depth), 1.0));
+}

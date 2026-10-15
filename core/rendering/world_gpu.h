@@ -27,6 +27,7 @@ struct CameraUniform {
     float near_z;
     float far_z;
     float tan_half_fov_y;
+    float pre_exposure;
     mat4 inv_view_proj;
 };
 
@@ -56,6 +57,36 @@ struct GpuLight {
     float inv_cone_range;
     uint32_t shadow_id;
     uint32_t fade;
+};
+
+struct GpuAtmosphere {
+    mat4 world_to_celestial;
+    vec3 rayleigh_scattering;
+    float rayleigh_density_scale;
+    vec3 mie_scattering;
+    float mie_density_scale;
+    vec3 mie_extinction;
+    float mie_g;
+    vec3 ozone_absorption;
+    float ozone_center_km;
+    vec3 ground_albedo;
+    float ozone_width_km;
+    vec3 sun_direction;
+    float sun_cos_angular_radius;
+    vec3 sun_illuminance;
+    float bottom_radius_km;
+    vec3 moon_direction;
+    float moon_cos_angular_radius;
+    vec3 moon_illuminance;
+    float top_radius_km;
+    vec3 moon_up;
+    float moon_phase_angle;
+    vec3 observer_km;
+    float altitude_km;
+    float night_luminance;
+    float star_brightness;
+    float star_density;
+    float moon_disk_brightness;
 };
 
 struct IndirectDispatch { uint32_t x, y, z; };

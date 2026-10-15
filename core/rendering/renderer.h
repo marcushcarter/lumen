@@ -97,6 +97,7 @@ struct Renderer
     std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> camera_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> light_buffers;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> atmosphere_buffers;
 
     void _frame_build(const World& p_world);
     void _frame_upload();
@@ -105,7 +106,6 @@ struct Renderer
 
     Error acquire_frame();
     Error begin_frame(const World& p_world);
-    // void compile();
     Error compile();
     Error record();
     Error end_frame();

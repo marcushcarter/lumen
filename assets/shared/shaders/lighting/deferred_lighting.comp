@@ -14,6 +14,10 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/atmosphere.glsl"
+#include "common/sky.glsl"
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
@@ -21,6 +25,8 @@ layout(push_constant, scalar) uniform Push {
     LightCullData cull;
     SortedLightBuffer sorted;
     LightTileMaskBuffer masks;
+    AtmosphereBuffer atmosphere;
+    SkyLightingBuffer sky_lighting;
     uint depth_index;
     uint albedo_index;
     uint normal_index;
@@ -29,37 +35,35 @@ layout(push_constant, scalar) uniform Push {
     uint width;
     uint height;
     uint directional_count;
-    float ambient_intensity;
-    vec4 sky_zenith;
-    vec4 sky_horizon;
-    vec4 ground_color;
+    uint transmittance_index;
+    uint skyview_sun_index;
+    uint skyview_moon_index;
+    uint aerial_index;
+    uint sampler_index;
 } pc;
 
 const float PI = 3.14159265359;
 const uint LIGHTING_FLAG_LOCAL_LIGHTS = 1u << 16;
+const float HDR_MAX = 60000.0;
 
 uint directional_count() { return pc.directional_count & 0xFFFFu; }
 bool has_local_lights() { return (pc.directional_count & LIGHTING_FLAG_LOCAL_LIGHTS) != 0u; }
 
-// 0: no local lights, 1: z-bins only (<= LIGHT_TILE_MIN_LIGHTS, no tile masks), 2: z-bins + tile masks
 layout(constant_id = 0) const uint LIGHT_MODE = 2u;
 
 vec3 sky_radiance(vec3 p_dir) {
-    float h = p_dir.y;
-    vec3 sky = mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, sqrt(clamp(h, 0.0, 1.0)));
-    vec3 col = h >= 0.0 ? sky : mix(pc.sky_horizon.rgb, pc.ground_color.rgb, clamp(-h * 4.0, 0.0, 1.0));
-    if (directional_count() > 0u) {
-        GpuLight sun = pc.lights.data[0];
-        float cos_r = cos(max(sun.source_radius, 0.001));
-        float disc = smoothstep(cos_r - 0.0002, cos_r, dot(p_dir, -sun.direction));
-        col += sun.radiance * disc * 20.0;
-    }
-    return col;
+    float pixel_angle = 2.0 * pc.camera.tan_half_fov_y / float(pc.height);
+    return sky_color(p_dir, pc.skyview_sun_index, pc.skyview_moon_index, pixel_angle, pc.camera.pre_exposure) * pc.camera.pre_exposure;
 }
 
-vec3 ambient_irradiance(vec3 p_n) {
-    float t = p_n.y * 0.5 + 0.5;
-    return mix(pc.ground_color.rgb, mix(pc.sky_horizon.rgb, pc.sky_zenith.rgb, t), t) * pc.ambient_intensity;
+vec4 aerial_sample(vec2 p_uv, float p_dist_km) {
+    float s = sqrt(clamp(p_dist_km / AERIAL_MAX_KM, 0.0, 1.0)) * float(AERIAL_SLICES) - 0.5;
+    float s0 = floor(s);
+    float f = s - s0;
+    vec2 cuv = clamp(p_uv, vec2(0.5 / float(AERIAL_SIZE)), vec2(1.0 - 0.5 / float(AERIAL_SIZE)));
+    vec4 a = s0 < 0.0 ? vec4(0.0, 0.0, 0.0, 1.0) : atmo_lut(pc.aerial_index, vec2((s0 + cuv.x) / float(AERIAL_SLICES), cuv.y));
+    vec4 b = atmo_lut(pc.aerial_index, vec2((min(s0 + 1.0, float(AERIAL_SLICES) - 1.0) + cuv.x) / float(AERIAL_SLICES), cuv.y));
+    return mix(a, b, f);
 }
 
 float d_ggx(float p_n_h, float p_a2) {
@@ -125,6 +129,9 @@ vec3 shade_local(Surface p_s, GpuLight p_light, vec3 p_world_pos) {
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
+    g_atmo = pc.atmosphere;
+    g_lut_sampler = pc.sampler_index;
+    g_transmittance_lut = pc.transmittance_index;
 
     float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
     vec2 ndc = (vec2(p) + 0.5) / vec2(pc.width, pc.height) * 2.0 - 1.0;
@@ -132,7 +139,7 @@ void main() {
     vec3 view_dir = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
 
     if (depth == 0.0) {
-        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(sky_radiance(view_dir), 1.0));
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(sky_radiance(view_dir), vec3(HDR_MAX)), 1.0));
         return;
     }
 
@@ -140,7 +147,7 @@ void main() {
     uint shading_model;
     gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
     if (shading_model == SHADING_MODEL_SKY) {
-        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(sky_radiance(view_dir), 1.0));
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(sky_radiance(view_dir), vec3(HDR_MAX)), 1.0));
         return;
     }
 
@@ -163,10 +170,11 @@ void main() {
 
     vec3 direct = vec3(0.0);
 
+    vec3 pos_km = atmo_observer() + (world_pos - pc.camera.position.xyz) * 0.001;
     for (uint i = 0u; i < directional_count(); i++) {
         GpuLight light = pc.lights.data[i];
         vec3 l = -light.direction;
-        direct += shade_light(s, l, l, 0.0, light.radiance);
+        direct += shade_light(s, l, l, 0.0, light.radiance * light_transmittance(pos_km, l));
     }
 
     uint count = (LIGHT_MODE != 0u && has_local_lights()) ? min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS) : 0u;
@@ -205,7 +213,11 @@ void main() {
         }
     }
 
-    vec3 indirect = s.diffuse_color * ambient_irradiance(s.n) * ao;
+    vec3 indirect = s.diffuse_color * sh_irradiance(pc.sky_lighting, s.n) * (ATMO_INV_PI * ao);
 
-    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(direct + indirect, 1.0));
+    vec3 color = (direct + indirect) * pc.camera.pre_exposure;
+    vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
+    color = color * ap.a + ap.rgb;
+
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(color, vec3(HDR_MAX)), 1.0));
 }

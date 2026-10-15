@@ -1,0 +1,77 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/atmosphere.glsl"
+
+layout(push_constant, scalar) uniform Push {
+    AtmosphereBuffer atmosphere;
+    SkyLightingBuffer out_sh;
+    uint skyview_sun_index;
+    uint skyview_moon_index;
+    uint sampler_index;
+} pc;
+
+const int SAMPLES_PER_THREAD = 8;
+const int SAMPLE_COUNT = 64 * SAMPLES_PER_THREAD;
+
+shared vec3 s_sh[64][9];
+
+vec3 fibonacci_dir(int p_i) {
+    float z = 1.0 - (2.0 * float(p_i) + 1.0) / float(SAMPLE_COUNT);
+    float r = sqrt(max(1.0 - z * z, 0.0));
+    float a = 2.39996323 * float(p_i);
+    return vec3(r * cos(a), z, r * sin(a));
+}
+
+vec3 sky_radiance(vec3 p_dir) {
+    vec2 uv = skyview_uv(p_dir, length(atmo_observer()));
+    vec3 rgb = atmo_lut(pc.skyview_sun_index, uv).rgb * g_atmo.sun_illuminance + atmo_lut(pc.skyview_moon_index, uv).rgb * g_atmo.moon_illuminance;
+    if (p_dir.y > 0.0) rgb += vec3(g_atmo.night_luminance);
+    return max(rgb, vec3(0.0));
+}
+
+void main() {
+    g_atmo = pc.atmosphere;
+    g_lut_sampler = pc.sampler_index;
+    uint tid = gl_LocalInvocationID.x;
+
+    vec3 sh[9];
+    for (int k = 0; k < 9; k++) sh[k] = vec3(0.0);
+    float weight = 4.0 * ATMO_PI / float(SAMPLE_COUNT);
+    for (int s = 0; s < SAMPLES_PER_THREAD; s++) {
+        vec3 d = fibonacci_dir(int(tid) * SAMPLES_PER_THREAD + s);
+        vec3 c = sky_radiance(d) * weight;
+        sh[0] += c * 0.282095;
+        sh[1] += c * 0.488603 * d.y;
+        sh[2] += c * 0.488603 * d.z;
+        sh[3] += c * 0.488603 * d.x;
+        sh[4] += c * 1.092548 * d.x * d.y;
+        sh[5] += c * 1.092548 * d.y * d.z;
+        sh[6] += c * 0.315392 * (3.0 * d.z * d.z - 1.0);
+        sh[7] += c * 1.092548 * d.x * d.z;
+        sh[8] += c * 0.546274 * (d.x * d.x - d.y * d.y);
+    }
+    for (int k = 0; k < 9; k++) s_sh[tid][k] = sh[k];
+    barrier();
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            for (int k = 0; k < 9; k++) s_sh[tid][k] += s_sh[tid + stride][k];
+        }
+        barrier();
+    }
+
+    if (tid == 0u) {
+        const float A0 = ATMO_PI;
+        const float A1 = 2.0 * ATMO_PI / 3.0;
+        const float A2 = ATMO_PI / 4.0;
+        const float band[9] = float[9](A0, A1, A1, A1, A2, A2, A2, A2, A2);
+        for (int k = 0; k < 9; k++) pc.out_sh.sh[k] = vec4(s_sh[0][k] * band[k], 0.0);
+    }
+}

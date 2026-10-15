@@ -1,0 +1,83 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/atmosphere.glsl"
+
+layout(push_constant, scalar) uniform Push {
+    AtmosphereBuffer atmosphere;
+    uint transmittance_index;
+    uint sampler_index;
+    uint out_slot;
+    uint size;
+} pc;
+
+void integrate_ms(vec3 p_ro, vec3 p_rd, vec3 p_sun, out vec3 r_l, out vec3 r_f_ms) {
+    r_l = vec3(0.0);
+    r_f_ms = vec3(0.0);
+    float t_bottom = ray_sphere(p_ro, p_rd, atmo_rg());
+    float t_top = ray_sphere(p_ro, p_rd, atmo_rt());
+    float t_max = t_bottom > 0.0 ? t_bottom : t_top;
+    if (t_max <= 0.0) return;
+
+    const int STEPS = 24;
+    const float UNIFORM_PHASE = 1.0 / (4.0 * ATMO_PI);
+    float dt = t_max / float(STEPS);
+    vec3 throughput = vec3(1.0);
+    for (int i = 0; i < STEPS; i++) {
+        vec3 p = p_ro + p_rd * ((float(i) + 0.3) * dt);
+        Medium m = atmo_medium(length(p) - atmo_rg());
+        vec3 sample_t = exp(-m.extinction * dt);
+        vec3 inv_ext = 1.0 / max(m.extinction, vec3(1e-7));
+        vec3 s = m.scattering * UNIFORM_PHASE * light_transmittance(p, p_sun);
+        r_l += throughput * (s - s * sample_t) * inv_ext;
+        r_f_ms += throughput * (m.scattering - m.scattering * sample_t) * inv_ext;
+        throughput *= sample_t;
+    }
+    if (t_bottom > 0.0) {
+        vec3 p = p_ro + p_rd * t_bottom;
+        vec3 n = normalize(p);
+        r_l += throughput * light_transmittance(p, p_sun) * max(dot(n, p_sun), 0.0) * g_atmo.ground_albedo * ATMO_INV_PI;
+    }
+}
+
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (id.x >= int(pc.size) || id.y >= int(pc.size)) return;
+    g_atmo = pc.atmosphere;
+    g_lut_sampler = pc.sampler_index;
+    g_transmittance_lut = pc.transmittance_index;
+
+    float res = float(pc.size);
+    vec2 uv = (vec2(id) + 0.5) / res;
+    uv = vec2(sub_uv_to_unit(uv.x, res), sub_uv_to_unit(uv.y, res));
+    float mu_s = clamp(uv.x * 2.0 - 1.0, -1.0, 1.0);
+    float r = clamp(atmo_rg() + clamp(uv.y, 0.0, 1.0) * (atmo_rt() - atmo_rg()), atmo_rg() + 0.01, atmo_rt() - 0.01);
+    vec3 ro = vec3(0.0, r, 0.0);
+    vec3 sun = vec3(0.0, mu_s, sqrt(max(1.0 - mu_s * mu_s, 0.0)));
+
+    const int N = 8;
+    vec3 l_sum = vec3(0.0);
+    vec3 f_sum = vec3(0.0);
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            float theta = 2.0 * ATMO_PI * (float(i) + 0.5) / float(N);
+            float phi = acos(1.0 - 2.0 * (float(j) + 0.5) / float(N));
+            vec3 rd = vec3(cos(theta) * sin(phi), cos(phi), sin(theta) * sin(phi));
+            vec3 l, f;
+            integrate_ms(ro, rd, sun, l, f);
+            l_sum += l;
+            f_sum += f;
+        }
+    }
+    float inv = 1.0 / float(N * N);
+    vec3 psi = (l_sum * inv) / max(vec3(1.0) - f_sum * inv, vec3(1e-4));
+    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(psi, 1.0));
+}

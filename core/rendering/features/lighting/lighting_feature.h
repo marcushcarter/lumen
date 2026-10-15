@@ -11,11 +11,7 @@ struct LightingFeature : Feature
 
     RenderGraph::Pass lighting_pass;
     drivers::DeviceDriverVulkan::Pipeline lighting_pipes[LIGHT_MODE_COUNT];
-
-    glm::vec3 sky_zenith = glm::vec3(0.18f, 0.32f, 0.62f);
-    glm::vec3 sky_horizon = glm::vec3(0.62f, 0.72f, 0.85f);
-    glm::vec3 ground_color = glm::vec3(0.12f, 0.10f, 0.08f);
-    float ambient_intensity = 0.6f;
+    const uint32_t* lut_sampler = nullptr;
 
     void _create_lighting_pass();
 

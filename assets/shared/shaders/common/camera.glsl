@@ -12,6 +12,7 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     float near_z;
     float far_z;
     float tan_half_fov_y;
+    float pre_exposure;
     mat4 inv_view_proj;
 };
 

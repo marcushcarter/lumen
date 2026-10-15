@@ -1,0 +1,72 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "common/camera.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/atmosphere.glsl"
+
+layout(push_constant, scalar) uniform Push {
+    AtmosphereBuffer atmosphere;
+    CameraBuffer camera;
+    uint transmittance_index;
+    uint multiscatter_index;
+    uint sampler_index;
+    uint out_slot;
+} pc;
+
+void main() {
+    uvec2 id = gl_GlobalInvocationID.xy;
+    if (id.x >= AERIAL_SIZE || id.y >= AERIAL_SIZE) return;
+    g_atmo = pc.atmosphere;
+    g_lut_sampler = pc.sampler_index;
+    g_transmittance_lut = pc.transmittance_index;
+    g_multiscatter_lut = pc.multiscatter_index;
+
+    vec2 ndc = (vec2(id) + 0.5) / float(AERIAL_SIZE) * 2.0 - 1.0;
+    vec4 near_h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    vec3 rd = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
+    vec3 ro = atmo_observer();
+
+    vec3 l0 = g_atmo.sun_direction;
+    vec3 l1 = g_atmo.moon_direction;
+    float c0 = dot(rd, l0);
+    float c1 = dot(rd, l1);
+    float pr0 = phase_rayleigh(c0);
+    float pr1 = phase_rayleigh(c1);
+    float pm0 = phase_cornette_shanks(g_atmo.mie_g, c0);
+    float pm1 = phase_cornette_shanks(g_atmo.mie_g, c1);
+    vec3 e0 = g_atmo.sun_illuminance;
+    vec3 e1 = g_atmo.moon_illuminance;
+
+    const int SUB_STEPS = 2;
+    vec3 scattered = vec3(0.0);
+    vec3 throughput = vec3(1.0);
+    float t = 0.0;
+    for (uint slice = 0u; slice < AERIAL_SLICES; slice++) {
+        float t_end = aerial_slice_km(float(slice) + 0.5);
+        float dt = (t_end - t) / float(SUB_STEPS);
+        for (int k = 0; k < SUB_STEPS; k++) {
+            vec3 p = ro + rd * (t + (float(k) + 0.5) * dt);
+            float r = max(length(p), atmo_rg() + 0.001);
+            vec3 up = p / r;
+            Medium m = atmo_medium(r - atmo_rg());
+            vec3 sample_t = exp(-m.extinction * dt);
+            vec3 s = ((m.rayleigh * pr0 + m.mie * pm0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering) * e0
+                   + ((m.rayleigh * pr1 + m.mie * pm1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering) * e1;
+            vec3 inv_ext = 1.0 / max(m.extinction, vec3(1e-7));
+            scattered += throughput * (s - s * sample_t) * inv_ext;
+            throughput *= sample_t;
+        }
+        t = t_end;
+        float t_avg = dot(throughput, vec3(1.0 / 3.0));
+        imageStore(u_storage_rgba16f[pc.out_slot], ivec2(slice * AERIAL_SIZE + id.x, id.y), vec4(scattered * pc.camera.pre_exposure, t_avg));
+    }
+}

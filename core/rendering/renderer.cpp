@@ -28,12 +28,14 @@ Error Renderer::_create_dynamic_buffers()
     transform_buffers.resize(frame_count);
     camera_buffers.resize(frame_count);
     light_buffers.resize(frame_count);
+    atmosphere_buffers.resize(frame_count);
     
     for (uint32_t i = 0; i < frame_count; i++) {
         instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
         light_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_LIGHTS * sizeof(GpuLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "lights"});
+        atmosphere_buffers[i] = dd->buffer_create({.size = sizeof(GpuAtmosphere),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "atmosphere"});
     }
 
     return OK;
@@ -46,6 +48,7 @@ void Renderer::_destroy_dynamic_buffers()
         dd->buffer_free(transform_buffers[i]);
         dd->buffer_free(camera_buffers[i]);
         dd->buffer_free(light_buffers[i]);
+        dd->buffer_free(atmosphere_buffers[i]);
     }
 }
 
@@ -321,17 +324,13 @@ template <typename Fn> static void _mesh_grid_for_each(const MeshGridComponent& 
 }
 
 static GpuLight _light_pack(const TransformComponent& p_xf, const LightComponent& p_light, uint32_t p_ies_index)
-{   
-    const uint32_t ies = p_light.type == LightType::DIRECTIONAL ? LIGHT_IES_NONE : (p_ies_index & 0xFFFFu);
+{
+    const uint32_t ies = p_ies_index & 0xFFFFu;
     GpuLight g{};
     g.radiance = p_light.color * p_light.intensity;
     g.type_flags_ies = ((uint32_t)p_light.type & 0xFu) | (((uint32_t)p_light.flags & 0xFu) << 4) | (ies << 8);
     g.shadow_id = LIGHT_SHADOW_NONE;
     switch (p_light.type) {
-        case LightType::DIRECTIONAL:
-            g.direction = normalize(p_xf.rotation * vec3(0.0f, 0.0f, -1.0f));
-            g.source_radius = radians(std::clamp(p_light.angular_diameter, 0.0f, 10.0f) * 0.5f);
-            break;
         case LightType::SPOT: {
             const float outer = std::clamp(p_light.outer_cone_angle, 0.1f, 89.9f);
             const float inner = std::clamp(p_light.inner_cone_angle, 0.0f, outer);
@@ -347,6 +346,33 @@ static GpuLight _light_pack(const TransformComponent& p_xf, const LightComponent
             break;
     }
     return g;
+}
+
+static GpuLight _directional_pack(vec3 p_to_light, vec3 p_illuminance, float p_angular_radius)
+{
+    constexpr uint32_t DIRECTIONAL_TYPE = 0;
+    constexpr uint32_t FLAGS = LightComponent::FLAG_CAST_SHADOWS | LightComponent::FLAG_AFFECTS_GI;
+    GpuLight g{};
+    g.direction = -p_to_light;
+    g.radiance = p_illuminance;
+    g.source_radius = p_angular_radius;
+    g.type_flags_ies = DIRECTIONAL_TYPE | (FLAGS << 4) | (LIGHT_IES_NONE << 8);
+    g.shadow_id = LIGHT_SHADOW_NONE;
+    return g;
+}
+
+static float _cycle_ev100(float p_sun_altitude_deg)
+{
+    static constexpr float KEYS[][2] = { {-90.0f, -2.5f}, {-18.0f, -2.5f}, {-12.0f, -1.0f}, {-9.0f, 1.5f}, {-6.0f, 5.6f}, {-3.0f, 8.8f}, {0.0f, 10.9f}, {2.0f, 11.4f}, {8.0f, 13.0f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
+    constexpr int COUNT = (int)(sizeof(KEYS) / sizeof(KEYS[0]));
+    const float e = std::clamp(p_sun_altitude_deg, -90.0f, 90.0f);
+    for (int i = 0; i < COUNT - 1; i++) {
+        if (e > KEYS[i + 1][0]) continue;
+        float t = (e - KEYS[i][0]) / (KEYS[i + 1][0] - KEYS[i][0]);
+        t = t * t * (3.0f - 2.0f * t);
+        return KEYS[i][1] + (KEYS[i + 1][1] - KEYS[i][1]) * t;
+    }
+    return KEYS[COUNT - 1][1];
 }
 
 static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)
@@ -444,41 +470,108 @@ void Renderer::_frame_build(const World& p_world)
     StaticLights& static_lights = frame.static_lights;
     if (static_lights.world_version != p_world.static_version) {
         static_lights.lights.clear();
-        static_lights.directional.clear();
         p_world.view<TransformComponent, LightComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const LightComponent& p_light, const StaticTag&) {
-            if (p_light.type == LightType::DIRECTIONAL) static_lights.directional.push_back(_light_pack(p_xf, p_light, 0xFFFF));
-            else if (static_lights.lights.size() < MAX_LIGHTS - MAX_DIRECTIONAL_LIGHTS) static_lights.lights.push_back(_light_pack(p_xf, p_light, 0xFFFF));
+            if (static_lights.lights.size() < MAX_LIGHTS - MAX_DIRECTIONAL_LIGHTS) static_lights.lights.push_back(_light_pack(p_xf, p_light, 0xFFFF));
         });
         static_lights.world_version = p_world.static_version;
         static_lights.version++;
     }
 
-    for (const GpuLight& l : static_lights.directional) {
-        if (frame.directional_count < MAX_DIRECTIONAL_LIGHTS) frame.directional[frame.directional_count++] = l;
-    }
     const uint32_t light_base = MAX_DIRECTIONAL_LIGHTS + static_lights.count();
     p_world.view<TransformComponent, LightComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const LightComponent& p_light) {
-        if (p_light.type == LightType::DIRECTIONAL) {
-            if (frame.directional_count < MAX_DIRECTIONAL_LIGHTS) frame.directional[frame.directional_count++] = _light_pack(p_xf, p_light, 0xFFFF);
-        } else if (light_base + frame.lights_scratch.size() < MAX_LIGHTS) {
+        if (light_base + frame.lights_scratch.size() < MAX_LIGHTS) {
             frame.lights_scratch.push_back(_light_pack(p_xf, p_light, 0xFFFF));
         }
     });
-    for (uint32_t i = frame.directional_count; i < MAX_DIRECTIONAL_LIGHTS; i++) frame.directional[i] = {};
     frame.light_count = light_base + (uint32_t)frame.lights_scratch.size();
 
-    const float aspect = height ? (float)width / (float)height : 1.0f;
-    const mat4 prev_vp = frame.camera.curr_view_proj;
-    frame.camera.curr_view_proj = active_camera.view_proj(aspect);
-    frame.camera.prev_view_proj = camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
-    frame.camera.position = vec4(active_camera.position, 1.0f);
-    extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
-    frame.camera.near_z = active_camera.near_z;
-    frame.camera.far_z = active_camera.far_z;
-    frame.camera.tan_half_fov_y = std::tan(active_camera.fov_y * 0.5f);
-    frame.camera.inv_view_proj = inverse(frame.camera.curr_view_proj);
-    frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
-    frame.hiz_history_valid = !camera_cut_pending && !hiz_reset_pending;
+    // Camera.
+    {
+        const float aspect = height ? (float)width / (float)height : 1.0f;
+        const mat4 prev_vp = frame.camera.curr_view_proj;
+        frame.camera.curr_view_proj = active_camera.view_proj(aspect);
+        frame.camera.prev_view_proj = camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
+        frame.camera.position = vec4(active_camera.position, 1.0f);
+        extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
+        frame.camera.near_z = active_camera.near_z;
+        frame.camera.far_z = active_camera.far_z;
+        frame.camera.tan_half_fov_y = std::tan(active_camera.fov_y * 0.5f);
+        frame.camera.inv_view_proj = inverse(frame.camera.curr_view_proj);
+        frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
+        frame.hiz_history_valid = !camera_cut_pending && !hiz_reset_pending;
+    }
+
+    // Atmosphere.
+    {
+        using A = AtmosphereComponent;
+        const AtmosphereComponent& atmo = p_world.atmosphere;
+        GpuAtmosphere& g = frame.atmosphere;
+
+        const vec4 lut_key = vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom);
+        if (lut_key != frame.atmosphere_lut_key) {
+            frame.atmosphere_lut_key = lut_key;
+            frame.atmosphere_lut_version++;
+        }
+
+        const vec3 angstrom = pow(vec3(680.0f, 550.0f, 440.0f) / 550.0f, vec3(-atmo.mie_angstrom));
+        const vec3 mie_scattering = A::MIE_BASE_SCATTERING * atmo.mie_turbidity * angstrom;
+        g.rayleigh_scattering = A::RAYLEIGH_SCATTERING;
+        g.rayleigh_density_scale = -1.0f / A::RAYLEIGH_HEIGHT_KM;
+        g.mie_scattering = mie_scattering;
+        g.mie_density_scale = -1.0f / max(atmo.mie_height_km, 0.01f);
+        g.mie_extinction = mie_scattering / max(atmo.mie_albedo, 0.01f);
+        g.mie_g = atmo.mie_g;
+        g.ozone_absorption = A::OZONE_ABSORPTION;
+        g.ozone_center_km = A::OZONE_CENTER_KM;
+        g.ground_albedo = A::GROUND_ALBEDO;
+        g.ozone_width_km = A::OZONE_WIDTH_KM;
+        g.bottom_radius_km = A::PLANET_RADIUS_KM;
+        g.top_radius_km = A::PLANET_RADIUS_KM + A::ATMOSPHERE_HEIGHT_KM;
+
+        const double PI_D = 3.14159265358979323846;
+        const double DEG = PI_D / 180.0;
+        const double lat = A::LATITUDE_DEG * DEG;
+        const double rotation = ((double)atmo.time_of_day - 12.0) * 15.0 * DEG;
+        const double ch = std::cos(rotation), sh = std::sin(rotation);
+        const double cp = std::cos(lat), sp = std::sin(lat);
+        const dmat3 hour(ch, -sh, 0.0, sh, ch, 0.0, 0.0, 0.0, 1.0);
+        const dmat3 local(0.0, cp, sp, 1.0, 0.0, 0.0, 0.0, sp, -cp);
+        const dmat3 eq_to_world = local * hour;
+        auto radec = [](double p_ra, double p_dec) { return dvec3(std::cos(p_dec) * std::cos(p_ra), std::cos(p_dec) * std::sin(p_ra), std::sin(p_dec)); };
+        const dvec3 sun = normalize(eq_to_world * radec(0.0, A::SUN_DECLINATION_DEG * DEG));
+        const dvec3 moon = normalize(eq_to_world * radec(PI_D, (-A::SUN_DECLINATION_DEG + A::MOON_OFFSET_DEG) * DEG));
+        const dvec3 pole = eq_to_world * dvec3(0.0, 0.0, 1.0);
+        const double phase_angle = PI_D - std::acos(clamp(dot(sun, moon), -1.0, 1.0));
+        const double phase_deg = phase_angle / DEG;
+        const double moon_mag = -12.73 + 0.026 * phase_deg + 4e-9 * std::pow(phase_deg, 4.0);
+        const float moon_lux = (float)(2.54e-6 * std::pow(10.0, -0.4 * moon_mag));
+
+        g.world_to_celestial = mat4(transpose(mat3(eq_to_world)));
+        g.sun_direction = vec3(sun);
+        g.sun_cos_angular_radius = std::cos(A::SUN_ANGULAR_RADIUS);
+        g.sun_illuminance = vec3(A::SUN_ILLUMINANCE_LUX);
+        g.moon_direction = vec3(moon);
+        g.moon_cos_angular_radius = std::cos(A::MOON_ANGULAR_RADIUS);
+        g.moon_illuminance = vec3(moon_lux);
+        g.moon_up = normalize(vec3(pole - moon * dot(pole, moon)));
+        g.moon_phase_angle = (float)phase_angle;
+
+        const vec3 cam_km = vec3(frame.camera.position) * 0.001f;
+        const float altitude = max(cam_km.y + atmo.sea_level_offset_km, 0.001f);
+        g.observer_km = vec3(cam_km.x, A::PLANET_RADIUS_KM + altitude, cam_km.z);
+        g.altitude_km = altitude;
+        g.night_luminance = A::NIGHT_LUMINANCE;
+        g.star_brightness = atmo.star_brightness;
+        g.star_density = atmo.star_density;
+        g.moon_disk_brightness = A::MOON_DISK_BRIGHTNESS;
+
+        frame.directional[0] = _directional_pack(g.sun_direction, g.sun_illuminance, A::SUN_ANGULAR_RADIUS);
+        frame.directional[1] = _directional_pack(g.moon_direction, g.moon_illuminance, A::MOON_ANGULAR_RADIUS);
+        frame.directional_count = MAX_DIRECTIONAL_LIGHTS;
+
+        const float sun_altitude_deg = (float)(std::asin(clamp(sun.y, -1.0, 1.0)) / DEG);
+        frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(_cycle_ev100(sun_altitude_deg)));
+    }
     
     camera_cut_pending = false;
     hiz_reset_pending = false;
@@ -539,6 +632,10 @@ void Renderer::_frame_upload()
     drivers::DeviceDriverVulkan::Buffer& cb = camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));
     dd->buffer_flush(cb, 0, sizeof(CameraUniform));
+
+    drivers::DeviceDriverVulkan::Buffer& ab = atmosphere_buffers[current_frame];
+    dd->buffer_update(ab, &frame.atmosphere, sizeof(GpuAtmosphere));
+    dd->buffer_flush(ab, 0, sizeof(GpuAtmosphere));
 }
 
 Error Renderer::acquire_frame()
@@ -608,6 +705,7 @@ Error Renderer::begin_frame(const World& p_world)
     graph.import_image("HiZ", &hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
 
     graph.import_buffer("Camera", &camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Atmosphere", &atmosphere_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);

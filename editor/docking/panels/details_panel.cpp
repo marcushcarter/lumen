@@ -94,12 +94,25 @@ bool DetailsPanel::_ies_field(EditorContext& ctx, Guid& r_ies)
 void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
 {
     AtmosphereComponent& atmosphere = ctx.world->atmosphere;
-    (void)atmosphere;
     ImGui::TextDisabled("Atmosphere");
     ImGui::Spacing();
     dock_field_push_style();
-    if (_component_begin("Atmosphere")) {
-        //
+    if (_component_begin("Time")) {
+        ImGui::SliderFloat("Time of Day", &atmosphere.time_of_day, 0.0f, 24.0f, "%.2f h", ImGuiSliderFlags_AlwaysClamp);
+    }
+    if (_component_begin("Aerosols")) {
+        ImGui::DragFloat("Turbidity", &atmosphere.mie_turbidity, 0.01f, 0.0f, 50.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Height", &atmosphere.mie_height_km, 0.01f, 0.1f, 10.0f, "%.2f km", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Anisotropy (g)", &atmosphere.mie_g, 0.0f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Albedo", &atmosphere.mie_albedo, 0.5f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Angstrom Exponent", &atmosphere.mie_angstrom, 0.0f, 2.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+    }
+    if (_component_begin("Stars")) {
+        ImGui::DragFloat("Brightness", &atmosphere.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Density", &atmosphere.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+    }
+    if (_component_begin("World")) {
+        ImGui::DragFloat("Sea Level Offset", &atmosphere.sea_level_offset_km, 0.01f, -1.0f, 9.0f, "%.3f km", ImGuiSliderFlags_AlwaysClamp);
     }
     dock_field_pop_style();
 }
@@ -194,18 +207,23 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         const bool o = _component_begin("Light", &remove);
         if (o) {
             bool changed = false;
-            int type = (int)light->type;
-            if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
-                light->type = (LightType)type;
+            // int type = (int)light->type;
+            // if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
+            //     light->type = (LightType)type;
+            //     changed = true;
+            // }
+            int type = light->type == LightType::SPOT ? 1 : 0;
+            if (ImGui::Combo("Type", &type, "Point\0Spot\0")) {
+                light->type = type == 1 ? LightType::SPOT : LightType::POINT;
                 changed = true;
             }
             changed |= ImGui::ColorEdit3("Color", &light->color.x);
             changed |= ImGui::DragFloat("Intensity", &light->intensity, 0.05f, 0.0f, FLT_MAX, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 
             switch (light->type) {
-                case LightType::DIRECTIONAL:
-                    changed |= ImGui::DragFloat("Angular Diameter", &light->angular_diameter, 0.01f, 0.0f, 10.0f, "%.2f deg", ImGuiSliderFlags_AlwaysClamp);
-                    break;
+                // case LightType::DIRECTIONAL:
+                //     changed |= ImGui::DragFloat("Angular Diameter", &light->angular_diameter, 0.01f, 0.0f, 10.0f, "%.2f deg", ImGuiSliderFlags_AlwaysClamp);
+                //     break;
                 case LightType::POINT:
                 case LightType::SPOT:
                     changed |= ImGui::DragFloat("Range", &light->range, 0.1f, 0.01f, FLT_MAX, "%.2f m", ImGuiSliderFlags_AlwaysClamp);

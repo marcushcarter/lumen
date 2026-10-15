@@ -32,6 +32,9 @@ void GameApplication::on_update(float p_dt)
         std::snprintf(title, sizeof(title), "%s - %.2f ms (%.0f fps)", project.name.c_str(), title_frame_avg, 1000.0f / title_frame_avg);
         win32.window_set_title(title);
     }
+
+    world.atmosphere.time_of_day += p_dt / 5.0f;
+    if (world.atmosphere.time_of_day > 24.0f) world.atmosphere.time_of_day = 0.0f;
 }
 
 void GameApplication::update_camera(float p_dt)

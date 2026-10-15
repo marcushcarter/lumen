@@ -1,4 +1,5 @@
 #include <core/rendering/features/lighting/lighting_feature.h>
+#include <core/rendering/features/atmosphere/atmosphere_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
 
@@ -23,6 +24,12 @@ void LightingFeature::_create_lighting_pass()
         b.read_image("G_Material", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer(AtmosphereFeature::SKY_LIGHTING, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_image(AtmosphereFeature::TRANSMITTANCE_LUT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image(AtmosphereFeature::SKYVIEW_SUN, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image(AtmosphereFeature::SKYVIEW_MOON, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image(AtmosphereFeature::AERIAL_PERSPECTIVE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (local_lights) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
             b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -41,7 +48,14 @@ void LightingFeature::_create_lighting_pass()
         auto* sorted = cl.graph->buffer("SortedLights");
         auto* masks = cl.graph->buffer("LightTileMasks");
         auto* out = cl.graph->image("SceneColor");
+        auto* atmosphere = cl.graph->buffer("Atmosphere");
+        auto* sky_lighting = cl.graph->buffer(AtmosphereFeature::SKY_LIGHTING);
+        auto* transmittance = cl.graph->image(AtmosphereFeature::TRANSMITTANCE_LUT);
+        auto* skyview_sun = cl.graph->image(AtmosphereFeature::SKYVIEW_SUN);
+        auto* skyview_moon = cl.graph->image(AtmosphereFeature::SKYVIEW_MOON);
+        auto* aerial = cl.graph->image(AtmosphereFeature::AERIAL_PERSPECTIVE);
         if (!depth || !albedo || !normal || !material || !camera || !lights || !out) return;
+        if (!atmosphere || !sky_lighting || !transmittance || !skyview_sun || !skyview_moon || !aerial || !lut_sampler) return;
         const bool local_lights = cull && sorted;
         const uint32_t mode = !local_lights ? LIGHT_MODE_NONE : (masks ? LIGHT_MODE_TILED : LIGHT_MODE_ZBIN);
 
@@ -51,6 +65,8 @@ void LightingFeature::_create_lighting_pass()
             VkDeviceAddress cull_addr;
             VkDeviceAddress sorted_addr;
             VkDeviceAddress masks_addr;
+            VkDeviceAddress atmosphere_addr;
+            VkDeviceAddress sky_lighting_addr;
             uint32_t depth_index;
             uint32_t albedo_index;
             uint32_t normal_index;
@@ -59,16 +75,19 @@ void LightingFeature::_create_lighting_pass()
             uint32_t width;
             uint32_t height;
             uint32_t directional_count;
-            float ambient_intensity;
-            float sky_zenith[4];
-            float sky_horizon[4];
-            float ground_color[4];
+            uint32_t transmittance_index;
+            uint32_t skyview_sun_index;
+            uint32_t skyview_moon_index;
+            uint32_t aerial_index;
+            uint32_t sampler_index;
         } pc{};
         pc.camera_addr = camera->device_address;
         pc.lights_addr = lights->device_address;
         pc.cull_addr = local_lights ? cull->device_address : 0;
         pc.sorted_addr = local_lights ? sorted->device_address : 0;
         pc.masks_addr = masks ? masks->device_address : 0;
+        pc.atmosphere_addr = atmosphere->device_address;
+        pc.sky_lighting_addr = sky_lighting->device_address;
         pc.depth_index = depth->bindless_sampled;
         pc.albedo_index = albedo->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
@@ -77,10 +96,11 @@ void LightingFeature::_create_lighting_pass()
         pc.width = out->extent.width;
         pc.height = out->extent.height;
         pc.directional_count = (ctx->frame->directional_count & 0xFFFFu) | (local_lights ? LIGHTING_FLAG_LOCAL_LIGHTS : 0u);
-        pc.ambient_intensity = ambient_intensity;
-        pc.sky_zenith[0] = sky_zenith.x; pc.sky_zenith[1] = sky_zenith.y; pc.sky_zenith[2] = sky_zenith.z;
-        pc.sky_horizon[0] = sky_horizon.x; pc.sky_horizon[1] = sky_horizon.y; pc.sky_horizon[2] = sky_horizon.z;
-        pc.ground_color[0] = ground_color.x; pc.ground_color[1] = ground_color.y; pc.ground_color[2] = ground_color.z;
+        pc.transmittance_index = transmittance->bindless_sampled;
+        pc.skyview_sun_index = skyview_sun->bindless_sampled;
+        pc.skyview_moon_index = skyview_moon->bindless_sampled;
+        pc.aerial_index = aerial->bindless_sampled;
+        pc.sampler_index = *lut_sampler;
 
         cl.dd->command_bind_pipeline(cl.cmd, lighting_pipes[mode]);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -96,7 +116,6 @@ Error LightingFeature::create_resources()
 
 Error LightingFeature::create_pipelines()
 {
-    // one pipeline per LIGHT_MODE spec constant, so dead light paths are compiled out and don't cost registers
     static const char* NAMES[LIGHT_MODE_COUNT] = { "lighting/deferred_lighting (no local)", "lighting/deferred_lighting (zbin)", "lighting/deferred_lighting (tiled)" };
     EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_LIGHTING_DEFERRED_LIGHTING_COMP");
     VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "lighting/deferred_lighting.comp" });

@@ -142,7 +142,6 @@ Error Application::_frame()
     last_time = now;
     if (delta > 0.25) delta = 0.25;
 
-    // Unfocused: park the mouse off-screen so nothing (UI, viewport hover outline, gizmo) reacts to it.
     if (!win32.window_is_focused()) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 
     cpu.zone_begin("ImGui Begin");
@@ -280,20 +279,6 @@ Error Application::project_load(const std::filesystem::path &p_root)
         world.add<TransformComponent>(e);
         world.add<MeshComponent>(e, { mesh_guid });
         world.add<StaticTag>(e);
-    }
-
-    {
-        const Entity sun = world.create_persistent(Guid::generate());
-        TransformComponent xf;
-        xf.rotation = quatLookAt(normalize(vec3(-0.4f, -0.8f, -0.3f)), vec3(0.0f, 1.0f, 0.0f));
-        world.add<TransformComponent>(sun, xf);
-        NameComponent name{};
-        snprintf(name.name, NameComponent::MAX_LENGTH, "Sun");
-        world.add<NameComponent>(sun, name);
-        LightComponent light;
-        light.type = LightType::DIRECTIONAL;
-        light.intensity = 1.0f;
-        world.add<LightComponent>(sun, light);
     }
 
     {

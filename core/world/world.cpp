@@ -56,6 +56,7 @@ void World::unload()
     LUMEN_ERR_FAIL_COND(iterating != 0);
     deferred.clear();
     by_guid.clear();
+    atmosphere = {};
     static_version++;
     structure_version++;
     entity_version++;

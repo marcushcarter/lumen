@@ -91,10 +91,27 @@ bool DetailsPanel::_ies_field(EditorContext& ctx, Guid& r_ies)
     return changed;
 }
 
+void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
+{
+    AtmosphereComponent& atmosphere = ctx.world->atmosphere;
+    (void)atmosphere;
+    ImGui::TextDisabled("Atmosphere");
+    ImGui::Spacing();
+    dock_field_push_style();
+    if (_component_begin("Atmosphere")) {
+        //
+    }
+    dock_field_pop_style();
+}
+
 void DetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (!ctx.world || !ctx.selection) return;
     World& world = *ctx.world;
+    if (ctx.selection->atmosphere) {
+        _draw_atmosphere(ctx);
+        return;
+    }
     const Entity e = ctx.selection->primary();
     if (!world.valid(e)) {
         ImGui::TextDisabled("No entity selected");

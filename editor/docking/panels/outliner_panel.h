@@ -85,6 +85,7 @@ struct OutlinerPanel : Panel
     void _draw_toolbar(EditorContext& ctx);
     void _draw_table(EditorContext& ctx, float p_footer_h);
     void _draw_row(EditorContext& ctx, int p_index, float p_row_h);
+    void _draw_atmosphere_row(EditorContext& ctx, float p_row_h);
     void _draw_footer(EditorContext& ctx);
     void _row_menu(EditorContext& ctx, const Row& p_row);
 

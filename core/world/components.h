@@ -54,6 +54,10 @@ struct LightComponent {
 
 struct LightProfileComponent { Guid ies; };
 
+struct AtmosphereComponent {
+    
+};
+
 struct StaticTag {};
 struct EditorHiddenTag {};
 

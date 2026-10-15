@@ -252,7 +252,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         ImGui::PopStyleVar(2);
         return;
     }
-    ImGui::TableSetupScrollFreeze(0, 1);
+    // ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupScrollFreeze(0, 2);
     ImGui::TableSetupColumn("##visibility", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, row_h);
     ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, style.label_column_weight);
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoReorder, style.type_column_weight);
@@ -271,6 +272,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         ImGui::TableHeader(ImGui::TableGetColumnName(c));
     }
 
+    _draw_atmosphere_row(ctx, row_h);
+
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
             if (specs->SpecsCount > 0) {
@@ -287,7 +290,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         for (uint32_t i = 0; i < (uint32_t)rows.size(); i++) {
             if (rows[i].kind != RowKind::ENTITY || rows[i].entity != ctx.selection->primary()) continue;
             const float y = (float)i * row_h;
-            const float view_h = ImGui::GetWindowHeight() - ImGui::TableGetHeaderRowHeight();
+            // const float view_h = ImGui::GetWindowHeight() - ImGui::TableGetHeaderRowHeight();
+            const float view_h = ImGui::GetWindowHeight() - ImGui::TableGetHeaderRowHeight() - row_h;
             const float scroll = ImGui::GetScrollY();
             if (y < scroll || y + row_h > scroll + view_h) ImGui::SetScrollY(y - (view_h - row_h) * 0.5f);
             break;
@@ -452,6 +456,38 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     ImGui::GetWindowDrawList()->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), type);
 
     ImGui::PopID();
+    ImGui::PopID();
+}
+
+void OutlinerPanel::_draw_atmosphere_row(EditorContext& ctx, float p_row_h)
+{
+    EditorSelection& selection = *ctx.selection;
+    const UiStyle& ui = ui_style();
+    const float font = ImGui::GetFontSize();
+    const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
+
+    ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
+    ImGui::PushID("atmosphere");
+    ImGui::TableSetColumnIndex(1);
+    const ImVec2 cell = ImGui::GetCursorScreenPos();
+    const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
+    if (ImGui::Selectable("##row", selection.atmosphere, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, content_h))) {
+        selection.select_atmosphere();
+        has_anchor = false;
+        last_primary = ENTITY_NULL;
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 text_col = ImGui::GetColorU32(ImGuiCol_Text);
+    float x = cell.x + font;
+    const float icon_w = font * ui.outliner.icon_width_scale;
+    const ImVec2 icon_size = ImGui::CalcTextSize(ICON_FA_CLOUD_SUN);
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), text_col, ICON_FA_CLOUD_SUN);
+    x += icon_w + ui.outliner.icon_gap;
+    dl->AddText(ImVec2(x, text_y), text_col, "Atmosphere");
+
+    ImGui::TableSetColumnIndex(2);
+    dl->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), "Atmosphere");
     ImGui::PopID();
 }
 

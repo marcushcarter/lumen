@@ -30,11 +30,7 @@ static constexpr uint32_t MAX_COMPONENT_TYPES = 128;
 
 inline uint32_t _component_type_count = 0;
 
-template <typename T> struct ComponentType
-{
-    static constexpr uint32_t INVALID = 0xFFFFFFFF;
-    static inline uint32_t id = INVALID;
-};
+template <typename T> struct ComponentType { static constexpr uint32_t INVALID = 0xFFFFFFFF; static inline uint32_t id = INVALID; };
 
 struct ComponentMask
 {
@@ -190,15 +186,14 @@ struct WorldCommandBuffer
     }
 };
 
-template <typename... Xs>
-struct Exclude
-{
-};
+template <typename... Xs> struct Exclude {};
 
 struct World
 {
     Camera default_camera;
     Camera* active_camera = &default_camera;
+
+    AtmosphereComponent atmosphere;
 
     std::vector<uint32_t> generations;
     std::vector<ComponentMask> masks;

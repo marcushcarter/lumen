@@ -18,6 +18,7 @@ struct DetailsPanel : Panel
     bool _component_begin(const char* p_title, bool* r_remove = nullptr);
     bool _mesh_field(EditorContext& ctx, Guid& r_mesh);
     bool _ies_field(EditorContext& ctx, Guid& r_ies);
+    void _draw_atmosphere(EditorContext& ctx);
 };
 
 }

@@ -13,8 +13,6 @@ layout(set = 0, binding = 2) uniform sampler u_samplers[];
 layout(push_constant, scalar) uniform Push {
     AtmosphereBuffer atmosphere;
     SkyLightingBuffer out_sh;
-    // uint skyview_sun_index;
-    // uint skyview_moon_index;
     uint skyview_index;
     uint sampler_index;
 } pc;
@@ -32,9 +30,6 @@ vec3 fibonacci_dir(int p_i) {
 }
 
 vec3 sky_radiance(vec3 p_dir) {
-    // vec2 uv = skyview_uv(p_dir, length(atmo_observer()));
-    // vec3 rgb = skyview_sample(pc.skyview_sun_index, uv) * g_atmo.sun_illuminance + skyview_sample(pc.skyview_moon_index, uv) * g_atmo.moon_illuminance;
-    // if (p_dir.y > 0.0) rgb += vec3(g_atmo.night_luminance);
     vec3 rgb = skyview_radiance(pc.skyview_index, skyview_uv(p_dir));
     return max(rgb, vec3(0.0));
 }

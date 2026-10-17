@@ -256,12 +256,12 @@ static void extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
 {
     auto row = [&](int i) { return glm::vec4(vp[0][i], vp[1][i], vp[2][i], vp[3][i]); };
     const glm::vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
-    out[0] = r3 + r0;  // left
-    out[1] = r3 - r0;  // right
-    out[2] = r3 + r1;  // bottom
-    out[3] = r3 - r1;  // top
-    out[4] = r2;       // far (reverse-Z, [0,1] depth: z_ndc >= 0)
-    out[5] = r3 - r2;  // near (z_ndc <= 1)
+    out[0] = r3 + r0;
+    out[1] = r3 - r0;
+    out[2] = r3 + r1;
+    out[3] = r3 - r1;
+    out[4] = r2; // far (reverse-Z, [0,1] depth: z_ndc >= 0)
+    out[5] = r3 - r2; // near (z_ndc <= 1)
     for (int i = 0; i < 6; i++) out[i] /= glm::length(glm::vec3(out[i]));
 }
 
@@ -336,13 +336,25 @@ static float _cycle_ev100(float p_sun_altitude_deg)
     static constexpr float KEYS[][2] = { {-90.0f, -2.5f}, {-18.0f, -2.5f}, {-12.0f, -1.0f}, {-9.0f, 1.5f}, {-6.0f, 5.6f}, {-3.0f, 8.8f}, {0.0f, 10.9f}, {2.0f, 11.4f}, {8.0f, 13.0f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
     constexpr int COUNT = (int)(sizeof(KEYS) / sizeof(KEYS[0]));
     const float e = std::clamp(p_sun_altitude_deg, -90.0f, 90.0f);
-    for (int i = 0; i < COUNT - 1; i++) {
-        if (e > KEYS[i + 1][0]) continue;
-        float t = (e - KEYS[i][0]) / (KEYS[i + 1][0] - KEYS[i][0]);
-        t = t * t * (3.0f - 2.0f * t);
-        return KEYS[i][1] + (KEYS[i + 1][1] - KEYS[i][1]) * t;
-    }
-    return KEYS[COUNT - 1][1];
+    
+    auto slope = [](int p_k) { return (KEYS[p_k + 1][1] - KEYS[p_k][1]) / (KEYS[p_k + 1][0] - KEYS[p_k][0]); };
+    auto tangent = [&](int p_k) {
+        if (p_k == 0) return slope(0);
+        if (p_k == COUNT - 1) return slope(COUNT - 2);
+        const float d0 = slope(p_k - 1);
+        const float d1 = slope(p_k);
+        if (d0 * d1 <= 0.0f) return 0.0f;
+        const float h0 = KEYS[p_k][0] - KEYS[p_k - 1][0];
+        const float h1 = KEYS[p_k + 1][0] - KEYS[p_k][0];
+        return 3.0f * (h0 + h1) / ((2.0f * h1 + h0) / d0 + (h1 + 2.0f * h0) / d1);
+    };
+    int i = 0;
+    while (i < COUNT - 2 && e > KEYS[i + 1][0]) i++;
+    const float h = KEYS[i + 1][0] - KEYS[i][0];
+    const float t = (e - KEYS[i][0]) / h;
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    return (2.0f * t3 - 3.0f * t2 + 1.0f) * KEYS[i][1] + (t3 - 2.0f * t2 + t) * h * tangent(i) + (-2.0f * t3 + 3.0f * t2) * KEYS[i + 1][1] + (t3 - t2) * h * tangent(i + 1);
 }
 
 static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)

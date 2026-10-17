@@ -78,7 +78,7 @@ vec3 sky_cube_dir(int p_face, vec2 p_uv) {
 vec3 sky_blackbody_rgb(float p_kelvin) {
     const vec3 nm = vec3(610.0, 550.0, 465.0);
     vec3 l = nm * 1e-3;
-    vec3 b = 1.0 / (l * l * l * l * l * (exp(vec3(14387.77) / (nm * p_kelvin)) - 1.0));
+    vec3 b = 1.0 / (l * l * l * l * l * (exp(vec3(14387.77) / (l * p_kelvin)) - 1.0));
     return b / max(sky_luminance(b), 1e-30);
 }
 

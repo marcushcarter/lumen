@@ -244,6 +244,8 @@ void CenterView::_draw_scene(EditorContext& ctx)
             ImGui::SliderFloat("Min Screen Radius (px)", &geo.contribution_px, 0.25f, 8.0f);
             ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
             ImGui::Checkbox("Task Shading", &geo.task_shading);
+            ImGui::Separator();
+            ImGui::Checkbox("Dither", &ctx.render_path->post.dither);
         }
         left_overlay.end_menu();
     }

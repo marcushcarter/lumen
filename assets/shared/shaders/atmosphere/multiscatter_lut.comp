@@ -79,5 +79,5 @@ void main() {
     }
     float inv = 1.0 / float(N * N);
     vec3 psi = (l_sum * inv) / max(vec3(1.0) - f_sum * inv, vec3(1e-4));
-    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(psi, 1.0));
+    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(min(psi * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
 }

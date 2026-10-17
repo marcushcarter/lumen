@@ -33,7 +33,7 @@ void main() {
     vec2 uv = (vec2(id) + 0.5) / vec2(pc.width, pc.height);
     vec3 ro = atmo_observer();
     vec3 rd = skyview_dir(uv, length(ro));
-    ScatterResult s = integrate_scattering(ro, rd, 1e9, 32.0, true);
-    imageStore(u_storage_rgba16f[pc.sun_slot], id, vec4(s.sun, 1.0));
-    imageStore(u_storage_rgba16f[pc.moon_slot], id, vec4(s.moon, 1.0));
+    ScatterResult s = integrate_scattering(ro, rd, 1e9, 32.0, true, atmo_sun_active(), atmo_moon_active());
+    imageStore(u_storage_rgba16f[pc.sun_slot], id, vec4(min(s.sun * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
+    imageStore(u_storage_rgba16f[pc.moon_slot], id, vec4(min(s.moon * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
 }

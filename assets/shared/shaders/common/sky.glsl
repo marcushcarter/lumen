@@ -179,7 +179,7 @@ vec3 sky_color(vec3 p_dir, uint p_skyview_sun, uint p_skyview_moon, float p_pixe
     vec3 ro = atmo_observer();
     float r = length(ro);
     vec2 uv = skyview_uv(p_dir, r);
-    vec3 color = atmo_lut(p_skyview_sun, uv).rgb * g_atmo.sun_illuminance + atmo_lut(p_skyview_moon, uv).rgb * g_atmo.moon_illuminance;
+    vec3 color = skyview_sample(p_skyview_sun, uv) * g_atmo.sun_illuminance + skyview_sample(p_skyview_moon, uv) * g_atmo.moon_illuminance;
 
     if (ray_sphere(ro, p_dir, atmo_rg()) > 0.0) return max(color, vec3(0.0));
 
@@ -196,6 +196,8 @@ vec3 sky_color(vec3 p_dir, uint p_skyview_sun, uint p_skyview_moon, float p_pixe
     vec3 sun = sky_sun_disk(p_dir, p_pixel_angle, cov);
     space = mix(space, sun, cov);
     vec3 moon = sky_moon_disk(p_dir, p_pixel_angle, cov);
+    float moon_surface_luminance = MOON_GEOMETRIC_ALBEDO * ATMO_INV_PI * g_atmo.sun_illuminance.g;
+    moon *= 1.0 / (1.0 + moon_surface_luminance * p_exposure / 1.2);
     space = mix(space, moon, cov);
     color += space * t_view;
 

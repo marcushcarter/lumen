@@ -1,6 +1,7 @@
 #pragma once
 #include <core/rendering/features/feature.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
+#include <glm/glm.hpp>
 
 namespace lumen {
 
@@ -15,17 +16,26 @@ struct AtmosphereFeature : Feature
     static constexpr uint32_t AERIAL_SLICES = 32;
     static constexpr uint32_t SKY_SH_SIZE = 9 * 4 * sizeof(float);
 
-    static constexpr const char* TRANSMITTANCE_LUT = "TransmittanceLut";
-    static constexpr const char* MULTISCATTER_LUT = "MultiscatterLut";
-    static constexpr const char* SKYVIEW_SUN = "SkyViewSun";
-    static constexpr const char* SKYVIEW_MOON = "SkyViewMoon";
-    static constexpr const char* AERIAL_PERSPECTIVE = "AerialPerspective";
-    static constexpr const char* SKY_LIGHTING = "SkyLighting";
+    static constexpr float SKYVIEW_REBUILD_COS = 0.99999962f;
+    static constexpr float SKYVIEW_REBUILD_ALTITUDE_KM = 0.001f;
+
+    struct SkyViewKey {
+        glm::vec3 sun_direction = glm::vec3(0.0f);
+        glm::vec3 moon_direction = glm::vec3(0.0f);
+        float altitude_km = -1.0f;
+        float mie_g = 0.0f;
+        uint64_t lut_version = UINT64_MAX;
+    };
 
     drivers::DeviceDriverVulkan::Image transmittance_lut;
     drivers::DeviceDriverVulkan::Image multiscatter_lut;
+    drivers::DeviceDriverVulkan::Image skyview_sun_lut;
+    drivers::DeviceDriverVulkan::Image skyview_moon_lut;
     drivers::DeviceDriverVulkan::Sampler lut_sampler;
     uint64_t built_lut_version = UINT64_MAX;
+    SkyViewKey skyview_built;
+    SkyViewKey skyview_pending;
+    bool skyview_valid = false;
 
     RenderGraph::Pass transmittance_pass;
     RenderGraph::Pass multiscatter_pass;
@@ -46,6 +56,8 @@ struct AtmosphereFeature : Feature
     void _create_skyview_pass();
     void _create_aerial_pass();
     void _create_sky_lighting_pass();
+    SkyViewKey _skyview_key() const;
+    bool _skyview_dirty(const SkyViewKey& p_key) const;
 
     Error create_resources() override;
     Error create_pipelines() override;

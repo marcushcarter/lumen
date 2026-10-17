@@ -62,10 +62,9 @@ static constexpr DebugViewCategory DV_CAT_LIGHTING = { ICON_FA_IMAGE, "Lighting"
 static constexpr DebugViewCategory DV_CAT_GI = { ICON_FA_IMAGE, "Radiance GI" };
 
 static constexpr DebugView DEBUG_VIEWS[] = {
-    { ICON_FA_IMAGE, "Lit", nullptr, "SceneColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
+    { ICON_FA_IMAGE, "Lit", nullptr, "DisplayColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
     { ICON_FA_IMAGE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { ICON_FA_IMAGE, "Wireframe", nullptr, nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
-    // wireframe only
     { ICON_FA_IMAGE, "Clay", nullptr, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
     
     { nullptr, "Triangles", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF },

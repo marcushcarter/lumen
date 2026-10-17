@@ -13,7 +13,7 @@ void DebugViewFeature::_create_viewport(RenderGraph::Builder& b)
     if (b.graph->image_resource("Viewport")) return;
     drivers::DeviceDriverVulkan::ImageCreateInfo vp_ci{};
     vp_ci.name = "Viewport";
-    vp_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+    vp_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     vp_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     b.create_image("Viewport", vp_ci);
 }

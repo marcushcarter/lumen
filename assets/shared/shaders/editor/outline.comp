@@ -9,7 +9,7 @@ const int MAX_SIDE = TILE + 2 * MAX_RADIUS;
 layout(local_size_x = TILE, local_size_y = TILE) in;
 
 layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
-layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
+layout(set = 0, binding = 1, rgba16f) uniform image2D u_storage_rgba16f[];
 
 layout(push_constant) uniform Push {
     vec4 color;
@@ -60,6 +60,6 @@ void main() {
     if (best == 0x7FFFFFFF) return;
 
     float a = clamp(float(r) + 0.5 - sqrt(float(best)), 0.0, 1.0) * pc.color.a;
-    vec4 c = imageLoad(u_storage_rgba8[pc.out_slot], p);
-    imageStore(u_storage_rgba8[pc.out_slot], p, vec4(mix(c.rgb, pc.color.rgb, a), c.a));
+    vec4 c = imageLoad(u_storage_rgba16f[pc.out_slot], p);
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(mix(c.rgb, pc.color.rgb, a), c.a));
 }

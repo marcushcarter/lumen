@@ -25,11 +25,11 @@ void LightingFeature::_create_lighting_pass()
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer(AtmosphereFeature::SKY_LIGHTING, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_image(AtmosphereFeature::TRANSMITTANCE_LUT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image(AtmosphereFeature::SKYVIEW_SUN, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image(AtmosphereFeature::SKYVIEW_MOON, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image(AtmosphereFeature::AERIAL_PERSPECTIVE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_buffer("SkyLighting", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("SkyViewSun", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("SkyViewMoon", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("AerialPerspective", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (local_lights) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
             b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -49,11 +49,11 @@ void LightingFeature::_create_lighting_pass()
         auto* masks = cl.graph->buffer("LightTileMasks");
         auto* out = cl.graph->image("SceneColor");
         auto* atmosphere = cl.graph->buffer("Atmosphere");
-        auto* sky_lighting = cl.graph->buffer(AtmosphereFeature::SKY_LIGHTING);
-        auto* transmittance = cl.graph->image(AtmosphereFeature::TRANSMITTANCE_LUT);
-        auto* skyview_sun = cl.graph->image(AtmosphereFeature::SKYVIEW_SUN);
-        auto* skyview_moon = cl.graph->image(AtmosphereFeature::SKYVIEW_MOON);
-        auto* aerial = cl.graph->image(AtmosphereFeature::AERIAL_PERSPECTIVE);
+        auto* sky_lighting = cl.graph->buffer("SkyLighting");
+        auto* transmittance = cl.graph->image("TransmittanceLut");
+        auto* skyview_sun = cl.graph->image("SkyViewSun");
+        auto* skyview_moon = cl.graph->image("SkyViewMoon");
+        auto* aerial = cl.graph->image("AerialPerspective");
         if (!depth || !albedo || !normal || !material || !camera || !lights || !out) return;
         if (!atmosphere || !sky_lighting || !transmittance || !skyview_sun || !skyview_moon || !aerial || !lut_sampler) return;
         const bool local_lights = cull && sorted;

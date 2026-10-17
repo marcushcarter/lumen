@@ -37,5 +37,5 @@ void main() {
         vec3 p = ro + rd * ((float(i) + 0.5) * dt);
         depth += atmo_medium(length(p) - atmo_rg()).extinction * dt;
     }
-    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(exp(-depth), 1.0));
+    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(min(depth, vec3(ATMO_LUT_MAX)), 1.0));
 }

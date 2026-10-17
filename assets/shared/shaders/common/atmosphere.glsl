@@ -43,6 +43,11 @@ const uint AERIAL_SIZE = 32u;
 const uint AERIAL_SLICES = 32u;
 const float AERIAL_MAX_KM = 32.0;
 
+const float ATMO_LUT_SCALE = 1e4;
+const float ATMO_LUT_INV_SCALE = 1e-4;
+const float ATMO_LUT_MAX = 65000.0;
+const float ATMO_BODY_CUTOFF_SIN = -0.342;
+
 AtmosphereBuffer g_atmo;
 uint g_lut_sampler;
 uint g_transmittance_lut;
@@ -123,7 +128,7 @@ void transmittance_params(vec2 p_uv, out float r_r, out float r_mu) {
 }
 
 vec3 transmittance_to_top(float p_r, float p_mu) {
-    return atmo_lut(g_transmittance_lut, transmittance_uv(p_r, p_mu)).rgb;
+    return exp(-atmo_lut(g_transmittance_lut, transmittance_uv(p_r, p_mu)).rgb);
 }
 
 vec3 light_transmittance(vec3 p_pos, vec3 p_l) {
@@ -139,8 +144,15 @@ vec3 multiscatter(float p_r, float p_mu_s) {
     vec2 uv = vec2(clamp(0.5 + 0.5 * p_mu_s, 0.0, 1.0), clamp((p_r - atmo_rg()) / (atmo_rt() - atmo_rg()), 0.0, 1.0));
     const float res = 32.0;
     uv = vec2(unit_to_sub_uv(uv.x, res), unit_to_sub_uv(uv.y, res));
-    return atmo_lut(g_multiscatter_lut, uv).rgb;
+    return atmo_lut(g_multiscatter_lut, uv).rgb * ATMO_LUT_INV_SCALE;
 }
+
+vec3 skyview_sample(uint p_texture, vec2 p_uv) {
+    return atmo_lut(p_texture, p_uv).rgb * ATMO_LUT_INV_SCALE;
+}
+
+bool atmo_sun_active() { return g_atmo.sun_direction.y > ATMO_BODY_CUTOFF_SIN; }
+bool atmo_moon_active() { return g_atmo.moon_direction.y > ATMO_BODY_CUTOFF_SIN && g_atmo.sun_direction.y < 0.0; }
 
 struct ScatterResult {
     vec3 sun;
@@ -149,7 +161,7 @@ struct ScatterResult {
     bool hit_ground;
 };
 
-ScatterResult integrate_scattering(vec3 p_ro, vec3 p_rd, float p_t_limit, float p_steps, bool p_add_ground) {
+ScatterResult integrate_scattering(vec3 p_ro, vec3 p_rd, float p_t_limit, float p_steps, bool p_add_ground, bool p_sun, bool p_moon) {
     ScatterResult res;
     res.sun = vec3(0.0);
     res.moon = vec3(0.0);
@@ -191,19 +203,23 @@ ScatterResult integrate_scattering(vec3 p_ro, vec3 p_rd, float p_t_limit, float 
         vec3 up = p / r;
         Medium m = atmo_medium(r - atmo_rg());
         vec3 sample_t = exp(-m.extinction * seg);
-        vec3 s0 = (m.rayleigh * pr0 + m.mie * pm0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering;
-        vec3 s1 = (m.rayleigh * pr1 + m.mie * pm1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering;
         vec3 inv_ext = 1.0 / max(m.extinction, vec3(1e-7));
-        res.sun += throughput * (s0 - s0 * sample_t) * inv_ext;
-        res.moon += throughput * (s1 - s1 * sample_t) * inv_ext;
+        if (p_sun) {
+            vec3 s0 = (m.rayleigh * pr0 + m.mie * pm0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering;
+            res.sun += throughput * (s0 - s0 * sample_t) * inv_ext;
+        }
+        if (p_moon) {
+            vec3 s1 = (m.rayleigh * pr1 + m.mie * pm1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering;
+            res.moon += throughput * (s1 - s1 * sample_t) * inv_ext;
+        }
         throughput *= sample_t;
     }
 
     if (p_add_ground && res.hit_ground && t_max >= t_bottom - 1e-3) {
         vec3 p = p_ro + p_rd * t_bottom;
         vec3 n = normalize(p);
-        res.sun += throughput * light_transmittance(p, l0) * max(dot(n, l0), 0.0) * g_atmo.ground_albedo * ATMO_INV_PI;
-        res.moon += throughput * light_transmittance(p, l1) * max(dot(n, l1), 0.0) * g_atmo.ground_albedo * ATMO_INV_PI;
+        if (p_sun) res.sun += throughput * light_transmittance(p, l0) * max(dot(n, l0), 0.0) * g_atmo.ground_albedo * ATMO_INV_PI;
+        if (p_moon) res.moon += throughput * light_transmittance(p, l1) * max(dot(n, l1), 0.0) * g_atmo.ground_albedo * ATMO_INV_PI;
     }
     res.transmittance = throughput;
     return res;

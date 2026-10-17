@@ -18,7 +18,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
-layout(set = 0, binding = 1, rgba8) uniform image2D u_storage_rgba8[];
+layout(set = 0, binding = 1, rgba16f) uniform image2D u_storage_rgba16f[];
 
 layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
 
@@ -309,7 +309,7 @@ void main() {
             color = color_map_heat(1.0 - t);
         }
     } else if (pc.op == OP_OVERDRAW) {
-        float n = floor(imageLoad(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord).r * 255.0 + 0.5);
+        float n = floor(imageLoad(u_storage_rgba16f[nonuniformEXT(pc.out_slot)], coord).r + 0.5);
         float t = 0.0;
         if (n > 2.0) t = 0.28 + (1.0 - 0.28) * (1.0 - exp2(-(n - 2.0) * 0.25));
         else if (n > 0.0) t = mix(0.12, 0.28, (n - 1.0) / max(2.0 - 1.0, 1.0));
@@ -355,5 +355,5 @@ void main() {
         }
     }
 
-    imageStore(u_storage_rgba8[nonuniformEXT(pc.out_slot)], coord, vec4(color, 1.0));
+    imageStore(u_storage_rgba16f[nonuniformEXT(pc.out_slot)], coord, vec4(color, 1.0));
 }

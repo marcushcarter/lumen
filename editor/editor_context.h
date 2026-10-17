@@ -11,7 +11,10 @@ struct TaskSystem;
 struct Project;
 struct World;
 struct ProjectManager;
-struct Editor;
+struct WorldTab;
+struct Drawer;
+struct TabManager;
+struct PopupManager;
 struct EditorSelection;
 struct EditorRenderPath;
 struct ProfilingSettings;
@@ -32,7 +35,10 @@ struct EditorContext
     World* world = nullptr;
     
     ProjectManager* project_manager = nullptr;
-    Editor* editor = nullptr;
+    WorldTab* world_tab = nullptr;
+    Drawer* drawer = nullptr;
+    TabManager* tabs = nullptr;
+    PopupManager* popups = nullptr;
     EditorSelection* selection = nullptr;
     
     EditorRenderPath* render_path = nullptr;

@@ -5,7 +5,7 @@
 #include <core/io/image_io.h>
 #include <core/io/path.h>
 #include <core/version.h>
-#include <editor/docking/tab_strip.h>
+#include <editor/ui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -54,8 +54,10 @@ Error EditorApplication::on_init()
 
     err = project_manager.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    err = editor.initialize();
+    drawer.initialize();
+    err = world_tab.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    popups.register_popup(std::make_unique<UnsavedChangesPopup>());
     err = play.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = run.initialize();
@@ -71,6 +73,9 @@ Error EditorApplication::on_init()
 
 void EditorApplication::on_shutdown()
 {
+    EditorContext ctx = _make_context();
+    tabs.clear(ctx);
+
     play.shutdown();
     run.shutdown();
     resources.shutdown();
@@ -79,7 +84,8 @@ void EditorApplication::on_shutdown()
     project_manager.save_recents();
 
     project_manager.shutdown();
-    editor.shutdown();
+    world_tab.shutdown();
+    drawer.shutdown();
 }
 
 void EditorApplication::on_update(float p_dt)
@@ -114,11 +120,12 @@ void EditorApplication::on_update(float p_dt)
         assets.tick();
         selection.prune(world, folders);
 
-        if (tab == EditorTab::SETTINGS) settings_page.draw(ctx);
-        else editor.on_update(ctx, p_dt);
+        tabs.update(ctx, p_dt);
     } else {
         project_manager.on_update(ctx);
     }
+
+    popups.draw(ctx);
 
     if (settings.dirty && !ImGui::IsAnyItemActive()) {
         _save_state();
@@ -144,9 +151,10 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
         run.pending_root.clear();
         run.stop();
     }
-    tab = EditorTab::WORLD;
-    tab_sync = true;
-
+    EditorContext ctx = _make_context();
+    tabs.clear(ctx);
+    tabs.add(&world_tab, WorldTab::KIND);
+    tabs.focus(&world_tab);
 
     return OK;
 }
@@ -154,7 +162,14 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 void EditorApplication::close_project()
 {
     play.stop();
-    pending_transition = [this]{ assets.close(); folders.clear(); selection.clear(); project_unload(); };
+    pending_transition = [this]{
+        EditorContext ctx = _make_context();
+        tabs.clear(ctx);
+        assets.close();
+        folders.clear();
+        selection.clear();
+        project_unload();
+    };
     render_path_request(new ProjectManagerRenderPath());
 }
 
@@ -172,18 +187,18 @@ void EditorApplication::_load_state()
     const toml::table& tbl = parsed;
 
     auto lv = tbl.at_path("layout");
-    if ((int)lv["version"].value_or((int64_t)-1) == Editor::VERSION) {
-        editor.split_x = (float)lv["split_x"].value_or((double)editor.split_x);
-        editor.split_y = (float)lv["split_y"].value_or((double)editor.split_y);
-        editor.center_view.split_ratio = (float)lv["center_split"].value_or((double)editor.center_view.split_ratio);
-        editor.center_view.debugger.collapsed = lv["center_collapsed"].value_or(editor.center_view.debugger.collapsed);
-        editor.right_collapsed = lv["right_collapsed"].value_or(editor.right_collapsed);
-        editor.center_view.debugger.active = (int)lv["center_tab"].value_or((int64_t)editor.center_view.debugger.active);
-        editor.right_top.active_name = lv["active_top"].value_or(std::string{});
-        editor.right_bottom.active_name = lv["active_bottom"].value_or(std::string{});
+    if ((int)lv["version"].value_or((int64_t)-1) == WorldTab::VERSION) {
+        world_tab.layout.split_x = (float)lv["split_x"].value_or((double)world_tab.layout.split_x);
+        world_tab.layout.split_y = (float)lv["split_y"].value_or((double)world_tab.layout.split_y);
+        world_tab.layout.center_split = (float)lv["center_split"].value_or((double)world_tab.layout.center_split);
+        world_tab.layout.drawer.collapsed = lv["center_collapsed"].value_or(world_tab.layout.drawer.collapsed);
+        world_tab.layout.right_collapsed = lv["right_collapsed"].value_or(world_tab.layout.right_collapsed);
+        world_tab.layout.drawer.active = (int)lv["center_tab"].value_or((int64_t)world_tab.layout.drawer.active);
+        world_tab.layout.right_top.active_name = lv["active_top"].value_or(std::string{});
+        world_tab.layout.right_bottom.active_name = lv["active_bottom"].value_or(std::string{});
 
         if (const toml::table* pans = tbl.at_path("panels").as_table()) {
-            for (auto& p : editor.panels) {
+            for (auto& p : world_tab.layout.panels) {
                 auto pv = (*pans)[p->name()];
                 p->open = pv["open"].value_or(p->open);
                 p->zone = dock_zone_from_string(pv["zone"].value_or(std::string(to_string(p->zone))), p->zone);
@@ -199,8 +214,8 @@ void EditorApplication::_load_state()
 
     settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
     settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
-    float sp = (float)tbl.at_path("display.screen_percentage").value_or((double)editor.center_view.screen_percentage);
-    editor.center_view.screen_percentage = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
+    float sp = (float)tbl.at_path("display.screen_percentage").value_or((double)world_tab.layout.viewport.screen_percentage);
+    world_tab.layout.viewport.screen_percentage = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
 
     if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
 
@@ -224,21 +239,21 @@ void EditorApplication::_save_state()
     toml::table display;
     display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
     display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
-    display.insert_or_assign("screen_percentage", (double)editor.center_view.screen_percentage);
+    display.insert_or_assign("screen_percentage", (double)world_tab.layout.viewport.screen_percentage);
     
     toml::table layout;
-    layout.insert_or_assign("version", (int64_t)Editor::VERSION);
-    layout.insert_or_assign("split_x", (double)editor.split_x);
-    layout.insert_or_assign("split_y", (double)editor.split_y);
-    layout.insert_or_assign("center_split", (double)editor.center_view.split_ratio);
-    layout.insert_or_assign("center_collapsed", (bool)editor.center_view.debugger.collapsed);
-    layout.insert_or_assign("right_collapsed", (bool)editor.right_collapsed);
-    layout.insert_or_assign("center_tab", (int64_t)editor.center_view.debugger.active);
-    layout.insert_or_assign("active_top", editor.right_top.active_name);
-    layout.insert_or_assign("active_bottom", editor.right_bottom.active_name);
+    layout.insert_or_assign("version", (int64_t)WorldTab::VERSION);
+    layout.insert_or_assign("split_x", (double)world_tab.layout.split_x);
+    layout.insert_or_assign("split_y", (double)world_tab.layout.split_y);
+    layout.insert_or_assign("center_split", (double)world_tab.layout.center_split);
+    layout.insert_or_assign("center_collapsed", (bool)world_tab.layout.drawer.collapsed);
+    layout.insert_or_assign("right_collapsed", (bool)world_tab.layout.right_collapsed);
+    layout.insert_or_assign("center_tab", (int64_t)world_tab.layout.drawer.active);
+    layout.insert_or_assign("active_top", world_tab.layout.right_top.active_name);
+    layout.insert_or_assign("active_bottom", world_tab.layout.right_bottom.active_name);
 
     toml::table panels;
-    for (auto& p : editor.panels) {
+    for (auto& p : world_tab.layout.panels) {
         toml::table pt;
         pt.insert_or_assign("open", (bool)p->open);
         pt.insert_or_assign("zone", to_string(p->zone));
@@ -400,45 +415,10 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& L)
 void EditorApplication::_titlebar_tabs(const TitlebarLayout& L)
 {
     const UiStyle& ui = ui_style();
-    const ImU32 clear = ui.color.transparent;
-    ImGui::SetCursorScreenPos(ImVec2(L.origin.x + L.logo + ui.titlebar.menu_offset_x, L.origin.y + L.menu_h));
-
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui.titlebar.tab_pad_x, ImFloor((L.tab_h - ImGui::GetFontSize()) * 0.5f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, ui.titlebar.tab_rounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabBarOverlineSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(ui.titlebar.tab_inner_spacing, ImGui::GetStyle().ItemInnerSpacing.y));
-    ImGui::PushStyleColor(ImGuiCol_Tab, clear);
-    ImGui::PushStyleColor(ImGuiCol_TabSelected, ui.color.chrome);
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, clear);
-    ImGui::PushStyleColor(ImGuiCol_TabDimmed, clear);
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, ui.color.chrome);
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, clear);
-
-    if (ImGui::BeginTabBar("##TitlebarTabs", ImGuiTabBarFlags_None)) {
-        auto item = [&](const char* p_label, EditorTab p_tab) {
-            const bool selected = tab == p_tab;
-            ImGuiTabItemFlags flags = ImGuiTabItemFlags_NoTooltip;
-            if (tab_sync && selected) flags |= ImGuiTabItemFlags_SetSelected;
-            ImGui::PushStyleColor(ImGuiCol_Text, selected ? ui.color.text : ui.color.text_dim);
-            ImGui::PushStyleColor(ImGuiCol_TabHovered, selected ? ui.color.chrome : ui.color.hover);
-            const bool open = ImGui::BeginTabItem(p_label, nullptr, flags);
-            ImGui::PopStyleColor(2);
-            _titlebar_block(L, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-            if (open) {
-                tab = p_tab;
-                ImGui::EndTabItem();
-            }
-        };
-        item("World", EditorTab::WORLD);
-        item("Settings", EditorTab::SETTINGS);
-        ImGui::EndTabBar();
-    }
-    tab_sync = false;
-
-    ImGui::PopStyleColor(6);
-    ImGui::PopStyleVar(6);
+    const ImVec2 min(L.origin.x + L.logo + ui.titlebar.menu_offset_x, L.origin.y + L.menu_h);
+    const ImVec2 max(L.origin.x + L.width, L.origin.y + L.bar_h);
+    const float stats_w = ImGui::CalcTextSize("000.00 ms  0000 fps").x + ui.titlebar.stats_margin * 2.0f;
+    tabs.draw_bar(min, max, stats_w, ImGui::GetColorU32(ImGuiCol_MenuBarBg), [&](ImVec2 p_min, ImVec2 p_max) { _titlebar_block(L, p_min, p_max); });
 }
 
 void EditorApplication::_titlebar_logo(const TitlebarLayout& L)
@@ -564,6 +544,7 @@ void EditorApplication::_titlebar_editor_menu()
 
         // if (ImGui::MenuItem("Editor Settings")) popups.open("Editor Settings");
         // if (ImGui::MenuItem("Editor Settings")) editor.settings_popup.open();
+        if (ImGui::MenuItem("Editor Settings")) tabs.open<EditorSettingsTab>();
         // if (ImGui::MenuItem("World Settings")) popups.open("World Settings");
         // if (ImGui::MenuItem("Keyboard Shortcuts")) {}
         // if (ImGui::MenuItem("Plugins")) {}
@@ -577,7 +558,7 @@ void EditorApplication::_titlebar_editor_menu()
         // search bar
         ImGui::Separator();
 
-        editor.draw_menu();
+        world_tab.draw_menu();
         if (ImGui::BeginMenu("Display")) {
             int vsync = (int)settings.vsync_mode;
             if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, 3)) settings.vsync_mode = (VsyncMode)vsync;
@@ -648,7 +629,10 @@ EditorContext EditorApplication::_make_context()
     ctx.world = &world;
     
     ctx.project_manager = &project_manager;
-    ctx.editor = &editor;
+    ctx.world_tab = &world_tab;
+    ctx.drawer = &drawer;
+    ctx.tabs = &tabs;
+    ctx.popups = &popups;
     ctx.selection = &selection;
     
     ctx.render_path = dynamic_cast<EditorRenderPath*>(render_path);

@@ -1,18 +1,21 @@
 
 #pragma once
 #include <core/application/application.h>
-#include <editor/docking/editor.h>
 #include <editor/project_manager/project_manager.h>
-#include <editor/settings/settings_page.h>
+#include <editor/tabs/tab_manager.h>
+#include <editor/tabs/world/world_tab.h>
+#include <editor/tabs/settings/editor_settings_tab.h>
+#include <editor/popups/popup_manager.h>
+#include <editor/popups/unsaved_changes_popup.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
-#include <editor/editor_settings.h>
-#include <editor/editor_camera.h>
+#include <editor/settings/editor_settings.h>
+#include <editor/viewport/editor_camera.h>
 #include <editor/editor_resources.h>
-#include <editor/assets/asset_import_tracker.h>
+#include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/asset_registry.h>
-#include <editor/world/editor_folders.h>
-#include <editor/world/editor_selection.h>
+#include <editor/tabs/world/scene/editor_folders.h>
+#include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/play/play_session.h>
 #include <vector>
 
@@ -21,8 +24,10 @@ namespace lumen {
 struct EditorApplication : Application
 {
     ProjectManager project_manager;
-    Editor editor;
-    SettingsPage settings_page;
+    Drawer drawer;
+    WorldTab world_tab;
+    TabManager tabs;
+    PopupManager popups;
 
     EditorSettings settings;
     EditorResources resources;
@@ -30,9 +35,6 @@ struct EditorApplication : Application
     AssetRegistry assets;
     EditorFolders folders;
 
-    enum class EditorTab { WORLD, SETTINGS } tab = EditorTab::WORLD;
-    bool tab_sync = true;
-    
     EditorCamera editor_camera;
     EditorSelection selection;
 

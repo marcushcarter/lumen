@@ -57,7 +57,6 @@ Error EditorApplication::on_init()
     drawer.initialize();
     err = world_tab.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    popups.register_popup(std::make_unique<UnsavedChangesPopup>());
     err = play.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = run.initialize();
@@ -125,7 +124,7 @@ void EditorApplication::on_update(float p_dt)
         project_manager.on_update(ctx);
     }
 
-    popups.draw(ctx);
+    // popups.draw(ctx);
 
     if (settings.dirty && !ImGui::IsAnyItemActive()) {
         _save_state();
@@ -632,7 +631,6 @@ EditorContext EditorApplication::_make_context()
     ctx.world_tab = &world_tab;
     ctx.drawer = &drawer;
     ctx.tabs = &tabs;
-    ctx.popups = &popups;
     ctx.selection = &selection;
     
     ctx.render_path = dynamic_cast<EditorRenderPath*>(render_path);

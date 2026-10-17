@@ -1,6 +1,4 @@
 #include <editor/tabs/tab_manager.h>
-#include <editor/popups/popup_manager.h>
-#include <editor/popups/unsaved_changes_popup.h>
 #include <editor/ui/tab_strip.h>
 #include <cstdio>
 
@@ -106,12 +104,7 @@ void TabManager::_process_closes(EditorContext& ctx)
 
         if (!r.force && t->dirty()) {
             active = t;
-            if (UnsavedChangesPopup* p = ctx.popups->get<UnsavedChangesPopup>(UnsavedChangesPopup::NAME)) {
-                p->kind = r.kind;
-                p->guid = r.guid;
-                p->save_failed = false;
-                ctx.popups->open(UnsavedChangesPopup::NAME);
-            }
+            // you have unsaved changes
             continue;
         }
         _remove_at(ctx, i);

@@ -14,7 +14,6 @@ struct ProjectManager;
 struct WorldTab;
 struct Drawer;
 struct TabManager;
-struct PopupManager;
 struct EditorSelection;
 struct EditorRenderPath;
 struct ProfilingSettings;
@@ -38,7 +37,6 @@ struct EditorContext
     WorldTab* world_tab = nullptr;
     Drawer* drawer = nullptr;
     TabManager* tabs = nullptr;
-    PopupManager* popups = nullptr;
     EditorSelection* selection = nullptr;
     
     EditorRenderPath* render_path = nullptr;

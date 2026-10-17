@@ -5,8 +5,6 @@
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/world/world_tab.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
-#include <editor/popups/popup_manager.h>
-#include <editor/popups/unsaved_changes_popup.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
 #include <editor/settings/editor_settings.h>
@@ -27,7 +25,6 @@ struct EditorApplication : Application
     Drawer drawer;
     WorldTab world_tab;
     TabManager tabs;
-    PopupManager popups;
 
     EditorSettings settings;
     EditorResources resources;

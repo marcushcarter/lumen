@@ -1,7 +1,5 @@
 #pragma once
 #include <editor/editor_context.h>
-#include <editor/popups/project/new_project.h>
-#include <editor/popups/project/delete_project.h>
 #include <core/base/error.h>
 #include <filesystem>
 #include <future>

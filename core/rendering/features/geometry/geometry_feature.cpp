@@ -263,25 +263,18 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         b.write_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
         if (compact_raster_frame) {
-            const VkDeviceSize tris = _compact_capacity_tris();
-            drivers::DeviceDriverVulkan::BufferCreateInfo idx_ci{};
-            idx_ci.size = tris * 3 * sizeof(uint32_t);
-            idx_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-            idx_ci.device_local = true;
-            b.create_buffer("CompactIndices", idx_ci);
-
-            drivers::DeviceDriverVulkan::BufferCreateInfo prim_ci{};
-            prim_ci.size = tris * sizeof(uint32_t);
-            prim_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-            prim_ci.device_local = true;
-            b.create_buffer("CompactPrims", prim_ci);
-
             drivers::DeviceDriverVulkan::BufferCreateInfo args_ci2{};
             args_ci2.size = COMPACT_ARGS_SIZE;
-            args_ci2.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+            args_ci2.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             args_ci2.device_local = true;
             b.create_buffer("CompactDrawArgs", args_ci2);
             b.write_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+
+            drivers::DeviceDriverVulkan::BufferCreateInfo spill_ci{};
+            spill_ci.size = (VkDeviceSize)_compact_spill_stride() * 2 * COMPACT_SPILL_CMD_SIZE;
+            spill_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+            spill_ci.device_local = true;
+            b.create_buffer("CompactSpill", spill_ci);
         }
     };
     cluster_cull_args_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -506,10 +499,90 @@ void GeometryFeature::_create_cluster_retest_pass()
 /**** RASTER ****/
 /****************/
 
-uint32_t GeometryFeature::_compact_capacity_tris() const
+uint32_t GeometryFeature::_compact_capacity_tris() const { return compact_indices.buffer ? compact_capacity : 0u; }
+
+uint64_t GeometryFeature::_compact_bound_tris() const
 {
     const uint64_t bound = (uint64_t)std::max(1u, ctx->frame->cluster_ref_capacity) * std::max(1u, ctx->geometry->max_cluster_tris);
-    return (uint32_t)std::min<uint64_t>(bound, COMPACT_MAX_TRIS);
+    return std::min<uint64_t>(bound, COMPACT_INDEX_LIMIT_TRIS);
+}
+
+uint32_t GeometryFeature::_compact_spill_stride() const { return std::max(1u, ctx->frame->cluster_ref_capacity); }
+
+void GeometryFeature::_compact_update(bool p_feedback, uint64_t p_demand)
+{
+    uint64_t target = compact_capacity;
+    if (target == 0) target = (uint64_t)ctx->graph->width * ctx->graph->height;
+
+    if (p_feedback) {
+        if (p_demand > compact_capacity) {
+            target = p_demand + p_demand / 2;
+            compact_low_frames = 0;
+        } else if (p_demand * 4 < compact_capacity) {
+            if (++compact_low_frames >= COMPACT_SHRINK_FRAMES) {
+                target = p_demand + p_demand / 2;
+                compact_low_frames = 0;
+            }
+        } else {
+            compact_low_frames = 0;
+        }
+    }
+
+    const uint64_t bound = _compact_bound_tris();
+    target = std::max<uint64_t>(target, COMPACT_MIN_TRIS);
+    target = (target + COMPACT_GRANULE_TRIS - 1) / COMPACT_GRANULE_TRIS * COMPACT_GRANULE_TRIS;
+    target = std::min(target, bound);
+    if (target == compact_capacity && compact_indices.buffer) return;
+    if (compact_failed_tris && target >= compact_failed_tris) return;
+
+    const uint32_t old_capacity = compact_capacity;
+    if (!_compact_reserve((uint32_t)target)) {
+        compact_failed_tris = target;
+    } else {
+        compact_failed_tris = 0;
+        ++compact_resizes;
+        log_write("GeometryFeature: compact raster buffer %u -> %u tris (%.1f MB), demand %llu tris, spilled clusters %u.", old_capacity, compact_capacity, (double)compact_capacity * 16.0 / (1024.0 * 1024.0), (unsigned long long)p_demand, compact_spilled);
+    }
+}
+
+bool GeometryFeature::_compact_reserve(uint32_t p_tris)
+{
+    drivers::DeviceDriverVulkan::Buffer indices = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * 3 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_indices" });
+    drivers::DeviceDriverVulkan::Buffer prims = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_prims" });
+    if (!indices.buffer || !prims.buffer) {
+        if (indices.buffer) ctx->dd->buffer_free(indices);
+        if (prims.buffer) ctx->dd->buffer_free(prims);
+        log_write("GeometryFeature: compact raster buffer allocation of %u tris failed, overflow keeps drawing through the spill path.", p_tris);
+        return false;
+    }
+
+    _compact_retire(compact_indices);
+    _compact_retire(compact_prims);
+    compact_indices = indices;
+    compact_prims = prims;
+    compact_capacity = p_tris;
+    return true;
+}
+
+void GeometryFeature::_compact_retire(drivers::DeviceDriverVulkan::Buffer& r_buffer)
+{
+    if (!r_buffer.buffer) return;
+    compact_retired.push_back({ r_buffer, compact_serial });
+    r_buffer = {};
+}
+
+void GeometryFeature::_compact_collect(bool p_all)
+{
+    const uint64_t frames = ctx->dd->frame_count;
+    for (size_t i = 0; i < compact_retired.size();) {
+        if (p_all || compact_serial - compact_retired[i].serial > frames) {
+            ctx->dd->buffer_free(compact_retired[i].buffer);
+            compact_retired[i] = compact_retired.back();
+            compact_retired.pop_back();
+        } else {
+            ++i;
+        }
+    }
 }
 
 void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool p_late)
@@ -524,6 +597,7 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
         b.write_buffer("CompactIndices", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("CompactPrims", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("CompactSpill", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (p_late && b.graph->buffer_resource("HiZArgs2")) b.write_buffer("HiZArgs2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
@@ -536,7 +610,18 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
         auto* args = cl.graph->buffer("CompactDrawArgs");
         auto* hiz_args = p_late ? cl.graph->buffer("HiZArgs2") : nullptr;
         auto* hiz = cl.graph->image("HiZ");
-        if (!geometry || !refs || !visible || !dispatch_args || !indices || !prims || !args) return;
+        auto* spill = cl.graph->buffer("CompactSpill");
+        if (!geometry || !refs || !visible || !dispatch_args || !args || !spill) return;
+
+        if (!p_late) {
+            VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+            mb.srcStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &mb;
+            vkCmdPipelineBarrier2(cl.cmd, &dep);
+        }
 
         struct Push {
             VkDeviceAddress geometry_addr;
@@ -546,19 +631,23 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
             VkDeviceAddress prims_addr;
             VkDeviceAddress args_addr;
             VkDeviceAddress hiz_args_addr;
+            VkDeviceAddress spill_addr;
             uint32_t phase;
             uint32_t capacity_tris;
             uint32_t hiz_groups_x;
             uint32_t hiz_groups_y;
+            uint32_t spill_stride;
         } pc{};
         pc.geometry_addr = geometry->device_address;
         pc.cluster_refs_addr = refs->device_address;
         pc.visible_addr = visible->device_address;
-        pc.indices_addr = indices->device_address;
-        pc.prims_addr = prims->device_address;
+        pc.indices_addr = indices ? indices->device_address : 0;
+        pc.prims_addr = prims ? prims->device_address : 0;
         pc.args_addr = args->device_address;
+        pc.spill_addr = spill->device_address;
         pc.phase = p_late ? 1u : 0u;
-        pc.capacity_tris = _compact_capacity_tris();
+        pc.capacity_tris = indices && prims ? _compact_capacity_tris() : 0u;
+        pc.spill_stride = _compact_spill_stride();
         if (hiz_args && hiz) {
             pc.hiz_args_addr = hiz_args->device_address;
             pc.hiz_groups_x = hiz->extent.width / HIZ_TILE;
@@ -598,6 +687,7 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         b.read_buffer("CompactIndices", VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT);
         b.read_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("CompactPrims", VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer("CompactSpill", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -627,17 +717,43 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         pc.transforms_addr = cl.graph->buffer("Transforms")->device_address;
         pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
         pc.visible_addr = cl.graph->buffer(p_late ? "VisibleClusters2" : "VisibleClusters")->device_address;
-        pc.prims_addr = cl.graph->buffer("CompactPrims")->device_address;
+        auto* prims = cl.graph->buffer("CompactPrims");
+        pc.prims_addr = prims ? prims->device_address : 0;
         pc.args_addr = args->device_address;
         pc.phase = p_late ? 1u : 0u;
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
 
-        cl.dd->command_bind_pipeline(cl.cmd, visbuffer_compact_pipe);
-        cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.draw_indexed_indirect(p_late ? "Visbuffer 2" : "Visbuffer 1", *args, p_late ? sizeof(VkDrawIndexedIndirectCommand) : 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+        if (indices && prims) {
+            cl.dd->command_bind_pipeline(cl.cmd, visbuffer_compact_pipe);
+            cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
+            cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+            cl.draw_indexed_indirect(p_late ? "Visbuffer 2" : "Visbuffer 1", *args, p_late ? sizeof(VkDrawIndexedIndirectCommand) : 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+        }
+
+        if (auto* spill = cl.graph->buffer("CompactSpill")) {
+            struct SpillPush {
+                VkDeviceAddress camera_addr;
+                VkDeviceAddress geometry_addr;
+                VkDeviceAddress instances_addr;
+                VkDeviceAddress transforms_addr;
+                VkDeviceAddress cluster_refs_addr;
+                VkDeviceAddress visible_addr;
+            } sp{};
+            sp.camera_addr = pc.camera_addr;
+            sp.geometry_addr = pc.geometry_addr;
+            sp.instances_addr = pc.instances_addr;
+            sp.transforms_addr = pc.transforms_addr;
+            sp.cluster_refs_addr = pc.cluster_refs_addr;
+            sp.visible_addr = pc.visible_addr;
+
+            const uint32_t stride = _compact_spill_stride();
+            const uint32_t phase = p_late ? 1u : 0u;
+            cl.dd->command_bind_pipeline(cl.cmd, visbuffer_spill_pipe);
+            cl.dd->command_bind_push_constants(cl.cmd, sizeof(sp), &sp);
+            cl.draw_indirect_count(p_late ? "Visbuffer 2 spill" : "Visbuffer 1 spill", *spill, (VkDeviceSize)phase * stride * COMPACT_SPILL_CMD_SIZE, *args, COMPACT_ARGS_SPILL_OFFSET + phase * sizeof(uint32_t), stride, COMPACT_SPILL_CMD_SIZE);
+        }
     };
 }
 
@@ -756,6 +872,33 @@ void GeometryFeature::_create_material_resolve_pass()
     };
 }
 
+void GeometryFeature::_create_compact_feedback_pass()
+{
+    compact_feedback_pass.name = "CompactFeedback";
+    compact_feedback_pass.category = PASS_CATEGORY_RASTER;
+    compact_feedback_pass.never_cull = true;
+    compact_feedback_pass.setup = [](RenderGraph::Builder& b) {
+        b.read_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.write_buffer("CompactFeedbackReadback", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    };
+    compact_feedback_pass.execute = [this](RenderGraph::CommandList& cl) {
+        const auto* args = cl.graph->buffer("CompactDrawArgs");
+        if (!args) return;
+        const drivers::DeviceDriverVulkan::Buffer& dst = compact_feedback[cl.graph->current_frame];
+        cl.dd->command_copy_buffer(cl.cmd, *args, dst, sizeof(CompactFeedback), COMPACT_ARGS_TRIS_OFFSET, 0);
+
+        VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        mb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        mb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &mb;
+        vkCmdPipelineBarrier2(cl.cmd, &dep);
+    };
+}
+
 /*******************/
 /**** PROFILING ****/
 /*******************/
@@ -819,6 +962,7 @@ Error GeometryFeature::create_resources()
     _create_hiz_pass(hiz_build_pass_2, "HiZBuild2", "HiZArgs2");
     _create_material_resolve_pass();
     _create_stats_pass();
+    _create_compact_feedback_pass();
 
     drivers::DeviceDriverVulkan::SamplerCreateInfo hiz_sampler_ci{};
     hiz_sampler_ci.filter = VK_FILTER_NEAREST;
@@ -840,6 +984,13 @@ Error GeometryFeature::create_resources()
     for (drivers::DeviceDriverVulkan::Buffer& b : stats_readback) {
         b = ctx->dd->buffer_create({ .size = sizeof(CullStats), .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = false, .host_visible = true, .cpu_read = true, .pool = ctx->dd->readback_pool, .name = "cluster_cull_stats" });
         LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "GeometryFeature: stats readback allocation failed.");
+    }
+
+    compact_feedback.resize(ctx->dd->frame_count);
+    compact_feedback_written.assign(ctx->dd->frame_count, 0);
+    for (drivers::DeviceDriverVulkan::Buffer& b : compact_feedback) {
+        b = ctx->dd->buffer_create({ .size = sizeof(CompactFeedback), .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = false, .host_visible = true, .cpu_read = true, .pool = ctx->dd->readback_pool, .name = "compact_feedback" });
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "GeometryFeature: compact feedback readback allocation failed.");
     }
     return Error::OK;
 };
@@ -885,6 +1036,15 @@ Error GeometryFeature::create_pipelines()
     pipeline_ci.name = "raster/visbuffer_compact";
     visbuffer_compact_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
     ctx->dd->shader_free(cvs); ctx->dd->shader_free(cfs);
+
+    EmbeddedResource::Blob svs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_SPILL_VERT");
+    EmbeddedResource::Blob sfs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_SPILL_FRAG");
+    VkShaderModule svs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX,   .glsl = (const char*)svs_blob.data, .glsl_size = svs_blob.size, .name = "raster/visbuffer_spill.vert" });
+    VkShaderModule sfs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)sfs_blob.data, .glsl_size = sfs_blob.size, .name = "raster/visbuffer_spill.frag" });
+    pipeline_ci.vertex_shader = svs; pipeline_ci.fragment_shader = sfs;
+    pipeline_ci.name = "raster/visbuffer_spill";
+    visbuffer_spill_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
+    ctx->dd->shader_free(svs); ctx->dd->shader_free(sfs);
     }
 
     return OK;
@@ -903,11 +1063,19 @@ void GeometryFeature::destroy_resources()
     ctx->dd->pipeline_free(material_resolve_pipe);
     ctx->dd->pipeline_free(draw_compact_pipe);
     ctx->dd->pipeline_free(visbuffer_compact_pipe);
+    ctx->dd->pipeline_free(visbuffer_spill_pipe);
     ctx->dd->sampler_free(hiz_sampler);
     ctx->dd->buffer_free(hiz_tail_buffer);
     for (drivers::DeviceDriverVulkan::Buffer& b : stats_readback) ctx->dd->buffer_free(b);
     stats_readback.clear();
     stats_written.clear();
+    for (drivers::DeviceDriverVulkan::Buffer& b : compact_feedback) ctx->dd->buffer_free(b);
+    compact_feedback.clear();
+    compact_feedback_written.clear();
+    _compact_collect(true);
+    ctx->dd->buffer_free(compact_indices);
+    ctx->dd->buffer_free(compact_prims);
+    compact_capacity = 0;
 }
 
 void GeometryFeature::build(RenderGraph& g)
@@ -937,6 +1105,27 @@ void GeometryFeature::build(RenderGraph& g)
     bool ms_active = MESH_PATH_READY && mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
     bool task_active = ms_active && task_shading && ctx->dd->capabilities.mesh.task_shader;
     compact_raster_frame = !ms_active;
+
+    ++compact_serial;
+    _compact_collect(false);
+    if (compact_raster_frame) {
+        bool feedback = false;
+        uint64_t demand = 0;
+        if (slot < compact_feedback.size() && compact_feedback_written[slot]) {
+            CompactFeedback fb{};
+            ctx->dd->buffer_invalidate(compact_feedback[slot], 0, sizeof(CompactFeedback));
+            std::memcpy(&fb, compact_feedback[slot].mapped, sizeof(CompactFeedback));
+            demand = (uint64_t)fb.tris[0] + fb.tris[1];
+            compact_demand = (uint32_t)std::min<uint64_t>(demand, UINT32_MAX);
+            compact_spilled = fb.spill[0] + fb.spill[1];
+            feedback = true;
+        }
+        _compact_update(feedback, demand);
+        if (compact_indices.buffer && compact_prims.buffer) {
+            g.import_buffer("CompactIndices", &compact_indices, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+            g.import_buffer("CompactPrims", &compact_prims, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        }
+    }
 
     g.add(&clear_visible_pass);
     g.add(&instance_cull_pass);
@@ -970,7 +1159,12 @@ void GeometryFeature::build(RenderGraph& g)
     } else {
         g.add(&draw_compact_pass_2);
         g.add(&visbuffer_compact_pass_2);
+        if (slot < compact_feedback.size()) {
+            g.import_buffer("CompactFeedbackReadback", &compact_feedback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+            g.add(&compact_feedback_pass);
+        }
     }
+    if (slot < compact_feedback_written.size()) compact_feedback_written[slot] = compact_raster_frame ? 1 : 0;
     if (occlusion_frame && hiz_ok) g.add(&hiz_build_pass_2);
     g.add(&material_resolve_pass);
     if (slot < stats_readback.size()) {

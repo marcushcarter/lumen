@@ -14,11 +14,16 @@ struct GeometryFeature : Feature
     static constexpr uint32_t HIZ_TAIL_MAX = 64;
     static constexpr uint32_t HIZ_MAX_MIPS = 16;
     static constexpr uint32_t VIS_EMPTY = 0xFFFFFFFFu;
-    static constexpr uint32_t COMPACT_MAX_TRIS = 4u * 1024 * 1024;
-    static constexpr uint32_t COMPACT_ARGS_SIZE = 56;
+    static constexpr uint32_t COMPACT_ARGS_SIZE = 64;
+    static constexpr uint32_t COMPACT_ARGS_TRIS_OFFSET = 40;
+    static constexpr uint32_t COMPACT_ARGS_SPILL_OFFSET = 56;
+    static constexpr uint32_t COMPACT_SPILL_CMD_SIZE = 16;
+    static constexpr uint32_t COMPACT_MIN_TRIS = 256u * 1024;
+    static constexpr uint32_t COMPACT_GRANULE_TRIS = 64u * 1024;
+    static constexpr uint32_t COMPACT_SHRINK_FRAMES = 300;
+    static constexpr uint64_t COMPACT_INDEX_LIMIT_TRIS = 0xFFFFFFFFull / 3ull;
 
-    struct CullPush
-    {
+    struct CullPush {
         VkDeviceAddress camera_addr;
         VkDeviceAddress geometry_addr;
         VkDeviceAddress instances_addr;
@@ -75,6 +80,33 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
     drivers::DeviceDriverVulkan::Pipeline draw_compact_pipe;
     drivers::DeviceDriverVulkan::Pipeline visbuffer_compact_pipe;
+    drivers::DeviceDriverVulkan::Pipeline visbuffer_spill_pipe;
+
+    struct CompactFeedback {
+        uint32_t tris[2];
+        uint32_t done[2];
+        uint32_t spill[2];
+    };
+
+    struct CompactRetired {
+        drivers::DeviceDriverVulkan::Buffer buffer;
+        uint64_t serial;
+    };
+
+    drivers::DeviceDriverVulkan::Buffer compact_indices;
+    drivers::DeviceDriverVulkan::Buffer compact_prims;
+    std::vector<CompactRetired> compact_retired;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> compact_feedback;
+    std::vector<uint8_t> compact_feedback_written;
+    uint64_t compact_serial = 0;
+    uint32_t compact_capacity = 0;
+    uint32_t compact_demand = 0;
+    uint32_t compact_spilled = 0;
+    uint32_t compact_resizes = 0;
+    uint32_t compact_low_frames = 0;
+    uint64_t compact_failed_tris = 0;
+
+    RenderGraph::Pass compact_feedback_pass;
 
     void _create_clear_visible_pass();
     void _create_instance_cull_pass(RenderGraph::Pass& r_pass, bool p_late);
@@ -88,6 +120,13 @@ struct GeometryFeature : Feature
     void _create_draw_compact_pass(RenderGraph::Pass& r_pass, bool p_late);
     void _create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, bool p_late);
     uint32_t _compact_capacity_tris() const;
+    uint64_t _compact_bound_tris() const;
+    uint32_t _compact_spill_stride() const;
+    void _compact_update(bool p_feedback, uint64_t p_demand);
+    bool _compact_reserve(uint32_t p_tris);
+    void _compact_retire(drivers::DeviceDriverVulkan::Buffer& r_buffer);
+    void _compact_collect(bool p_all);
+    void _create_compact_feedback_pass();
 
     /*****************/
     /**** TERRAIN ****/
@@ -103,9 +142,7 @@ struct GeometryFeature : Feature
     /******************/
 
     RenderGraph::Pass material_resolve_pass;
-
     drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
-
     void _create_material_resolve_pass();
     
     /**************/

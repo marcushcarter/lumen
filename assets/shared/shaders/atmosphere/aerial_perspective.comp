@@ -59,8 +59,7 @@ void main() {
             vec3 up = p / r;
             Medium m = atmo_medium(r - atmo_rg());
             vec3 sample_t = exp(-m.extinction * dt);
-            vec3 s = ((m.rayleigh * pr0 + m.mie * pm0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering) * e0
-                   + ((m.rayleigh * pr1 + m.mie * pm1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering) * e1;
+            vec3 s = ((m.rayleigh * pr0 + m.mie * pm0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering) * e0 + ((m.rayleigh * pr1 + m.mie * pm1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering) * e1;
             vec3 inv_ext = 1.0 / max(m.extinction, vec3(1e-7));
             scattered += throughput * (s - s * sample_t) * inv_ext;
             throughput *= sample_t;

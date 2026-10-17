@@ -22,10 +22,12 @@ layout(push_constant) uniform Push {
     CompactPrimBuffer prims;
     CompactDrawArgs args;
     HiZArgsBuffer hiz_args;
+    CompactSpillBuffer spill;
     uint phase;
     uint capacity_tris;
     uint hiz_groups_x;
     uint hiz_groups_y;
+    uint spill_stride;
 } pc;
 
 shared uint s_total;
@@ -64,10 +66,17 @@ void main() {
         }
         barrier();
 
+        const uint out_first = s_base_tri + local_off;
         s_first[lid] = tri_first;
         s_count[lid] = n;
-        s_out[lid] = s_base_tri + local_off;
+        s_out[lid] = out_first;
         s_ref[lid] = ref_idx;
+
+        const uint fit = out_first >= capacity ? 0u : min(n, capacity - out_first);
+        if (fit < n) {
+            const uint k = atomicAdd(pc.args.spill[pc.phase], 1u);
+            pc.spill.cmd[pc.phase * pc.spill_stride + k] = CompactSpillCommand((n - fit) * 3u, 1u, fit * 3u, slot);
+        }
         barrier();
 
         const uint lanes = min(64u, visible_count - first_slot);

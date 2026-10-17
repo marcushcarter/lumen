@@ -8,7 +8,7 @@ layout(buffer_reference, scalar) buffer ClusterRefsBuffer { uint count; uint req
 layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
 layout(buffer_reference, scalar) writeonly buffer VisibleClusterBuffer { uint count; };
 layout(buffer_reference, scalar) writeonly buffer ClusterRetestBuffer { uint count; };
-layout(buffer_reference, scalar) writeonly buffer CompactArgsInit { uint data[14]; };
+layout(buffer_reference, scalar) writeonly buffer CompactArgsInit { uint data[16]; };
 
 layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
@@ -37,7 +37,7 @@ void main() {
     pc.cluster_retest.count = 0u;
 
     if (pc.init_compact != 0u) {
-        for (uint i = 0u; i < 14u; i++) pc.compact_args.data[i] = 0u;
+        for (uint i = 0u; i < 16u; i++) pc.compact_args.data[i] = 0u;
         pc.compact_args.data[1] = 1u;
         pc.compact_args.data[6] = 1u;
     }

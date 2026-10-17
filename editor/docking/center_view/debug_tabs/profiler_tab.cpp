@@ -80,6 +80,10 @@ void ProfilerDebugTab::_copy_report(EditorContext& ctx)
     } else {
         _append(out, "Cull stats: off (enable pipeline statistics)\n");
     }
+    if (ctx.render_path && ctx.render_path->geometry.compact_raster_frame) {
+        const GeometryFeature& geo = ctx.render_path->geometry;
+        _append(out, "Compact raster: capacity %u tris (%.1f MB), demand %u tris, spilled clusters %u, resizes %u\n", geo.compact_capacity, (double)geo.compact_capacity * 16.0 / (1024.0 * 1024.0), geo.compact_demand, geo.compact_spilled, geo.compact_resizes);
+    }
 
     _append(out, "\n--- CPU ---\n");
     const CpuProfiler& cpu = cpu_profiler();
@@ -695,4 +699,4 @@ void ProfilerDebugTab::draw(EditorContext& ctx)
     ImGui::PopStyleColor(2);
 }
 
-}
+}

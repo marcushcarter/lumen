@@ -33,7 +33,6 @@ struct StaticInstances
 struct StaticLights
 {
     std::vector<GpuLight> lights;
-    // std::vector<GpuLight> directional;
 
     uint64_t version = 0;
     uint64_t world_version = UINT64_MAX;
@@ -43,7 +42,6 @@ struct StaticLights
 
     void clear() {
         lights.clear();
-        // directional.clear();
         world_version = UINT64_MAX;
         version++;
     }
@@ -67,7 +65,7 @@ struct FrameData
     CameraUniform camera{};
 
     GpuAtmosphere atmosphere{};
-    vec4 atmosphere_lut_key = vec4(-1.0f);
+    vec4 atmosphere_lut_key[2] = { vec4(-1.0f), vec4(-1.0f) };
     uint64_t atmosphere_lut_version = 0;
 
     struct EntityCache {

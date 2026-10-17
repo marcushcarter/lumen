@@ -4,9 +4,9 @@
 #include "common/atmosphere.glsl"
 
 const vec3 SUN_LIMB_DARKENING = vec3(0.48, 0.60, 0.72);
-const vec3 NIGHT_TINT = vec3(0.70, 0.82, 1.00);
+// const vec3 NIGHT_TINT = vec3(0.70, 0.82, 1.00);
 const float MOON_GEOMETRIC_ALBEDO = 0.1;
-const float AIRGLOW_HEIGHT_KM = 90.0;
+// const float AIRGLOW_HEIGHT_KM = 90.0;
 
 uvec3 sky_pcg3d(uvec3 p_v) {
     p_v = p_v * 1664525u + 1013904223u;
@@ -112,11 +112,13 @@ vec3 sky_stars(vec3 p_cel, float p_sigma, uint p_cells, float p_density) {
     return acc;
 }
 
-vec3 sky_sun_disk(vec3 p_dir, float p_pixel_angle, out float r_coverage) {
+// p_reject_cos = cos(radius + 2 * pixel_angle): one dot rejects every pixel that isn't near the disk.
+vec3 sky_sun_disk(vec3 p_dir, float p_pixel_angle, float p_reject_cos, out float r_coverage) {
     r_coverage = 0.0;
-    float radius = acos(g_atmo.sun_cos_angular_radius);
+    if (dot(p_dir, g_atmo.sun_direction) < p_reject_cos) return vec3(0.0);
+    // float radius = acos(g_atmo.sun_cos_angular_radius);
+    float radius = g_atmo.sun_angular_radius;
     float ang = sky_angle_between(p_dir, g_atmo.sun_direction);
-    if (ang > radius + p_pixel_angle * 2.0) return vec3(0.0);
     r_coverage = 1.0 - smoothstep(radius - p_pixel_angle, radius + p_pixel_angle, ang);
     float x = clamp(ang / radius, 0.0, 1.0);
     float mu = sqrt(max(1.0 - x * x, 0.0));
@@ -125,48 +127,77 @@ vec3 sky_sun_disk(vec3 p_dir, float p_pixel_angle, out float r_coverage) {
     return limb * g_atmo.sun_illuminance / (4.0 * ATMO_PI * s * s);
 }
 
-vec3 sky_moon_disk(vec3 p_dir, float p_pixel_angle, out float r_coverage) {
+// vec3 sky_moon_disk(vec3 p_dir, float p_pixel_angle, out float r_coverage) {
+//     r_coverage = 0.0;
+//     vec3 m = g_atmo.moon_direction;
+//     float radius = acos(g_atmo.moon_cos_angular_radius);
+//     float ang = sky_angle_between(p_dir, m);
+//     if (ang > radius + p_pixel_angle * 2.0) return vec3(0.0);
+//     r_coverage = 1.0 - smoothstep(radius - p_pixel_angle, radius + p_pixel_angle, ang);
+//     vec3 up = g_atmo.moon_up;
+//     vec3 right = normalize(cross(up, -m));
+//     vec3 off = p_dir - m * dot(p_dir, m);
+//     vec2 xy = vec2(dot(off, right), dot(off, up)) / radius;
+//     float rr = dot(xy, xy);
+//     if (rr >= 0.998) {
+//         xy *= inversesqrt(rr) * 0.999;
+//         rr = 0.998;
+//     }
+//     float z = sqrt(1.0 - rr);
+//     vec3 n = normalize(xy.x * right + xy.y * up - z * m);
+//     vec3 pn = vec3(xy, z);
+//
+//     const vec3 MARIA[13] = vec3[13](
+//         vec3(33.0, -16.0, 17.0), vec3(28.0, 17.5, 9.0), vec3(8.5, 31.0, 11.0), vec3(17.0, 59.0, 6.5),
+//         vec3(-8.0, 51.0, 9.0), vec3(-15.0, 35.0, 5.5), vec3(-21.0, -17.0, 9.0), vec3(18.0, -57.0, 24.0),
+//         vec3(-24.0, -39.0, 5.0), vec3(56.0, 1.0, 7.0), vec3(55.0, -25.0, 6.0), vec3(7.0, -31.0, 7.0), vec3(-10.0, -23.0, 6.0)
+//     );
+//
+//     vec3 warp = vec3(sky_fbm(pn * 4.0, 3), sky_fbm(pn * 4.0 + 5.0, 3), 0.0) * 0.12;
+//     vec3 pw = normalize(pn + warp);
+//     float mare = 0.0;
+//     for (int i = 0; i < 13; i++) {
+//         float la = radians(MARIA[i].x);
+//         float lo = radians(MARIA[i].y);
+//         vec3 cn = vec3(cos(la) * sin(lo), sin(la), cos(la) * cos(lo));
+//         float dist = sky_angle_between(pw, cn);
+//         mare = max(mare, 1.0 - smoothstep(radians(MARIA[i].z) * 0.6, radians(MARIA[i].z) * 1.15, dist));
+//     }
+//     float highland = sky_fbm(pn * 22.0, 3) * 0.5 + 0.5;
+//     float craters = sky_fbm(pn * 70.0 + 3.0, 2) * 0.5 + 0.5;
+//     float la_t = radians(-43.3);
+//     float lo_t = radians(-11.2);
+//     float tycho_d = sky_angle_between(pn, vec3(cos(la_t) * sin(lo_t), sin(la_t), cos(la_t) * cos(lo_t)));
+//     float albedo_rel = mix(1.15 + 0.15 * (highland - 0.5), 0.55 + 0.1 * craters, mare * 0.9) * (0.9 + 0.2 * craters) + exp(-tycho_d / 0.05) * 0.6;
+//
+//     float mu0 = max(dot(n, g_atmo.sun_direction), 0.0);
+//     float ls = mu0 > 0.0 ? 2.0 * mu0 / (mu0 + max(z, 1e-3)) : 0.0;
+//     float phase = g_atmo.moon_phase_angle;
+//     float phase_term = (exp(-phase / 0.12) * 0.25 + 1.0) * exp(-0.7 * phase / ATMO_PI);
+//     return g_atmo.sun_illuminance * (MOON_GEOMETRIC_ALBEDO * ATMO_INV_PI * albedo_rel * ls * phase_term * g_atmo.moon_disk_brightness);
+// }
+
+// Cheap stylized moon: flat albedo + three soft analytic maria, same phase lighting and brightness as before.
+vec3 sky_moon_disk(vec3 p_dir, float p_pixel_angle, float p_reject_cos, out float r_coverage) {
     r_coverage = 0.0;
     vec3 m = g_atmo.moon_direction;
-    float radius = acos(g_atmo.moon_cos_angular_radius);
+    if (dot(p_dir, m) < p_reject_cos) return vec3(0.0);
+    // float radius = acos(g_atmo.moon_cos_angular_radius);
+    float radius = g_atmo.moon_angular_radius;
     float ang = sky_angle_between(p_dir, m);
-    if (ang > radius + p_pixel_angle * 2.0) return vec3(0.0);
     r_coverage = 1.0 - smoothstep(radius - p_pixel_angle, radius + p_pixel_angle, ang);
     vec3 up = g_atmo.moon_up;
     vec3 right = normalize(cross(up, -m));
     vec3 off = p_dir - m * dot(p_dir, m);
     vec2 xy = vec2(dot(off, right), dot(off, up)) / radius;
-    float rr = dot(xy, xy);
-    if (rr >= 0.998) {
-        xy *= inversesqrt(rr) * 0.999;
-        rr = 0.998;
-    }
+    float rr = min(dot(xy, xy), 0.998);
     float z = sqrt(1.0 - rr);
     vec3 n = normalize(xy.x * right + xy.y * up - z * m);
-    vec3 pn = vec3(xy, z);
 
-    const vec3 MARIA[13] = vec3[13](
-        vec3(33.0, -16.0, 17.0), vec3(28.0, 17.5, 9.0), vec3(8.5, 31.0, 11.0), vec3(17.0, 59.0, 6.5),
-        vec3(-8.0, 51.0, 9.0), vec3(-15.0, 35.0, 5.5), vec3(-21.0, -17.0, 9.0), vec3(18.0, -57.0, 24.0),
-        vec3(-24.0, -39.0, 5.0), vec3(56.0, 1.0, 7.0), vec3(55.0, -25.0, 6.0), vec3(7.0, -31.0, 7.0), vec3(-10.0, -23.0, 6.0)
-    );
-
-    vec3 warp = vec3(sky_fbm(pn * 4.0, 3), sky_fbm(pn * 4.0 + 5.0, 3), 0.0) * 0.12;
-    vec3 pw = normalize(pn + warp);
-    float mare = 0.0;
-    for (int i = 0; i < 13; i++) {
-        float la = radians(MARIA[i].x);
-        float lo = radians(MARIA[i].y);
-        vec3 cn = vec3(cos(la) * sin(lo), sin(la), cos(la) * cos(lo));
-        float dist = sky_angle_between(pw, cn);
-        mare = max(mare, 1.0 - smoothstep(radians(MARIA[i].z) * 0.6, radians(MARIA[i].z) * 1.15, dist));
-    }
-    float highland = sky_fbm(pn * 22.0, 3) * 0.5 + 0.5;
-    float craters = sky_fbm(pn * 70.0 + 3.0, 2) * 0.5 + 0.5;
-    float la_t = radians(-43.3);
-    float lo_t = radians(-11.2);
-    float tycho_d = sky_angle_between(pn, vec3(cos(la_t) * sin(lo_t), sin(la_t), cos(la_t) * cos(lo_t)));
-    float albedo_rel = mix(1.15 + 0.15 * (highland - 0.5), 0.55 + 0.1 * craters, mare * 0.9) * (0.9 + 0.2 * craters) + exp(-tycho_d / 0.05) * 0.6;
+    float mare = 1.0 - smoothstep(0.12, 0.34, length(xy - vec2(-0.28, 0.30)));
+    mare = max(mare, 1.0 - smoothstep(0.08, 0.26, length(xy - vec2(0.22, 0.18))));
+    mare = max(mare, 1.0 - smoothstep(0.06, 0.22, length(xy - vec2(0.30, -0.18))));
+    float albedo_rel = mix(1.15, 0.6, mare * 0.85);
 
     float mu0 = max(dot(n, g_atmo.sun_direction), 0.0);
     float ls = mu0 > 0.0 ? 2.0 * mu0 / (mu0 + max(z, 1e-3)) : 0.0;
@@ -175,17 +206,43 @@ vec3 sky_moon_disk(vec3 p_dir, float p_pixel_angle, out float r_coverage) {
     return g_atmo.sun_illuminance * (MOON_GEOMETRIC_ALBEDO * ATMO_INV_PI * albedo_rel * ls * phase_term * g_atmo.moon_disk_brightness);
 }
 
-vec3 sky_color(vec3 p_dir, uint p_skyview_sun, uint p_skyview_moon, float p_pixel_angle, float p_exposure) {
-    vec3 ro = atmo_observer();
-    float r = length(ro);
-    vec2 uv = skyview_uv(p_dir, r);
-    vec3 color = skyview_sample(p_skyview_sun, uv) * g_atmo.sun_illuminance + skyview_sample(p_skyview_moon, uv) * g_atmo.moon_illuminance;
+// vec3 sky_color(vec3 p_dir, uint p_skyview_sun, uint p_skyview_moon, float p_pixel_angle, float p_exposure) {
+//     vec3 ro = atmo_observer();
+//     float r = length(ro);
+//     vec2 uv = skyview_uv(p_dir, r);
+//     vec3 color = skyview_sample(p_skyview_sun, uv) * g_atmo.sun_illuminance + skyview_sample(p_skyview_moon, uv) * g_atmo.moon_illuminance;
+//
+//     if (ray_sphere(ro, p_dir, atmo_rg()) > 0.0) return max(color, vec3(0.0));
+//
+//     vec3 t_view = transmittance_to_top(r, p_dir.y);
+//     vec3 space = vec3(0.0);
+//
+//     float sigma = p_pixel_angle * 0.6;
+//     float brightest = 2.54e-6 * 2.5 / (2.0 * ATMO_PI * sigma * sigma) * g_atmo.star_brightness;
+//     if (brightest * p_exposure > 1e-3) {
+//         vec3 cel = (g_atmo.world_to_celestial * vec4(p_dir, 0.0)).xyz;
+//         space += sky_stars(cel, sigma, 256u, g_atmo.star_density) * g_atmo.star_brightness;
+//     }
+//     float cov;
+//     vec3 sun = sky_sun_disk(p_dir, p_pixel_angle, cov);
+//     space = mix(space, sun, cov);
+//     vec3 moon = sky_moon_disk(p_dir, p_pixel_angle, cov);
+//     float moon_surface_luminance = MOON_GEOMETRIC_ALBEDO * ATMO_INV_PI * g_atmo.sun_illuminance.g;
+//     moon *= 1.0 / (1.0 + moon_surface_luminance * p_exposure / 1.2);
+//     space = mix(space, moon, cov);
+//     color += space * t_view;
+//
+//     float rh = atmo_rg() / (atmo_rg() + AIRGLOW_HEIGHT_KM);
+//     float van_rhijn = inversesqrt(max(1.0 - rh * rh * (1.0 - p_dir.y * p_dir.y), 1e-3));
+//     color += NIGHT_TINT * (g_atmo.night_luminance * van_rhijn) * sqrt(t_view);
+//     return max(color, vec3(0.0));
+// }
 
-    if (ray_sphere(ro, p_dir, atmo_rg()) > 0.0) return max(color, vec3(0.0));
+vec3 sky_color(vec3 p_dir, uint p_skyview, float p_pixel_angle, float p_exposure, float p_sun_reject_cos, float p_moon_reject_cos) {
+    vec3 color = skyview_radiance(p_skyview, skyview_uv(p_dir));
+    if (p_dir.y < g_atmo.horizon_mu) return max(color, vec3(0.0));
 
-    vec3 t_view = transmittance_to_top(r, p_dir.y);
     vec3 space = vec3(0.0);
-
     float sigma = p_pixel_angle * 0.6;
     float brightest = 2.54e-6 * 2.5 / (2.0 * ATMO_PI * sigma * sigma) * g_atmo.star_brightness;
     if (brightest * p_exposure > 1e-3) {
@@ -193,17 +250,15 @@ vec3 sky_color(vec3 p_dir, uint p_skyview_sun, uint p_skyview_moon, float p_pixe
         space += sky_stars(cel, sigma, 256u, g_atmo.star_density) * g_atmo.star_brightness;
     }
     float cov;
-    vec3 sun = sky_sun_disk(p_dir, p_pixel_angle, cov);
+    vec3 sun = sky_sun_disk(p_dir, p_pixel_angle, p_sun_reject_cos, cov);
     space = mix(space, sun, cov);
-    vec3 moon = sky_moon_disk(p_dir, p_pixel_angle, cov);
+    vec3 moon = sky_moon_disk(p_dir, p_pixel_angle, p_moon_reject_cos, cov);
     float moon_surface_luminance = MOON_GEOMETRIC_ALBEDO * ATMO_INV_PI * g_atmo.sun_illuminance.g;
     moon *= 1.0 / (1.0 + moon_surface_luminance * p_exposure / 1.2);
     space = mix(space, moon, cov);
-    color += space * t_view;
 
-    float rh = atmo_rg() / (atmo_rg() + AIRGLOW_HEIGHT_KM);
-    float van_rhijn = inversesqrt(max(1.0 - rh * rh * (1.0 - p_dir.y * p_dir.y), 1e-3));
-    color += NIGHT_TINT * (g_atmo.night_luminance * van_rhijn) * sqrt(t_view);
+    // Transmittance only for pixels that actually have a star or disk; airglow is baked into the sky-view LUT.
+    if (any(greaterThan(space, vec3(0.0)))) color += space * transmittance_to_top(atmo_rg() + g_atmo.altitude_km, p_dir.y);
     return max(color, vec3(0.0));
 }
 

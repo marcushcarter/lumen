@@ -104,24 +104,21 @@ void AtmosphereFeature::_create_skyview_pass()
         b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         _read_lut(b, "TransmittanceLut");
         _read_lut(b, "MultiscatterLut");
-        _write_lut(b, "SkyViewSun");
-        _write_lut(b, "SkyViewMoon");
+        _write_lut(b, "SkyView");
     };
     skyview_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
         auto* transmittance = cl.graph->image("TransmittanceLut");
         auto* multiscatter = cl.graph->image("MultiscatterLut");
-        auto* sun = cl.graph->image("SkyViewSun");
-        auto* moon = cl.graph->image("SkyViewMoon");
-        if (!atmosphere || !transmittance || !multiscatter || !sun || !moon) return;
+        auto* skyview = cl.graph->image("SkyView");
+        if (!atmosphere || !transmittance || !multiscatter || !skyview) return;
 
         struct Push {
             VkDeviceAddress atmosphere_addr;
             uint32_t transmittance_index;
             uint32_t multiscatter_index;
             uint32_t sampler_index;
-            uint32_t sun_slot;
-            uint32_t moon_slot;
+            uint32_t out_slot;
             uint32_t width;
             uint32_t height;
         } pc{};
@@ -129,8 +126,7 @@ void AtmosphereFeature::_create_skyview_pass()
         pc.transmittance_index = transmittance->bindless_sampled;
         pc.multiscatter_index = multiscatter->bindless_sampled;
         pc.sampler_index = lut_sampler.bindless_sampler;
-        pc.sun_slot = sun->bindless_storage;
-        pc.moon_slot = moon->bindless_storage;
+        pc.out_slot = skyview->bindless_storage;
         pc.width = SKYVIEW_WIDTH;
         pc.height = SKYVIEW_HEIGHT;
 
@@ -216,28 +212,24 @@ void AtmosphereFeature::_create_sky_lighting_pass()
         ci.device_local = true;
         b.create_buffer("SkyLighting", ci);
         b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        _read_lut(b, "SkyViewSun");
-        _read_lut(b, "SkyViewMoon");
+        _read_lut(b, "SkyView");
         b.write_buffer("SkyLighting", CS, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     sky_lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
         auto* out = cl.graph->buffer("SkyLighting");
-        auto* sun = cl.graph->image("SkyViewSun");
-        auto* moon = cl.graph->image("SkyViewMoon");
-        if (!atmosphere || !out || !sun || !moon) return;
+        auto* skyview = cl.graph->image("SkyView");
+        if (!atmosphere || !out || !skyview) return;
 
         struct Push {
             VkDeviceAddress atmosphere_addr;
             VkDeviceAddress out_addr;
-            uint32_t skyview_sun_index;
-            uint32_t skyview_moon_index;
+            uint32_t skyview_index;
             uint32_t sampler_index;
         } pc{};
         pc.atmosphere_addr = atmosphere->device_address;
         pc.out_addr = out->device_address;
-        pc.skyview_sun_index = sun->bindless_sampled;
-        pc.skyview_moon_index = moon->bindless_sampled;
+        pc.skyview_index = skyview->bindless_sampled;
         pc.sampler_index = lut_sampler.bindless_sampler;
 
         cl.dd->command_bind_pipeline(cl.cmd, sky_lighting_pipe);
@@ -260,9 +252,8 @@ Error AtmosphereFeature::create_resources()
     transmittance_lut = _create_lut(TRANSMITTANCE_WIDTH, TRANSMITTANCE_HEIGHT, "atmosphere_transmittance");
     multiscatter_lut = _create_lut(MULTISCATTER_SIZE, MULTISCATTER_SIZE, "atmosphere_multiscatter");
     LUMEN_ERR_FAIL_COND_V(!transmittance_lut.image || !multiscatter_lut.image, FAILED);
-    skyview_sun_lut = _create_lut(SKYVIEW_WIDTH, SKYVIEW_HEIGHT, "atmosphere_skyview_sun");
-    skyview_moon_lut = _create_lut(SKYVIEW_WIDTH, SKYVIEW_HEIGHT, "atmosphere_skyview_moon");
-    LUMEN_ERR_FAIL_COND_V(!skyview_sun_lut.image || !skyview_moon_lut.image, FAILED);
+    skyview_lut = _create_lut(SKYVIEW_WIDTH, SKYVIEW_HEIGHT, "atmosphere_skyview");
+    LUMEN_ERR_FAIL_COND_V(!skyview_lut.image, FAILED);
     built_lut_version = UINT64_MAX;
     skyview_valid = false;
 
@@ -311,13 +302,11 @@ void AtmosphereFeature::destroy_resources()
     if (lut_sampler.sampler) ctx->dd->sampler_free(lut_sampler);
     if (transmittance_lut.image) ctx->dd->image_free(transmittance_lut);
     if (multiscatter_lut.image) ctx->dd->image_free(multiscatter_lut);
-    if (skyview_sun_lut.image) ctx->dd->image_free(skyview_sun_lut);
-    if (skyview_moon_lut.image) ctx->dd->image_free(skyview_moon_lut);
+    if (skyview_lut.image) ctx->dd->image_free(skyview_lut);
     lut_sampler = {};
     transmittance_lut = {};
     multiscatter_lut = {};
-    skyview_sun_lut = {};
-    skyview_moon_lut = {};
+    skyview_lut = {};
     built_lut_version = UINT64_MAX;
     skyview_valid = false;
 }
@@ -328,8 +317,7 @@ void AtmosphereFeature::build(RenderGraph& g)
 
     g.import_image("TransmittanceLut", &transmittance_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     g.import_image("MultiscatterLut", &multiscatter_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
-    g.import_image("SkyViewSun", &skyview_sun_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
-    g.import_image("SkyViewMoon", &skyview_moon_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
+    g.import_image("SkyView", &skyview_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     if (built_lut_version != ctx->frame->atmosphere_lut_version) {
         g.add(&transmittance_pass);
         g.add(&multiscatter_pass);

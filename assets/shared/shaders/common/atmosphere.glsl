@@ -32,6 +32,15 @@ layout(buffer_reference, scalar) readonly buffer AtmosphereBuffer {
     float star_brightness;
     float star_density;
     float moon_disk_brightness;
+    vec3 strat_scattering;
+    float strat_center_km;
+    float strat_width_km;
+    float strat_g;
+    float sun_angular_radius;
+    float moon_angular_radius;
+    float skyview_zenith_horizon;
+    float skyview_beta;
+    float horizon_mu;
 };
 
 layout(buffer_reference, scalar) buffer SkyLightingBuffer { vec4 sh[9]; };
@@ -44,6 +53,8 @@ const uint AERIAL_SLICES = 32u;
 const float AERIAL_MAX_KM = 32.0;
 
 const float ATMO_LUT_SCALE = 1e4;
+const vec3 NIGHT_TINT = vec3(0.70, 0.82, 1.00);
+const float AIRGLOW_HEIGHT_KM = 90.0;
 const float ATMO_LUT_INV_SCALE = 1e-4;
 const float ATMO_LUT_MAX = 65000.0;
 const float ATMO_BODY_CUTOFF_SIN = -0.342;
@@ -78,17 +89,20 @@ struct Medium {
     vec3 extinction;
     vec3 rayleigh;
     vec3 mie;
+    vec3 strat;
 };
 
 Medium atmo_medium(float p_height) {
     float dr = exp(p_height * g_atmo.rayleigh_density_scale);
     float dm = exp(p_height * g_atmo.mie_density_scale);
     float doz = max(0.0, 1.0 - abs(p_height - g_atmo.ozone_center_km) / (0.5 * g_atmo.ozone_width_km));
+    float ds = max(0.0, 1.0 - abs(p_height - g_atmo.strat_center_km) / (0.5 * g_atmo.strat_width_km));
     Medium m;
     m.rayleigh = g_atmo.rayleigh_scattering * dr;
     m.mie = g_atmo.mie_scattering * dm;
-    m.scattering = m.rayleigh + m.mie;
-    m.extinction = m.rayleigh + g_atmo.mie_extinction * dm + g_atmo.ozone_absorption * doz;
+    m.strat = g_atmo.strat_scattering * ds;
+    m.scattering = m.rayleigh + m.mie + m.strat;
+    m.extinction = m.rayleigh + g_atmo.mie_extinction * dm + g_atmo.ozone_absorption * doz + m.strat;
     return m;
 }
 
@@ -147,6 +161,51 @@ vec3 multiscatter(float p_r, float p_mu_s) {
     return atmo_lut(g_multiscatter_lut, uv).rgb * ATMO_LUT_INV_SCALE;
 }
 
+// Abramowitz & Stegun 4.4.46, |err| <= 2e-8 rad
+float atmo_fast_acos(float p_x) {
+    float x = abs(p_x);
+    float r = -0.0012624911;
+    r = r * x + 0.0066700901;
+    r = r * x - 0.0170881256;
+    r = r * x + 0.0308918810;
+    r = r * x - 0.0501743046;
+    r = r * x + 0.0889789874;
+    r = r * x - 0.2145988016;
+    r = r * x + 1.5707963050;
+    r *= sqrt(max(1.0 - x, 0.0));
+    return p_x < 0.0 ? ATMO_PI - r : r;
+}
+
+// Minimax atan, |err| ~1e-6 rad (LUT texel is ~2.5e-2 rad)
+float atmo_fast_atan2(float p_y, float p_x) {
+    float ax = abs(p_x);
+    float ay = abs(p_y);
+    float t = min(ax, ay) / max(max(ax, ay), 1e-20);
+    float t2 = t * t;
+    float r = -0.01172120;
+    r = r * t2 + 0.05265332;
+    r = r * t2 - 0.11643287;
+    r = r * t2 + 0.19354346;
+    r = r * t2 - 0.33262347;
+    r = r * t2 + 0.99997726;
+    r *= t;
+    if (ay > ax) r = 0.5 * ATMO_PI - r;
+    if (p_x < 0.0) r = ATMO_PI - r;
+    return p_y < 0.0 ? -r : r;
+}
+
+vec3 atmo_airglow(float p_r, float p_mu) {
+    float rh = atmo_rg() / (atmo_rg() + AIRGLOW_HEIGHT_KM);
+    float van_rhijn = inversesqrt(max(1.0 - rh * rh * (1.0 - p_mu * p_mu), 1e-3));
+    return NIGHT_TINT * (g_atmo.night_luminance * van_rhijn) * sqrt(transmittance_to_top(p_r, p_mu));
+}
+
+vec3 skyview_radiance(uint p_texture, vec2 p_uv) {
+    vec4 s = atmo_lut(p_texture, p_uv);
+    float e_ref = s.a > 0.5 ? g_atmo.sun_illuminance.g : g_atmo.moon_illuminance.g;
+    return s.rgb * (ATMO_LUT_INV_SCALE * e_ref);
+}
+
 vec3 skyview_sample(uint p_texture, vec2 p_uv) {
     return atmo_lut(p_texture, p_uv).rgb * ATMO_LUT_INV_SCALE;
 }
@@ -191,6 +250,8 @@ ScatterResult integrate_scattering(vec3 p_ro, vec3 p_rd, float p_t_limit, float 
     float pr1 = phase_rayleigh(c1);
     float pm0 = phase_cornette_shanks(g_atmo.mie_g, c0);
     float pm1 = phase_cornette_shanks(g_atmo.mie_g, c1);
+    float ps0 = phase_cornette_shanks(g_atmo.strat_g, c0);
+    float ps1 = phase_cornette_shanks(g_atmo.strat_g, c1);
 
     vec3 throughput = vec3(1.0);
     for (int i = 0; i < count; i++) {
@@ -205,11 +266,11 @@ ScatterResult integrate_scattering(vec3 p_ro, vec3 p_rd, float p_t_limit, float 
         vec3 sample_t = exp(-m.extinction * seg);
         vec3 inv_ext = 1.0 / max(m.extinction, vec3(1e-7));
         if (p_sun) {
-            vec3 s0 = (m.rayleigh * pr0 + m.mie * pm0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering;
+            vec3 s0 = (m.rayleigh * pr0 + m.mie * pm0 + m.strat * ps0) * light_transmittance(p, l0) + multiscatter(r, dot(up, l0)) * m.scattering;
             res.sun += throughput * (s0 - s0 * sample_t) * inv_ext;
         }
         if (p_moon) {
-            vec3 s1 = (m.rayleigh * pr1 + m.mie * pm1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering;
+            vec3 s1 = (m.rayleigh * pr1 + m.mie * pm1 + m.strat * ps1) * light_transmittance(p, l1) + multiscatter(r, dot(up, l1)) * m.scattering;
             res.moon += throughput * (s1 - s1 * sample_t) * inv_ext;
         }
         throughput *= sample_t;
@@ -225,21 +286,18 @@ ScatterResult integrate_scattering(vec3 p_ro, vec3 p_rd, float p_t_limit, float 
     return res;
 }
 
-vec2 skyview_uv(vec3 p_dir, float p_r) {
-    float rg = atmo_rg();
-    float v_horizon = sqrt(max(p_r * p_r - rg * rg, 0.0));
-    float beta = acos(clamp(v_horizon / p_r, -1.0, 1.0));
-    float zenith_horizon = ATMO_PI - beta;
-    float zenith = acos(clamp(p_dir.y, -1.0, 1.0));
+vec2 skyview_uv(vec3 p_dir) {
+    float zenith_horizon = g_atmo.skyview_zenith_horizon;
+    float zenith = atmo_fast_acos(clamp(p_dir.y, -1.0, 1.0));
     float v;
     if (zenith < zenith_horizon) {
         float c = 1.0 - sqrt(max(1.0 - zenith / zenith_horizon, 0.0));
         v = c * 0.5;
     } else {
-        float c = sqrt(max((zenith - zenith_horizon) / max(beta, 1e-5), 0.0));
+        float c = sqrt(max((zenith - zenith_horizon) / max(g_atmo.skyview_beta, 1e-5), 0.0));
         v = c * 0.5 + 0.5;
     }
-    float u = atan(p_dir.x, -p_dir.z) * (0.5 / ATMO_PI);
+    float u = atmo_fast_atan2(p_dir.x, -p_dir.z) * (0.5 / ATMO_PI);
     return vec2(fract(u), v);
 }
 

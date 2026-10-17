@@ -13,7 +13,7 @@ static constexpr uint32_t MAX_DIRECTIONAL_LIGHTS = 2;
 static constexpr uint32_t MAX_VISIBLE_LIGHTS = 4096;
 static constexpr uint32_t LIGHT_ZBIN_COUNT = 1024;
 static constexpr uint32_t LIGHT_TILE_SIZE = 8;
-static constexpr uint32_t LIGHT_TILE_MIN_LIGHTS = 32; // matches lights.glsl: at or below this, tiles are skipped and shading uses z-bins only
+static constexpr uint32_t LIGHT_TILE_MIN_LIGHTS = 32;
 static constexpr uint32_t LIGHT_TILE_WORDS = MAX_VISIBLE_LIGHTS / 32;
 static constexpr uint64_t LIGHT_CULL_ZBINS_OFFSET = 16 + 2 * LIGHT_ZBIN_COUNT * sizeof(uint32_t);
 static constexpr uint64_t LIGHT_CULL_DATA_SIZE = LIGHT_CULL_ZBINS_OFFSET + LIGHT_ZBIN_COUNT * 2 * sizeof(uint32_t);
@@ -87,6 +87,15 @@ struct GpuAtmosphere {
     float star_brightness;
     float star_density;
     float moon_disk_brightness;
+    vec3 strat_scattering;
+    float strat_center_km;
+    float strat_width_km;
+    float strat_g;
+    float sun_angular_radius;
+    float moon_angular_radius;
+    float skyview_zenith_horizon;
+    float skyview_beta;
+    float horizon_mu;
 };
 
 struct IndirectDispatch { uint32_t x, y, z; };

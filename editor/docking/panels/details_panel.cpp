@@ -107,6 +107,10 @@ void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
         ImGui::SliderFloat("Albedo", &atmosphere.mie_albedo, 0.5f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Angstrom Exponent", &atmosphere.mie_angstrom, 0.0f, 2.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
+    if (_component_begin("Stratospheric Aerosols")) {
+        ImGui::SliderFloat("Optical Depth", &atmosphere.strat_aerosol_depth, 0.0f, 0.2f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Layer Height", &atmosphere.strat_aerosol_height_km, 12.0f, 30.0f, "%.1f km", ImGuiSliderFlags_AlwaysClamp);
+    }
     if (_component_begin("Stars")) {
         ImGui::DragFloat("Brightness", &atmosphere.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Density", &atmosphere.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
@@ -207,11 +211,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         const bool o = _component_begin("Light", &remove);
         if (o) {
             bool changed = false;
-            // int type = (int)light->type;
-            // if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
-            //     light->type = (LightType)type;
-            //     changed = true;
-            // }
             int type = light->type == LightType::SPOT ? 1 : 0;
             if (ImGui::Combo("Type", &type, "Point\0Spot\0")) {
                 light->type = type == 1 ? LightType::SPOT : LightType::POINT;
@@ -221,9 +220,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             changed |= ImGui::DragFloat("Intensity", &light->intensity, 0.05f, 0.0f, FLT_MAX, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 
             switch (light->type) {
-                // case LightType::DIRECTIONAL:
-                //     changed |= ImGui::DragFloat("Angular Diameter", &light->angular_diameter, 0.01f, 0.0f, 10.0f, "%.2f deg", ImGuiSliderFlags_AlwaysClamp);
-                //     break;
                 case LightType::POINT:
                 case LightType::SPOT:
                     changed |= ImGui::DragFloat("Range", &light->range, 0.1f, 0.01f, FLT_MAX, "%.2f m", ImGuiSliderFlags_AlwaysClamp);

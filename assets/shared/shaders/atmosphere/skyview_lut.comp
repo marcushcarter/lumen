@@ -16,8 +16,9 @@ layout(push_constant, scalar) uniform Push {
     uint transmittance_index;
     uint multiscatter_index;
     uint sampler_index;
-    uint sun_slot;
-    uint moon_slot;
+    // uint sun_slot;
+    // uint moon_slot;
+    uint out_slot;
     uint width;
     uint height;
 } pc;
@@ -33,7 +34,15 @@ void main() {
     vec2 uv = (vec2(id) + 0.5) / vec2(pc.width, pc.height);
     vec3 ro = atmo_observer();
     vec3 rd = skyview_dir(uv, length(ro));
-    ScatterResult s = integrate_scattering(ro, rd, 1e9, 32.0, true, atmo_sun_active(), atmo_moon_active());
-    imageStore(u_storage_rgba16f[pc.sun_slot], id, vec4(min(s.sun * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
-    imageStore(u_storage_rgba16f[pc.moon_slot], id, vec4(min(s.moon * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
+    bool sun_active = atmo_sun_active();
+    ScatterResult s = integrate_scattering(ro, rd, 1e9, 32.0, true, sun_active, atmo_moon_active());
+    // imageStore(u_storage_rgba16f[pc.sun_slot], id, vec4(min(s.sun * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
+    // imageStore(u_storage_rgba16f[pc.moon_slot], id, vec4(min(s.moon * ATMO_LUT_SCALE, vec3(ATMO_LUT_MAX)), 1.0));
+
+    // One LUT: sun + moon + airglow, stored relative to the dominant illuminant so fp16 keeps its precision day and night.
+    vec3 radiance = s.sun * g_atmo.sun_illuminance + s.moon * g_atmo.moon_illuminance;
+    if (!s.hit_ground) radiance += atmo_airglow(length(ro), rd.y);
+    float e_ref = sun_active ? g_atmo.sun_illuminance.g : g_atmo.moon_illuminance.g;
+    vec3 stored = min(radiance * (ATMO_LUT_SCALE / max(e_ref, 1e-12)), vec3(ATMO_LUT_MAX));
+    imageStore(u_storage_rgba16f[pc.out_slot], id, vec4(stored, sun_active ? 1.0 : 0.0));
 }

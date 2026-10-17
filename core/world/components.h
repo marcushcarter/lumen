@@ -30,22 +30,17 @@ struct MeshGridComponent {
     float spacing = 0.0f;
 };
 
-// enum class LightType : uint8_t { DIRECTIONAL, POINT, SPOT };
-// directional lights (sun, moon) are derived from AtmosphereComponent; values match LIGHT_TYPE_* on the GPU
 enum class LightType : uint8_t { POINT = 1, SPOT = 2 };
-
 struct LightComponent {
     static constexpr uint8_t FLAG_CAST_SHADOWS = 1 << 0;
     static constexpr uint8_t FLAG_AFFECTS_GI = 1 << 1;
 
-    // LightType type = LightType::DIRECTIONAL;
     LightType type = LightType::POINT;
     uint8_t flags = FLAG_CAST_SHADOWS | FLAG_AFFECTS_GI;
     vec3 color = vec3(1.0f);
     float intensity = 1.0f;
     float range = 10.0f;
     float source_radius = 0.0f;
-    // float angular_diameter = 0.53f;
     float inner_cone_angle = 20.0f;
     float outer_cone_angle = 30.0f;
     float fade_start = 0.0f;
@@ -76,16 +71,22 @@ struct AtmosphereComponent
     static constexpr float MOON_ANGULAR_RADIUS = 0.0045197f;
     static constexpr float MIE_BASE_SCATTERING = 3.996e-3f;
 
-    static constexpr double LATITUDE_DEG = 45.0;
+    static constexpr float STRAT_AEROSOL_WIDTH_KM = 12.0f;
+    static constexpr float STRAT_AEROSOL_ANGSTROM = 1.2f;
+    static constexpr float STRAT_AEROSOL_G = 0.7f;
+
+    static constexpr double LATITUDE_DEG = 55.0;
     static constexpr double SUN_DECLINATION_DEG = 10.0;
     static constexpr double MOON_OFFSET_DEG = 5.0;
-    
+
     float time_of_day = 12.0f;
     float mie_turbidity = 1.0f;
     float mie_height_km = 1.2f;
     float mie_g = 0.8f;
     float mie_albedo = 0.9f;
     float mie_angstrom = 1.3f;
+    float strat_aerosol_depth = 0.01f;
+    float strat_aerosol_height_km = 20.0f;
     float star_brightness = 1.0f;
     float star_density = 0.8f;
     float sea_level_offset_km = 0.0f;

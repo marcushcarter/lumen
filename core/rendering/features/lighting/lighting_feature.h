@@ -11,9 +11,12 @@ struct LightingFeature : Feature
 
     RenderGraph::Pass lighting_pass;
     drivers::DeviceDriverVulkan::Pipeline lighting_pipes[LIGHT_MODE_COUNT];
+    RenderGraph::Pass sky_pass;
+    drivers::DeviceDriverVulkan::Pipeline sky_pipe;
     const uint32_t* lut_sampler = nullptr;
 
     void _create_lighting_pass();
+    void _create_sky_pass();
 
     Error create_resources() override;
     Error create_pipelines() override;

@@ -147,36 +147,6 @@ Error Renderer::load(const std::filesystem::path& p_content_dir)
         }
     }
 
-    // frame.reset();
-    // const int GRID = 155;
-    // for (uint32_t i = 0; i < (uint32_t)geometry.meshes.size(); i++) {
-    //     if (geometry.mesh_guids[i] == Guid{}) continue;
-    //     const float spacing = geometry.meshes[i].bounds_sphere.w * 1.5f;
-    //     const float half = (GRID - 1) * 0.5f * spacing;
-    //     for (int gz = 0; gz < GRID; gz++) {
-    //         for (int gx = 0; gx < GRID; gx++) {
-    //             const vec3 pos = vec3(gx * spacing - half, 0.0f, gz * spacing - half);
-    //             const mat4 model = translate(mat4(1.0f), pos);
-    //             frame.instances_scratch.push_back(Instance{ i, (uint32_t)frame.transforms_scratch.size(), 0, 0 });
-    //             frame.transforms_scratch.push_back(Transform{ model, model });
-    //             frame.cluster_ref_capacity = (uint32_t)std::min<uint64_t>((uint64_t)frame.cluster_ref_capacity + geometry.meshes[i].cluster_count, MAX_CLUSTER_REFS);
-    //         }
-    //     }
-    // }
-    // frame.instance_count = (uint32_t)frame.instances_scratch.size();
-
-    // for (uint32_t i = 0; i < frame_count; i++) {
-    //     if (frame.instance_count != 0) {
-    //         drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[i];
-    //         dd->buffer_update(ib, frame.instances_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Instance));
-    //         dd->buffer_flush(ib, 0, (VkDeviceSize)frame.instance_count * sizeof(Instance));
-
-    //         drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[i];
-    //         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    //         dd->buffer_flush(tb, 0, (VkDeviceSize)frame.instance_count * sizeof(Transform));
-    //     }
-    // }
-
     return OK;
 }
 
@@ -292,7 +262,7 @@ static void extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
     out[3] = r3 - r1;  // top
     out[4] = r2;       // far (reverse-Z, [0,1] depth: z_ndc >= 0)
     out[5] = r3 - r2;  // near (z_ndc <= 1)
-    for (int i = 0; i < 6; i++) out[i] /= glm::length(glm::vec3(out[i])); // normalize
+    for (int i = 0; i < 6; i++) out[i] /= glm::length(glm::vec3(out[i]));
 }
 
 glm::mat4 grid_transform(uint32_t iterator, float spacing = 1.0f)
@@ -507,9 +477,10 @@ void Renderer::_frame_build(const World& p_world)
         const AtmosphereComponent& atmo = p_world.atmosphere;
         GpuAtmosphere& g = frame.atmosphere;
 
-        const vec4 lut_key = vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom);
-        if (lut_key != frame.atmosphere_lut_key) {
-            frame.atmosphere_lut_key = lut_key;
+        const vec4 lut_key[2] = { vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom), vec4(atmo.strat_aerosol_depth, atmo.strat_aerosol_height_km, 0.0f, 0.0f) };
+        if (lut_key[0] != frame.atmosphere_lut_key[0] || lut_key[1] != frame.atmosphere_lut_key[1]) {
+            frame.atmosphere_lut_key[0] = lut_key[0];
+            frame.atmosphere_lut_key[1] = lut_key[1];
             frame.atmosphere_lut_version++;
         }
 
@@ -525,6 +496,11 @@ void Renderer::_frame_build(const World& p_world)
         g.ozone_center_km = A::OZONE_CENTER_KM;
         g.ground_albedo = A::GROUND_ALBEDO;
         g.ozone_width_km = A::OZONE_WIDTH_KM;
+        const vec3 strat_angstrom = pow(vec3(680.0f, 550.0f, 440.0f) / 550.0f, vec3(-A::STRAT_AEROSOL_ANGSTROM));
+        g.strat_scattering = strat_angstrom * (atmo.strat_aerosol_depth / (0.5f * A::STRAT_AEROSOL_WIDTH_KM));
+        g.strat_center_km = atmo.strat_aerosol_height_km;
+        g.strat_width_km = A::STRAT_AEROSOL_WIDTH_KM;
+        g.strat_g = A::STRAT_AEROSOL_G;
         g.bottom_radius_km = A::PLANET_RADIUS_KM;
         g.top_radius_km = A::PLANET_RADIUS_KM + A::ATMOSPHERE_HEIGHT_KM;
 
@@ -564,6 +540,17 @@ void Renderer::_frame_build(const World& p_world)
         g.star_brightness = atmo.star_brightness;
         g.star_density = atmo.star_density;
         g.moon_disk_brightness = A::MOON_DISK_BRIGHTNESS;
+        g.sun_angular_radius = A::SUN_ANGULAR_RADIUS;
+        g.moon_angular_radius = A::MOON_ANGULAR_RADIUS;
+        {
+            const double r = (double)A::PLANET_RADIUS_KM + altitude;
+            const double rg = A::PLANET_RADIUS_KM;
+            const double v_horizon = std::sqrt(std::max(r * r - rg * rg, 0.0));
+            const double beta = std::acos(clamp(v_horizon / r, -1.0, 1.0));
+            g.skyview_beta = (float)beta;
+            g.skyview_zenith_horizon = (float)(PI_D - beta);
+            g.horizon_mu = (float)-std::sqrt(std::max(1.0 - (rg / r) * (rg / r), 0.0));
+        }
 
         frame.directional[0] = _directional_pack(g.sun_direction, g.sun_illuminance, A::SUN_ANGULAR_RADIUS);
         frame.directional[1] = _directional_pack(g.moon_direction, g.moon_illuminance, A::MOON_ANGULAR_RADIUS);

@@ -29,8 +29,9 @@ struct AtmosphereFeature : Feature
 
     drivers::DeviceDriverVulkan::Image transmittance_lut;
     drivers::DeviceDriverVulkan::Image multiscatter_lut;
-    drivers::DeviceDriverVulkan::Image skyview_sun_lut;
-    drivers::DeviceDriverVulkan::Image skyview_moon_lut;
+    // drivers::DeviceDriverVulkan::Image skyview_sun_lut;
+    // drivers::DeviceDriverVulkan::Image skyview_moon_lut;
+    drivers::DeviceDriverVulkan::Image skyview_lut;
     drivers::DeviceDriverVulkan::Sampler lut_sampler;
     uint64_t built_lut_version = UINT64_MAX;
     SkyViewKey skyview_built;

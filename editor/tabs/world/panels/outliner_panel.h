@@ -19,16 +19,14 @@ struct OutlinerPanel : Panel
     enum class RowKind : uint8_t { FOLDER, ENTITY };
     enum class SortColumn : uint8_t { LABEL, TYPE };
 
-    struct Row
-    {
+    struct Row {
         Entity entity;
         uint32_t folder;
         uint16_t depth;
         RowKind kind;
     };
 
-    struct Item
-    {
+    struct Item {
         uint32_t slot;
         Entity entity;
         const char* name;
@@ -61,6 +59,7 @@ struct OutlinerPanel : Panel
     Row anchor = { ENTITY_NULL, NONE, 0, RowKind::ENTITY };
     bool has_anchor = false;
     bool scroll_to_selected = false;
+    bool world_expanded = false;
 
     RowKind rename_kind = RowKind::ENTITY;
     uint32_t rename_folder = NONE;
@@ -85,6 +84,7 @@ struct OutlinerPanel : Panel
     void _draw_toolbar(EditorContext& ctx);
     void _draw_table(EditorContext& ctx, float p_footer_h);
     void _draw_row(EditorContext& ctx, int p_index, float p_row_h);
+    void _draw_world_row(EditorContext& ctx, float p_row_h);
     void _draw_atmosphere_row(EditorContext& ctx, float p_row_h);
     void _draw_footer(EditorContext& ctx);
     void _row_menu(EditorContext& ctx, const Row& p_row);

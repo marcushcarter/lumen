@@ -252,7 +252,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         ImGui::PopStyleVar(2);
         return;
     }
-    ImGui::TableSetupScrollFreeze(0, 2);
+    ImGui::TableSetupScrollFreeze(0, world_expanded ? 3 : 2);
     ImGui::TableSetupColumn("##visibility", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, row_h);
     ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, style.label_column_weight);
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoReorder, style.type_column_weight);
@@ -271,7 +271,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         ImGui::TableHeader(ImGui::TableGetColumnName(c));
     }
 
-    _draw_atmosphere_row(ctx, row_h);
+    _draw_world_row(ctx, row_h);
+    if (world_expanded) _draw_atmosphere_row(ctx, row_h);
 
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
@@ -457,6 +458,42 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     ImGui::PopID();
 }
 
+void OutlinerPanel::_draw_world_row(EditorContext& ctx, float p_row_h)
+{
+    (void)ctx;
+    const UiStyle& ui = ui_style();
+    const float font = ImGui::GetFontSize();
+    const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
+
+    ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
+    ImGui::PushID("world_folder");
+    ImGui::TableSetColumnIndex(1);
+    const ImVec2 cell = ImGui::GetCursorScreenPos();
+    const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
+    ImGui::Selectable("##row", false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0.0f, content_h));
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) world_expanded = !world_expanded;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 text_col = ImGui::GetColorU32(ImGuiCol_Text);
+    float x = cell.x;
+    ImGui::SetCursorScreenPos(ImVec2(x, cell.y));
+    if (ImGui::InvisibleButton("##arrow", ImVec2(font, content_h))) world_expanded = !world_expanded;
+    const ImU32 arrow_col = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+    ImGui::RenderArrow(dl, ImVec2(x, text_y + font * ui.outliner.arrow_offset_scale), arrow_col, world_expanded ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
+    x += font;
+
+    const char* icon = world_expanded ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
+    const float icon_w = font * ui.outliner.icon_width_scale;
+    const ImVec2 icon_size = ImGui::CalcTextSize(icon);
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), ui.color.folder, icon);
+    x += icon_w + ui.outliner.icon_gap;
+    dl->AddText(ImVec2(x, text_y), text_col, "World");
+
+    ImGui::TableSetColumnIndex(2);
+    dl->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), "Folder");
+    ImGui::PopID();
+}
+
 void OutlinerPanel::_draw_atmosphere_row(EditorContext& ctx, float p_row_h)
 {
     EditorSelection& selection = *ctx.selection;
@@ -477,7 +514,7 @@ void OutlinerPanel::_draw_atmosphere_row(EditorContext& ctx, float p_row_h)
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 text_col = ImGui::GetColorU32(ImGuiCol_Text);
-    float x = cell.x + font;
+    float x = cell.x + font * 2.0f;
     const float icon_w = font * ui.outliner.icon_width_scale;
     const ImVec2 icon_size = ImGui::CalcTextSize(ICON_FA_CLOUD_SUN);
     dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), text_col, ICON_FA_CLOUD_SUN);

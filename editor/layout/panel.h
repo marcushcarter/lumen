@@ -31,6 +31,7 @@ struct Panel
     virtual ~Panel() = default;
     virtual const char* name() const = 0;
     virtual DockZone default_zone() const { return DockZone::RIGHT_BOTTOM; }
+    virtual bool closable() const { return true; }
 
     virtual void draw_contents(EditorContext& ctx) = 0;
     virtual ImGuiWindowFlags window_flags() const { return 0; }

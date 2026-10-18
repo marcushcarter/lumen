@@ -2,6 +2,7 @@
 #include <editor/viewport/overlay_bar.h>
 #include <editor/viewport/transform_gizmo.h>
 #include <editor/editor_context.h>
+#include <drivers/windows/cursor_lock_win32.h>
 #include <imgui.h>
 #include <cstdint>
 
@@ -11,9 +12,12 @@ struct DebugViewCategory;
 
 struct Viewport
 {
+    static constexpr float LOOK_CLICK_SLOP = 3.0f;
+
     OverlayBar left_overlay;
     OverlayBar right_overlay;
     TransformGizmo gizmo;
+    drivers::CursorLockWin32 cursor_lock;
 
     int selected_view = 0;
     float screen_percentage = 1.0f;
@@ -24,6 +28,13 @@ struct Viewport
     bool allow_pick = true;
     bool allow_outline = true;
     bool allow_gizmo = true;
+    bool allow_look = false;
+
+    bool looking = false;
+    ImVec2 look_delta = ImVec2(0.0f, 0.0f);
+    float look_zoom = 0.0f;
+    ImVec2 _look_press = ImVec2(0.0f, 0.0f);
+    float _look_travel = 0.0f;
 
     void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 
@@ -31,6 +42,7 @@ struct Viewport
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     void _draw_image(EditorContext& ctx);
+    void _update_look(bool p_start, ImVec2 p_center);
 };
 
 }

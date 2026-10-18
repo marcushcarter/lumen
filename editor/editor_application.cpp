@@ -124,8 +124,6 @@ void EditorApplication::on_update(float p_dt)
         project_manager.on_update(ctx);
     }
 
-    // popups.draw(ctx);
-
     if (settings.dirty && !ImGui::IsAnyItemActive()) {
         _save_state();
         settings.dirty = false;
@@ -670,6 +668,9 @@ void EditorApplication::update_camera(float p_dt)
 
 const Camera& EditorApplication::active_camera() const
 {
+    if (tabs.active) {
+        if (const Camera* c = tabs.active->camera()) return *c;
+    }
     return editor_camera.camera;
 }
 

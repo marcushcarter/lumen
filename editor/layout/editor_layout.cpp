@@ -73,18 +73,31 @@ float EditorLayout::_layout_center(ImVec2 p_min, ImVec2 p_max)
         _drawer_h = 0.0f;
     } else {
         float min_r = 1.0f - MAX_DRAWER;
-        float max_r = 1.0f - MIN_DRAWER;
+        float max_r = _drawer_dragging ? 1.0f : 1.0f - MIN_DRAWER;
         if (max_r < min_r) max_r = min_r;
         center_split = ImClamp(center_split, min_r, max_r);
-        _scene_h = ImFloor(_usable_h * center_split);
+        const bool snapped = _drawer_dragging && 1.0f - center_split < MIN_DRAWER;
+        _scene_h = snapped ? _usable_h : ImFloor(_usable_h * center_split);
         _drawer_h = _usable_h - _scene_h;
     }
     return p_min.y + _scene_h;
 }
 
-void EditorLayout::_apply_center_delta(float p_delta)
+void EditorLayout::_apply_center_delta(float p_delta, bool p_activated)
 {
+    if (p_activated) {
+        _drawer_dragging = true;
+        _drawer_drag_start = center_split;
+    }
     center_split += p_delta / _usable_h;
+}
+
+void EditorLayout::_end_drawer_drag()
+{
+    _drawer_dragging = false;
+    if (1.0f - center_split >= MIN_DRAWER) return;
+    drawer.close_all();
+    center_split = _drawer_drag_start;
 }
 
 void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
@@ -102,7 +115,7 @@ void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     if (!drawer.open_tabs.empty()) {
         ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + _scene_h));
         SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
-        if (s.active) _apply_center_delta(s.delta);
+        if (s.active) _apply_center_delta(s.delta, s.activated);
 
         const float drawer_y = p_min.y + _scene_h + gap;
         if (_drawer_h >= 1.0f) ctx.drawer->draw(ctx, ImVec2(p_min.x, drawer_y), ImVec2(p_max.x, drawer_y + _drawer_h), drawer);
@@ -117,7 +130,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 {
     const UiStyle& ui = ui_style();
     const float gap = ui.dock.gap;
-    const float bar_h = ui.toolbar.height;
+    const float bar_h = p_toolbar ? ui.toolbar.height : 0.0f;
 
     right_top.panels.clear();
     right_bottom.panels.clear();
@@ -146,21 +159,23 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 extent = ImGui::GetContentRegionAvail();
 
-    ImGui::SetCursorScreenPos(origin);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ui.toolbar.padding_x, ImFloor((bar_h - ImGui::GetFrameHeight()) * 0.5f)));
-    ImGui::BeginChild("##topbar", ImVec2(extent.x, bar_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-    if (p_toolbar) p_toolbar(ctx);
-    ImGui::EndChild();
+    if (p_toolbar) {
+        ImGui::SetCursorScreenPos(origin);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ui.toolbar.padding_x, ImFloor((bar_h - ImGui::GetFrameHeight()) * 0.5f)));
+        ImGui::BeginChild("##topbar", ImVec2(extent.x, bar_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        p_toolbar(ctx);
+        ImGui::EndChild();
+    }
 
-    const float body_y = origin.y + bar_h + gap;
+    const float body_y = p_toolbar ? origin.y + bar_h + gap : origin.y;
     const float body_h = ImMax(1.0f, origin.y + extent.y - body_y);
 
     const ImGuiPayload* payload = ImGui::GetDragDropPayload();
     const bool dragging_panel = payload && payload->IsDataType(DockWell::PAYLOAD);
-    const bool top_live = right_top.has_open() || dragging_panel;
+    const bool top_live = right_top.has_open() || dragging_panel || (keep_right_dock && !right_bottom.has_open());
     const bool bottom_live = right_bottom.has_open() || dragging_panel;
     const bool right_live = top_live || bottom_live;
     const bool right_shown = right_live && !right_collapsed;
@@ -221,12 +236,14 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 
     if (corner_center.active) {
         _apply_split_x(corner_center.delta.x, corner_center.activated, body_w);
-        _apply_center_delta(corner_center.delta.y);
+        _apply_center_delta(corner_center.delta.y, corner_center.activated);
     }
     if (corner_right.active) {
         _apply_split_x(corner_right.delta.x, corner_right.activated, body_w);
         split_y += corner_right.delta.y / col_h;
     }
+
+    if (_drawer_dragging && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) _end_drawer_drag();
 
     ImGui::End();
 }
@@ -234,7 +251,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 void EditorLayout::draw_menu()
 {
     if (ImGui::BeginMenu("Panels")) {
-        for (auto& p : panels) ImGui::MenuItem(p->name(), nullptr, &p->open);
+        for (auto& p : panels) ImGui::MenuItem(p->name(), nullptr, &p->open, p->closable());
         ImGui::EndMenu();
     }
 }

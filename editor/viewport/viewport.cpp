@@ -207,6 +207,8 @@ void Viewport::_draw_image(EditorContext& ctx)
     
     VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
     bool pick_click = false;
+    bool look_click = false;
+    bool look_hover = false;
     ImVec2 pick_mouse = ImGui::GetMousePos();
     if (set) {
         ImGui::Image((ImTextureID)set, size, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
@@ -216,6 +218,8 @@ void Viewport::_draw_image(EditorContext& ctx)
         const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
         const bool gizmo_hot = !playing && allow_gizmo && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
         pick_click = allow_pick && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
+        look_click = allow_look && !gizmo_hot && image_clicked;
+        look_hover = allow_look && image_hovered;
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.sunken);
@@ -276,9 +280,33 @@ void Viewport::_draw_image(EditorContext& ctx)
     if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
         ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
     }
+    look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
+    _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
+}
+
+void Viewport::_update_look(bool p_start, ImVec2 p_center)
+{
+    look_delta = ImVec2(0.0f, 0.0f);
+    if (!looking && p_start) {
+        looking = true;
+        _look_press = ImGui::GetMousePos();
+        _look_travel = 0.0f;
+        cursor_lock.begin();
+    }
+    if (!looking) return;
+
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        looking = false;
+        if (_look_travel > LOOK_CLICK_SLOP) cursor_lock.end(p_center.x - _look_press.x, p_center.y - _look_press.y);
+        else cursor_lock.end();
+        return;
+    }
+    cursor_lock.take_delta(look_delta.x, look_delta.y);
+    _look_travel += std::fabs(look_delta.x) + std::fabs(look_delta.y);
+    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 }
 
 void Viewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)

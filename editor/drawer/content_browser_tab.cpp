@@ -74,7 +74,7 @@ void ContentBrowserDrawerTab::_cache_scan(const std::filesystem::path& p_dir, Di
         for (char& c : e.lower_name) c = (char)std::tolower((unsigned char)c);
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
-        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : ICON_FA_FILE;
+        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : ICON_FA_FILE;
         if (e.is_dir) r_dir.subdirs.push_back(e.path);
         r_dir.entries.push_back(std::move(e));
     }

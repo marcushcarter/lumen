@@ -56,7 +56,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PushID(to_string(zone));
 
     float natural = 0.0f;
-    for (Panel* p : panels) if (p->open) natural += TabStrip::dock_natural_width(p->name());
+    for (Panel* p : panels) if (p->open) natural += TabStrip::dock_natural_width(p->name(), p->closable());
 
     Panel* closed = nullptr;
     TabStrip strip;
@@ -65,7 +65,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     for (Panel* p : panels) {
         if (!p->open) continue;
         bool close = false;
-        if (strip.dock_tab(p->name(), p == active, &close)) {
+        if (strip.dock_tab(p->name(), p == active, p->closable() ? &close : nullptr)) {
             active = p;
             active_name = p->name();
         }

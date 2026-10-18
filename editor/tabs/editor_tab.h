@@ -6,6 +6,8 @@
 
 namespace lumen {
 
+struct Camera;
+
 enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL };
 
 struct EditorTab
@@ -22,6 +24,7 @@ struct EditorTab
     virtual const char* title() const = 0;
     virtual bool closable() const { return true; }
     virtual bool dirty() const { return false; }
+    virtual const Camera* camera() const { return nullptr; }
 
     virtual Error create(EditorContext& ctx) { (void)ctx; return Error::OK; }
     virtual void destroy(EditorContext& ctx) { (void)ctx; }

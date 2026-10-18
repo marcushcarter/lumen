@@ -14,6 +14,11 @@
 
 namespace lumen {
 
+bool DrawerState::allows(const DrawerTab* p_tab) const
+{
+    return allowed.empty() || std::find(allowed.begin(), allowed.end(), p_tab) != allowed.end();
+}
+
 bool DrawerState::is_open(const DrawerTab* p_tab) const
 {
     return p_tab && std::find(open_tabs.begin(), open_tabs.end(), p_tab) != open_tabs.end();
@@ -21,7 +26,7 @@ bool DrawerState::is_open(const DrawerTab* p_tab) const
 
 void DrawerState::open(DrawerTab* p_tab)
 {
-    if (!p_tab) return;
+    if (!p_tab || !allows(p_tab)) return;
     if (!is_open(p_tab)) open_tabs.push_back(p_tab);
     active = p_tab;
 }
@@ -43,16 +48,26 @@ void DrawerState::toggle(DrawerTab* p_tab)
     else open(p_tab);
 }
 
+void DrawerState::close_all()
+{
+    open_tabs.clear();
+    active = nullptr;
+}
+
 void Drawer::initialize()
 {
-    tabs.push_back(std::make_unique<ContentBrowserDrawerTab>());
-    tabs.push_back(std::make_unique<ProfilerDrawerTab>());
-    tabs.push_back(std::make_unique<MemoryDrawerTab>());
-    tabs.push_back(std::make_unique<OutputDrawerTab>());
+    content_browser = _add<ContentBrowserDrawerTab>();
+    profiler = _add<ProfilerDrawerTab>();
+    memory = _add<MemoryDrawerTab>();
+    output = _add<OutputDrawerTab>();
 }
 
 void Drawer::shutdown()
 {
+    content_browser = nullptr;
+    profiler = nullptr;
+    memory = nullptr;
+    output = nullptr;
     tabs.clear();
 }
 
@@ -105,7 +120,7 @@ void Drawer::draw_bar(ImVec2 p_min, ImVec2 p_max, DrawerState& r_state)
     const UiStyle& ui = ui_style();
     const char* console_label = ICON_FA_TERMINAL "  Cmd";
     float natural = 0.0f;
-    for (const auto& t : tabs) natural += TabStrip::natural_width(t->name());
+    for (const auto& t : tabs) if (r_state.allows(t.get())) natural += TabStrip::natural_width(t->name());
 
     const float console_chrome = ImGui::CalcTextSize(console_label).x + ui.console_bar.pad * 3.0f;
     const float h = p_max.y - p_min.y;
@@ -116,16 +131,14 @@ void Drawer::draw_bar(ImVec2 p_min, ImVec2 p_max, DrawerState& r_state)
     strip.begin("##drawer_bar", p_min, p_max, TabStrip::Edge::BOTTOM, natural, h + console_chrome + field_w);
     for (const auto& up : tabs) {
         DrawerTab* t = up.get();
+        if (!r_state.allows(t)) continue;
         if (strip.button(t->name(), r_state.is_open(t))) r_state.toggle(t);
     }
     if (strip.console_field("##console_cmd", console_label, "Enter Console Command", console_buffer, sizeof(console_buffer), field_w)) {
         console_submit(console_buffer);
         console_buffer[0] = '\0';
     }
-    if (!r_state.open_tabs.empty() && strip.trailing_button(ICON_FA_XMARK)) {
-        r_state.open_tabs.clear();
-        r_state.active = nullptr;
-    }
+    if (!r_state.open_tabs.empty() && strip.trailing_button(ICON_FA_XMARK)) r_state.close_all();
     strip.end();
 }
 

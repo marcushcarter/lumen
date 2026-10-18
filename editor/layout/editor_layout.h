@@ -39,10 +39,13 @@ struct EditorLayout
     float split_y = 0.5f;
     float center_split = 1.0f;
     bool right_collapsed = false;
+    bool keep_right_dock = false;
 
     float _usable_h = 1.0f;
     float _scene_h = 0.0f;
     float _drawer_h = 0.0f;
+    float _drawer_drag_start = 1.0f;
+    bool _drawer_dragging = false;
 
     template <class T, class... A>
     T* add_panel(A&&... a) {
@@ -59,7 +62,8 @@ struct EditorLayout
     void draw_menu();
 
     float _layout_center(ImVec2 p_min, ImVec2 p_max);
-    void _apply_center_delta(float p_delta);
+    void _apply_center_delta(float p_delta, bool p_activated);
+    void _end_drawer_drag();
     void _draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
     CornerState _corner_splitter(const char* p_id, ImVec2 p_cross, bool p_h_left, ImVec2 p_v_min, ImVec2 p_v_max, ImVec2 p_h_min, ImVec2 p_h_max);
     void _apply_split_x(float p_delta, bool p_activated, float p_body_w);

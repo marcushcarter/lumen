@@ -1,8 +1,12 @@
 #include <editor/tabs/model/model_tab.h>
+#include <editor/tabs/model/panels/model_details_panel.h>
+#include <editor/drawer/drawer.h>
+#include <editor/drawer/content_browser_tab.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/assets/asset_registry.h>
 #include <core/base/error.h>
 #include <imgui.h>
+#include <cstdio>
 
 namespace lumen {
 
@@ -20,7 +24,26 @@ Error ModelTab::create(EditorContext& ctx)
     }
     saved = model;
     _refresh_title();
+
+    char host_id[48];
+    std::snprintf(host_id, sizeof(host_id), "##ModelHost_%016llx", (unsigned long long)guid.value);
+    layout.initialize(host_id);
+    layout.viewport.allow_pick = false;
+    layout.viewport.allow_outline = false;
+    layout.viewport.allow_gizmo = false;
+    layout.viewport.allow_look = true;
+    layout.keep_right_dock = true;
+    layout.drawer.allowed = { ctx.drawer->content_browser };
+    layout.add_panel<ModelDetailsPanel>()->tab = this;
+    orbit.update();
     return OK;
+}
+
+void ModelTab::destroy(EditorContext& ctx)
+{
+    (void)ctx;
+    layout.viewport.cursor_lock.end();
+    layout.shutdown();
 }
 
 Error ModelTab::save(EditorContext& ctx)
@@ -50,27 +73,18 @@ void ModelTab::on_tick(EditorContext& ctx)
 
 void ModelTab::on_update(EditorContext& ctx, float p_dt)
 {
-    (void)ctx;
     (void)p_dt;
-    ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::SetNextWindowViewport(vp->ID);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("##ModelHost", nullptr,
-        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
-    );
-    ImGui::PopStyleVar(3);
-    ImGui::End();
+    layout.draw(ctx, nullptr);
+    if (layout.viewport.looking) orbit.rotate(layout.viewport.look_delta.x, layout.viewport.look_delta.y);
+    if (layout.viewport.look_zoom != 0.0f) orbit.zoom(layout.viewport.look_zoom);
+    orbit.update();
 }
 
 void ModelTab::_refresh_title()
 {
-    _title = path.stem().string();
+    _title = ICON;
+    _title += "  ";
+    _title += path.stem().string();
     if (dirty()) _title += '*';
 }
 

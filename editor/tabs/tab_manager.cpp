@@ -90,6 +90,8 @@ void TabManager::update(EditorContext& ctx, float p_dt)
         _remove_at(ctx, i);
     }
 
+    for (EditorTab* t : tabs) t->on_tick(ctx);
+
     _resolve_active();
     if (active) active->on_update(ctx, p_dt);
 }

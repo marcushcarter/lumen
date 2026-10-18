@@ -14,7 +14,7 @@ void AssetRegistry::_rebuild()
         if (!it->is_regular_file(ec)) continue;
         const std::filesystem::path& path = it->path();
         const std::filesystem::path ext = path.extension();
-        if (ext != ".lmesh" && ext != ".ltexture") continue;
+        if (ext != ".lmesh" && ext != ".ltexture" && ext != ".lmodel") continue;
         const AssetInfo info = read_asset_info(path);
         if (!info.valid()) continue;
         entries[info.guid] = Entry{ path, Project::asset_path_from(root, path), path.stem().string(), info.type };

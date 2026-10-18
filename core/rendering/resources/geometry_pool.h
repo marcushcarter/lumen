@@ -170,8 +170,14 @@ struct GeometryPool
     uint32_t load(Guid p_guid, const std::filesystem::path& p_path);
     void unload(Guid p_guid);
 
-    uint32_t find(Guid p_guid) const { auto it = by_guid.find(p_guid); return it == by_guid.end() ? INVALID_MESH : it->second; }
-    const LMesh* get(uint32_t p_id) const { return p_id < meshes.size() && mesh_guids[p_id] != Guid{} ? &meshes[p_id] : nullptr; }
+    uint32_t find(Guid p_guid) const {
+        auto it = by_guid.find(p_guid);
+        return it == by_guid.end() ? INVALID_MESH : it->second;
+    }
+
+    const LMesh* get(uint32_t p_id) const {
+        return p_id < meshes.size() && mesh_guids[p_id] != Guid{} ? &meshes[p_id] : nullptr;
+    }
 
     /***************/
     /**** FRAME ****/

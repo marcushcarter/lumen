@@ -97,6 +97,7 @@ struct ContentBrowserDrawerTab : DrawerTab
     Guid _resolve_texture_guid(const std::filesystem::path& p_path);
     float _row_height() const;
     void _new_folder(EditorContext& ctx);
+    void _new_model(EditorContext& ctx);
     void _new_subfolder(EditorContext& ctx, const std::filesystem::path& p_parent);
     void _import(EditorContext& ctx);
     void _move_selection(const std::filesystem::path& p_dst);

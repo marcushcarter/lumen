@@ -1,4 +1,5 @@
 #include <editor/drawer/content_browser_tab.h>
+#include <core/assets/lmodel.h>
 #include <drivers/imgui/ui_style.h>
 #include <editor/assets/import/asset_import_any.h>
 #include <editor/assets/import/asset_import_tracker.h>
@@ -10,6 +11,8 @@
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <editor/ui/tab_strip.h>
+#include <editor/tabs/tab_manager.h>
+#include <editor/tabs/model/model_tab.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -207,14 +210,37 @@ float ContentBrowserDrawerTab::_row_height() const
     return ImFloor(ImGui::GetTextLineHeight() * 2.0f + ui.asset_browser.item_subtitle_gap + ui.asset_browser.row_pad_y * 2.0f);
 }
 
+static std::filesystem::path _unique_path(const std::filesystem::path& p_parent, const char* p_stem, const char* p_ext)
+{
+    std::error_code ec;
+    std::filesystem::path path = p_parent / (std::string(p_stem) + p_ext);
+    for (int i = 1; std::filesystem::exists(path, ec); ++i) path = p_parent / (std::string(p_stem) + " " + std::to_string(i) + p_ext);
+    return path;
+}
+
 void ContentBrowserDrawerTab::_new_folder(EditorContext& ctx)
 {
     const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
     std::error_code ec;
-    std::filesystem::path path = parent / "New Folder";
-    for (int i = 1; std::filesystem::exists(path, ec); ++i) path = parent / ("New Folder " + std::to_string(i));
+    const std::filesystem::path path = _unique_path(parent, "New Folder", "");
     if (!std::filesystem::create_directory(path, ec)) return;
     if (!selection.empty()) _move_selection(path);
+    _select_only(path);
+    _rename_begin(path);
+    _scroll_to_rename = true;
+    request_refresh();
+}
+
+void ContentBrowserDrawerTab::_new_model(EditorContext& ctx)
+{
+    const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
+    const std::filesystem::path path = _unique_path(parent, "New Model", ".lmodel");
+    LModel model;
+    model.guid = Guid::generate();
+    if (model.save(path) != Error::OK) {
+        log_write("Content Browser: failed to create '%s'.", path.string().c_str());
+        return;
+    }
     _select_only(path);
     _rename_begin(path);
     _scroll_to_rename = true;
@@ -291,9 +317,8 @@ void ContentBrowserDrawerTab::_drop_target(const std::filesystem::path& p_dst)
 
 void ContentBrowserDrawerTab::_add_asset_menu(EditorContext& ctx)
 {
-    (void)ctx;
+    if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) _new_model(ctx);
     ImGui::BeginDisabled();
-    ImGui::MenuItem(ICON_FA_CUBES "  Model");
     ImGui::MenuItem(ICON_FA_PALETTE "  Material");
     ImGui::EndDisabled();
 }
@@ -643,6 +668,10 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                 if (e.is_dir) _drop_target(e.path);
 
                 if (r.activated && e.is_dir) open_request = e.path;
+                if (r.activated && !e.is_dir && e.path.extension() == ".lmodel") {
+                    const AssetInfo info = read_asset_info(e.path);
+                    if (info.valid() && info.type == AssetType::MODEL) ctx.tabs->open<ModelTab>(info.guid)->path = e.path;
+                }
                 ImGui::PopID();
             }
         }

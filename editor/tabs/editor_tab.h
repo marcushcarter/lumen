@@ -26,6 +26,7 @@ struct EditorTab
     virtual Error create(EditorContext& ctx) { (void)ctx; return Error::OK; }
     virtual void destroy(EditorContext& ctx) { (void)ctx; }
     virtual Error save(EditorContext& ctx) { (void)ctx; return Error::OK; }
+    virtual void on_tick(EditorContext& ctx) { (void)ctx; }
     virtual void on_update(EditorContext& ctx, float p_dt) = 0;
 };
 

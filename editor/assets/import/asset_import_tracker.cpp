@@ -3,10 +3,10 @@
 
 namespace lumen {
 
-std::shared_ptr<ImportControl> AssetImportTracker::add(const std::filesystem::path& p_dst, Guid p_guid, const std::filesystem::path& p_content_bin)
+std::shared_ptr<ImportControl> AssetImportTracker::add(const std::filesystem::path& p_dst, Guid p_guid, const std::filesystem::path& p_content_bin, std::shared_ptr<ImportControl> p_shared, bool p_notify)
 {
-    auto ctrl = std::make_shared<ImportControl>();
-    pending[p_dst] = Pending{ ctrl, p_guid, p_content_bin };
+    auto ctrl = p_shared ? std::move(p_shared) : std::make_shared<ImportControl>();
+    pending[p_dst] = Pending{ ctrl, p_guid, p_content_bin, p_notify };
     return ctrl;
 }
 
@@ -18,11 +18,20 @@ float AssetImportTracker::progress(const std::filesystem::path& p_dst)
 
 void AssetImportTracker::tick()
 {
+    std::vector<ImportChild> children;
+    for (auto& [path, entry] : pending) {
+        ImportControl& ctrl = *entry.progress;
+        std::lock_guard lock(ctrl.children_mutex);
+        children.insert(children.end(), std::make_move_iterator(ctrl.children.begin()), std::make_move_iterator(ctrl.children.end()));
+        ctrl.children.clear();
+    }
+    for (ImportChild& c : children) pending[c.dst] = Pending{ std::move(c.control), c.guid, c.content_bin, false };
+
     std::error_code ec;
     for (auto it = pending.begin(); it != pending.end(); ) {
         const float v = it->second.progress->progress.load(std::memory_order_relaxed);
         if (v >= 1.0f && std::filesystem::exists(it->first, ec)) {
-            completed.push_back({ it->second.guid, it->second.content_bin });
+            completed.push_back({ it->second.guid, it->first, it->second.content_bin, it->second.notify });
             it = pending.erase(it);
         } else {
             ++it;

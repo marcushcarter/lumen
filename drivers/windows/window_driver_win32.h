@@ -70,6 +70,18 @@ struct WindowDriverWin32
     static bool system_accent_color(float& r_r, float& r_g, float& r_b);
 
     static LRESULT CALLBACK _wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_wparam, LPARAM p_lparam);
+
+    /****************/
+    /**** NOTIFY ****/
+    /****************/
+
+    static constexpr UINT NOTIFY_ICON_ID = 1;
+
+    bool notify_icon_added = false;
+
+    void notify(const std::string& p_title, const std::string& p_message);
+    void window_flash();
+    void _notify_icon_remove();
     
     /****************/
     /**** SYSTEM ****/

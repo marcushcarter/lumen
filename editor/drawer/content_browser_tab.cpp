@@ -834,11 +834,14 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
         const float bw = ImGui::GetFrameHeight();
         const float spacing = ImGui::GetStyle().ItemSpacing.x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-        dock_search_bar("##search", search_buf, sizeof(search_buf), -(bw * 2.0f + spacing * 2.0f + pad_x));
+        dock_search_bar("##search", search_buf, sizeof(search_buf), -(bw * 3.0f + spacing * 3.0f + pad_x));
 
         ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.transparent);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.transparent);
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_FILE_IMPORT, ImVec2(bw, bw))) _import(ctx);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Import asset");
         ImGui::SameLine();
         if (ImGui::Button(ICON_FA_SQUARE_PLUS, ImVec2(bw, bw))) ImGui::OpenPopup("##add_asset");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Add asset");

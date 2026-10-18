@@ -363,18 +363,28 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     return true;
 }
 
+unsigned MeshCooker::import_flags() { return aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality; }
+
 Error MeshCooker::_cook(const Job& p_job)
+{
+    if (p_job.progress) p_job.progress->progress.store(0.0f, std::memory_order_relaxed);
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(p_job.source.string(), import_flags());
+    if (!scene) {
+        log_write("MeshCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
+        return Error::FAILED;
+    }
+    return _cook_scene(p_job, scene);
+}
+
+Error MeshCooker::_cook_scene(const Job& p_job, const aiScene* p_scene)
 {
     using enum Error;
 
     auto report = [&](float v){ if (p_job.progress) p_job.progress->progress.store(v, std::memory_order_relaxed); };
-    report(0.0f);
-
-    Assimp::Importer importer;
-    const unsigned flags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality;
-    const aiScene* scene = importer.ReadFile(p_job.source.string(), flags);
+    const aiScene* scene = p_scene;
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode || scene->mNumMeshes == 0) {
-        log_write("MeshCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
+        log_write("MeshCooker: no usable scene in %s", p_job.source.string().c_str());
         return FAILED;
     }
     
@@ -383,9 +393,9 @@ Error MeshCooker::_cook(const Job& p_job)
     MeshSource src;
     bool ok = false;
     switch (p_job.settings.dag_level) {
-        case 0: ok = _load_single_cluster(scene, p_job.settings, src); break;
-        case 1: ok = _load_clustered(scene, p_job.settings, src); break;
-        default: ok = _load_clustered_dag(scene, p_job.settings, src); break;
+        case MeshDagLevel::FLAT: ok = _load_single_cluster(scene, p_job.settings, src); break;
+        case MeshDagLevel::CLUSTERED: ok = _load_clustered(scene, p_job.settings, src); break;
+        case MeshDagLevel::CLUSTERED_DAG: ok = _load_clustered_dag(scene, p_job.settings, src); break;
     }
     if (!ok) { log_write("MeshCooker: %s produced no geometry", p_job.source.string().c_str()); return FAILED; }
 
@@ -459,7 +469,7 @@ Error MeshCooker::_cook(const Job& p_job)
             { "triangles", static_cast<int64_t>(0) },
             { "clusters", static_cast<int64_t>(0) },
             { "skinned", skinned },
-            { "dag_level", p_job.settings.dag_level },
+            { "dag_level", mesh_dag_level_name(p_job.settings.dag_level) },
             }},
     };
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
@@ -467,19 +477,6 @@ Error MeshCooker::_cook(const Job& p_job)
 
     report(1.0f);
     return OK;
-}
-
-Error MeshCooker::import(const Project& p_project, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, Guid& r_guid, const CookSettings& p_settings)
-{
-    using enum Error;
-    Job job;
-    job.source = p_src;
-    job.dst_lmesh = p_dst;
-    job.settings = p_settings;
-    if (AssetImportTracker::resolve_import(p_project, AssetType::MESH, p_dst, job.guid, job.content_bin) != OK) return FAILED;
-    if (_cook(job) != OK) return FAILED;
-    r_guid = job.guid;
-    return OK;   
 }
 
 void MeshCooker::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const MeshCooker::CookSettings& p_settings)

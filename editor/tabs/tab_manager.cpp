@@ -94,6 +94,7 @@ void TabManager::update(EditorContext& ctx, float p_dt)
 
     _resolve_active();
     if (active) active->on_update(ctx, p_dt);
+    _draw_confirm(ctx);
 }
 
 void TabManager::_process_closes(EditorContext& ctx)
@@ -106,12 +107,48 @@ void TabManager::_process_closes(EditorContext& ctx)
 
         if (!r.force && t->dirty()) {
             active = t;
-            // you have unsaved changes
+            if (!_confirm_open) {
+                _confirm = r;
+                _confirm_open = true;
+            }
             continue;
         }
         _remove_at(ctx, i);
     }
     close_requests.clear();
+}
+
+void TabManager::_draw_confirm(EditorContext& ctx)
+{
+    if (!_confirm_open) return;
+    EditorTab* t = find(_confirm.kind, _confirm.guid);
+    if (!t || !t->dirty()) {
+        _confirm_open = false;
+        return;
+    }
+
+    const char* id = "Unsaved Changes###tab_close_confirm";
+    if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) return;
+
+    ImGui::Text("Save changes to '%s' before closing?", t->title());
+    ImGui::Spacing();
+
+    enum { NONE, SAVE, DISCARD, CANCEL } choice = NONE;
+    if (ImGui::Button("Save")) choice = SAVE;
+    ImGui::SameLine();
+    if (ImGui::Button("Don't Save")) choice = DISCARD;
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) choice = CANCEL;
+
+    if (choice != NONE) {
+        ImGui::CloseCurrentPopup();
+        _confirm_open = false;
+    }
+    if (choice == SAVE && t->save(ctx) == Error::OK) close(t->kind, t->guid, true);
+    if (choice == DISCARD) close(t->kind, t->guid, true);
+    ImGui::EndPopup();
 }
 
 void TabManager::_remove_at(EditorContext& ctx, size_t p_index)

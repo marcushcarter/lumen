@@ -1,14 +1,18 @@
 #pragma once
 #include <cstdint>
+#include <string>
 #include <glm/glm.hpp>
 
 namespace lumen {
 
 using namespace glm;
 
-enum MeshFlags : uint32_t {
-    MESH_FLAG_SKINNED = 1u << 0,
-};
+enum class MeshDagLevel : uint8_t { FLAT, CLUSTERED, CLUSTERED_DAG };
+
+const char* mesh_dag_level_name(MeshDagLevel p_level);
+MeshDagLevel mesh_dag_level_from_name(const std::string& p_name, MeshDagLevel p_fallback);
+
+enum MeshFlags : uint32_t { MESH_FLAG_SKINNED = 1u << 0 };
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
 static constexpr uint32_t LMESH_VERSION_INTERLEAVED = 1;

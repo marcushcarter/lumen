@@ -101,6 +101,10 @@ void EditorApplication::on_update(float p_dt)
         imports.tick();
         if (!imports.completed.empty()) assets.request_rebuild();
         for (const auto& c : imports.completed) {
+            if (c.dst.extension() == ".lmodel") {
+                renderer.models.load(c.dst);
+                continue;
+            }
             LAssetHeader ah{};
             if (!read_asset_header(c.content_bin, ah)) continue;
             switch (ah.type) {
@@ -116,6 +120,13 @@ void EditorApplication::on_update(float p_dt)
                 default:
                     break;
             }
+        }
+        std::vector<std::string> finished;
+        for (const auto& c : imports.completed) if (c.notify) finished.push_back(c.dst.stem().string());
+        if (!finished.empty() && !win32.window_is_focused()) {
+            const std::string message = finished.size() == 1 ? finished.front() + " finished importing." : std::to_string(finished.size()) + " assets finished importing.";
+            win32.notify("Import complete", message);
+            win32.window_flash();
         }
         imports.completed.clear();
         assets.tick();

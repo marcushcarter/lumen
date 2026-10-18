@@ -1,6 +1,9 @@
 #pragma once
 #include <editor/assets/import/asset_import_tracker.h>
+#include <core/assets/lmesh.h>
 #include <filesystem>
+
+struct aiScene;
 
 namespace lumen {
 
@@ -10,18 +13,13 @@ struct EditorContext;
 struct MeshCooker
 {
     struct CookSettings {
-        uint32_t dag_level = 2;
+        MeshDagLevel dag_level = MeshDagLevel::CLUSTERED_DAG;
         float scale = 1.0f;
         uint32_t max_verts = 64;
         uint32_t max_tris = 64;
         uint32_t group_size = 8;
         uint32_t max_levels = 10;
     };
-
-    // dag levels
-    // 0 = one cluster, full res mesh
-    // 1 = clusters, full re mesh
-    // 2 = dag + clusters
 
     struct Job {
         std::filesystem::path source;
@@ -32,9 +30,10 @@ struct MeshCooker
         std::shared_ptr<ImportControl> progress;
     };
     
+    static unsigned import_flags();
     static Error _cook(const Job& p_job);
+    static Error _cook_scene(const Job& p_job, const aiScene* p_scene);
 
-    static Error import(const Project& p_project, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, Guid& r_guid, const CookSettings& p_settings = {});
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const CookSettings& p_settings = {});
 };
 

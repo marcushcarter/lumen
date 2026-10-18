@@ -2,6 +2,7 @@
 #include <backends/imgui_impl_win32.h>
 #include <dwmapi.h>
 #include <windowsx.h>
+#include <shellapi.h>
 
 #ifndef DWMWA_CAPTION_COLOR
 #define DWMWA_CAPTION_COLOR 35
@@ -13,6 +14,10 @@
 
 #ifndef DWMWCP_ROUND
 #define DWMWCP_ROUND 2
+#endif
+
+#ifndef NIIF_RESPECT_QUIET_TIME
+#define NIIF_RESPECT_QUIET_TIME 0x00000080
 #endif
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -107,6 +112,7 @@ void WindowDriverWin32::window_bind()
 
 void WindowDriverWin32::window_free()
 {
+    _notify_icon_remove();
     if (window.hwnd) {
         DestroyWindow(window.hwnd);
         window.hwnd = nullptr;
@@ -204,6 +210,55 @@ bool WindowDriverWin32::window_is_minimized()
 bool WindowDriverWin32::window_is_focused()
 {
     return window.hwnd && GetForegroundWindow() == window.hwnd;
+}
+
+void WindowDriverWin32::notify(const std::string& p_title, const std::string& p_message)
+{
+    if (!window.hwnd) return;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = window.hwnd;
+    nid.uID = NOTIFY_ICON_ID;
+
+    if (!notify_icon_added) {
+        HICON icon = (HICON)SendMessageW(window.hwnd, WM_GETICON, ICON_SMALL, 0);
+        if (!icon) icon = (HICON)GetClassLongPtrW(window.hwnd, GCLP_HICONSM);
+        if (!icon) icon = LoadIconW(nullptr, IDI_APPLICATION);
+        nid.uFlags = NIF_ICON | NIF_TIP;
+        nid.hIcon = icon;
+        wcsncpy_s(nid.szTip, L"Lumen", _TRUNCATE);
+        if (!Shell_NotifyIconW(NIM_ADD, &nid)) return;
+        nid.uVersion = NOTIFYICON_VERSION_4;
+        Shell_NotifyIconW(NIM_SETVERSION, &nid);
+        notify_icon_added = true;
+    }
+
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_INFO | NIIF_RESPECT_QUIET_TIME;
+    wcsncpy_s(nid.szInfoTitle, utf8_to_wstring(p_title).c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfo, utf8_to_wstring(p_message).c_str(), _TRUNCATE);
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
+void WindowDriverWin32::window_flash()
+{
+    if (!window.hwnd) return;
+    FLASHWINFO fi{};
+    fi.cbSize = sizeof(fi);
+    fi.hwnd = window.hwnd;
+    fi.dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG;
+    FlashWindowEx(&fi);
+}
+
+void WindowDriverWin32::_notify_icon_remove()
+{
+    if (!notify_icon_added || !window.hwnd) return;
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = window.hwnd;
+    nid.uID = NOTIFY_ICON_ID;
+    Shell_NotifyIconW(NIM_DELETE, &nid);
+    notify_icon_added = false;
 }
 
 void WindowDriverWin32::window_set_custom_titlebar(bool p_enabled)

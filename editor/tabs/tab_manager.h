@@ -22,6 +22,8 @@ struct TabManager
     std::vector<EditorTab*> tabs;
     std::vector<std::unique_ptr<EditorTab>> _owned;
     std::vector<CloseRequest> close_requests;
+    CloseRequest _confirm{};
+    bool _confirm_open = false;
     EditorTab* active = nullptr;
     uint64_t _frame = 0;
 
@@ -55,6 +57,7 @@ struct TabManager
 
     size_t _index_of(TabKind p_kind, Guid p_guid) const;
     void _process_closes(EditorContext& ctx);
+    void _draw_confirm(EditorContext& ctx);
     void _remove_at(EditorContext& ctx, size_t p_index);
     void _resolve_active();
 };

@@ -1,6 +1,6 @@
 #include <editor/assets/import/asset_import_any.h>
 #include <editor/assets/import/texture_cooker.h>
-#include <editor/assets/import/mesh_cooker.h>
+#include <editor/assets/import/model_importer.h>
 #include <algorithm>
 #include <string>
 
@@ -27,13 +27,14 @@ bool asset_import_any(EditorContext& ctx, const std::filesystem::path& p_src, co
 
     if (e == ".png" || e == ".jpg" || e == ".jpeg" || e == ".tga" || e == ".bmp") {
         const std::filesystem::path dst = p_dst / (p_src.stem().wstring() + L".ltexture");
-        TextureCooker::import_async(ctx, p_src, dst);
+        TextureCooker::CookSettings settings;
+        settings.usage = texture_usage_guess(p_src);
+        TextureCooker::import_async(ctx, p_src, dst, settings);
         return true;
     }
 
     if (e == ".fbx" || e == ".gltf" || e == ".glb" || e == ".obj" || e == ".dae" || e == ".stl" || e == ".ply" || e == ".3ds" || e == ".blend") {
-        const std::filesystem::path dst = p_dst / (p_src.stem().wstring() + L".lmesh");
-        MeshCooker::import_async(ctx, p_src, dst);
+        ModelImporter::import_async(ctx, p_src, p_dst);
         return true;
     }
 

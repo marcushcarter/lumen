@@ -1,12 +1,19 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <type_traits>
 
 namespace lumen {
 
-enum TextureFlags : uint32_t {
-    TEXTURE_FLAG_SRGB = 1u << 0,
-    TEXTURE_FLAG_NORMAL_MAP = 1u << 1,
-};
+enum class TextureUsage : uint8_t { COLOR, NORMAL, MASK, LINEAR };
+enum class TextureQuality : uint8_t { FAST, NORMAL, BEST };
+
+const char* texture_usage_name(TextureUsage p_usage);
+TextureUsage texture_usage_from_name(const std::string& p_name, TextureUsage p_fallback);
+const char* texture_quality_name(TextureQuality p_quality);
+TextureQuality texture_quality_from_name(const std::string& p_name, TextureQuality p_fallback);
+
+enum TextureFlags : uint32_t { TEXTURE_FLAG_SRGB = 1u << 0, TEXTURE_FLAG_NORMAL_MAP = 1u << 1 };
 
 struct LTexturePayloadHeader {
     uint32_t vk_format;

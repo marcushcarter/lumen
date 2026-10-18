@@ -7,6 +7,22 @@
 
 namespace lumen {
 
+const char* model_import_mode_name(ModelImportMode p_mode)
+{
+    switch (p_mode) {
+        case ModelImportMode::FULL: return "full";
+        case ModelImportMode::MESH_ONLY: return "mesh_only";
+    }
+    return "full";
+}
+
+ModelImportMode model_import_mode_from_name(const std::string& p_name, ModelImportMode p_fallback)
+{
+    if (p_name == "full") return ModelImportMode::FULL;
+    if (p_name == "mesh_only") return ModelImportMode::MESH_ONLY;
+    return p_fallback;
+}
+
 Error LModel::load(const std::filesystem::path& p_path)
 {
     using enum Error;
@@ -18,6 +34,13 @@ Error LModel::load(const std::filesystem::path& p_path)
     if (asset_type_from_u32((uint32_t)asset["type"].value_or<int64_t>(0)) != AssetType::MODEL) return FAILED;
     guid = Guid::from_string(asset["guid"].value_or(std::string{}));
     mesh = Guid::from_string(tbl["model"]["mesh"].value_or(std::string{}));
+
+    import = ImportRecord{};
+    if (const toml::table* rec = tbl["import"].as_table()) {
+        import.source = (*rec)["source"].value_or(std::string{});
+        const ModelImportMode legacy = (*rec)["textures"].value_or(true) ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
+        import.mode = model_import_mode_from_name((*rec)["mode"].value_or(std::string{}), legacy);
+    }
     return OK;
 }
 
@@ -32,6 +55,11 @@ Error LModel::save(const std::filesystem::path& p_path) const
         { std::string(asset_type_section(AssetType::MODEL)), toml::table{
             { "mesh", mesh.to_string() } }},
     };
+    if (!import.source.empty()) {
+        tbl.insert_or_assign("import", toml::table{
+            { "source", import.source },
+            { "mode", model_import_mode_name(import.mode) } });
+    }
     std::ostringstream ss;
     ss << tbl;
     const std::string text = ss.str();

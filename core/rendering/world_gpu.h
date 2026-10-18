@@ -35,7 +35,7 @@ struct Instance {
     uint32_t mesh_id;
     uint32_t transform_id;
     uint32_t entity_id;
-    uint32_t _pad0;
+    uint32_t slot_base;
 };
 
 struct Transform {

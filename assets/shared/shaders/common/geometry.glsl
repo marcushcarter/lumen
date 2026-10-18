@@ -37,8 +37,7 @@ struct Mesh {
     uint vertex_count;
     uint cluster_base;
     uint cluster_count;
-    uint slot_table_base;
-    uint slot_table_count;
+    uint slot_count;
     uint skin_base;
     uint bvh_node_base;
     uint bvh_node_count;
@@ -64,7 +63,7 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     VertexAttributeBuffer attributes;
     IndexBuffer indices;
     TriSlotBuffer tri_slots;
-    SlotTableBuffer slot_table;
+    SlotTableBuffer slot_table; // per model: material index per slot, indexed by instance slot_base + tri slot
     ClusterBuffer clusters;
     ClusterGroupBuffer groups;
     SkinVerticesBuffer skin_vertices;

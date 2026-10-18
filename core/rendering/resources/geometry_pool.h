@@ -36,8 +36,7 @@ struct LMesh
     uint32_t vertex_count;
     uint32_t cluster_base;
     uint32_t cluster_count;
-    uint32_t slot_table_base;
-    uint32_t slot_table_count;
+    uint32_t slot_count;
     uint32_t skin_base;
     uint32_t bvh_node_base;
     uint32_t bvh_node_count;
@@ -50,7 +49,6 @@ struct GeometryPool
 {
     static constexpr uint32_t MAX_VERTS = 32u * 1024 * 1024;
     static constexpr uint32_t MAX_TRIS = 32u * 1024 * 1024;
-    static constexpr uint32_t MAX_SLOT_TABLE = 256u * 1024;
     static constexpr uint32_t MAX_CLUSTERS = 4u * 1024 * 1024;
     static constexpr uint32_t MAX_GROUPS = 512u * 1024;
     static constexpr uint32_t MAX_SKIN_VERTS = 4u * 1024 * 1024;
@@ -84,15 +82,14 @@ struct GeometryPool
         ARENA_VERTEX_ATTRIBUTES,
         ARENA_INDICES,
         ARENA_TRI_SLOTS,
-        ARENA_SLOT_TABLE,
         ARENA_CLUSTERS,
         ARENA_GROUPS,
         ARENA_SKIN,
         ARENA_BVH_NODES,
         ARENA_MESHES,
-        ARENA_MESHLET_VERTICES, // global vertex index per (cluster, local vertex)
-        ARENA_CLUSTER_VERTEX_BASE, // parallel to clusters: first entry in meshlet vertices
-        ARENA_LOCAL_TRIANGLES, // parallel to triangles: 3 x 8-bit cluster-local vertex indices
+        ARENA_MESHLET_VERTICES,
+        ARENA_CLUSTER_VERTEX_BASE,
+        ARENA_LOCAL_TRIANGLES,
         ARENA_COUNT,
     };
 
@@ -109,7 +106,6 @@ struct GeometryPool
     struct MeshRanges {
         uint32_t vertex = RangeAllocator::INVALID, vertex_count = 0;
         uint32_t tri = RangeAllocator::INVALID, tri_count = 0;
-        uint32_t slot_table = RangeAllocator::INVALID, slot_table_count = 0;
         uint32_t cluster = RangeAllocator::INVALID, cluster_count = 0;
         uint32_t group = RangeAllocator::INVALID, group_count = 0;
         uint32_t skin = RangeAllocator::INVALID, skin_count = 0;
@@ -122,7 +118,6 @@ struct GeometryPool
 
     RangeAllocator vertex_alloc;
     RangeAllocator tri_alloc;
-    RangeAllocator slot_table_alloc;
     RangeAllocator cluster_alloc;
     RangeAllocator group_alloc;
     RangeAllocator skin_alloc;
@@ -183,7 +178,7 @@ struct GeometryPool
     /**** FRAME ****/
     /***************/
 
-    void begin_frame(uint64_t p_frame_number, uint32_t p_slot);
+    void begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table);
 
     drivers::DeviceDriverVulkan::Buffer& address_buffer(uint32_t p_slot) { return address_buffers[p_slot]; }
     const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return arenas[ARENA_INDICES].buffer; }

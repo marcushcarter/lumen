@@ -30,7 +30,7 @@ struct MeshSource {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     std::vector<uint32_t> tri_slots;
-    std::vector<uint32_t> slot_table;
+    uint32_t slot_count = 0;
     std::vector<SkinVertex> skin_vertices;
     std::vector<Cluster> clusters;
     std::vector<ClusterGroup> groups;
@@ -214,7 +214,7 @@ void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
 {
     const uint32_t tri_count = (uint32_t)r_src.indices.size() / 3;
     r_src.tri_slots.assign(tri_count, 0u);
-    r_src.slot_table = { 0u };
+    r_src.slot_count = 1;
 
     const vec3 pmin = r_src.pos_min;
     const vec3 pmax = r_src.pos_min + r_src.pos_extent;
@@ -397,7 +397,7 @@ Error MeshCooker::_cook(const Job& p_job)
     ph.vertex_count = (uint32_t)src.vertices.size();
     ph.index_count = (uint32_t)src.indices.size();
     ph.tri_count = ph.index_count / 3;
-    ph.slot_table_count = (uint32_t)src.slot_table.size();
+    ph.slot_count = src.slot_count;
     ph.cluster_count = (uint32_t)src.clusters.size();
     ph.group_count = (uint32_t)src.groups.size();
     ph.bvh_node_count = (uint32_t)src.bvh_nodes.size();
@@ -419,7 +419,6 @@ Error MeshCooker::_cook(const Job& p_job)
     const size_t vtx_bytes = pos_bytes + attr_bytes;
     const size_t idx_bytes = src.indices.size() * sizeof(uint32_t);
     const size_t tri_bytes = src.tri_slots.size() * sizeof(uint32_t);
-    const size_t slot_bytes = src.slot_table.size() * sizeof(uint32_t);
     const size_t clus_bytes = src.clusters.size() * sizeof(Cluster);
     const size_t group_bytes = src.groups.size() * sizeof(ClusterGroup);
     const size_t skin_bytes = src.skin_vertices.size() * sizeof(SkinVertex);
@@ -430,7 +429,7 @@ Error MeshCooker::_cook(const Job& p_job)
     ah.version = LMESH_VERSION;
     ah.guid = p_job.guid;
     ah.type = AssetType::MESH;
-    ah.payload_size = (uint32_t)(sizeof(ph) + vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
+    ah.payload_size = (uint32_t)(sizeof(ph) + vtx_bytes + idx_bytes + tri_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
 
     std::error_code ec;
     std::filesystem::create_directories(p_job.content_bin.parent_path(), ec);
@@ -442,7 +441,6 @@ Error MeshCooker::_cook(const Job& p_job)
     f.write(reinterpret_cast<const char*>(attributes.data()), attr_bytes);
     f.write(reinterpret_cast<const char*>(src.indices.data()), idx_bytes);
     if (tri_bytes) f.write(reinterpret_cast<const char*>(src.tri_slots.data()), tri_bytes);
-    if (slot_bytes) f.write(reinterpret_cast<const char*>(src.slot_table.data()), slot_bytes);
     if (clus_bytes) f.write(reinterpret_cast<const char*>(src.clusters.data()), clus_bytes);
     if (group_bytes) f.write(reinterpret_cast<const char*>(src.groups.data()), group_bytes);
     if (skin_bytes) f.write(reinterpret_cast<const char*>(src.skin_vertices.data()), skin_bytes);

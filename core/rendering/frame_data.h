@@ -76,6 +76,7 @@ struct FrameData
         uint64_t frame = 0;
         uint32_t generation = UINT32_MAX;
         uint32_t mesh_index = UINT32_MAX;
+        uint32_t slot_base = 0;
         Guid model;
         uint64_t model_version = UINT64_MAX;
     };

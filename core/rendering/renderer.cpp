@@ -81,6 +81,8 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = geometry.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = models.initialize(r_dd, frame_count);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = graph.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -99,6 +101,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
 void Renderer::shutdown()
 {
     unload();
+    models.shutdown();
     geometry.shutdown();
     
     graph.shutdown();
@@ -391,24 +394,26 @@ void Renderer::_frame_build(const World& p_world)
         static_insts.cluster_ref_capacity = 0;
         p_world.view<TransformComponent, ModelComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const ModelComponent& p_model, const StaticTag&) {
             if (static_insts.instances.size() >= MAX_INSTANCES) return;
-            const uint32_t mesh_index = models.mesh_index(p_model.model);
+            uint32_t mesh_index, slot_base;
+            models.lookup(p_model.model, mesh_index, slot_base);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
             if (!_model_sane(model)) return;
-            static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, 0 });
+            static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, slot_base });
             static_insts.transforms.push_back(Transform{ model, model });
             static_insts.cluster_ref_capacity = _ref_capacity_add(static_insts.cluster_ref_capacity, mesh->cluster_count);
         });
         p_world.view<TransformComponent, ModelGridComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent& p_xf, const ModelGridComponent& p_grid, const StaticTag&) {
-            const uint32_t mesh_index = models.mesh_index(p_grid.model);
+            uint32_t mesh_index, slot_base;
+            models.lookup(p_grid.model, mesh_index, slot_base);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 root = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
             if (!_model_sane(root)) return;
             _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)static_insts.instances.size(), [&](vec3 p_offset) {
                 const mat4 model = root * translate(mat4(1.0f), p_offset);
-                static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, 0 });
+                static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, slot_base });
                 static_insts.transforms.push_back(Transform{ model, model });
                 static_insts.cluster_ref_capacity = _ref_capacity_add(static_insts.cluster_ref_capacity, mesh->cluster_count);
             });
@@ -428,7 +433,7 @@ void Renderer::_frame_build(const World& p_world)
         if (cache.model != p_model.model || cache.model_version != models.version) {
             cache.model = p_model.model;
             cache.model_version = models.version;
-            cache.mesh_index = models.mesh_index(p_model.model);
+            models.lookup(p_model.model, cache.mesh_index, cache.slot_base);
         }
         const LMesh* mesh = geometry.get(cache.mesh_index);
         if (!mesh) return;
@@ -437,7 +442,7 @@ void Renderer::_frame_build(const World& p_world)
         const mat4 prev_mtx = cache.frame + 1 == frame_number ? cache.prev_mtx : model;
         cache.prev_mtx = model;
         cache.frame = frame_number;
-        frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
+        frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base });
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
         frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
     });
@@ -449,7 +454,7 @@ void Renderer::_frame_build(const World& p_world)
         if (cache.model != p_grid.model || cache.model_version != models.version) {
             cache.model = p_grid.model;
             cache.model_version = models.version;
-            cache.mesh_index = models.mesh_index(p_grid.model);
+            models.lookup(p_grid.model, cache.mesh_index, cache.slot_base);
         }
         const LMesh* mesh = geometry.get(cache.mesh_index);
         if (!mesh) return;
@@ -460,7 +465,7 @@ void Renderer::_frame_build(const World& p_world)
         cache.frame = frame_number;
         _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - base - (uint32_t)frame.instances_scratch.size(), [&](vec3 p_offset) {
             const mat4 offset = translate(mat4(1.0f), p_offset);
-            frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, 0 });
+            frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base });
             frame.transforms_scratch.push_back(Transform{ prev_root * offset, root * offset });
             frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
         });
@@ -655,6 +660,8 @@ void Renderer::_frame_upload()
     drivers::DeviceDriverVulkan::Buffer& ab = atmosphere_buffers[current_frame];
     dd->buffer_update(ab, &frame.atmosphere, sizeof(GpuAtmosphere));
     dd->buffer_flush(ab, 0, sizeof(GpuAtmosphere));
+
+    models.upload(current_frame);
 }
 
 Error Renderer::acquire_frame()
@@ -709,7 +716,7 @@ Error Renderer::begin_frame(const World& p_world)
 
     _collect_hiz_retired(false);
     textures.begin_frame(frame_number, frame_count);
-    geometry.begin_frame(frame_number, current_frame);
+    geometry.begin_frame(frame_number, current_frame, models.slot_table_address(current_frame));
 
     if (&p_world != _last_world) {
         _last_world = &p_world;

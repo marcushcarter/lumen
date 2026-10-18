@@ -32,7 +32,7 @@ bool read_asset_header(const std::filesystem::path& p_path, LAssetHeader& r_head
 bool asset_version_supported(AssetType p_type, uint32_t p_version)
 {
     switch (p_type) {
-        case AssetType::MESH: return p_version == LMESH_VERSION || p_version == LMESH_VERSION_INTERLEAVED;
+        case AssetType::MESH: return p_version == LMESH_VERSION || p_version == LMESH_VERSION_SLOT_TABLE || p_version == LMESH_VERSION_INTERLEAVED;
         case AssetType::TEXTURE: return p_version == LASSET_VERSION;
         default: return false;
     }

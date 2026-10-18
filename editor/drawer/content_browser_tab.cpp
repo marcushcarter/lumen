@@ -1,5 +1,8 @@
 #include <editor/drawer/content_browser_tab.h>
 #include <core/assets/lmodel.h>
+#include <editor/assets/write_atomic.h>
+#include <toml++/toml.hpp>
+#include <sstream>
 #include <drivers/imgui/ui_style.h>
 #include <editor/assets/import/asset_import_any.h>
 #include <editor/assets/import/asset_import_tracker.h>
@@ -219,6 +222,52 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
     return path;
 }
 
+static bool _duplicable(const std::filesystem::path& p_path)
+{
+    const std::filesystem::path ext = p_path.extension();
+    return ext == ".lmodel" || ext == ".lmaterial";
+}
+
+static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
+{
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_path.string()); }
+    catch (const toml::parse_error&) { return {}; }
+    toml::table* asset = tbl["asset"].as_table();
+    if (!asset) return {};
+    asset->insert_or_assign("guid", Guid::generate().to_string());
+
+    std::ostringstream ss;
+    ss << tbl;
+    const std::string text = ss.str();
+    const std::filesystem::path dst = _unique_path(p_path.parent_path(), p_path.stem().string().c_str(), p_path.extension().string().c_str());
+    if (!write_file_atomic(dst, text.data(), text.size())) return {};
+    return dst;
+}
+
+void ContentBrowserDrawerTab::_duplicate_selection(EditorContext& ctx)
+{
+    std::vector<std::filesystem::path> created;
+    for (const std::filesystem::path& p : selection) {
+        if (!_duplicable(p)) continue;
+        const std::filesystem::path dst = _duplicate_asset(p);
+        if (dst.empty()) {
+            log_write("Content Browser: failed to duplicate '%s'.", p.string().c_str());
+            continue;
+        }
+        if (ctx.renderer && dst.extension() == ".lmodel") ctx.renderer->models.load(dst);
+        created.push_back(dst);
+    }
+    if (created.empty()) return;
+    selection = created;
+    anchor = created.back();
+    if (created.size() == 1) {
+        _rename_begin(created.front());
+        _scroll_to_rename = true;
+    }
+    request_refresh();
+}
+
 void ContentBrowserDrawerTab::_new_folder(EditorContext& ctx)
 {
     const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
@@ -347,6 +396,7 @@ void ContentBrowserDrawerTab::_context_menu(EditorContext& ctx, const std::files
     ImGui::Separator();
     if (is_dir && ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  New Subfolder")) _new_subfolder(ctx, *p_row);
     if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin(*p_row);
+    if (_duplicable(*p_row) && ImGui::MenuItem(ICON_FA_COPY "  Duplicate")) _duplicate_selection(ctx);
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
     if (ImGui::MenuItem(ICON_FA_ARROW_UP "  Move To Root")) _move_selection(ctx.project->assets_dir);
     ImGui::Separator();
@@ -730,10 +780,26 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
 /**** DRAW ****/
 /**************/
 
+void ContentBrowserDrawerTab::_reset_root(const std::filesystem::path& p_root)
+{
+    _root = p_root;
+    dirs.clear();
+    _thumb_guids.clear();
+    _clear_selection();
+    _selection_folder.clear();
+    rename_target.clear();
+    cancel_request.clear();
+    delete_requested = false;
+    delete_confirm_open = false;
+    selected_folder = p_root;
+    last_refresh = -1.0e9;
+}
+
 void ContentBrowserDrawerTab::draw(EditorContext& ctx)
 {
     registry = ctx.assets;
     _ctx = &ctx;
+    if (_root != ctx.project->assets_dir) _reset_root(ctx.project->assets_dir);
     if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
     const std::filesystem::path& root = ctx.project->assets_dir;
     _cache_tick(ImGui::GetTime());

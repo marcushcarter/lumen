@@ -235,6 +235,7 @@ ProjectManager::ContentStats ProjectManager::_scan_content(const std::filesystem
         const std::filesystem::path ext = it->path().extension();
         if (ext == ".lmesh") s.meshes++;
         else if (ext == ".ltexture") s.textures++;
+        else if (ext == ".lmodel") s.models++;
     }
     return s;
 }
@@ -483,19 +484,23 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     };
     char meshes[16] = "...";
     char textures[16] = "...";
+    char models[16] = "...";
     const char* disk = "...";
     if (e.missing) {
         snprintf(meshes, sizeof(meshes), "-");
         snprintf(textures, sizeof(textures), "-");
+        snprintf(models, sizeof(models), "-");
         disk = "-";
     } else if (e.stats_valid) {
         snprintf(meshes, sizeof(meshes), "%u", e.stats.meshes);
         snprintf(textures, sizeof(textures), "%u", e.stats.textures);
+        snprintf(models, sizeof(models), "%u", e.stats.models);
         disk = fmt_bytes(e.stats.disk_bytes);
     }
     content_row("Meshes", meshes);
     content_row("Textures", textures);
     content_row("Materials", "-");
+    content_row("Models", models);
     content_row("Disk", disk);
 
     ImGui::Dummy(ImVec2(0.0f, ui.space.xxl));

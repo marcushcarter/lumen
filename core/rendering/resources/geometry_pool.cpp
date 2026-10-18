@@ -24,7 +24,6 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     _arena_setup(ARENA_VERTEX_ATTRIBUTES, sizeof(VertexAttributes), 1u << 20, MAX_VERTS, 0, "geo_vertex_attributes");
     _arena_setup(ARENA_INDICES, 3 * sizeof(uint32_t), 1u << 20, MAX_TRIS, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "geo_indices");
     _arena_setup(ARENA_TRI_SLOTS, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_tri_slots");
-    _arena_setup(ARENA_SLOT_TABLE, sizeof(uint32_t), 16u << 10, MAX_SLOT_TABLE, 0, "geo_slot_table");
     _arena_setup(ARENA_CLUSTERS, sizeof(Cluster), 64u << 10, MAX_CLUSTERS, 0, "geo_clusters");
     _arena_setup(ARENA_GROUPS, sizeof(ClusterGroup), 16u << 10, MAX_GROUPS, 0, "geo_groups");
     _arena_setup(ARENA_SKIN, sizeof(SkinVertex), 64u << 10, MAX_SKIN_VERTS, 0, "geo_skin");
@@ -85,7 +84,6 @@ void GeometryPool::clear()
 
     vertex_alloc.reset(arenas[ARENA_VERTICES].capacity);
     tri_alloc.reset(arenas[ARENA_INDICES].capacity);
-    slot_table_alloc.reset(arenas[ARENA_SLOT_TABLE].capacity);
     cluster_alloc.reset(arenas[ARENA_CLUSTERS].capacity);
     group_alloc.reset(arenas[ARENA_GROUPS].capacity);
     skin_alloc.reset(arenas[ARENA_SKIN].capacity);
@@ -187,7 +185,6 @@ void GeometryPool::_release(const MeshRanges& p_r)
 {
     vertex_alloc.free(p_r.vertex, p_r.vertex_count);
     tri_alloc.free(p_r.tri, p_r.tri_count);
-    slot_table_alloc.free(p_r.slot_table, p_r.slot_table_count);
     cluster_alloc.free(p_r.cluster, p_r.cluster_count);
     group_alloc.free(p_r.group, p_r.group_count);
     skin_alloc.free(p_r.skin, p_r.skin_count);
@@ -244,8 +241,9 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     LAssetHeader ah{};
     std::memcpy(&ah, bytes.data(), sizeof(ah));
     if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) return fail("bad asset header");
-    if (ah.version != LMESH_VERSION && ah.version != LMESH_VERSION_INTERLEAVED) return fail("unsupported mesh version");
+    if (ah.version != LMESH_VERSION && ah.version != LMESH_VERSION_SLOT_TABLE && ah.version != LMESH_VERSION_INTERLEAVED) return fail("unsupported mesh version");
     const bool interleaved = ah.version == LMESH_VERSION_INTERLEAVED;
+    const bool legacy_slot_table = ah.version < LMESH_VERSION;
 
     LMeshPayloadHeader ph{};
     std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
@@ -255,7 +253,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const size_t vtx_bytes = (size_t)ph.vertex_count * (interleaved ? sizeof(Vertex) : sizeof(VertexPosition) + sizeof(VertexAttributes));
     const size_t idx_bytes = (size_t)ph.index_count * sizeof(uint32_t);
     const size_t tri_bytes = (size_t)ph.tri_count * sizeof(uint32_t);
-    const size_t slot_bytes = (size_t)ph.slot_table_count * sizeof(uint32_t);
+    const size_t slot_bytes = legacy_slot_table ? (size_t)ph.slot_count * sizeof(uint32_t) : 0;
     const size_t clus_bytes = (size_t)ph.cluster_count * sizeof(Cluster);
     const size_t group_bytes = (size_t)ph.group_count * sizeof(ClusterGroup);
     const size_t skin_bytes = skinned ? (size_t)ph.vertex_count * sizeof(SkinVertex) : 0;
@@ -265,6 +263,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const size_t blocks_size = (size_t)ah.payload_size - sizeof(ph);
     if (vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes != blocks_size || payload_off + blocks_size > bytes.size()) return fail("bad/truncated payload");
     if (ph.vertex_count == 0 || ph.index_count == 0 || ph.index_count % 3 != 0 || ph.tri_count != ph.index_count / 3) return fail("bad vertex/index counts");
+    if (ph.slot_count == 0) return fail("mesh has no material slots");
 
     uint32_t id = INVALID_MESH;
     if (!free_meshes.empty()) id = free_meshes.back();
@@ -278,7 +277,6 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     MeshRanges r;
     r.vertex_count = ph.vertex_count;
     r.tri_count = ph.tri_count;
-    r.slot_table_count = ph.slot_table_count;
     r.cluster_count = ph.cluster_count;
     r.group_count = ph.group_count;
     r.skin_count = skinned ? ph.vertex_count : 0;
@@ -292,7 +290,6 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const bool reserved =
         reserve(r.vertex, vertex_alloc, ARENA_VERTICES, r.vertex_count) &&
         reserve(r.tri, tri_alloc, ARENA_INDICES, r.tri_count) &&
-        reserve(r.slot_table, slot_table_alloc, ARENA_SLOT_TABLE, r.slot_table_count) &&
         reserve(r.cluster, cluster_alloc, ARENA_CLUSTERS, r.cluster_count) &&
         reserve(r.group, group_alloc, ARENA_GROUPS, r.group_count) &&
         reserve(r.skin, skin_alloc, ARENA_SKIN, r.skin_count) &&
@@ -325,7 +322,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     }
     uint8_t* p_idx = p; p += idx_bytes;
     uint8_t* p_tri = p; p += tri_bytes;
-    uint8_t* p_slot = p; p += slot_bytes;
+    p += slot_bytes;
     uint8_t* p_clus = p; p += clus_bytes;
     uint8_t* p_group = p; p += group_bytes;
     uint8_t* p_skin = p; p += skin_bytes;
@@ -342,7 +339,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
 
     const uint32_t* tri = reinterpret_cast<const uint32_t*>(p_tri);
     for (uint32_t i = 0; i < ph.tri_count && !bad; i++) {
-        if (tri[i] >= ph.slot_table_count) bad = "triangle slot out of range";
+        if (tri[i] >= ph.slot_count) bad = "triangle slot out of range";
     }
 
     Cluster* clus = reinterpret_cast<Cluster*>(p_clus);
@@ -419,8 +416,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     m.vertex_count = ph.vertex_count;
     m.cluster_base = r.cluster_count ? r.cluster : 0;
     m.cluster_count = ph.cluster_count;
-    m.slot_table_base = r.slot_table_count ? r.slot_table : 0;
-    m.slot_table_count = ph.slot_table_count;
+    m.slot_count = ph.slot_count;
     m.skin_base = skinned ? r.skin : UINT32_MAX;
     m.bvh_node_base = r.bvh_count ? r.bvh : 0;
     m.bvh_node_count = ph.bvh_node_count;
@@ -439,7 +435,6 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     add(ARENA_VERTEX_ATTRIBUTES, r.vertex, p_attr, attr_bytes);
     add(ARENA_INDICES, r.tri, p_idx, idx_bytes);
     add(ARENA_TRI_SLOTS, r.tri, p_tri, tri_bytes);
-    add(ARENA_SLOT_TABLE, r.slot_table, p_slot, slot_bytes);
     add(ARENA_CLUSTERS, r.cluster, p_clus, clus_bytes);
     add(ARENA_GROUPS, r.group, p_group, group_bytes);
     add(ARENA_SKIN, r.skin, p_skin, skin_bytes);
@@ -490,7 +485,7 @@ void GeometryPool::unload(Guid p_guid)
 /**** FRAME ****/
 /***************/
 
-void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot)
+void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table)
 {
     frame_number = p_frame_number;
     _collect(p_frame_number);
@@ -500,7 +495,7 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot)
     a.attributes = arenas[ARENA_VERTEX_ATTRIBUTES].buffer.device_address;
     a.indices = arenas[ARENA_INDICES].buffer.device_address;
     a.tri_slots = arenas[ARENA_TRI_SLOTS].buffer.device_address;
-    a.slot_table = arenas[ARENA_SLOT_TABLE].buffer.device_address;
+    a.slot_table = p_slot_table;
     a.clusters = arenas[ARENA_CLUSTERS].buffer.device_address;
     a.groups = arenas[ARENA_GROUPS].buffer.device_address;
     a.skin_vertices = arenas[ARENA_SKIN].buffer.device_address;

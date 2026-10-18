@@ -12,7 +12,8 @@ enum MeshFlags : uint32_t {
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
 static constexpr uint32_t LMESH_VERSION_INTERLEAVED = 1;
-static constexpr uint32_t LMESH_VERSION = 2;
+static constexpr uint32_t LMESH_VERSION_SLOT_TABLE = 2;
+static constexpr uint32_t LMESH_VERSION = 3;
 
 struct Vertex {
     u16vec3 position;
@@ -64,7 +65,7 @@ struct LMeshPayloadHeader {
     uint32_t vertex_count;
     uint32_t index_count;
     uint32_t tri_count;
-    uint32_t slot_table_count;
+    uint32_t slot_count;
     uint32_t cluster_count;
     uint32_t group_count;
     uint32_t bvh_node_count;

@@ -58,9 +58,11 @@ struct ContentBrowserDrawerTab : DrawerTab
     /**************/
 
     std::filesystem::path selected_folder;
+    std::filesystem::path _root;
     float split_x = 0.18f;
 
     void _draw_folder_node(const std::filesystem::path& dir, int depth);
+    void _reset_root(const std::filesystem::path& p_root);
 
     /**************/
     /**** LIST ****/
@@ -98,6 +100,7 @@ struct ContentBrowserDrawerTab : DrawerTab
     float _row_height() const;
     void _new_folder(EditorContext& ctx);
     void _new_model(EditorContext& ctx);
+    void _duplicate_selection(EditorContext& ctx);
     void _new_subfolder(EditorContext& ctx, const std::filesystem::path& p_parent);
     void _import(EditorContext& ctx);
     void _move_selection(const std::filesystem::path& p_dst);

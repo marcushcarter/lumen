@@ -7,6 +7,7 @@
 #include <core/base/error.h>
 #include <core/rendering/renderer.h>
 #include <core/world/components.h>
+#include <core/project/project.h>
 #include <imgui.h>
 #include <cstdio>
 
@@ -93,7 +94,32 @@ void ModelTab::on_update(EditorContext& ctx, float p_dt)
     if (layout.viewport.looking) orbit.rotate(layout.viewport.look_delta.x, layout.viewport.look_delta.y);
     if (layout.viewport.look_zoom != 0.0f) orbit.zoom(layout.viewport.look_zoom);
     _sync_preview(ctx);
+    _refresh_stats(ctx);
     orbit.update();
+}
+
+void ModelTab::_refresh_stats(EditorContext& ctx)
+{
+    const double now = ImGui::GetTime();
+    const bool changed = !(model.mesh == _stats_mesh);
+    if (!changed && now - _stats_poll < STATS_POLL_S) return;
+    _stats_poll = now;
+
+    if (model.mesh == Guid{} || !ctx.project) {
+        mesh_stats = {};
+        _stats_mesh = model.mesh;
+        _stats_time = {};
+        return;
+    }
+
+    const std::filesystem::path bin = ctx.project->content_path(model.mesh);
+    std::error_code ec;
+    const std::filesystem::file_time_type t = std::filesystem::last_write_time(bin, ec);
+    if (!changed && !ec && t == _stats_time) return;
+
+    _stats_mesh = model.mesh;
+    _stats_time = ec ? std::filesystem::file_time_type{} : t;
+    if (!lmesh_read_stats(bin, mesh_stats)) mesh_stats = {};
 }
 
 void ModelTab::_sync_preview(EditorContext& ctx)

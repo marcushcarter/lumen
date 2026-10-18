@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <filesystem>
+#include <type_traits>
 #include <glm/glm.hpp>
 
 namespace lumen {
@@ -81,5 +83,20 @@ struct LMeshPayloadHeader {
 
 static_assert(sizeof(LMeshPayloadHeader) == 88, "LMeshPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LMeshPayloadHeader>, "must be blittable");
+
+struct LMeshStats
+{
+    uint64_t disk_size = 0;
+    uint32_t vertices = 0;
+    uint32_t triangles = 0;
+    uint32_t slots = 0;
+    uint32_t clusters = 0;
+    uint64_t cluster_vertices = 0;
+    uint64_t cluster_triangles = 0;
+    uint32_t lods = 0;
+    vec3 size = vec3(0.0f);
+};
+
+bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats);
 
 }

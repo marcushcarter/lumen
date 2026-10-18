@@ -22,6 +22,7 @@ struct EditorResources;
 struct AssetImportTracker;
 struct AssetRegistry;
 struct EditorFolders;
+struct TextureViewer;
 
 struct EditorContext
 {
@@ -46,6 +47,7 @@ struct EditorContext
     AssetImportTracker* imports = nullptr;
     AssetRegistry* assets = nullptr;
     EditorFolders* folders = nullptr;
+    TextureViewer* texture_viewer = nullptr;
         
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;

@@ -19,6 +19,7 @@ struct EditorLayout
     static constexpr float MIN_WELL = 0.15f;
     static constexpr float MIN_DRAWER = 0.1f;
     static constexpr float MAX_DRAWER = 0.7f;
+    static constexpr float OPEN_SPLIT = 0.5f;
     static constexpr float CORNER_REACH = 10.0f;
 
     struct CornerState {
@@ -46,6 +47,7 @@ struct EditorLayout
     float _drawer_h = 0.0f;
     float _drawer_drag_start = 1.0f;
     bool _drawer_dragging = false;
+    bool _drawer_was_open = false;
 
     template <class T, class... A>
     T* add_panel(A&&... a) {

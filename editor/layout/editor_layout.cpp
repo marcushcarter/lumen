@@ -71,7 +71,10 @@ float EditorLayout::_layout_center(ImVec2 p_min, ImVec2 p_max)
     if (drawer.open_tabs.empty()) {
         _scene_h = _usable_h;
         _drawer_h = 0.0f;
+        _drawer_was_open = false;
     } else {
+        if (!_drawer_was_open) center_split = OPEN_SPLIT;
+        _drawer_was_open = true;
         float min_r = 1.0f - MAX_DRAWER;
         float max_r = _drawer_dragging ? 1.0f : 1.0f - MIN_DRAWER;
         if (max_r < min_r) max_r = min_r;
@@ -121,9 +124,9 @@ void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (_drawer_h >= 1.0f) ctx.drawer->draw(ctx, ImVec2(p_min.x, drawer_y), ImVec2(p_max.x, drawer_y + _drawer_h), drawer);
     }
 
-    const bool was_empty = drawer.open_tabs.empty();
+    // const bool was_empty = drawer.open_tabs.empty();
     ctx.drawer->draw_bar(ImVec2(p_min.x, p_max.y - strip_h), p_max, drawer);
-    if (was_empty && !drawer.open_tabs.empty() && center_split >= 1.0f - MIN_DRAWER) center_split = 1.0f - MAX_DRAWER / 3.0f;
+    // if (was_empty && !drawer.open_tabs.empty() && center_split >= 1.0f - MIN_DRAWER) center_split = 1.0f - MAX_DRAWER / 3.0f;
 }
 
 void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar)

@@ -4,6 +4,8 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/editor_context.h>
 #include <core/assets/guid.h>
+#include <drivers/vulkan/device_driver_vulkan.h>
+#include <vulkan/vulkan.h>
 #include <imgui.h>
 #include <filesystem>
 #include <string>
@@ -93,6 +95,12 @@ struct ContentBrowserDrawerTab : DrawerTab
     std::unordered_map<std::filesystem::path, Guid> _thumb_guids;
     std::vector<uint32_t> _visible;
 
+    struct ThumbView { VkImage image = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE; };
+    struct ThumbRetired { VkImageView view = VK_NULL_HANDLE; uint64_t frame = 0; };
+    std::unordered_map<Guid, ThumbView> _thumb_views;
+    std::vector<ThumbRetired> _thumb_retired;
+    VkDevice _thumb_device = VK_NULL_HANDLE;
+
     void _delete_content(EditorContext& ctx, const std::filesystem::path& p_asset);
     void _delete_asset(EditorContext& ctx, const std::filesystem::path& p_path);
     void _delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder);
@@ -120,6 +128,8 @@ struct ContentBrowserDrawerTab : DrawerTab
     void _draw_delete_confirm(EditorContext& ctx);
     ItemResult _list_item(ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress = -1.0f, bool p_importing = false);
     void _list_draw(EditorContext& ctx);
+    VkImageView _thumb_view(EditorContext& ctx, Guid p_guid, const drivers::DeviceDriverVulkan::Image& p_image);
+    void _thumb_collect(EditorContext& ctx);
 
     /**************/
     /**** DRAW ****/
@@ -127,6 +137,7 @@ struct ContentBrowserDrawerTab : DrawerTab
 
     const char* name() const override { return "Content Browser"; }
     void draw(EditorContext& ctx) override;
+    void shutdown() override;
 };
 
 }

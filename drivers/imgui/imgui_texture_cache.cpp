@@ -26,29 +26,34 @@ void ImGuiTextureCache::begin_frame(uint64_t p_frame_number, uint32_t p_frame_co
     }
 }
 
-VkDescriptorSet ImGuiTextureCache::get(VkImageView p_view)
+VkDescriptorSet ImGuiTextureCache::get(VkImageView p_view, VkSampler p_sampler)
 {
     if (p_view == VK_NULL_HANDLE) return VK_NULL_HANDLE;
 
-    auto it = entries.find(p_view);
+    const Key key{ p_view, p_sampler ? p_sampler : sampler };
+    auto it = entries.find(key);
     if (it != entries.end()) {
         it->second.last_used_frame = frame_number;
         return it->second.set;
     }
 
-    VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(sampler, p_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(key.sampler, p_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    entries.emplace(p_view, Entry{ set, frame_number });
+    entries.emplace(key, Entry{ set, frame_number });
     return set;
 }
 
 void ImGuiTextureCache::retire(VkImageView p_view, uint64_t p_frame_number, uint32_t p_frame_count)
 {
     if (p_view == VK_NULL_HANDLE) return;
-    auto it = entries.find(p_view);
-    if (it == entries.end()) return;
-    retired.push_back({ it->second.set, p_frame_number + p_frame_count });
-    entries.erase(it);
+    for (auto it = entries.begin(); it != entries.end();) {
+        if (it->first.view == p_view) {
+            retired.push_back({ it->second.set, p_frame_number + p_frame_count });
+            it = entries.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void ImGuiTextureCache::retire_all()

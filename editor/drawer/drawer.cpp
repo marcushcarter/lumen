@@ -64,6 +64,7 @@ void Drawer::initialize()
 
 void Drawer::shutdown()
 {
+    for (auto& t : tabs) t->shutdown();
     content_browser = nullptr;
     profiler = nullptr;
     memory = nullptr;

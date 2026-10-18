@@ -535,13 +535,11 @@ void GeometryFeature::_compact_update(bool p_feedback, uint64_t p_demand)
     if (target == compact_capacity && compact_indices.buffer) return;
     if (compact_failed_tris && target >= compact_failed_tris) return;
 
-    const uint32_t old_capacity = compact_capacity;
     if (!_compact_reserve((uint32_t)target)) {
         compact_failed_tris = target;
     } else {
         compact_failed_tris = 0;
         ++compact_resizes;
-        log_write("GeometryFeature: compact raster buffer %u -> %u tris (%.1f MB), demand %llu tris, spilled clusters %u.", old_capacity, compact_capacity, (double)compact_capacity * 16.0 / (1024.0 * 1024.0), (unsigned long long)p_demand, compact_spilled);
     }
 }
 
@@ -552,7 +550,6 @@ bool GeometryFeature::_compact_reserve(uint32_t p_tris)
     if (!indices.buffer || !prims.buffer) {
         if (indices.buffer) ctx->dd->buffer_free(indices);
         if (prims.buffer) ctx->dd->buffer_free(prims);
-        log_write("GeometryFeature: compact raster buffer allocation of %u tris failed, overflow keeps drawing through the spill path.", p_tris);
         return false;
     }
 

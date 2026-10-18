@@ -463,7 +463,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
     version++;
 
-    // log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
+    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
     return id;
 }
 

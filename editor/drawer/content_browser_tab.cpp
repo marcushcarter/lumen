@@ -16,6 +16,7 @@
 #include <drivers/imgui/tab_strip.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/model/model_tab.h>
+#include <editor/assets/texture_viewer.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -705,7 +706,8 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                             e.guid = _resolve_texture_guid(e.path);
                             e.guid_checked = true;
                         }
-                        if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = bt->image.image_view;
+                        // if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = bt->image.image_view;
+                        if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = _thumb_view(ctx, e.guid, bt->image);
                     }
                     if (view) set = ctx.imgui->texture_cache.get(view);
                 }
@@ -723,6 +725,13 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                 if (r.activated && !e.is_dir && e.path.extension() == ".lmodel") {
                     const AssetInfo info = read_asset_info(e.path);
                     if (info.valid() && info.type == AssetType::MODEL) ctx.tabs->open<ModelTab>(info.guid)->path = e.path;
+                }
+                if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer) {
+                    if (!e.guid_checked) {
+                        e.guid = _resolve_texture_guid(e.path);
+                        e.guid_checked = true;
+                    }
+                    if (!(e.guid == Guid{})) ctx.texture_viewer->open(e.guid);
                 }
                 ImGui::PopID();
             }
@@ -795,6 +804,70 @@ void ContentBrowserDrawerTab::_reset_root(const std::filesystem::path& p_root)
     last_refresh = -1.0e9;
 }
 
+// BC4/BC5 need a swizzled view to read as greyscale / normal map; everything else uses the texture's own view.
+VkImageView ContentBrowserDrawerTab::_thumb_view(EditorContext& ctx, Guid p_guid, const drivers::DeviceDriverVulkan::Image& p_image)
+{
+    const uint32_t channels = TextureViewer::channel_count(p_image.format);
+    if (channels > 2) return p_image.image_view;
+
+    auto it = _thumb_views.find(p_guid);
+    if (it != _thumb_views.end()) {
+        if (it->second.image == p_image.image) return it->second.view;
+        ctx.imgui->texture_cache.retire(it->second.view, ctx.renderer->frame_number, ctx.renderer->frame_count);
+        _thumb_retired.push_back({ it->second.view, ctx.renderer->frame_number });
+        _thumb_views.erase(it);
+    }
+
+    VkImageViewCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    ci.image = p_image.image;
+    ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    ci.format = p_image.format;
+    ci.components = TextureViewer::swizzle(TextureViewer::Channel::RGB, channels);
+    ci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, p_image.mip_levels, 0, 1 };
+    _thumb_device = ctx.renderer->dd->device;
+    VkImageView view = VK_NULL_HANDLE;
+    if (vkCreateImageView(_thumb_device, &ci, nullptr, &view) != VK_SUCCESS) return p_image.image_view;
+    _thumb_views[p_guid] = ThumbView{ p_image.image, view };
+    return view;
+}
+
+void ContentBrowserDrawerTab::_thumb_collect(EditorContext& ctx)
+{
+    if (!ctx.renderer || !ctx.imgui) return;
+    const uint64_t frame = ctx.renderer->frame_number;
+    const uint32_t frames = ctx.renderer->frame_count;
+
+    for (auto it = _thumb_views.begin(); it != _thumb_views.end();) {
+        const LTexture* tex = ctx.renderer->textures.get(it->first);
+        if (tex && tex->image.image == it->second.image) {
+            ++it;
+            continue;
+        }
+        ctx.imgui->texture_cache.retire(it->second.view, frame, frames);
+        _thumb_retired.push_back({ it->second.view, frame });
+        it = _thumb_views.erase(it);
+    }
+
+    for (size_t i = 0; i < _thumb_retired.size();) {
+        if (frame >= _thumb_retired[i].frame + frames) {
+            vkDestroyImageView(_thumb_device, _thumb_retired[i].view, nullptr);
+            _thumb_retired[i] = _thumb_retired.back();
+            _thumb_retired.pop_back();
+        } else {
+            ++i;
+        }
+    }
+}
+
+void ContentBrowserDrawerTab::shutdown()
+{
+    if (_thumb_device == VK_NULL_HANDLE) return;
+    for (auto& [guid, t] : _thumb_views) vkDestroyImageView(_thumb_device, t.view, nullptr);
+    for (const ThumbRetired& r : _thumb_retired) vkDestroyImageView(_thumb_device, r.view, nullptr);
+    _thumb_views.clear();
+    _thumb_retired.clear();
+}
+
 void ContentBrowserDrawerTab::draw(EditorContext& ctx)
 {
     registry = ctx.assets;
@@ -803,6 +876,7 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
     if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
     const std::filesystem::path& root = ctx.project->assets_dir;
     _cache_tick(ImGui::GetTime());
+    _thumb_collect(ctx);
     
     const ImVec2 region_p0 = ImGui::GetCursorScreenPos();
     const UiStyle& ui = ui_style();
@@ -815,7 +889,8 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
     float left_w = ImFloor(ImClamp(body_w * 0.18f, ImMin(min_side, body_w * 0.5f), body_w - ImMin(min_side, body_w * 0.5f)));
     float right_w = body_w - left_w;
 
-    ImGui::BeginChild("##left", ImVec2(left_w, avail.y), true);
+    // ImGui::BeginChild("##left", ImVec2(left_w, avail.y), true);
+    ImGui::BeginChild("##left", ImVec2(left_w, avail.y), ImGuiChildFlags_AlwaysUseWindowPadding);
     if (_cache_get(root).exists) _draw_folder_node(root, 0);
     {
         const float divider_x = region_p0.x + left_w;
@@ -828,9 +903,14 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
 
     ImGui::SameLine(0, thick);
 
-    ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
+    // ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
+    ImGui::BeginChild("##right", ImVec2(right_w, avail.y), ImGuiChildFlags_None);
+    ImGui::PopStyleColor();
+    const float pad_y = ImGui::GetStyle().WindowPadding.y;
     {
         const float pad_x = ui.outliner.pad_x;
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + pad_y);
         const float bw = ImGui::GetFrameHeight();
         const float spacing = ImGui::GetStyle().ItemSpacing.x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
@@ -859,8 +939,10 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
         dock_menu_pop_style();
         ImGui::PopStyleVar();
     }
-    const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-    ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), true);
+    // const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+    // ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), true);
+    const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + pad_y;
+    ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), ImGuiChildFlags_None);
     _list_draw(ctx);
     ImGui::EndChild();
     _draw_footer(selected_folder.empty() ? 0u : (uint32_t)_cache_get(selected_folder).entries.size());

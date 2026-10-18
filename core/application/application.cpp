@@ -154,7 +154,7 @@ Error Application::_frame()
     cpu.zone_end();
 
     cpu.zone_begin("Frame Build");
-    err = renderer.begin_frame(world);
+    err = renderer.begin_frame(render_world());
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
@@ -267,35 +267,10 @@ Error Application::project_load(const std::filesystem::path &p_root)
 
     Error err = project.load(p_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    err = renderer.load(project.content_dir);
+    err = renderer.load(project.content_dir, project.assets_dir);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = world.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-
-    for (uint32_t i = 0; i < (uint32_t)renderer.geometry.mesh_guids.size(); i++) {
-        const Guid mesh_guid = renderer.geometry.mesh_guids[i];
-        if (mesh_guid == Guid{}) continue;
-        const Entity e = world.create_persistent(Guid::generate());
-        world.add<TransformComponent>(e);
-        world.add<MeshComponent>(e, { mesh_guid });
-        world.add<StaticTag>(e);
-    }
-
-    {
-        const Entity point = world.create_persistent(Guid::generate());
-        TransformComponent xf;
-        xf.position = vec3(0.0f, 200.0f, 0.0f);
-        world.add<TransformComponent>(point, xf);
-        NameComponent name{};
-        snprintf(name.name, NameComponent::MAX_LENGTH, "Point Light 1");
-        world.add<NameComponent>(point, name);
-        LightComponent light;
-        light.type = LightType::POINT;
-        light.intensity = 50000.0f;
-        light.range = 1000.0f;
-        world.add<LightComponent>(point, light);
-        world.add<EditorHiddenTag>(point);
-    }
 
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());
 

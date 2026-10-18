@@ -125,11 +125,11 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
         const TransformComponent* xf = world.try_get<TransformComponent>(e);
         if (!xf || world.has<EditorHiddenTag>(e)) continue;
         const mat4 mvp = view_proj * translate(mat4(1.0f), xf->position) * mat4_cast(xf->rotation) * glm::scale(mat4(1.0f), xf->scale);
-        if (const MeshComponent* m = world.try_get<MeshComponent>(e)) {
-            if (const LMesh* mesh = renderer.geometry.get(renderer.geometry.find(m->mesh))) add_box(mvp, mesh->pos_min, mesh->pos_min + mesh->pos_extent);
+        if (const ModelComponent* m = world.try_get<ModelComponent>(e)) {
+            if (const LMesh* mesh = renderer.geometry.get(renderer.models.mesh_index(m->model))) add_box(mvp, mesh->pos_min, mesh->pos_min + mesh->pos_extent);
         }
-        if (const MeshGridComponent* g = world.try_get<MeshGridComponent>(e)) {
-            if (const LMesh* mesh = renderer.geometry.get(renderer.geometry.find(g->mesh))) {
+        if (const ModelGridComponent* g = world.try_get<ModelGridComponent>(e)) {
+            if (const LMesh* mesh = renderer.geometry.get(renderer.models.mesh_index(g->model))) {
                 const float spacing = g->spacing > 0.0f ? g->spacing : mesh->bounds_sphere.w * 1.5f;
                 const vec3 half = (vec3(g->count) - 1.0f) * 0.5f * spacing;
                 add_box(mvp, mesh->pos_min - half, mesh->pos_min + mesh->pos_extent + half);

@@ -3,6 +3,7 @@
 #include <core/assets/lmodel.h>
 #include <editor/layout/editor_layout.h>
 #include <editor/viewport/orbit_camera.h>
+#include <core/world/world.h>
 #include <IconsFontAwesome6.h>
 #include <filesystem>
 #include <string>
@@ -19,11 +20,16 @@ struct ModelTab : EditorTab
     std::filesystem::path path;
     EditorLayout layout;
     OrbitCamera orbit;
+    World preview;
+    Guid _preview_model;
+    Guid _preview_mesh;
+    Guid _framed_mesh;
     std::string _title;
 
     const char* title() const override { return _title.empty() ? "Model" : _title.c_str(); }
     bool dirty() const override { return !(model.mesh == saved.mesh); }
     const Camera* camera() const override { return &orbit.camera; }
+    const World* scene() const override { return &preview; }
 
     Error create(EditorContext& ctx) override;
     void destroy(EditorContext& ctx) override;
@@ -32,6 +38,7 @@ struct ModelTab : EditorTab
     void on_update(EditorContext& ctx, float p_dt) override;
 
     void _refresh_title();
+    void _sync_preview(EditorContext& ctx);
 };
 
 }

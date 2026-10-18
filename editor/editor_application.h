@@ -15,12 +15,26 @@
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/play/play_session.h>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace lumen {
 
 struct EditorApplication : Application
 {
+    struct SavedTab
+    {
+        TabKind kind = TabKind::WORLD;
+        Guid guid;
+    };
+
+    struct SavedTabs
+    {
+        std::vector<SavedTab> tabs;
+        uint32_t active = 0;
+    };
+
     ProjectManager project_manager;
     Drawer drawer;
     WorldTab world_tab;
@@ -47,6 +61,13 @@ struct EditorApplication : Application
 
     void _load_state();
     void _save_state();
+
+    std::unordered_map<std::string, SavedTabs> _project_tabs;
+    uint64_t _tabs_signature = 0;
+
+    uint64_t _tabs_hash() const;
+    void _capture_tabs();
+    void _restore_tabs();
 
     struct TitlebarLayout {
         ImVec2 origin;
@@ -79,6 +100,7 @@ struct EditorApplication : Application
     
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
+    const World& render_world() const override;
     
     RenderPath* create_render_path() override { return new ProjectManagerRenderPath(); }
 };

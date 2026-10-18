@@ -170,6 +170,7 @@ void ContentBrowserDrawerTab::_delete_content(EditorContext& ctx, const std::fil
         switch (info.type) {
             case AssetType::TEXTURE: ctx.renderer->textures.unload(info.guid); break;
             case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); break;
+            case AssetType::MODEL: ctx.renderer->models.unload(info.guid); break;
             default: break;
         }
     }
@@ -241,6 +242,7 @@ void ContentBrowserDrawerTab::_new_model(EditorContext& ctx)
         log_write("Content Browser: failed to create '%s'.", path.string().c_str());
         return;
     }
+    if (ctx.renderer) ctx.renderer->models.load(path);
     _select_only(path);
     _rename_begin(path);
     _scroll_to_rename = true;

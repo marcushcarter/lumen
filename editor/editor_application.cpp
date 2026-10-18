@@ -6,6 +6,7 @@
 #include <core/io/path.h>
 #include <core/version.h>
 #include <drivers/imgui/tab_strip.h>
+#include <editor/tabs/model/model_tab.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -73,6 +74,7 @@ Error EditorApplication::on_init()
 void EditorApplication::on_shutdown()
 {
     EditorContext ctx = _make_context();
+    _capture_tabs();
     tabs.clear(ctx);
 
     play.shutdown();
@@ -120,6 +122,13 @@ void EditorApplication::on_update(float p_dt)
         selection.prune(world, folders);
 
         tabs.update(ctx, p_dt);
+        if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) tabs.active->save(ctx);
+
+        const uint64_t signature = _tabs_hash();
+        if (signature != _tabs_signature) {
+            _tabs_signature = signature;
+            settings.dirty = true;
+        }
     } else {
         project_manager.on_update(ctx);
     }
@@ -152,6 +161,8 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     tabs.clear(ctx);
     tabs.add(&world_tab, WorldTab::KIND);
     tabs.focus(&world_tab);
+    _restore_tabs();
+    _tabs_signature = _tabs_hash();
 
     return OK;
 }
@@ -161,6 +172,8 @@ void EditorApplication::close_project()
     play.stop();
     pending_transition = [this]{
         EditorContext ctx = _make_context();
+        _capture_tabs();
+        _save_state();
         tabs.clear(ctx);
         assets.close();
         folders.clear();
@@ -168,6 +181,71 @@ void EditorApplication::close_project()
         project_unload();
     };
     render_path_request(new ProjectManagerRenderPath());
+}
+
+static const char* _tab_kind_name(TabKind p_kind)
+{
+    switch (p_kind) {
+        case TabKind::WORLD: return "world";
+        case TabKind::EDITOR_SETTINGS: return "editor_settings";
+        case TabKind::MODEL: return "model";
+        case TabKind::MATERIAL: return "material";
+    }
+    return "world";
+}
+
+static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
+{
+    if (p_name == "world") r_kind = TabKind::WORLD;
+    else if (p_name == "editor_settings") r_kind = TabKind::EDITOR_SETTINGS;
+    else if (p_name == "model") r_kind = TabKind::MODEL;
+    else if (p_name == "material") r_kind = TabKind::MATERIAL;
+    else return false;
+    return true;
+}
+
+uint64_t EditorApplication::_tabs_hash() const
+{
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&](uint64_t p_v) { h = (h ^ p_v) * 1099511628211ull; };
+    for (const EditorTab* t : tabs.tabs) {
+        mix((uint64_t)t->kind);
+        mix(t->guid.value);
+        mix(t == tabs.active ? 1u : 0u);
+    }
+    return h;
+}
+
+void EditorApplication::_capture_tabs()
+{
+    if (!project.loaded()) return;
+    SavedTabs saved;
+    for (const EditorTab* t : tabs.tabs) {
+        if (t == tabs.active) saved.active = (uint32_t)saved.tabs.size();
+        saved.tabs.push_back({ t->kind, t->guid });
+    }
+    _project_tabs[project.root.generic_string()] = std::move(saved);
+}
+
+void EditorApplication::_restore_tabs()
+{
+    auto it = _project_tabs.find(project.root.generic_string());
+    if (it == _project_tabs.end()) return;
+    const SavedTabs& saved = it->second;
+
+    EditorTab* active = &world_tab;
+    for (uint32_t i = 0; i < (uint32_t)saved.tabs.size(); i++) {
+        const SavedTab& t = saved.tabs[i];
+        EditorTab* opened = nullptr;
+        switch (t.kind) {
+            case TabKind::WORLD: opened = &world_tab; break;
+            case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
+            case TabKind::MODEL: if (!(t.guid == Guid{})) opened = tabs.open<ModelTab>(t.guid); break;
+            case TabKind::MATERIAL: break;
+        }
+        if (opened && i == saved.active) active = opened;
+    }
+    tabs.focus(active);
 }
 
 void EditorApplication::_load_state()
@@ -221,6 +299,26 @@ void EditorApplication::_load_state()
 
     if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
 
+    _project_tabs.clear();
+    if (const toml::table* projects = tbl.at_path("project_tabs").as_table()) {
+        for (const auto& [key, node] : *projects) {
+            const toml::table* pt = node.as_table();
+            if (!pt) continue;
+            SavedTabs saved;
+            saved.active = (uint32_t)(*pt)["active"].value_or((int64_t)0);
+            if (const toml::array* list = (*pt)["tabs"].as_array()) {
+                for (const toml::node& n : *list) {
+                    const toml::table* t = n.as_table();
+                    if (!t) continue;
+                    TabKind kind;
+                    if (!_tab_kind_from_string((*t)["kind"].value_or(std::string{}), kind)) continue;
+                    saved.tabs.push_back({ kind, Guid::from_string((*t)["guid"].value_or(std::string{})) });
+                }
+            }
+            _project_tabs[std::string(key.str())] = std::move(saved);
+        }
+    }
+
     settings.theme.apply();
 }
 
@@ -264,12 +362,29 @@ void EditorApplication::_save_state()
         panels.insert_or_assign(p->name(), std::move(pt));
     }
 
+    if (!tabs.tabs.empty()) _capture_tabs();
+    toml::table project_tabs;
+    for (const auto& [key, saved] : _project_tabs) {
+        toml::array list;
+        for (const SavedTab& t : saved.tabs) {
+            toml::table tt;
+            tt.insert_or_assign("kind", std::string(_tab_kind_name(t.kind)));
+            tt.insert_or_assign("guid", t.guid.to_string());
+            list.push_back(std::move(tt));
+        }
+        toml::table pt;
+        pt.insert_or_assign("active", (int64_t)saved.active);
+        pt.insert_or_assign("tabs", std::move(list));
+        project_tabs.insert_or_assign(key, std::move(pt));
+    }
+
     toml::table root;
     root.insert_or_assign("theme", std::move(theme));
     root.insert_or_assign("window", std::move(window));
     root.insert_or_assign("display", std::move(display));
     root.insert_or_assign("layout", std::move(layout));
     root.insert_or_assign("panels", std::move(panels));
+    root.insert_or_assign("project_tabs", std::move(project_tabs));
 
     std::ofstream out(Paths::roaming_data() / "editor_state.cfg", std::ios::binary);
     if (!out) return;
@@ -502,6 +617,10 @@ void EditorApplication::_titlebar_editor_menu()
 
         // if (ImGui::MenuItem("Save Current Scene")) {}
         // if (ImGui::MenuItem("Save Current Scene As")) {}
+        if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) {
+            EditorContext ctx = _make_context();
+            tabs.active->save(ctx);
+        }
         if (ImGui::MenuItem("Save All")) project.save();
         // if (ImGui::MenuItem("Choose Files to Save")) {}
 
@@ -672,6 +791,14 @@ const Camera& EditorApplication::active_camera() const
         if (const Camera* c = tabs.active->camera()) return *c;
     }
     return editor_camera.camera;
+}
+
+const World& EditorApplication::render_world() const
+{
+    if (tabs.active) {
+        if (const World* w = tabs.active->scene()) return *w;
+    }
+    return world;
 }
 
 }

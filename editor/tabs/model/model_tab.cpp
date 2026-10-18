@@ -5,6 +5,8 @@
 #include <editor/tabs/tab_manager.h>
 #include <editor/assets/asset_registry.h>
 #include <core/base/error.h>
+#include <core/rendering/renderer.h>
+#include <core/world/components.h>
 #include <imgui.h>
 #include <cstdio>
 
@@ -35,24 +37,37 @@ Error ModelTab::create(EditorContext& ctx)
     layout.keep_right_dock = true;
     layout.drawer.allowed = { ctx.drawer->content_browser };
     layout.add_panel<ModelDetailsPanel>()->tab = this;
+
+    preview.initialize();
+    preview.load();
+    preview.atmosphere.time_of_day = 12.0f;
+    _preview_model = Guid::generate();
+    _preview_mesh = model.mesh;
+    ctx.renderer->models.set(_preview_model, _preview_mesh);
+    const Entity e = preview.create();
+    preview.add<TransformComponent>(e);
+    preview.add<ModelComponent>(e, { _preview_model });
+    preview.add<StaticTag>(e);
+
     orbit.update();
     return OK;
 }
 
 void ModelTab::destroy(EditorContext& ctx)
 {
-    (void)ctx;
     layout.viewport.cursor_lock.end();
     layout.shutdown();
+    if (ctx.renderer) ctx.renderer->models.unload(_preview_model);
+    preview.shutdown();
 }
 
 Error ModelTab::save(EditorContext& ctx)
 {
-    (void)ctx;
     if (model.save(path) != Error::OK) {
         log_write("Model Tab: failed to save '%s'.", path.string().c_str());
         return Error::FAILED;
     }
+    if (ctx.renderer) ctx.renderer->models.load(path);
     saved = model;
     _refresh_title();
     return Error::OK;
@@ -77,7 +92,22 @@ void ModelTab::on_update(EditorContext& ctx, float p_dt)
     layout.draw(ctx, nullptr);
     if (layout.viewport.looking) orbit.rotate(layout.viewport.look_delta.x, layout.viewport.look_delta.y);
     if (layout.viewport.look_zoom != 0.0f) orbit.zoom(layout.viewport.look_zoom);
+    _sync_preview(ctx);
     orbit.update();
+}
+
+void ModelTab::_sync_preview(EditorContext& ctx)
+{
+    if (!ctx.renderer) return;
+    if (!(model.mesh == _preview_mesh)) {
+        _preview_mesh = model.mesh;
+        ctx.renderer->models.set(_preview_model, _preview_mesh);
+    }
+    if (_framed_mesh == _preview_mesh) return;
+    if (const LMesh* mesh = ctx.renderer->geometry.get(ctx.renderer->geometry.find(_preview_mesh))) {
+        orbit.frame(glm::vec3(mesh->bounds_sphere), mesh->bounds_sphere.w);
+        _framed_mesh = _preview_mesh;
+    }
 }
 
 void ModelTab::_refresh_title()
@@ -85,7 +115,6 @@ void ModelTab::_refresh_title()
     _title = ICON;
     _title += "  ";
     _title += path.stem().string();
-    if (dirty()) _title += '*';
 }
 
 }

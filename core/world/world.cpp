@@ -10,8 +10,8 @@ Error World::initialize()
     component_register<EntityIdComponent>("Entity Id", false);
     component_register<NameComponent>("Name", false);
     component_register<TransformComponent>("Transform");
-    component_register<MeshComponent>("Mesh");
-    component_register<MeshGridComponent>("Mesh Grid");
+    component_register<ModelComponent>("Model");
+    component_register<ModelGridComponent>("Model Grid");
     component_register<LightComponent>("Light");
     component_register<LightProfileComponent>("Light Profile");
     component_register<StaticTag>("Static", false);
@@ -38,9 +38,9 @@ Error World::load()
 {
     using enum Error;
 
-    const vec3 target = vec3(0.0f, 50.0f, 0.0f);
-    const float radius = 1000.0f;
-    const float height = 50.0f;
+    const vec3 target = vec3(0.0f, 0.5f, 0.0f);
+    const float radius = 10.0f;
+    const float height = 0.5f;
     const float angle = 0.0f;
     const vec3 eye = target + vec3(radius * std::cos(angle), height, -radius * std::sin(angle));
     default_camera.position = eye;

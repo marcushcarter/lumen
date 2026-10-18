@@ -3,6 +3,7 @@
 #include <core/rendering/render_graph.h>
 #include <core/rendering/resources/texture_cache.h>
 #include <core/rendering/resources/geometry_pool.h>
+#include <core/rendering/resources/model_cache.h>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/render_context.h>
 #include <core/rendering/world_gpu.h>
@@ -25,6 +26,7 @@ struct Renderer
     
     TextureCache textures;
     GeometryPool geometry;
+    ModelCache models;
     
     uint32_t frame_count = 1;
     uint32_t current_frame = 0;
@@ -49,7 +51,7 @@ struct Renderer
     /**** PROJECT ****/
     /*****************/
 
-    Error load(const std::filesystem::path& p_content_dir);
+    Error load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir);
     void unload();
 
     /****************/
@@ -83,6 +85,7 @@ struct Renderer
     /****************/
 
     FrameData frame;
+    const World* _last_world = nullptr;
     float lod_bias = 1.0f;
 
     Camera active_camera;

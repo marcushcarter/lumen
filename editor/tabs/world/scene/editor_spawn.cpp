@@ -10,7 +10,7 @@
 
 namespace lumen {
 
-Entity editor_spawn(EditorContext& ctx, SpawnType p_type, uint32_t p_folder, Guid p_mesh)
+Entity editor_spawn(EditorContext& ctx, SpawnType p_type, uint32_t p_folder, Guid p_model)
 {
     World& world = *ctx.world;
     const Camera& cam = ctx.renderer->active_camera;
@@ -25,14 +25,14 @@ Entity editor_spawn(EditorContext& ctx, SpawnType p_type, uint32_t p_folder, Gui
     world.add<NameComponent>(e, name);
 
     switch (p_type) {
-        case SpawnType::MESH:
-            world.add<MeshComponent>(e, { p_mesh });
+        case SpawnType::MODEL:
+            world.add<ModelComponent>(e, { p_model });
             world.add<StaticTag>(e);
             break;
-        case SpawnType::MESH_GRID: {
-            MeshGridComponent grid;
-            grid.mesh = p_mesh;
-            world.add<MeshGridComponent>(e, grid);
+        case SpawnType::MODEL_GRID: {
+            ModelGridComponent grid;
+            grid.model = p_model;
+            world.add<ModelGridComponent>(e, grid);
             world.add<StaticTag>(e);
         } break;
         default:
@@ -49,8 +49,8 @@ Entity editor_spawn_menu_items(EditorContext& ctx, uint32_t p_folder)
     Entity e = ENTITY_NULL;
     if (ImGui::MenuItem(ICON_FA_CIRCLE_DOT "  Empty")) e = editor_spawn(ctx, SpawnType::EMPTY, p_folder);
     ImGui::Separator();
-    if (ImGui::MenuItem(ICON_FA_CUBE "  Mesh")) e = editor_spawn(ctx, SpawnType::MESH, p_folder);
-    if (ImGui::MenuItem(ICON_FA_TABLE_CELLS "  Mesh Grid")) e = editor_spawn(ctx, SpawnType::MESH_GRID, p_folder);
+    if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) e = editor_spawn(ctx, SpawnType::MODEL, p_folder);
+    if (ImGui::MenuItem(ICON_FA_TABLE_CELLS "  Model Grid")) e = editor_spawn(ctx, SpawnType::MODEL_GRID, p_folder);
     return e;
 }
 

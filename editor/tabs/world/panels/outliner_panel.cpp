@@ -19,8 +19,8 @@ static bool _is_digit(char c) { return c >= '0' && c <= '9'; }
 
 static const char* _entity_type(const World& world, Entity p_entity, const char** r_icon)
 {
-    if (world.has<MeshGridComponent>(p_entity)) { *r_icon = ICON_FA_TABLE_CELLS; return "Mesh Grid"; }
-    if (world.has<MeshComponent>(p_entity)) { *r_icon = ICON_FA_CUBE; return world.has<StaticTag>(p_entity) ? "Static Mesh" : "Mesh"; }
+    if (world.has<ModelGridComponent>(p_entity)) { *r_icon = ICON_FA_TABLE_CELLS; return "Model Grid"; }
+    if (world.has<ModelComponent>(p_entity)) { *r_icon = ICON_FA_CUBES; return world.has<StaticTag>(p_entity) ? "Static Model" : "Model"; }
     *r_icon = ICON_FA_CIRCLE_DOT;
     return "Entity";
 }

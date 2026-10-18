@@ -83,6 +83,7 @@ struct Application
     
     virtual void update_camera(float p_dt) { (void)p_dt; }
     virtual const Camera& active_camera() const { return *world.active_camera; }
+    virtual const World& render_world() const { return world; }
 
     virtual RenderPath* create_render_path() = 0;
 

@@ -5,6 +5,7 @@
 #include <drivers/imgui/imgui_helpers.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
+#include <editor/assets/asset_field.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <core/rendering/world_gpu.h>
 #include <core/rendering/renderer.h>
@@ -33,62 +34,6 @@ bool DetailsPanel::_component_begin(const char* p_title, bool* r_remove)
 {
     if (r_remove) *r_remove = false;
     return imgui_category(p_title, r_remove);
-}
-
-bool DetailsPanel::_mesh_field(EditorContext& ctx, Guid& r_mesh)
-{
-    bool changed = false;
-    const AssetRegistry::Entry* asset = ctx.assets ? ctx.assets->find(r_mesh) : nullptr;
-    char label[160];
-    if (asset) {
-        snprintf(label, sizeof(label), "%s###mesh_field", asset->name.c_str());
-    } else {
-        char guid[Guid::BUFFER];
-        r_mesh.to_chars(guid);
-        snprintf(label, sizeof(label), "%s%s###mesh_field", guid, r_mesh == Guid{} ? "" : " (missing)");
-    }
-    ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : "Drop a mesh asset here");
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
-            if (((const AssetDragPayload*)peek->Data)->type == AssetType::MESH) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-                    r_mesh = ((const AssetDragPayload*)payload->Data)->guid;
-                    changed = true;
-                }
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-    return changed;
-}
-
-bool DetailsPanel::_ies_field(EditorContext& ctx, Guid& r_ies)
-{
-    bool changed = false;
-    const AssetRegistry::Entry* asset = ctx.assets ? ctx.assets->find(r_ies) : nullptr;
-    char label[160];
-    if (asset) {
-        snprintf(label, sizeof(label), "%s###ies_field", asset->name.c_str());
-    } else {
-        char guid[Guid::BUFFER];
-        r_ies.to_chars(guid);
-        snprintf(label, sizeof(label), "%s%s###ies_field", guid, r_ies == Guid{} ? "" : " (missing)");
-    }
-    ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : "Drop a ies asset here");
-    if (ImGui::BeginDragDropTarget()) {
-    //     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
-    //         if (((const AssetDragPayload*)peek->Data)->type == AssetType::IES) {
-    //             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-    //                 r_ies = ((const AssetDragPayload*)payload->Data)->guid;
-    //                 changed = true;
-    //             }
-    //         }
-    //     }
-        ImGui::EndDragDropTarget();
-    }
-    return changed;
 }
 
 void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
@@ -178,20 +123,20 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         }
     }
 
-    if (MeshComponent* mesh = world.try_get<MeshComponent>(e)) {
+    if (ModelComponent* model = world.try_get<ModelComponent>(e)) {
         bool remove = false;
-        const bool o = _component_begin("Mesh", &remove);
-        if (o && _mesh_field(ctx, mesh->mesh)) {
+        const bool o = _component_begin("Model", &remove);
+        if (o && asset_field(ctx, "###model_field", model->model, AssetType::MODEL, "Drop a model asset here")) {
             world.touch(e);
         }
-        if (remove) world.deferred_remove<MeshComponent>(e);
+        if (remove) world.deferred_remove<ModelComponent>(e);
     }
 
-    if (MeshGridComponent* grid = world.try_get<MeshGridComponent>(e)) {
+    if (ModelGridComponent* grid = world.try_get<ModelGridComponent>(e)) {
         bool remove = false;
-        const bool o = _component_begin("Mesh Grid", &remove);
+        const bool o = _component_begin("Model Grid", &remove);
         if (o) {
-            bool changed = _mesh_field(ctx, grid->mesh);
+            bool changed = asset_field(ctx, "###model_grid_field", grid->model, AssetType::MODEL, "Drop a model asset here");
             int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
             if (ImGui::DragInt3("Count", count, 0.2f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                 grid->count = uvec3((uint32_t)count[0], (uint32_t)count[1], (uint32_t)count[2]);
@@ -203,7 +148,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
             else ImGui::TextDisabled("%llu instances", (unsigned long long)total);
             if (changed) world.touch(e);
         }
-        if (remove) world.deferred_remove<MeshGridComponent>(e);
+        if (remove) world.deferred_remove<ModelGridComponent>(e);
     }
 
     if (LightComponent* light = world.try_get<LightComponent>(e)) {
@@ -256,8 +201,8 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         bool remove = false;
         const bool o = _component_begin("Light Profile", &remove);
         if (o) {
-            bool changed = _ies_field(ctx, light_prof->ies);
-            if (changed) world.touch(e);
+            // bool changed = _ies_field(ctx, light_prof->ies);
+            // if (changed) world.touch(e);
         }
         if (remove) world.deferred_remove<LightProfileComponent>(e);
     }

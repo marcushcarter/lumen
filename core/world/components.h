@@ -20,12 +20,12 @@ struct TransformComponent {
     vec3 scale = vec3(1.0f);
 };
 
-struct MeshComponent {
-    Guid mesh;
+struct ModelComponent {
+    Guid model;
 };
 
-struct MeshGridComponent {
-    Guid mesh;
+struct ModelGridComponent {
+    Guid model;
     uvec3 count = uvec3(10, 1, 10);
     float spacing = 0.0f;
 };

@@ -1,5 +1,5 @@
 #include <editor/tabs/settings/editor_settings_tab.h>
-#include <editor/settings/editor_settings.h>
+#include <editor/editor_settings.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <drivers/windows/window_driver_win32.h>
 #include <imgui.h>

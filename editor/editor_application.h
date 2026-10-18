@@ -7,7 +7,7 @@
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
-#include <editor/settings/editor_settings.h>
+#include <editor/editor_settings.h>
 #include <editor/viewport/editor_camera.h>
 #include <editor/editor_resources.h>
 #include <editor/assets/import/asset_import_tracker.h>

@@ -1,4 +1,4 @@
-#include <editor/settings/editor_settings.h>
+#include <editor/editor_settings.h>
 #include <drivers/windows/window_driver_win32.h>
 #include <drivers/imgui/ui_style.h>
 #include <cmath>

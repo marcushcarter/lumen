@@ -1,5 +1,5 @@
 #include <editor/layout/editor_layout.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
@@ -68,7 +68,7 @@ float EditorLayout::_layout_center(ImVec2 p_min, ImVec2 p_max)
 {
     const float h = p_max.y - p_min.y;
     _usable_h = ImMax(1.0f, h - TabStrip::height() - ui_style().dock.gap);
-    if (drawer.collapsed) {
+    if (drawer.open_tabs.empty()) {
         _scene_h = _usable_h;
         _drawer_h = 0.0f;
     } else {
@@ -82,11 +82,9 @@ float EditorLayout::_layout_center(ImVec2 p_min, ImVec2 p_max)
     return p_min.y + _scene_h;
 }
 
-void EditorLayout::_apply_center_delta(float p_delta, bool p_activated)
+void EditorLayout::_apply_center_delta(float p_delta)
 {
-    if (drawer.collapsed && p_activated) center_split = 1.0f;
     center_split += p_delta / _usable_h;
-    drawer.collapsed = (1.0f - center_split < MIN_DRAWER);
 }
 
 void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
@@ -99,26 +97,20 @@ void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     viewport.draw(ctx, p_min, ImVec2(p_max.x, p_min.y + ImMax(1.0f, _scene_h)));
 
-    ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + _scene_h));
-    SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
-    if (s.active) _apply_center_delta(s.delta, s.activated);
-
     if (!ctx.drawer) return;
 
-    if (!drawer.collapsed && _drawer_h >= 1.0f) {
-        ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + _scene_h + gap));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ui.dock.drawer_padding);
-        ImGui::BeginChild("##drawer", ImVec2(w, _drawer_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar);
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-        ctx.drawer->draw_content(ctx, drawer);
-        ImGui::EndChild();
+    if (!drawer.open_tabs.empty()) {
+        ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + _scene_h));
+        SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
+        if (s.active) _apply_center_delta(s.delta);
+
+        const float drawer_y = p_min.y + _scene_h + gap;
+        if (_drawer_h >= 1.0f) ctx.drawer->draw(ctx, ImVec2(p_min.x, drawer_y), ImVec2(p_max.x, drawer_y + _drawer_h), drawer);
     }
 
-    const bool was_collapsed = drawer.collapsed;
-    ctx.drawer->draw_strip(ImVec2(p_min.x, p_max.y - strip_h), p_max, drawer);
-    if (was_collapsed && !drawer.collapsed) center_split = 1.0f - MAX_DRAWER / 3.0f;
+    const bool was_empty = drawer.open_tabs.empty();
+    ctx.drawer->draw_bar(ImVec2(p_min.x, p_max.y - strip_h), p_max, drawer);
+    if (was_empty && !drawer.open_tabs.empty() && center_split >= 1.0f - MIN_DRAWER) center_split = 1.0f - MAX_DRAWER / 3.0f;
 }
 
 void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar)
@@ -202,7 +194,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
         const float center_split_y = _layout_center(ImVec2(origin.x, body_y), ImVec2(lx, body_max_y));
         const ImVec2 v_min(lx, body_y);
         const ImVec2 v_max(rx, body_max_y);
-        corner_center = _corner_splitter("##corner_center", ImVec2(lx, center_split_y), true, v_min, v_max, ImVec2(origin.x, center_split_y), ImVec2(lx, center_split_y + gap));
+        if (!drawer.open_tabs.empty()) corner_center = _corner_splitter("##corner_center", ImVec2(lx, center_split_y), true, v_min, v_max, ImVec2(origin.x, center_split_y), ImVec2(lx, center_split_y + gap));
         if (right_split) corner_right = _corner_splitter("##corner_right", ImVec2(lx, body_y + top_h), false, v_min, v_max, ImVec2(rx, body_y + top_h), ImVec2(rx + right_w, body_y + top_h + gap));
     }
 
@@ -229,7 +221,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 
     if (corner_center.active) {
         _apply_split_x(corner_center.delta.x, corner_center.activated, body_w);
-        _apply_center_delta(corner_center.delta.y, corner_center.activated);
+        _apply_center_delta(corner_center.delta.y);
     }
     if (corner_right.active) {
         _apply_split_x(corner_right.delta.x, corner_right.activated, body_w);

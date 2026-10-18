@@ -6,7 +6,7 @@
 #include <core/io/path.h>
 #include <core/base/error.h>
 #include <core/base/utils.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>

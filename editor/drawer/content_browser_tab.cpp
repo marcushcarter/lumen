@@ -10,7 +10,7 @@
 #include <core/base/error.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/imgui_helpers.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/model/model_tab.h>
 #include <drivers/windows/dialogs_win32.h>

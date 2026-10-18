@@ -17,7 +17,7 @@ struct EditorLayout
     static constexpr float MIN_DOCKWELL = 0.025f;
     static constexpr float MAX_DOCKWELL = 0.5f;
     static constexpr float MIN_WELL = 0.15f;
-    static constexpr float MIN_DRAWER = 0.025f;
+    static constexpr float MIN_DRAWER = 0.1f;
     static constexpr float MAX_DRAWER = 0.7f;
     static constexpr float CORNER_REACH = 10.0f;
 
@@ -59,7 +59,7 @@ struct EditorLayout
     void draw_menu();
 
     float _layout_center(ImVec2 p_min, ImVec2 p_max);
-    void _apply_center_delta(float p_delta, bool p_activated);
+    void _apply_center_delta(float p_delta);
     void _draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
     CornerState _corner_splitter(const char* p_id, ImVec2 p_cross, bool p_h_left, ImVec2 p_v_min, ImVec2 p_v_max, ImVec2 p_h_min, ImVec2 p_h_max);
     void _apply_split_x(float p_delta, bool p_activated, float p_body_w);

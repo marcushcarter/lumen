@@ -1,4 +1,4 @@
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
@@ -133,16 +133,51 @@ bool TabStrip::tab(const char* p_label, bool p_selected)
         draw_list->AddRectFilled(ha, hb, ui.color.hover);
     }
 
+    _draw_label(a, b, p_label, p_selected || hovered);
+    return pressed;
+}
+
+bool TabStrip::button(const char* p_label, bool p_on)
+{
+    const UiStyle& ui = ui_style();
+    const float h = max.y - min.y;
+    const float w = ImMax(ui.tab_strip.min_width, ImFloor(natural_width(p_label) * scale));
+    const ImVec2 a(cursor_x, min.y);
+    const ImVec2 b(cursor_x + w, max.y);
+    cursor_x += w;
+
+    ImGui::SetCursorScreenPos(a);
+    const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(w, h), ImGuiButtonFlags_PressedOnClick);
+    const bool hovered = ImGui::IsItemHovered();
+
+    const float line = ui.stroke.hairline;
+    if (hovered) {
+        const ImVec2 ha(a.x, edge == Edge::BOTTOM ? a.y + line : a.y);
+        const ImVec2 hb(b.x, edge == Edge::TOP ? b.y - line : b.y);
+        draw_list->AddRectFilled(ha, hb, ui.color.hover);
+    }
+    if (p_on) {
+        const float accent_h = ui.tab_strip.accent_height;
+        const float ay = (edge == Edge::TOP) ? a.y : b.y - accent_h;
+        draw_list->AddRectFilled(ImVec2(a.x, ay), ImVec2(b.x, ay + accent_h), ui.color.accent);
+    }
+
+    _draw_label(a, b, p_label, p_on || hovered);
+    return pressed;
+}
+
+void TabStrip::_draw_label(ImVec2 p_a, ImVec2 p_b, const char* p_label, bool p_bright)
+{
+    const UiStyle& ui = ui_style();
+    const float h = p_b.y - p_a.y;
     const char* end = ImGui::FindRenderedTextEnd(p_label);
     const ImVec2 ts = ImGui::CalcTextSize(p_label, end);
     const float pad = ImMax(ui.dock_tab.label_min_pad, ImFloor(ui.tab_strip.pad_x * scale));
-    const ImVec2 tmin(a.x + pad, ImFloor(a.y + (h - ts.y) * 0.5f));
-    const ImVec2 tmax(b.x - pad * 0.5f, b.y);
-    ImGui::PushStyleColor(ImGuiCol_Text, (p_selected || hovered) ? ui.color.text : ui.color.text_dim);
+    const ImVec2 tmin(p_a.x + pad, ImFloor(p_a.y + (h - ts.y) * 0.5f));
+    const ImVec2 tmax(p_b.x - pad * 0.5f, p_b.y);
+    ImGui::PushStyleColor(ImGuiCol_Text, p_bright ? ui.color.text : ui.color.text_dim);
     ImGui::RenderTextEllipsis(draw_list, tmin, tmax, tmax.x, p_label, end, &ts);
     ImGui::PopStyleColor();
-
-    return pressed;
 }
 
 bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, bool p_dirty)

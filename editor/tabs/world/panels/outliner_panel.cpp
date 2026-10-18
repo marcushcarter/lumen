@@ -1,6 +1,6 @@
 #include <editor/tabs/world/panels/outliner_panel.h>
 #include <editor/editor_context.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>

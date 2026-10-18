@@ -31,10 +31,13 @@ struct TabStrip
 
     void begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right = 0.0f, ImU32 p_bg = 0);
     bool tab(const char* p_label, bool p_selected);
+    bool button(const char* p_label, bool p_on);
     bool dock_tab(const char* p_label, bool p_selected, bool* p_close, bool p_dirty = false);
     bool trailing_button(const char* p_icon);
     bool console_field(const char* p_id, const char* p_label, const char* p_hint, char* p_buf, size_t p_size, float p_field_width);
     void end();
+
+    void _draw_label(ImVec2 p_a, ImVec2 p_b, const char* p_label, bool p_bright);
 };
 
 }

@@ -1,5 +1,5 @@
 #include <editor/layout/dock_well.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui_internal.h>
 

@@ -1,5 +1,5 @@
 #include <editor/tabs/tab_manager.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <cstdio>
 
 namespace lumen {

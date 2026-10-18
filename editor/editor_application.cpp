@@ -5,7 +5,7 @@
 #include <core/io/image_io.h>
 #include <core/io/path.h>
 #include <core/version.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -190,9 +190,14 @@ void EditorApplication::_load_state()
         world_tab.layout.split_x = (float)lv["split_x"].value_or((double)world_tab.layout.split_x);
         world_tab.layout.split_y = (float)lv["split_y"].value_or((double)world_tab.layout.split_y);
         world_tab.layout.center_split = (float)lv["center_split"].value_or((double)world_tab.layout.center_split);
-        world_tab.layout.drawer.collapsed = lv["center_collapsed"].value_or(world_tab.layout.drawer.collapsed);
         world_tab.layout.right_collapsed = lv["right_collapsed"].value_or(world_tab.layout.right_collapsed);
-        world_tab.layout.drawer.active = (int)lv["center_tab"].value_or((int64_t)world_tab.layout.drawer.active);
+        world_tab.layout.drawer.open_tabs.clear();
+        if (const toml::array* names = lv["drawer_open"].as_array()) {
+            for (const toml::node& n : *names) {
+                if (DrawerTab* t = drawer.find(n.value_or(std::string{}).c_str())) world_tab.layout.drawer.open(t);
+            }
+        }
+        if (DrawerTab* t = drawer.find(lv["drawer_active"].value_or(std::string{}).c_str()); world_tab.layout.drawer.is_open(t)) world_tab.layout.drawer.active = t;
         world_tab.layout.right_top.active_name = lv["active_top"].value_or(std::string{});
         world_tab.layout.right_bottom.active_name = lv["active_bottom"].value_or(std::string{});
 
@@ -245,9 +250,11 @@ void EditorApplication::_save_state()
     layout.insert_or_assign("split_x", (double)world_tab.layout.split_x);
     layout.insert_or_assign("split_y", (double)world_tab.layout.split_y);
     layout.insert_or_assign("center_split", (double)world_tab.layout.center_split);
-    layout.insert_or_assign("center_collapsed", (bool)world_tab.layout.drawer.collapsed);
     layout.insert_or_assign("right_collapsed", (bool)world_tab.layout.right_collapsed);
-    layout.insert_or_assign("center_tab", (int64_t)world_tab.layout.drawer.active);
+    toml::array drawer_open;
+    for (DrawerTab* t : world_tab.layout.drawer.open_tabs) drawer_open.push_back(std::string(t->name()));
+    layout.insert_or_assign("drawer_open", std::move(drawer_open));
+    layout.insert_or_assign("drawer_active", std::string(world_tab.layout.drawer.active ? world_tab.layout.drawer.active->name() : ""));
     layout.insert_or_assign("active_top", world_tab.layout.right_top.active_name);
     layout.insert_or_assign("active_bottom", world_tab.layout.right_bottom.active_name);
 

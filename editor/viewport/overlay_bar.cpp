@@ -1,6 +1,6 @@
 #include <editor/viewport/overlay_bar.h>
 #include <drivers/imgui/imgui_helpers.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <cstdio>

@@ -7,14 +7,15 @@
 
 namespace lumen {
 
-enum class DrawerTabId : uint32_t { CONTENT_BROWSER, PROFILER, MEMORY, OUTPUT, COUNT };
+struct DrawerState
+{
+    std::vector<DrawerTab*> open_tabs;
+    DrawerTab* active = nullptr;
 
-constexpr uint32_t drawer_bit(DrawerTabId p_id) { return 1u << (uint32_t)p_id; }
-
-struct DrawerState {
-    uint32_t mask = UINT32_MAX;
-    int active = 0;
-    bool collapsed = true;
+    bool is_open(const DrawerTab* p_tab) const;
+    void open(DrawerTab* p_tab);
+    void close(DrawerTab* p_tab);
+    void toggle(DrawerTab* p_tab);
 };
 
 struct Drawer
@@ -24,11 +25,9 @@ struct Drawer
 
     void initialize();
     void shutdown();
-    void draw_content(EditorContext& ctx, DrawerState& r_state);
-    void draw_strip(ImVec2 p_min, ImVec2 p_max, DrawerState& r_state);
-
-    bool _visible(const DrawerState& p_state, int p_index) const;
-    void _resolve_active(DrawerState& r_state) const;
+    DrawerTab* find(const char* p_name) const;
+    void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, DrawerState& r_state);
+    void draw_bar(ImVec2 p_min, ImVec2 p_max, DrawerState& r_state);
 };
 
 }

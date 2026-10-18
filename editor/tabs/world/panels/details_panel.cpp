@@ -1,6 +1,6 @@
 #include <editor/tabs/world/panels/details_panel.h>
 #include <editor/editor_context.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/ui_style.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <editor/assets/asset_drag_payload.h>

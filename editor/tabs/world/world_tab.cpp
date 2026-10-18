@@ -1,5 +1,5 @@
 #include <editor/tabs/world/world_tab.h>
-#include <editor/ui/tab_strip.h>
+#include <drivers/imgui/tab_strip.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <drivers/imgui/ui_style.h>
 #include <core/rendering/render_path/editor_render_path.h>

@@ -15,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <initializer_list>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -69,7 +70,13 @@ static std::vector<uint8_t> downsample_normal_rgba8(const std::vector<uint8_t>& 
     std::vector<uint8_t> dst(static_cast<size_t>(r_nw) * r_nh * 4);
 
     auto texel = [&](uint32_t x, uint32_t y) { return &p_src[(static_cast<size_t>(y) * p_w + x) * 4]; };
-    auto decode = [](const uint8_t* p, float* r_n) { for (int ch = 0; ch < 3; ++ch) r_n[ch] += p[ch] / 127.5f - 1.0f; };
+    auto decode = [](const uint8_t* p, float* r_n) {
+        const float x = p[0] / 127.5f - 1.0f;
+        const float y = p[1] / 127.5f - 1.0f;
+        r_n[0] += x;
+        r_n[1] += y;
+        r_n[2] += std::sqrt(std::max(1.0f - x * x - y * y, 0.0f));
+    };
 
     for (uint32_t ny = 0; ny < r_nh; ++ny) for (uint32_t nx = 0; nx < r_nw; ++nx) {
         uint32_t x0 = nx * 2, x1 = (x0 + 1 < p_w) ? x0 + 1 : x0;
@@ -80,7 +87,8 @@ static std::vector<uint8_t> downsample_normal_rgba8(const std::vector<uint8_t>& 
         const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         const float inv = len > 1e-6f ? 1.0f / len : 0.0f;
         uint8_t* o = &dst[(static_cast<size_t>(ny) * r_nw + nx) * 4];
-        for (int ch = 0; ch < 3; ++ch) o[ch] = static_cast<uint8_t>(std::clamp((len > 1e-6f ? n[ch] * inv : (ch == 2 ? 1.0f : 0.0f)) * 127.5f + 127.5f, 0.0f, 255.0f) + 0.5f);
+        for (int ch = 0; ch < 2; ++ch) o[ch] = static_cast<uint8_t>(std::clamp((len > 1e-6f ? n[ch] * inv : 0.0f) * 127.5f + 127.5f, 0.0f, 255.0f) + 0.5f);
+        o[2] = 0;
         o[3] = 255;
     }
     return dst;
@@ -151,12 +159,20 @@ TextureUsage texture_usage_guess(const std::filesystem::path& p_src)
 {
     std::string stem = p_src.stem().string();
     std::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-    auto ends = [&](const char* p_suffix) {
-        const size_t n = std::strlen(p_suffix);
-        return stem.size() >= n && stem.compare(stem.size() - n, n, p_suffix) == 0;
+    std::vector<std::string> tokens(1);
+    for (char c : stem) {
+        if (c == '_' || c == '-' || c == ' ' || c == '.') {
+            if (!tokens.back().empty()) tokens.emplace_back();
+        } else {
+            tokens.back() += c;
+        }
+    }
+    auto any = [&](std::initializer_list<const char*> p_words) {
+        for (const std::string& t : tokens) for (const char* w : p_words) if (t == w) return true;
+        return false;
     };
-    if (ends("_n") || ends("_nrm") || ends("_normal") || ends("_ddn") || ends("_nor")) return TextureUsage::NORMAL;
-    if (ends("_orm") || ends("_arm") || ends("_rough") || ends("_roughness") || ends("_metal") || ends("_metallic") || ends("_ao") || ends("_mask") || ends("_metallicroughness")) return TextureUsage::MASK;
+    if (any({ "n", "nrm", "nor", "norm", "normal", "normals", "normalmap", "normalgl", "normaldx", "nrmgl", "nrmdx", "ddn" })) return TextureUsage::NORMAL;
+    if (any({ "orm", "arm", "rough", "roughness", "metal", "metallic", "metalness", "ao", "occlusion", "ambientocclusion", "mask", "metallicroughness", "specular", "gloss", "glossiness" })) return TextureUsage::MASK;
     return TextureUsage::COLOR;
 }
 
@@ -187,11 +203,15 @@ Error TextureCooker::_cook(const Job& p_job)
         channels = 1;
     }
     const bool normal = cs.usage == TextureUsage::NORMAL;
-    const FormatMap fmt = map_format(cs.usage, channels);
-
-    if (normal && cs.flip_green) {
-        for (size_t i = 1; i < mip0.size(); i += 4) mip0[i] = static_cast<uint8_t>(255 - mip0[i]);
+    if (normal) {
+        for (size_t i = 0; i < mip0.size(); i += 4) {
+            if (cs.flip_green) mip0[i + 1] = static_cast<uint8_t>(255 - mip0[i + 1]);
+            mip0[i + 2] = 0;
+            mip0[i + 3] = 255;
+        }
+        channels = 2;
     }
+    const FormatMap fmt = map_format(cs.usage, channels);
 
     auto downsample = [&](const std::vector<uint8_t>& p_src, uint32_t p_w, uint32_t p_h, uint32_t& r_nw, uint32_t& r_nh) {
         return normal ? downsample_normal_rgba8(p_src, p_w, p_h, r_nw, r_nh) : downsample_rgba8(p_src, p_w, p_h, r_nw, r_nh, fmt.srgb);

@@ -12,7 +12,7 @@ struct PostProcessFeature : Feature
 
     Tonemapper tonemapper = TONEMAPPER_AGX;
     float exposure_compensation_ev = 0.0f;
-    bool dither = true;
+    const char* _source = "SceneColor";
 
     RenderGraph::Pass composite_pass;
     drivers::DeviceDriverVulkan::Pipeline composite_pipe;

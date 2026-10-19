@@ -32,6 +32,7 @@ void LightingFeature::_create_lighting_pass()
         b.read_buffer("SkyLighting", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("AerialPerspective", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("SkyView", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (local_lights) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
             b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -55,8 +56,9 @@ void LightingFeature::_create_lighting_pass()
         auto* sky_lighting = cl.graph->buffer("SkyLighting");
         auto* transmittance = cl.graph->image("TransmittanceLut");
         auto* aerial = cl.graph->image("AerialPerspective");
+        auto* skyview = cl.graph->image("SkyView");
         if (!depth || !albedo || !normal || !material || !emissive || !camera || !lights || !out) return;
-        if (!atmosphere || !sky_lighting || !transmittance || !aerial || !lut_sampler) return;
+        if (!atmosphere || !sky_lighting || !transmittance || !aerial || !skyview || !lut_sampler) return;
         const bool local_lights = cull && sorted;
         const uint32_t mode = !local_lights ? LIGHT_MODE_NONE : (masks ? LIGHT_MODE_TILED : LIGHT_MODE_ZBIN);
 
@@ -80,6 +82,9 @@ void LightingFeature::_create_lighting_pass()
             uint32_t transmittance_index;
             uint32_t aerial_index;
             uint32_t sampler_index;
+            uint32_t skyview_index;
+            float sun_reject_cos;
+            float moon_reject_cos;
         } pc{};
         pc.camera_addr = camera->device_address;
         pc.lights_addr = lights->device_address;
@@ -100,6 +105,10 @@ void LightingFeature::_create_lighting_pass()
         pc.transmittance_index = transmittance->bindless_sampled;
         pc.aerial_index = aerial->bindless_sampled;
         pc.sampler_index = *lut_sampler;
+        pc.skyview_index = skyview->bindless_sampled;
+        const float pixel_angle = 2.0f * ctx->frame->camera.tan_half_fov_y / (float)pc.height;
+        pc.sun_reject_cos = std::cos(std::min(AtmosphereComponent::SUN_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
+        pc.moon_reject_cos = std::cos(std::min(AtmosphereComponent::MOON_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
 
         cl.dd->command_bind_pipeline(cl.cmd, lighting_pipes[mode]);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -107,67 +116,9 @@ void LightingFeature::_create_lighting_pass()
     };
 }
 
-void LightingFeature::_create_sky_pass()
-{
-    sky_pass.name = "Sky";
-    sky_pass.category = PASS_CATEGORY_LIGHTING;
-    sky_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image("G_Material", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
-        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image("SkyView", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-    };
-    sky_pass.execute = [this](RenderGraph::CommandList& cl) {
-        auto* depth = cl.graph->image("G_Depth");
-        auto* material = cl.graph->image("G_Material");
-        auto* camera = cl.graph->buffer("Camera");
-        auto* atmosphere = cl.graph->buffer("Atmosphere");
-        auto* transmittance = cl.graph->image("TransmittanceLut");
-        auto* skyview = cl.graph->image("SkyView");
-        auto* out = cl.graph->image("SceneColor");
-        if (!depth || !material || !camera || !atmosphere || !transmittance || !skyview || !out || !lut_sampler) return;
-
-        struct Push {
-            VkDeviceAddress camera_addr;
-            VkDeviceAddress atmosphere_addr;
-            uint32_t depth_index;
-            uint32_t material_index;
-            uint32_t out_slot;
-            uint32_t width;
-            uint32_t height;
-            uint32_t transmittance_index;
-            uint32_t skyview_index;
-            uint32_t sampler_index;
-            float sun_reject_cos;
-            float moon_reject_cos;
-        } pc{};
-        pc.camera_addr = camera->device_address;
-        pc.atmosphere_addr = atmosphere->device_address;
-        pc.depth_index = depth->bindless_sampled;
-        pc.material_index = material->bindless_sampled;
-        pc.out_slot = out->bindless_storage;
-        pc.width = out->extent.width;
-        pc.height = out->extent.height;
-        pc.transmittance_index = transmittance->bindless_sampled;
-        pc.skyview_index = skyview->bindless_sampled;
-        pc.sampler_index = *lut_sampler;
-        const float pixel_angle = 2.0f * ctx->frame->camera.tan_half_fov_y / (float)pc.height;
-        pc.sun_reject_cos = std::cos(std::min(AtmosphereComponent::SUN_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
-        pc.moon_reject_cos = std::cos(std::min(AtmosphereComponent::MOON_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
-
-        cl.dd->command_bind_pipeline(cl.cmd, sky_pipe);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Sky", (pc.width + 7) / 8, (pc.height + 7) / 8);
-    };
-}
-
 Error LightingFeature::create_resources()
 {
     _create_lighting_pass();
-    _create_sky_pass();
     return Error::OK;
 }
 
@@ -182,25 +133,18 @@ Error LightingFeature::create_pipelines()
         lighting_pipes[m] = ctx->dd->compute_pipeline_create({ .compute_shader = cs, .name = NAMES[m], .specialization = &spec });
     }
     ctx->dd->shader_free(cs);
-
-    EmbeddedResource::Blob sky_blob = EmbeddedResource::load(L"SHADERS_ATMOSPHERE_SKY_COMP");
-    VkShaderModule sky_cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)sky_blob.data, .glsl_size = sky_blob.size, .name = "atmosphere/sky.comp" });
-    sky_pipe = ctx->dd->compute_pipeline_create({ .compute_shader = sky_cs, .name = "atmosphere/sky" });
-    ctx->dd->shader_free(sky_cs);
     return Error::OK;
 }
 
 void LightingFeature::destroy_resources()
 {
     for (drivers::DeviceDriverVulkan::Pipeline& p : lighting_pipes) ctx->dd->pipeline_free(p);
-    ctx->dd->pipeline_free(sky_pipe);
 }
 
 void LightingFeature::build(RenderGraph& g)
 {
     if (!g.image_resource("G_Albedo")) return;
     g.add(&lighting_pass);
-    g.add(&sky_pass);
 }
 
 }

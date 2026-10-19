@@ -65,6 +65,11 @@ struct FrameData
     float px_per_unit = 1.0f;
     bool hiz_history_valid = false;
 
+    uint32_t output_width = 0;
+    uint32_t output_height = 0;
+    float texture_grad_scale = 1.0f;
+    bool taa_reset = true;
+
     CameraUniform camera{};
 
     GpuAtmosphere atmosphere{};

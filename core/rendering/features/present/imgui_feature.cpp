@@ -6,13 +6,20 @@
 
 namespace lumen {
 
+const char* ImGuiFeature::viewport_image(RenderGraph& g) const
+{
+    if (viewport && g.image_resource(viewport)) return viewport;
+    if (viewport_fallback && g.image_resource(viewport_fallback)) return viewport_fallback;
+    return nullptr;
+}
+
 Error ImGuiFeature::create_resources()
 {
     ui_pass.name = "ImGui_UI";
     ui_pass.category = PASS_CATEGORY_UI;
     ui_pass.setup = [this](RenderGraph::Builder& b) {
         b.color_attachment("Backbuffer", VK_ATTACHMENT_LOAD_OP_CLEAR, { { 0.1f, 0.1f, 0.1f, 1.0f } });
-        if (viewport && b.graph->image_resource(viewport)) b.read_image(viewport, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        if (const char* image = viewport_image(*b.graph)) b.read_image(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     };
     ui_pass.execute = [this](RenderGraph::CommandList& cl) {
         ctx->imgui->record_commands(cl.cmd);

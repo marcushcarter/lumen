@@ -44,5 +44,6 @@ void main() {
     const mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
     const vec3 world = model[0].xyz * p.x + model[1].xyz * p.y + model[2].xyz * p.z + model[3].xyz;
     gl_Position = pc.camera.curr_view_proj * vec4(world, 1.0);
+    gl_Position.xy -= pc.camera.jitter.xy * gl_Position.w;
     v_id = instance.entity_id + 1u;
 }

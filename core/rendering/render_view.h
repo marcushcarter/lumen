@@ -14,11 +14,21 @@ struct RenderPath;
 
 struct RenderView
 {
+    static constexpr float MIN_RENDER_SCALE = 0.25f;
+    static constexpr float MAX_RENDER_SCALE = 2.0f;
+    static constexpr uint32_t MIN_JITTER_PHASES = 8;
+    static constexpr uint32_t MAX_JITTER_PHASES = 64;
+
     RenderGraph graph;
     RenderPath* path = nullptr;
 
     uint32_t width = 0;
     uint32_t height = 0;
+    uint32_t output_width = 0;
+    uint32_t output_height = 0;
+    float render_scale = 1.0f;
+    bool jitter = false;
+    uint32_t jitter_index = 0;
 
     std::vector<drivers::DeviceDriverVulkan::Buffer> instance_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;

@@ -1,5 +1,7 @@
 #include <core/rendering/features/editor/debug_view_feature.h>
 #include <core/rendering/features/editor/debug_view.h>
+#include <core/rendering/features/post/post_process_feature.h>
+#include <string_view>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/io/embedded_resource.h>
@@ -8,10 +10,23 @@ namespace lumen {
 
 static constexpr uint32_t INVALID_OP = 0xFFFFFFFFu;
 
-void DebugViewFeature::_create_viewport(RenderGraph::Builder& b)
+void DebugViewFeature::_create_viewport(RenderGraph::Builder& b, const char* p_size_from)
 {
     if (b.graph->image_resource("Viewport")) return;
     drivers::DeviceDriverVulkan::ImageCreateInfo vp_ci{};
+    if (const RenderGraph::ImageResource* src = p_size_from ? b.graph->image_resource(p_size_from) : nullptr) {
+        if (src->kind == RenderGraph::ResourceKind::IMPORTED && src->image) {
+            vp_ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
+            vp_ci.fixed_width = src->image->extent.width;
+            vp_ci.fixed_height = src->image->extent.height;
+        } else {
+            vp_ci.sizing = src->image_create_info.sizing;
+            vp_ci.width_scale = src->image_create_info.width_scale;
+            vp_ci.height_scale = src->image_create_info.height_scale;
+            vp_ci.fixed_width = src->image_create_info.fixed_width;
+            vp_ci.fixed_height = src->image_create_info.fixed_height;
+        }
+    }
     vp_ci.name = "Viewport";
     vp_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     vp_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -21,7 +36,7 @@ void DebugViewFeature::_create_viewport(RenderGraph::Builder& b)
 void DebugViewFeature::_overdraw_raster_setup(RenderGraph::Builder& b, uint32_t phase)
 {
     const VkAttachmentLoadOp load = phase == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-    _create_viewport(b);
+    _create_viewport(b, nullptr);
     b.color_attachment("Viewport", load, VkClearValue{.color = {.float32 = {0.0f, 0.0f, 0.0f, 0.0f}}});
     b.depth_attachment("G_Depth", load, VkClearValue{.depthStencil = {0.0f, 0}});
     b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
@@ -87,7 +102,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
     viewport_resolve_pass.setup = [this](RenderGraph::Builder& b) {
         const DebugView& d = DEBUG_VIEWS[pass_view];
 
-        _create_viewport(b);
+        _create_viewport(b, d.op == DebugViewOp::COPY ? d.image : nullptr);
         
         if (d.inputs & DebugViewInputs::SOURCE)
             b.read_image(d.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
@@ -262,6 +277,8 @@ void DebugViewFeature::build(RenderGraph& g)
         g.add(&overdraw_raster_pass);
         g.add(&overdraw_raster_pass_2);
     }
+    const DebugView& d = DEBUG_VIEWS[pass_view];
+    if (d.op == DebugViewOp::COPY && d.image && std::string_view(d.image) == PostProcessFeature::DISPLAY_COLOR) return;
     g.add(&viewport_resolve_pass);
 };
 

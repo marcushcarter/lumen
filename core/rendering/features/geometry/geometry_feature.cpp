@@ -852,6 +852,7 @@ void GeometryFeature::_create_material_resolve_pass()
             uint32_t height;
             uint32_t flags;
             uint32_t sampler_index;
+            float grad_scale;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -871,6 +872,7 @@ void GeometryFeature::_create_material_resolve_pass()
         const RenderGraph::ImageResource* custom_res = cl.graph->image_resource("G_Custom");
         pc.flags = (motion_res && motion_res->read ? RESOLVE_WRITE_MOTION : 0u) | (custom_res && custom_res->read ? RESOLVE_WRITE_CUSTOM : 0u);
         pc.sampler_index = material_sampler.bindless_sampler;
+        pc.grad_scale = ctx->frame->texture_grad_scale;
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});

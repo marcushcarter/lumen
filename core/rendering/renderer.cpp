@@ -99,9 +99,10 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     err = _view_create_buffers(main_view);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    main_view.jitter = true;
     set_size(1, 1);
-    pending_width = main_view.width;
-    pending_height = main_view.height;
+    pending_width = main_view.output_width;
+    pending_height = main_view.output_height;
 
     return OK;
 }
@@ -230,16 +231,36 @@ void Renderer::_view_collect_hiz(RenderView& r_view, bool p_all)
     }
 }
 
+static void _internal_size(const RenderView& p_view, uint32_t p_width, uint32_t p_height, uint32_t& r_width, uint32_t& r_height)
+{
+    const float scale = std::clamp(p_view.render_scale, RenderView::MIN_RENDER_SCALE, RenderView::MAX_RENDER_SCALE);
+    r_width = std::max(1u, (uint32_t)std::lround((float)p_width * scale));
+    r_height = std::max(1u, (uint32_t)std::lround((float)p_height * scale));
+}
+
+static bool _size_matches(const RenderView& p_view, uint32_t p_width, uint32_t p_height)
+{
+    uint32_t w, h;
+    _internal_size(p_view, p_width, p_height, w, h);
+    return p_width == p_view.output_width && p_height == p_view.output_height && w == p_view.width && h == p_view.height;
+}
+
 Error Renderer::_view_set_size(RenderView& r_view, uint32_t p_width, uint32_t p_height)
 {
     using enum Error;
 
     if (p_width == 0 || p_height == 0) return OK;
-    if (p_width == r_view.width && p_height == r_view.height) return OK;
-    r_view.width = p_width;
-    r_view.height = p_height;
+    if (_size_matches(r_view, p_width, p_height)) return OK;
+    uint32_t w, h;
+    _internal_size(r_view, p_width, p_height, w, h);
+    r_view.output_width = p_width;
+    r_view.output_height = p_height;
+    r_view.camera_cut_pending = true;
+    if (w == r_view.width && h == r_view.height) return OK;
+    r_view.width = w;
+    r_view.height = h;
 
-    Error err = r_view.graph.set_size(p_width, p_height);
+    Error err = r_view.graph.set_size(w, h);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     if (r_view.hiz_pyramid.image) r_view.hiz_retired.emplace_back(frame_number, std::move(r_view.hiz_pyramid));
@@ -252,7 +273,7 @@ Error Renderer::_view_set_size(RenderView& r_view, uint32_t p_width, uint32_t p_
 Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
 {
     if (p_width == 0 || p_height == 0) return Error::OK;
-    if (p_width == main_view.width && p_height == main_view.height) return Error::OK;
+    if (_size_matches(main_view, p_width, p_height)) return Error::OK;
     resize_epoch++;
     return _view_set_size(main_view, p_width, p_height);
 }
@@ -266,9 +287,10 @@ void Renderer::request_size(uint32_t p_width, uint32_t p_height)
 Error Renderer::apply_pending_size()
 {
     if (pending_width == 0 || pending_height == 0) return Error::OK;
-    if (pending_width == main_view.width && pending_height == main_view.height) return Error::OK;
+    if (_size_matches(main_view, pending_width, pending_height)) return Error::OK;
+    if (pending_width == main_view.output_width && pending_height == main_view.output_height) return set_size(pending_width, pending_height);
 
-    if (main_view.width > 1 && main_view.height > 1) {
+    if (main_view.output_width > 1 && main_view.output_height > 1) {
         if (pending_width != settle_width || pending_height != settle_height) {
             settle_width = pending_width;
             settle_height = pending_height;
@@ -387,6 +409,18 @@ static float _cycle_ev100(float p_sun_altitude_deg)
     const float t2 = t * t;
     const float t3 = t2 * t;
     return (2.0f * t3 - 3.0f * t2 + 1.0f) * KEYS[i][1] + (t3 - 2.0f * t2 + t) * h * tangent(i) + (-2.0f * t3 + 3.0f * t2) * KEYS[i + 1][1] + (t3 - t2) * h * tangent(i + 1);
+}
+
+static float _halton(uint32_t p_index, uint32_t p_base)
+{
+    float f = 1.0f;
+    float r = 0.0f;
+    while (p_index > 0) {
+        f /= (float)p_base;
+        r += f * (float)(p_index % p_base);
+        p_index /= p_base;
+    }
+    return r;
 }
 
 static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)
@@ -516,10 +550,30 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 
     // Camera.
     {
-        const float aspect = height ? (float)width / (float)height : 1.0f;
+        const uint32_t out_w = r_view.output_width ? r_view.output_width : width;
+        const uint32_t out_h = r_view.output_height ? r_view.output_height : height;
+        const float aspect = out_h ? (float)out_w / (float)out_h : 1.0f;
+        const float ratio = out_w ? (float)width / (float)out_w : 1.0f;
         const mat4 prev_vp = frame.camera.curr_view_proj;
-        frame.camera.curr_view_proj = camera.view_proj(aspect);
+        const vec2 prev_jitter = vec2(frame.camera.jitter);
+
+        vec2 jitter(0.0f);
+        if (r_view.jitter && width && height) {
+            const uint32_t phases = std::clamp((uint32_t)std::lround((float)RenderView::MIN_JITTER_PHASES / (ratio * ratio)), RenderView::MIN_JITTER_PHASES, RenderView::MAX_JITTER_PHASES);
+            r_view.jitter_index = (r_view.jitter_index + 1) % phases;
+            jitter = (vec2(_halton(r_view.jitter_index + 1, 2), _halton(r_view.jitter_index + 1, 3)) - 0.5f) * 2.0f / vec2((float)width, (float)height);
+        }
+        mat4 jitter_mtx(1.0f);
+        jitter_mtx[3][0] = jitter.x;
+        jitter_mtx[3][1] = jitter.y;
+
+        frame.camera.curr_view_proj = jitter_mtx * camera.view_proj(aspect);
         frame.camera.prev_view_proj = r_view.camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
+        frame.camera.jitter = vec4(jitter, r_view.camera_cut_pending ? jitter : prev_jitter);
+        frame.output_width = out_w;
+        frame.output_height = out_h;
+        frame.texture_grad_scale = r_view.jitter ? ratio * 0.70710678f : 1.0f;
+        frame.taa_reset = r_view.camera_cut_pending;
         frame.camera.position = vec4(camera.position, 1.0f);
         extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
         frame.camera.near_z = camera.near_z;

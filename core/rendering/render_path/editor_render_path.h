@@ -19,6 +19,7 @@ struct EditorRenderPath : SceneRenderPath
 
     EditorRenderPath() {
         ui.viewport = "Viewport";
+        ui.viewport_fallback = PostProcessFeature::DISPLAY_COLOR;
         features.push_back(&debug);
         features.push_back(&outline);
         features.push_back(&pick);
@@ -27,4 +28,4 @@ struct EditorRenderPath : SceneRenderPath
     }
 };
 
-}
+}

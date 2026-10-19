@@ -29,6 +29,7 @@ struct CameraUniform {
     float tan_half_fov_y;
     float pre_exposure;
     mat4 inv_view_proj;
+    vec4 jitter;
 };
 
 struct Instance {

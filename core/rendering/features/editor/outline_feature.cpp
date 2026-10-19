@@ -1,4 +1,5 @@
 #include <core/rendering/features/editor/outline_feature.h>
+#include <core/rendering/features/post/post_process_feature.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/io/embedded_resource.h>
 #include <algorithm>
@@ -16,6 +17,13 @@ void OutlineFeature::set_selection(const Entity* p_entities, uint32_t p_count)
     for (uint32_t i = 0; i < p_count; i++) words[p_entities[i].index >> 5] |= 1u << (p_entities[i].index & 31);
     selected_count = p_count;
     version++;
+}
+
+static const char* _target(RenderGraph& g)
+{
+    if (g.image_resource("Viewport")) return "Viewport";
+    if (g.image_resource(PostProcessFeature::DISPLAY_COLOR)) return PostProcessFeature::DISPLAY_COLOR;
+    return nullptr;
 }
 
 bool OutlineFeature::_pixel_rect(VkExtent2D p_extent, uint32_t (&r_rect)[4]) const
@@ -95,13 +103,27 @@ void OutlineFeature::_create_raster_pass()
     raster_pass.name = "SelectionRaster";
     raster_pass.category = PASS_CATEGORY_EDITOR;
     raster_pass.setup = [](RenderGraph::Builder& b) {
+        drivers::DeviceDriverVulkan::ImageCreateInfo size_ci{};
+        const char* target = _target(*b.graph);
+        if (const RenderGraph::ImageResource* vp = target ? b.graph->image_resource(target) : nullptr; vp && vp->kind == RenderGraph::ResourceKind::TRANSIENT) size_ci = vp->image_create_info;
+
         drivers::DeviceDriverVulkan::ImageCreateInfo id_ci{};
+        id_ci.sizing = size_ci.sizing;
+        id_ci.width_scale = size_ci.width_scale;
+        id_ci.height_scale = size_ci.height_scale;
+        id_ci.fixed_width = size_ci.fixed_width;
+        id_ci.fixed_height = size_ci.fixed_height;
         id_ci.name = "SelectionId";
         id_ci.format = VK_FORMAT_R32_UINT;
         id_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("SelectionId", id_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo depth_ci{};
+        depth_ci.sizing = size_ci.sizing;
+        depth_ci.width_scale = size_ci.width_scale;
+        depth_ci.height_scale = size_ci.height_scale;
+        depth_ci.fixed_width = size_ci.fixed_width;
+        depth_ci.fixed_height = size_ci.fixed_height;
         depth_ci.name = "SelectionDepth";
         depth_ci.format = VK_FORMAT_D32_SFLOAT;
         depth_ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -151,11 +173,11 @@ void OutlineFeature::_create_outline_pass()
     outline_pass.category = PASS_CATEGORY_EDITOR;
     outline_pass.setup = [](RenderGraph::Builder& b) {
         b.read_image("SelectionId", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.write_image("Viewport", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_image(_target(*b.graph), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     outline_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* ids = cl.graph->image("SelectionId");
-        auto* out = cl.graph->image("Viewport");
+        auto* out = cl.graph->image(_target(*cl.graph));
         if (!ids || !out) return;
 
         struct Push {
@@ -248,7 +270,7 @@ void OutlineFeature::build(RenderGraph& g)
 {
     if (mask_buffers.empty()) return;
     if (selected_count == 0 || rect_max.x <= rect_min.x || rect_max.y <= rect_min.y) return;
-    if (!g.image_resource("Viewport") || !g.buffer_resource("ClusterRefs") || !g.buffer_resource("ClusterCullArgs")) return;
+    if (!_target(g) || !g.buffer_resource("ClusterRefs") || !g.buffer_resource("ClusterCullArgs")) return;
 
     const uint32_t slot = g.current_frame;
     drivers::DeviceDriverVulkan::Buffer& buf = mask_buffers[slot];

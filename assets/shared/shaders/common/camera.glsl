@@ -14,6 +14,7 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     float tan_half_fov_y;
     float pre_exposure;
     mat4 inv_view_proj;
+    vec4 jitter;
 };
 
 bool frustum_cull_sphere(CameraBuffer p_camera, vec3 p_center, float p_radius) {

@@ -1,0 +1,179 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/tonemap.glsl"
+
+const int GROUP_X = 16;
+const int GROUP_Y = 8;
+const int MAX_RATIO = 2;
+const int TILE_MAX_X = GROUP_X * MAX_RATIO + 4;
+const int TILE_MAX_Y = GROUP_Y * MAX_RATIO + 4;
+
+layout(local_size_x = GROUP_X, local_size_y = GROUP_Y) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant) uniform Push {
+    uint color_index;
+    uint motion_index;
+    uint depth_index;
+    uint history_index;
+    uint out_slot;
+    uint sampler_index;
+    uint in_width;
+    uint in_height;
+    uint out_width;
+    uint out_height;
+    vec2 jitter_px;
+    uint reset;
+    uint display_slot;
+    uint tonemapper;
+    float exposure_scale;
+} pc;
+
+const float BLEND = 0.1;
+const float BLEND_MIN = 0.02;
+const float CLIP_GAMMA = 1.25;
+const float KERNEL = 2.29;
+
+shared uvec2 s_color[TILE_MAX_X * TILE_MAX_Y];
+shared float s_depth[TILE_MAX_X * TILE_MAX_Y];
+
+vec3 rgb_to_ycocg(vec3 c) { return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b); }
+vec3 ycocg_to_rgb(vec3 c) { return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
+vec3 tonemap(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
+vec3 untonemap(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4); }
+
+vec3 history_tap(vec2 p_uv) {
+    return textureLod(sampler2D(u_textures[pc.history_index], u_samplers[pc.sampler_index]), p_uv, 0.0).rgb;
+}
+
+vec3 sample_history(vec2 p_uv) {
+    const vec2 size = vec2(pc.out_width, pc.out_height);
+    const vec2 pos = p_uv * size;
+    const vec2 tc1 = floor(pos - 0.5) + 0.5;
+    const vec2 f = pos - tc1;
+    const vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    const vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    const vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    const vec2 w3 = f * f * (-0.5 + 0.5 * f);
+    const vec2 w12 = w1 + w2;
+    const vec2 tc0 = (tc1 - 1.0) / size;
+    const vec2 tc3 = (tc1 + 2.0) / size;
+    const vec2 tc12 = (tc1 + w2 / w12) / size;
+
+    vec3 c = history_tap(vec2(tc12.x, tc0.y)) * (w12.x * w0.y);
+    c += history_tap(vec2(tc0.x, tc12.y)) * (w0.x * w12.y);
+    c += history_tap(tc12) * (w12.x * w12.y);
+    c += history_tap(vec2(tc3.x, tc12.y)) * (w3.x * w12.y);
+    c += history_tap(vec2(tc12.x, tc3.y)) * (w12.x * w3.y);
+    const float w = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+    return max(c / w, vec3(0.0));
+}
+
+vec3 clip_aabb(vec3 p_min, vec3 p_max, vec3 p_c) {
+    const vec3 center = 0.5 * (p_max + p_min);
+    const vec3 extent = 0.5 * (p_max - p_min) + 1e-5;
+    const vec3 v = p_c - center;
+    const vec3 a = abs(v / extent);
+    const float m = max(a.x, max(a.y, a.z));
+    return m > 1.0 ? center + v / m : p_c;
+}
+
+ivec2 center_of(vec2 p_out_px, vec2 p_ratio) {
+    return ivec2(floor(p_out_px * p_ratio + pc.jitter_px));
+}
+
+void main() {
+    const vec2 in_size = vec2(pc.in_width, pc.in_height);
+    const vec2 out_size = vec2(pc.out_width, pc.out_height);
+    const vec2 ratio = in_size / out_size;
+    const ivec2 in_max = ivec2(in_size) - 1;
+
+    const ivec2 group_min = ivec2(gl_WorkGroupID.xy) * ivec2(GROUP_X, GROUP_Y);
+    const ivec2 tile_origin = center_of(vec2(group_min) + 0.5, ratio) - 1;
+    const ivec2 tile_end = center_of(vec2(group_min + ivec2(GROUP_X, GROUP_Y) - 1) + 0.5, ratio) + 2;
+    const ivec2 tile_size = min(tile_end - tile_origin, ivec2(TILE_MAX_X, TILE_MAX_Y));
+    const int tile_count = tile_size.x * tile_size.y;
+
+    for (int i = int(gl_LocalInvocationIndex); i < tile_count; i += GROUP_X * GROUP_Y) {
+        const ivec2 s = clamp(tile_origin + ivec2(i % tile_size.x, i / tile_size.x), ivec2(0), in_max);
+        const vec3 ycc = rgb_to_ycocg(tonemap(max(texelFetch(u_textures[pc.color_index], s, 0).rgb, vec3(0.0))));
+        s_color[i] = uvec2(packHalf2x16(ycc.xy), packHalf2x16(vec2(ycc.z, 0.0)));
+        s_depth[i] = texelFetch(u_textures[pc.depth_index], s, 0).r;
+    }
+    barrier();
+
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.out_width) || p.y >= int(pc.out_height)) return;
+
+    const vec2 uv = (vec2(p) + 0.5) / out_size;
+    const vec2 q = uv * in_size;
+    const ivec2 center = center_of(vec2(p) + 0.5, ratio);
+    const ivec2 local = clamp(center - tile_origin, ivec2(1), tile_size - 2);
+    const vec2 to_out = 1.0 / ratio;
+    const float kernel_scale = min(1.0, to_out.x);
+
+    float wx[3];
+    float wy[3];
+    float near_x = 1e9;
+    float near_y = 1e9;
+    for (int k = 0; k < 3; ++k) {
+        const vec2 d = vec2(center + (k - 1)) + 0.5 - pc.jitter_px - q;
+        const vec2 dk = d * kernel_scale;
+        wx[k] = exp(-KERNEL * dk.x * dk.x);
+        wy[k] = exp(-KERNEL * dk.y * dk.y);
+        const vec2 d_out = d * to_out;
+        near_x = min(near_x, d_out.x * d_out.x);
+        near_y = min(near_y, d_out.y * d_out.y);
+    }
+
+    vec3 sum = vec3(0.0);
+    float weight_sum = 0.0;
+    vec3 m1 = vec3(0.0);
+    vec3 m2 = vec3(0.0);
+    float closest_depth = -1.0;
+    ivec2 closest = local;
+    for (int y = 0; y < 3; ++y) {
+        for (int x = 0; x < 3; ++x) {
+            const ivec2 l = local + ivec2(x - 1, y - 1);
+            const int idx = l.y * tile_size.x + l.x;
+            const uvec2 packed = s_color[idx];
+            const vec3 ycc = vec3(unpackHalf2x16(packed.x), unpackHalf2x16(packed.y).x);
+            const float w = wx[x] * wy[y];
+            sum += ycc * w;
+            weight_sum += w;
+            m1 += ycc;
+            m2 += ycc * ycc;
+            const float depth = s_depth[idx];
+            if (depth > closest_depth) {
+                closest_depth = depth;
+                closest = l;
+            }
+        }
+    }
+
+    const vec3 current = sum / max(weight_sum, 1e-5);
+    vec3 result = current;
+
+    const ivec2 motion_px = clamp(tile_origin + closest, ivec2(0), in_max);
+    const vec2 prev_uv = uv - texelFetch(u_textures[pc.motion_index], motion_px, 0).rg;
+    const bool offscreen = any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)));
+    if (pc.reset == 0u && !offscreen) {
+        const vec3 mean = m1 / 9.0;
+        const vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
+        const vec3 history = clip_aabb(mean - CLIP_GAMMA * sigma, mean + CLIP_GAMMA * sigma, rgb_to_ycocg(tonemap(sample_history(prev_uv))));
+
+        const float confidence = exp(-KERNEL * (near_x + near_y));
+        const float density = max(1.0, ratio.x * ratio.y);
+        const float alpha = clamp(BLEND * confidence * density, BLEND_MIN, 1.0);
+        result = mix(history, current, alpha);
+    }
+
+    const vec3 hdr = untonemap(ycocg_to_rgb(result));
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(hdr, 1.0));
+    imageStore(u_storage_rgba16f[pc.display_slot], p, display_output(hdr * pc.exposure_scale, pc.tonemapper, p));
+}

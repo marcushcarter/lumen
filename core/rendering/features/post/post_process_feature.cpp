@@ -1,4 +1,6 @@
 #include <core/rendering/features/post/post_process_feature.h>
+#include <core/rendering/features/post/taa_feature.h>
+#include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
 #include <cmath>
 
@@ -8,17 +10,23 @@ void PostProcessFeature::_create_composite_pass()
 {
     composite_pass.name = "Composite";
     composite_pass.category = PASS_CATEGORY_POST;
-    composite_pass.setup = [](RenderGraph::Builder& b) {
+    composite_pass.setup = [this](RenderGraph::Builder& b) {
+        _source = b.graph->image_resource(TAAFeature::OUTPUT) ? TAAFeature::OUTPUT : "SceneColor";
         drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
         ci.name = DISPLAY_COLOR;
         ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
         ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        if (ctx->frame->output_width && ctx->frame->output_height) {
+            ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
+            ci.fixed_width = ctx->frame->output_width;
+            ci.fixed_height = ctx->frame->output_height;
+        }
         b.create_image(DISPLAY_COLOR, ci);
-        b.read_image("SceneColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image(_source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image(DISPLAY_COLOR, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     composite_pass.execute = [this](RenderGraph::CommandList& cl) {
-        auto* src = cl.graph->image("SceneColor");
+        auto* src = cl.graph->image(_source);
         auto* out = cl.graph->image(DISPLAY_COLOR);
         if (!src || !out) return;
 
@@ -28,16 +36,18 @@ void PostProcessFeature::_create_composite_pass()
             uint32_t width;
             uint32_t height;
             uint32_t tonemapper;
-            uint32_t dither;
             float exposure_scale;
+            uint32_t src_width;
+            uint32_t src_height;
         } pc{};
         pc.src_index = src->bindless_sampled;
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
         pc.tonemapper = (uint32_t)tonemapper;
-        pc.dither = dither ? 1u : 0u;
         pc.exposure_scale = std::exp2(exposure_compensation_ev);
+        pc.src_width = src->extent.width;
+        pc.src_height = src->extent.height;
 
         cl.dd->command_bind_pipeline(cl.cmd, composite_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -67,7 +77,7 @@ void PostProcessFeature::destroy_resources()
 
 void PostProcessFeature::build(RenderGraph& g)
 {
-    if (!g.image_resource("SceneColor")) return;
+    if (!g.image_resource("SceneColor") || g.image_resource(DISPLAY_COLOR)) return;
     g.add(&composite_pass);
 }
 

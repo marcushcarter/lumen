@@ -87,12 +87,12 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
     static constexpr size_t MAX_BOUNDED = 4096;
     const World& world = *ctx.world;
     const Renderer& renderer = *ctx.renderer;
-    if (ctx.selection->entities.size() > MAX_BOUNDED || renderer.main_view.width == 0 || renderer.main_view.height == 0) {
+    if (ctx.selection->entities.size() > MAX_BOUNDED || renderer.main_view.output_width == 0 || renderer.main_view.output_height == 0) {
         r_outline.set_rect(vec2(0.0f), vec2(1.0f));
         return;
     }
     const Camera& cam = renderer.main_view.camera;
-    const mat4 view_proj = cam.view_proj((float)renderer.main_view.width / (float)renderer.main_view.height);
+    const mat4 view_proj = cam.view_proj((float)renderer.main_view.output_width / (float)renderer.main_view.output_height);
     vec2 lo(FLT_MAX);
     vec2 hi(-FLT_MAX);
     bool full = false;
@@ -201,7 +201,15 @@ void Viewport::_draw_image(EditorContext& ctx)
         ctx.renderer->request_size(w, h);
     }
     
-    RenderGraph::ImageResource* sel = ctx.renderer->main_view.graph.image_resource("Viewport");
+    if (ctx.render_path) {
+        const DebugView& view = DEBUG_VIEWS[selected_view];
+        const bool lit = view.op == DebugViewOp::COPY && view.image && std::strcmp(view.image, PostProcessFeature::DISPLAY_COLOR) == 0;
+        ctx.render_path->taa.suppressed = !lit;
+        ctx.renderer->main_view.jitter = ctx.render_path->taa.enabled && lit;
+    }
+
+    const char* vp_image = ctx.render_path ? ctx.render_path->ui.viewport_image(ctx.renderer->main_view.graph) : nullptr;
+    RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
     VkImageView sel_view = VK_NULL_HANDLE;
     if (sel && sel->image && sel->image->state.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) sel_view = sel->image->image_view;
     
@@ -234,6 +242,8 @@ void Viewport::_draw_image(EditorContext& ctx)
     left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
     if (left_overlay.begin_menu(ICON_FA_BARS)) {
         ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
+        float internal = ctx.renderer->main_view.render_scale * 100.0f;
+        if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
         ImGui::SliderFloat("LOD Bias", &ctx.renderer->main_view.lod_bias, 0.25f, 4.0f);
         if (ctx.render_path) {
             GeometryFeature& geo = ctx.render_path->geometry;
@@ -243,7 +253,7 @@ void Viewport::_draw_image(EditorContext& ctx)
             ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
             ImGui::Checkbox("Task Shading", &geo.task_shading);
             ImGui::Separator();
-            ImGui::Checkbox("Dither", &ctx.render_path->post.dither);
+            ImGui::Checkbox("TAA", &ctx.render_path->taa.enabled);
         }
         left_overlay.end_menu();
     }

@@ -1,0 +1,170 @@
+#include <core/rendering/features/post/taa_feature.h>
+#include <core/rendering/features/post/post_process_feature.h>
+#include <core/rendering/frame_data.h>
+#include <core/io/embedded_resource.h>
+#include <cmath>
+
+namespace lumen {
+
+void TAAFeature::_create_resolve_pass()
+{
+    resolve_pass.name = "TAA";
+    resolve_pass.category = PASS_CATEGORY_POST;
+    resolve_pass.setup = [this](RenderGraph::Builder& b) {
+        drivers::DeviceDriverVulkan::ImageCreateInfo display_ci{};
+        display_ci.name = PostProcessFeature::DISPLAY_COLOR;
+        display_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        display_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        display_ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
+        display_ci.fixed_width = history[0].extent.width;
+        display_ci.fixed_height = history[0].extent.height;
+        b.create_image(PostProcessFeature::DISPLAY_COLOR, display_ci);
+        b.write_image(PostProcessFeature::DISPLAY_COLOR, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.read_image("SceneColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("G_Motion", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image(HISTORY, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.write_image(OUTPUT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    };
+    resolve_pass.execute = [this](RenderGraph::CommandList& cl) {
+        auto* color = cl.graph->image("SceneColor");
+        auto* motion = cl.graph->image("G_Motion");
+        auto* depth = cl.graph->image("G_Depth");
+        auto* prev = cl.graph->image(HISTORY);
+        auto* out = cl.graph->image(OUTPUT);
+        auto* display = cl.graph->image(PostProcessFeature::DISPLAY_COLOR);
+        if (!color || !motion || !depth || !prev || !out || !display) return;
+
+        struct Push {
+            uint32_t color_index;
+            uint32_t motion_index;
+            uint32_t depth_index;
+            uint32_t history_index;
+            uint32_t out_slot;
+            uint32_t sampler_index;
+            uint32_t in_width;
+            uint32_t in_height;
+            uint32_t out_width;
+            uint32_t out_height;
+            float jitter_px[2];
+            uint32_t reset;
+            uint32_t display_slot;
+            uint32_t tonemapper;
+            float exposure_scale;
+        } pc{};
+        pc.color_index = color->bindless_sampled;
+        pc.motion_index = motion->bindless_sampled;
+        pc.depth_index = depth->bindless_sampled;
+        pc.history_index = prev->bindless_sampled;
+        pc.out_slot = out->bindless_storage;
+        pc.sampler_index = linear_sampler.bindless_sampler;
+        pc.in_width = color->extent.width;
+        pc.in_height = color->extent.height;
+        pc.out_width = out->extent.width;
+        pc.out_height = out->extent.height;
+        pc.jitter_px[0] = ctx->frame->camera.jitter.x * 0.5f * (float)pc.in_width;
+        pc.jitter_px[1] = ctx->frame->camera.jitter.y * 0.5f * (float)pc.in_height;
+        pc.reset = _reset ? 1u : 0u;
+        pc.display_slot = display->bindless_storage;
+        pc.tonemapper = post ? (uint32_t)post->tonemapper : 0u;
+        pc.exposure_scale = post ? std::exp2(post->exposure_compensation_ev) : 1.0f;
+
+        cl.dd->command_bind_pipeline(cl.cmd, resolve_pipe);
+        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+        cl.dispatch("TAA", (pc.out_width + 15) / 16, (pc.out_height + 7) / 8);
+    };
+}
+
+void TAAFeature::_ensure_history(uint32_t p_width, uint32_t p_height)
+{
+    if (history[0].image && history[0].extent.width == p_width && history[0].extent.height == p_height) return;
+    for (drivers::DeviceDriverVulkan::Image& h : history) {
+        if (h.image) _retired.push_back({ std::move(h), _serial });
+        h = {};
+    }
+
+    drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
+    ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
+    ci.fixed_width = p_width;
+    ci.fixed_height = p_height;
+    ci.pool = ctx->dd->image_persistent_pool;
+    ci.name = "taa_history";
+    for (drivers::DeviceDriverVulkan::Image& h : history) h = ctx->dd->image_create_dedicated(ci, { p_width, p_height });
+    history_valid = false;
+}
+
+void TAAFeature::_collect(bool p_all)
+{
+    const uint64_t frames = ctx->graph->frame_count;
+    for (size_t i = 0; i < _retired.size();) {
+        if (p_all || _serial >= _retired[i].serial + frames + 1) {
+            ctx->dd->image_free(_retired[i].image);
+            _retired[i] = std::move(_retired.back());
+            _retired.pop_back();
+        } else {
+            ++i;
+        }
+    }
+}
+
+Error TAAFeature::create_resources()
+{
+    using enum Error;
+    drivers::DeviceDriverVulkan::SamplerCreateInfo sci{};
+    sci.filter = VK_FILTER_LINEAR;
+    sci.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sci.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.name = "taa_history";
+    linear_sampler = ctx->dd->sampler_create(sci);
+    LUMEN_ERR_FAIL_COND_V(linear_sampler.bindless_sampler == UINT32_MAX, FAILED);
+    _create_resolve_pass();
+    return OK;
+}
+
+Error TAAFeature::create_pipelines()
+{
+    EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_POST_TAA_COMP");
+    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "post/taa.comp" });
+    resolve_pipe = ctx->dd->compute_pipeline_create({ .compute_shader = cs, .name = "post/taa" });
+    ctx->dd->shader_free(cs);
+    return Error::OK;
+}
+
+void TAAFeature::destroy_resources()
+{
+    ctx->dd->pipeline_free(resolve_pipe);
+    ctx->dd->sampler_free(linear_sampler);
+    for (drivers::DeviceDriverVulkan::Image& h : history) {
+        if (h.image) ctx->dd->image_free(h);
+        h = {};
+    }
+    _collect(true);
+}
+
+void TAAFeature::build(RenderGraph& g)
+{
+    ++_serial;
+    _collect(false);
+    if (!enabled || suppressed || !g.image_resource("SceneColor") || !g.image_resource("G_Motion") || !g.image_resource("G_Depth")) {
+        history_valid = false;
+        return;
+    }
+    const uint32_t w = ctx->frame->output_width ? ctx->frame->output_width : g.width;
+    const uint32_t h = ctx->frame->output_height ? ctx->frame->output_height : g.height;
+    if (w == 0 || h == 0) return;
+    _ensure_history(w, h);
+
+    const uint32_t write = history_index;
+    const uint32_t read = history_index ^ 1u;
+    g.import_image(OUTPUT, &history[write], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
+    g.import_image(HISTORY, &history[read], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
+    _reset = !history_valid || ctx->frame->taa_reset;
+    g.add(&resolve_pass);
+    history_valid = true;
+    history_index = read;
+}
+
+}

@@ -47,6 +47,13 @@ Error ModelCache::load(const std::filesystem::path& p_path)
 
 void ModelCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials)
 {
+    if (auto it = by_guid.find(p_guid); it != by_guid.end() && it->second.mesh == p_mesh) {
+        if (it->second.materials != p_materials) {
+            it->second.materials = p_materials;
+            _slots_dirty = true;
+        }
+        return;
+    }
     Entry& e = by_guid[p_guid];
     e = Entry{};
     e.mesh = p_mesh;
@@ -70,9 +77,20 @@ void ModelCache::clear()
 }
 
 // Rebuilt when meshes or material indices change; material edits alone keep their index and skip this.
+void ModelCache::_write_slots(const Entry& p_entry, const MaterialCache& p_materials)
+{
+    for (uint32_t s = 0; s < p_entry.slot_count; ++s) slot_table[p_entry.slot_base + s] = s < p_entry.materials.size() ? p_materials.index_of(p_entry.materials[s]) : DEFAULT_MATERIAL;
+}
+
 void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials)
 {
-    if (_geometry_version == p_geometry.version && _material_layout == p_materials.layout_version) return;
+    if (_geometry_version == p_geometry.version && _material_layout == p_materials.layout_version) {
+        if (!_slots_dirty) return;
+        for (const auto& [guid, entry] : by_guid) _write_slots(entry, p_materials);
+        _slots_dirty = false;
+        slot_version++;
+        return;
+    }
 
     slot_table.assign(1, DEFAULT_MATERIAL);
     bool overflow = false;
@@ -89,23 +107,26 @@ void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_
         entry.slot_base = (uint32_t)slot_table.size();
         entry.slot_count = mesh->slot_count;
         // slot_table.insert(slot_table.end(), mesh->slot_count, DEFAULT_MATERIAL);
-        for (uint32_t s = 0; s < mesh->slot_count; ++s) slot_table.push_back(s < entry.materials.size() ? p_materials.index_of(entry.materials[s]) : DEFAULT_MATERIAL);
+        slot_table.resize(slot_table.size() + mesh->slot_count, DEFAULT_MATERIAL);
+        _write_slots(entry, p_materials);
     }
     if (overflow) log_write("ModelCache: slot table full (%u), some models use the default material.", MAX_SLOTS);
 
     _geometry_version = p_geometry.version;
     _material_layout = p_materials.layout_version;
+    _slots_dirty = false;
     version++;
+    slot_version++;
 }
 
 void ModelCache::upload(uint32_t p_frame)
 {
-    if (p_frame >= slot_buffers.size() || _uploaded_version[p_frame] == version) return;
+    if (p_frame >= slot_buffers.size() || _uploaded_version[p_frame] == slot_version) return;
     Buffer& b = slot_buffers[p_frame];
     const VkDeviceSize bytes = (VkDeviceSize)slot_table.size() * sizeof(uint32_t);
     dd->buffer_update(b, slot_table.data(), bytes);
     dd->buffer_flush(b, 0, bytes);
-    _uploaded_version[p_frame] = version;
+    _uploaded_version[p_frame] = slot_version;
 }
 
 }

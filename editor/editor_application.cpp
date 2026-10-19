@@ -65,6 +65,8 @@ Error EditorApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = texture_viewer.initialize(dd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = thumbnails.initialize(dd);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     _load_state();
     settings.theme.apply();
@@ -80,6 +82,7 @@ void EditorApplication::on_shutdown()
     _capture_tabs();
     tabs.clear(ctx);
     texture_viewer.shutdown();
+    thumbnails.shutdown(ctx);
 
     play.shutdown();
     run.shutdown();
@@ -142,6 +145,7 @@ void EditorApplication::on_update(float p_dt)
 
         tabs.update(ctx, p_dt);
         texture_viewer.draw(ctx);
+        thumbnails.update(ctx);
         if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) tabs.active->save(ctx);
 
         const uint64_t signature = _tabs_hash();
@@ -196,6 +200,7 @@ void EditorApplication::close_project()
         _save_state();
         texture_viewer.close(ctx);
         tabs.clear(ctx);
+        thumbnails.close(ctx);
         assets.close();
         folders.clear();
         selection.clear();
@@ -786,6 +791,7 @@ EditorContext EditorApplication::_make_context()
     ctx.assets = &assets;
     ctx.folders = &folders;
     ctx.texture_viewer = &texture_viewer;
+    ctx.thumbnails = &thumbnails;
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};

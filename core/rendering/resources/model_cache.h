@@ -33,8 +33,10 @@ struct ModelCache
     std::unordered_map<Guid, Entry, GuidHash, GuidEq> by_guid;
     std::vector<uint32_t> slot_table;
     uint64_t version = 0;
+    uint64_t slot_version = 0;
     uint64_t _geometry_version = UINT64_MAX;
     uint64_t _material_layout = UINT64_MAX;
+    bool _slots_dirty = false;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
@@ -45,6 +47,7 @@ struct ModelCache
     void clear();
     void resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials);
     void upload(uint32_t p_frame);
+    void _write_slots(const Entry& p_entry, const MaterialCache& p_materials);
 
     VkDeviceAddress slot_table_address(uint32_t p_frame) const {
         return p_frame < slot_buffers.size() ? slot_buffers[p_frame].device_address : 0;

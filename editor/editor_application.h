@@ -13,6 +13,7 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/texture_viewer.h>
+#include <editor/assets/thumbnail_cache.h>
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/play/play_session.h>
@@ -47,6 +48,7 @@ struct EditorApplication : Application
     AssetRegistry assets;
     EditorFolders folders;
     TextureViewer texture_viewer;
+    ThumbnailCache thumbnails;
 
     EditorCamera editor_camera;
     EditorSelection selection;

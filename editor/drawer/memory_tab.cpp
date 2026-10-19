@@ -11,7 +11,7 @@ namespace lumen {
 
 void MemoryDrawerTab::_draw_transients(EditorContext& ctx)
 {
-    RenderGraph* graph = &ctx.renderer->graph;
+    RenderGraph* graph = &ctx.renderer->main_view.graph;
 
     const UiStyle& ui = ui_style();
     const ImVec4 warn_color = ui_vec4(ui.color.warning);

@@ -1,4 +1,5 @@
 #include <core/rendering/renderer.h>
+#include <core/rendering/render_path/render_path.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
 #include <core/assets/asset_common.h>
@@ -20,36 +21,41 @@ using namespace glm;
 /**** SETUP ****/
 /***************/
 
-Error Renderer::_create_dynamic_buffers()
+Error Renderer::_view_create_buffers(RenderView& r_view)
 {
     using enum Error;
 
-    instance_buffers.resize(frame_count);
-    transform_buffers.resize(frame_count);
-    camera_buffers.resize(frame_count);
-    light_buffers.resize(frame_count);
-    atmosphere_buffers.resize(frame_count);
+    r_view.instance_buffers.resize(frame_count);
+    r_view.transform_buffers.resize(frame_count);
+    r_view.camera_buffers.resize(frame_count);
+    r_view.light_buffers.resize(frame_count);
+    r_view.atmosphere_buffers.resize(frame_count);
     
     for (uint32_t i = 0; i < frame_count; i++) {
-        instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
-        transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
-        camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
-        light_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_LIGHTS * sizeof(GpuLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "lights"});
-        atmosphere_buffers[i] = dd->buffer_create({.size = sizeof(GpuAtmosphere),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "atmosphere"});
+        r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
+        r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
+        r_view.camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
+        r_view.light_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_LIGHTS * sizeof(GpuLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "lights"});
+        r_view.atmosphere_buffers[i] = dd->buffer_create({.size = sizeof(GpuAtmosphere),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "atmosphere"});
     }
 
     return OK;
 }
 
-void Renderer::_destroy_dynamic_buffers()
+void Renderer::_view_destroy_buffers(RenderView& r_view)
 {
-    for (uint32_t i = 0; i < frame_count; i++) {
-        dd->buffer_free(instance_buffers[i]);
-        dd->buffer_free(transform_buffers[i]);
-        dd->buffer_free(camera_buffers[i]);
-        dd->buffer_free(light_buffers[i]);
-        dd->buffer_free(atmosphere_buffers[i]);
+    for (size_t i = 0; i < r_view.instance_buffers.size(); i++) {
+        dd->buffer_free(r_view.instance_buffers[i]);
+        dd->buffer_free(r_view.transform_buffers[i]);
+        dd->buffer_free(r_view.camera_buffers[i]);
+        dd->buffer_free(r_view.light_buffers[i]);
+        dd->buffer_free(r_view.atmosphere_buffers[i]);
     }
+    r_view.instance_buffers.clear();
+    r_view.transform_buffers.clear();
+    r_view.camera_buffers.clear();
+    r_view.light_buffers.clear();
+    r_view.atmosphere_buffers.clear();
 }
 
 Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling)
@@ -58,7 +64,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
 
     dd = &r_dd;
     profiling = &p_profiling;
-    graph.profiler.settings = &p_profiling;
+    main_view.graph.profiler.settings = &p_profiling;
     frame_count = dd->frame_count;
     current_frame = 0;
 
@@ -86,16 +92,16 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     err = materials.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    err = graph.initialize(r_dd, frame_count);
+    err = main_view.graph.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    graph.declare_image_format("Backbuffer", dd->swapchain.format);
+    main_view.graph.declare_image_format("Backbuffer", dd->swapchain.format);
 
-    err = _create_dynamic_buffers();
+    err = _view_create_buffers(main_view);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     set_size(1, 1);
-    pending_width = width;
-    pending_height = height;
+    pending_width = main_view.width;
+    pending_height = main_view.height;
 
     return OK;
 }
@@ -106,12 +112,14 @@ void Renderer::shutdown()
     materials.shutdown();
     models.shutdown();
     geometry.shutdown();
-    
-    graph.shutdown();
-    _collect_hiz_retired(true);
 
-    _destroy_dynamic_buffers();
-    _destroy_hiz_pyramid();
+    while (!views.empty()) view_destroy(*views.back());
+    
+    main_view.graph.shutdown();
+    _view_collect_hiz(main_view, true);
+
+    _view_destroy_buffers(main_view);
+    _view_destroy_hiz(main_view);
 
     for (uint32_t i = 0; i < frame_count; i++) {
         dd->fence_free(in_flight_fences[i]);
@@ -130,7 +138,8 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
     
     Error err = geometry.allocate();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    hiz_reset_pending = true;
+    main_view.hiz_reset_pending = true;
+    for (RenderView* v : views) v->hiz_reset_pending = true;
 
     std::error_code ec;
     if (std::filesystem::exists(p_assets_dir, ec)) {
@@ -171,22 +180,19 @@ void Renderer::unload()
     textures.clear();
     models.clear();
     materials.clear();
-    _last_world = nullptr;
     geometry.free();
-    frame.entity_cache.clear();
-    frame.static_insts.clear();
-    frame.static_lights.clear();
-    hiz_reset_pending = true;
+    _view_reset(main_view);
+    for (RenderView* v : views) _view_reset(*v);
 }
 
 /****************/
 /**** SIZING ****/
 /****************/
 
-void Renderer::_create_hiz_pyramid(uint32_t p_width, uint32_t p_height)
+void Renderer::_view_create_hiz(RenderView& r_view)
 {
-    const uint32_t hw = (((p_width + 1) / 2) + 63u) & ~63u;
-    const uint32_t hh = (((p_height + 1) / 2) + 63u) & ~63u;
+    const uint32_t hw = (((r_view.width + 1) / 2) + 63u) & ~63u;
+    const uint32_t hh = (((r_view.height + 1) / 2) + 63u) & ~63u;
     uint32_t mips = 1, m = std::max(hw, hh);
     while (m > 1) { m >>= 1; mips++; }
 
@@ -200,48 +206,55 @@ void Renderer::_create_hiz_pyramid(uint32_t p_width, uint32_t p_height)
     ci.fixed_height = hh;
     ci.pool = dd->image_persistent_pool;
     ci.name = "hiz_pyramid";
-    hiz_pyramid = dd->image_create_dedicated(ci, { hw, hh });
+    r_view.hiz_pyramid = dd->image_create_dedicated(ci, { hw, hh });
 
-    hiz_reset_pending = true;
+    r_view.hiz_reset_pending = true;
 }
 
-void Renderer::_destroy_hiz_pyramid()
+void Renderer::_view_destroy_hiz(RenderView& r_view)
 {
-    if (hiz_pyramid.image) dd->image_free(hiz_pyramid);
-    hiz_pyramid = {};
+    if (r_view.hiz_pyramid.image) dd->image_free(r_view.hiz_pyramid);
+    r_view.hiz_pyramid = {};
 }
 
-void Renderer::_collect_hiz_retired(bool p_all)
+void Renderer::_view_collect_hiz(RenderView& r_view, bool p_all)
 {
-    for (size_t i = 0; i < hiz_retired.size();) {
-        if (p_all || frame_number >= hiz_retired[i].first + frame_count) {
-            dd->image_free(hiz_retired[i].second);
-            hiz_retired[i] = std::move(hiz_retired.back());
-            hiz_retired.pop_back();
+    for (size_t i = 0; i < r_view.hiz_retired.size();) {
+        if (p_all || frame_number >= r_view.hiz_retired[i].first + frame_count) {
+            dd->image_free(r_view.hiz_retired[i].second);
+            r_view.hiz_retired[i] = std::move(r_view.hiz_retired.back());
+            r_view.hiz_retired.pop_back();
         } else {
             ++i;
         }
     }
 }
 
-Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
+Error Renderer::_view_set_size(RenderView& r_view, uint32_t p_width, uint32_t p_height)
 {
     using enum Error;
 
     if (p_width == 0 || p_height == 0) return OK;
-    if (p_width == width && p_height == height) return OK;
-    width = p_width;
-    height = p_height;
-    resize_epoch++;
+    if (p_width == r_view.width && p_height == r_view.height) return OK;
+    r_view.width = p_width;
+    r_view.height = p_height;
 
-    Error err = graph.set_size(p_width, p_height);
+    Error err = r_view.graph.set_size(p_width, p_height);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
-    if (hiz_pyramid.image) hiz_retired.emplace_back(frame_number, std::move(hiz_pyramid));
-    hiz_pyramid = {};
-    _create_hiz_pyramid(p_width, p_height);
+    if (r_view.hiz_pyramid.image) r_view.hiz_retired.emplace_back(frame_number, std::move(r_view.hiz_pyramid));
+    r_view.hiz_pyramid = {};
+    _view_create_hiz(r_view);
 
     return OK;
+}
+
+Error Renderer::set_size(uint32_t p_width, uint32_t p_height)
+{
+    if (p_width == 0 || p_height == 0) return Error::OK;
+    if (p_width == main_view.width && p_height == main_view.height) return Error::OK;
+    resize_epoch++;
+    return _view_set_size(main_view, p_width, p_height);
 }
 
 void Renderer::request_size(uint32_t p_width, uint32_t p_height)
@@ -253,9 +266,9 @@ void Renderer::request_size(uint32_t p_width, uint32_t p_height)
 Error Renderer::apply_pending_size()
 {
     if (pending_width == 0 || pending_height == 0) return Error::OK;
-    if (pending_width == width && pending_height == height) return Error::OK;
+    if (pending_width == main_view.width && pending_height == main_view.height) return Error::OK;
 
-    if (width > 1 && height > 1) {
+    if (main_view.width > 1 && main_view.height > 1) {
         if (pending_width != settle_width || pending_height != settle_height) {
             settle_width = pending_width;
             settle_height = pending_height;
@@ -388,10 +401,13 @@ static bool _model_sane(const mat4& p_m)
     return true;
 }
 
-void Renderer::_frame_build(const World& p_world)
+void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 {
+    FrameData& frame = r_view.frame;
+    const Camera& camera = r_view.camera;
+    const uint32_t width = r_view.width;
+    const uint32_t height = r_view.height;
     frame.reset();
-    models.resolve(geometry, materials);
 
     StaticInstances& static_insts = frame.static_insts;
     if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version || static_insts.model_version != models.version) {
@@ -502,16 +518,16 @@ void Renderer::_frame_build(const World& p_world)
     {
         const float aspect = height ? (float)width / (float)height : 1.0f;
         const mat4 prev_vp = frame.camera.curr_view_proj;
-        frame.camera.curr_view_proj = active_camera.view_proj(aspect);
-        frame.camera.prev_view_proj = camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
-        frame.camera.position = vec4(active_camera.position, 1.0f);
+        frame.camera.curr_view_proj = camera.view_proj(aspect);
+        frame.camera.prev_view_proj = r_view.camera_cut_pending ? frame.camera.curr_view_proj : prev_vp;
+        frame.camera.position = vec4(camera.position, 1.0f);
         extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
-        frame.camera.near_z = active_camera.near_z;
-        frame.camera.far_z = active_camera.far_z;
-        frame.camera.tan_half_fov_y = std::tan(active_camera.fov_y * 0.5f);
+        frame.camera.near_z = camera.near_z;
+        frame.camera.far_z = camera.far_z;
+        frame.camera.tan_half_fov_y = std::tan(camera.fov_y * 0.5f);
         frame.camera.inv_view_proj = inverse(frame.camera.curr_view_proj);
-        frame.px_per_unit = 0.5f * (float)height / std::tan(active_camera.fov_y * 0.5f) * lod_bias;
-        frame.hiz_history_valid = !camera_cut_pending && !hiz_reset_pending;
+        frame.px_per_unit = 0.5f * (float)height / std::tan(camera.fov_y * 0.5f) * r_view.lod_bias;
+        frame.hiz_history_valid = !r_view.camera_cut_pending && !r_view.hiz_reset_pending;
     }
 
     // Atmosphere.
@@ -603,15 +619,16 @@ void Renderer::_frame_build(const World& p_world)
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(_cycle_ev100(sun_altitude_deg)));
     }
     
-    camera_cut_pending = false;
-    hiz_reset_pending = false;
+    r_view.camera_cut_pending = false;
+    r_view.hiz_reset_pending = false;
 }
 
-void Renderer::_frame_upload()
+void Renderer::_frame_upload(RenderView& r_view)
 {
+    FrameData& frame = r_view.frame;
     StaticInstances& static_insts = frame.static_insts;
-    drivers::DeviceDriverVulkan::Buffer& ib = instance_buffers[current_frame];
-    drivers::DeviceDriverVulkan::Buffer& tb = transform_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& ib = r_view.instance_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& tb = r_view.transform_buffers[current_frame];
     const uint32_t base = static_insts.count();
     if (static_insts.uploaded_version.size() != frame_count) static_insts.uploaded_version.assign(frame_count, UINT64_MAX);
 
@@ -636,7 +653,7 @@ void Renderer::_frame_upload()
     }
 
     StaticLights& static_lights = frame.static_lights;
-    drivers::DeviceDriverVulkan::Buffer& lb = light_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& lb = r_view.light_buffers[current_frame];
     if (static_lights.uploaded_version.size() != frame_count) static_lights.uploaded_version.assign(frame_count, UINT64_MAX);
 
     dd->buffer_update(lb, frame.directional, sizeof(frame.directional));
@@ -659,15 +676,13 @@ void Renderer::_frame_upload()
         dd->buffer_flush(lb, l_off, (VkDeviceSize)dynamic_lights * sizeof(GpuLight));
     }
     
-    drivers::DeviceDriverVulkan::Buffer& cb = camera_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& cb = r_view.camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));
     dd->buffer_flush(cb, 0, sizeof(CameraUniform));
 
-    drivers::DeviceDriverVulkan::Buffer& ab = atmosphere_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& ab = r_view.atmosphere_buffers[current_frame];
     dd->buffer_update(ab, &frame.atmosphere, sizeof(GpuAtmosphere));
     dd->buffer_flush(ab, 0, sizeof(GpuAtmosphere));
-
-    models.upload(current_frame);
 }
 
 Error Renderer::acquire_frame()
@@ -679,14 +694,14 @@ Error Renderer::acquire_frame()
 
     if (sc.generation != swapchain_generation) {
         swapchain_generation = sc.generation;
-        graph.framebuffers_flush();
+        main_view.graph.framebuffers_flush();
         images_in_flight.assign(sc.images.size(), VK_NULL_HANDLE);
     }
 
     cpu.zone_begin("Frame Fence", CpuProfiler::FLAG_WAIT);
     Error err = dd->fence_wait(in_flight_fences[current_frame]);
     cpu.zone_end();
-    if (err != OK) graph.breadcrumb_report();
+    if (err != OK) main_view.graph.breadcrumb_report();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Swapchain Acquire", CpuProfiler::FLAG_WAIT);
@@ -712,7 +727,6 @@ Error Renderer::begin_frame(const World& p_world)
     using enum Error;
     
     auto& sc = dd->swapchain;
-    CpuProfiler& cpu = cpu_profiler();
 
     if (!frame_acquired) {
         Error err = acquire_frame();
@@ -720,48 +734,114 @@ Error Renderer::begin_frame(const World& p_world)
         LUMEN_ERR_FAIL_COND_V(!frame_acquired, FAILED);
     }
 
-    _collect_hiz_retired(false);
     textures.begin_frame(frame_number, frame_count);
     materials.begin_frame(frame_number);
     materials.resolve(textures);
     materials.upload(current_frame);
     geometry.begin_frame(frame_number, current_frame, models.slot_table_address(current_frame), materials.address(current_frame));
+    models.resolve(geometry, materials);
+    models.upload(current_frame);
+    _queued_views.clear();
 
-    if (&p_world != _last_world) {
-        _last_world = &p_world;
-        frame.entity_cache.clear();
-        frame.static_insts.clear();
-        frame.static_lights.clear();
-        hiz_reset_pending = true;
-        camera_cut_pending = true;
+    _view_begin(main_view, p_world);
+    main_view.graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+
+    return OK;
+}
+
+void Renderer::_view_begin(RenderView& r_view, const World& p_world)
+{
+    CpuProfiler& cpu = cpu_profiler();
+    _view_collect_hiz(r_view, false);
+
+    if (&p_world != r_view._last_world) {
+        _view_reset(r_view);
+        r_view._last_world = &p_world;
     }
 
     cpu.zone_begin("Scene Gather");
-    _frame_build(p_world);
+    _frame_build(r_view, p_world);
     cpu.zone_end();
 
     cpu.zone_begin("Upload");
-    _frame_upload();
+    _frame_upload(r_view);
     cpu.zone_end();
 
+    RenderGraph& graph = r_view.graph;
     graph.begin(current_frame);
-    graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_image("HiZ", &hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
+    graph.import_image("HiZ", &r_view.hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
 
-    graph.import_buffer("Camera", &camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Atmosphere", &atmosphere_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Camera", &r_view.camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Atmosphere", &r_view.atmosphere_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Instances", &instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Transforms", &transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Lights", &light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Instances", &r_view.instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Transforms", &r_view.transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("Lights", &r_view.light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+}
 
+void Renderer::_view_reset(RenderView& r_view)
+{
+    r_view._last_world = nullptr;
+    r_view.frame.entity_cache.clear();
+    r_view.frame.static_insts.clear();
+    r_view.frame.static_lights.clear();
+    r_view.hiz_reset_pending = true;
+    r_view.camera_cut_pending = true;
+}
+
+Error Renderer::view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height)
+{
+    using enum Error;
+    r_view.graph.profiler.settings = profiling;
+    Error err = r_view.graph.initialize(*dd, frame_count);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = _view_create_buffers(r_view);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = _view_set_size(r_view, p_width, p_height);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    _view_reset(r_view);
+    views.push_back(&r_view);
+    return OK;
+}
+
+void Renderer::view_destroy(RenderView& r_view)
+{
+    auto it = std::find(views.begin(), views.end(), &r_view);
+    if (it == views.end()) return;
+    views.erase(it);
+    _queued_views.erase(std::remove(_queued_views.begin(), _queued_views.end(), &r_view), _queued_views.end());
+
+    dd->device_wait_idle();
+    r_view.graph.shutdown();
+    _view_collect_hiz(r_view, true);
+    _view_destroy_buffers(r_view);
+    _view_destroy_hiz(r_view);
+    r_view.width = 0;
+    r_view.height = 0;
+    _view_reset(r_view);
+}
+
+Error Renderer::view_render(RenderView& r_view, const World& p_world)
+{
+    using enum Error;
+    if (!frame_acquired || !r_view.path) return FAILED;
+    if (std::find(views.begin(), views.end(), &r_view) == views.end()) return FAILED;
+    if (std::find(_queued_views.begin(), _queued_views.end(), &r_view) != _queued_views.end()) return OK;
+
+    _view_begin(r_view, p_world);
+    r_view.path->build(r_view.graph);
+    cpu_profiler().zone_begin("View Compile");
+    const Error err = r_view.graph.compile();
+    cpu_profiler().zone_end();
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    _queued_views.push_back(&r_view);
     return OK;
 }
 
 Error Renderer::compile()
 {
     cpu_profiler().zone_begin("Graph Compile");
-    const Error err = graph.compile();
+    const Error err = main_view.graph.compile();
     cpu_profiler().zone_end();
     return err;
 }
@@ -781,7 +861,9 @@ Error Renderer::record()
     dd->command_bind_compute_uniform_sets(cmd, { dd->bindless_heap.set });
 
     cpu_profiler().zone_begin("Graph Execute");
-    graph.execute(cmd);
+    for (RenderView* v : _queued_views) v->graph.execute(cmd);
+    main_view.graph.execute(cmd);
+    _queued_views.clear();
     cpu_profiler().zone_end();
     
     err = dd->command_buffer_end(command_buffers[current_frame]);
@@ -815,7 +897,7 @@ Error Renderer::end_frame()
     cpu.zone_end();
     if (result != VK_SUCCESS) {
         log_write("Renderer: vkQueueSubmit returned %d", (int)result);
-        graph.breadcrumb_report();
+        main_view.graph.breadcrumb_report();
     }
     LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "Failed to submit Vulkan queue");
 
@@ -833,7 +915,7 @@ Error Renderer::end_frame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         dd->swapchain.surface->needs_resize = true;
     } else {
-        if (result == VK_ERROR_DEVICE_LOST) graph.breadcrumb_report();
+        if (result == VK_ERROR_DEVICE_LOST) main_view.graph.breadcrumb_report();
         LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "Failed to present Vulkan queue");
     }
 
@@ -844,14 +926,14 @@ Error Renderer::end_frame()
     return OK;
 }
 
-RenderContext Renderer::make_context()
+RenderContext Renderer::make_context(RenderView& r_view)
 {
     RenderContext ctx{};
     ctx.dd = dd;
-    ctx.graph = &graph;
+    ctx.graph = &r_view.graph;
     ctx.textures = &textures;
     ctx.geometry = &geometry;
-    ctx.frame = &frame;
+    ctx.frame = &r_view.frame;
     ctx.profiling = profiling;
     return ctx;
 }

@@ -40,8 +40,9 @@ static const char* _kind_name(RenderGraphProfiler::MarkKind p_kind)
 void ProfilerDrawerTab::_copy_report(EditorContext& ctx)
 {
     const Renderer& r = *ctx.renderer;
+    const RenderView& v = r.main_view;
     const drivers::DeviceDriverVulkan& dd = *r.dd;
-    const RenderGraphProfiler& prof = r.graph.profiler;
+    const RenderGraphProfiler& prof = v.graph.profiler;
     const std::vector<RenderGraphProfiler::Timing>& results = prof.results;
 
     std::string out;
@@ -57,12 +58,12 @@ void ProfilerDrawerTab::_copy_report(EditorContext& ctx)
     const drivers::DeviceDriverVulkan::Swapchain& sc = dd.swapchain;
     if (!sc.images.empty()) _append(out, "Swapchain: %ux%u, %zu images, %s\n", sc.images[0].extent.width, sc.images[0].extent.height, sc.images.size(), string_VkFormat(sc.format));
     if (sc.surface) _append(out, "Present mode: %s (vsync mode %d)\n", string_VkPresentModeKHR(sc.surface->present_mode), (int)sc.surface->vsync_mode);
-    _append(out, "Render resolution: %ux%u (%.2f MPix)\n", r.width, r.height, (double)r.width * r.height / 1e6);
+    _append(out, "Render resolution: %ux%u (%.2f MPix)\n", v.width, v.height, (double)v.width * v.height / 1e6);
     _append(out, "Frames in flight: %u, frame #%llu\n", r.frame_count, (unsigned long long)r.frame_number);
 
     _append(out, "\n--- Settings ---\n");
-    _append(out, "GPU profiling: %s, pipeline stats: %s, breadcrumbs: %s, frozen: %s\n", ctx.profiling && ctx.profiling->gpu ? "on" : "off", ctx.profiling && ctx.profiling->gpu_pipeline_stats_on() ? "on" : "off", r.graph.breadcrumbs ? "on" : "off", prof.frozen ? "yes" : "no");
-    _append(out, "LOD bias: %.2f\n", r.lod_bias);
+    _append(out, "GPU profiling: %s, pipeline stats: %s, breadcrumbs: %s, frozen: %s\n", ctx.profiling && ctx.profiling->gpu ? "on" : "off", ctx.profiling && ctx.profiling->gpu_pipeline_stats_on() ? "on" : "off", v.graph.breadcrumbs ? "on" : "off", prof.frozen ? "yes" : "no");
+    _append(out, "LOD bias: %.2f\n", v.lod_bias);
     if (ctx.render_path) {
         const GeometryFeature& geo = ctx.render_path->geometry;
         _append(out, "Occlusion: %s (HiZ ok %s, phase-1 history %s), contribution culling: %s (%.2f px)\n", geo.occlusion ? "on" : "off", geo.hiz_ok ? "yes" : "no", geo.hiz_use_prev ? "yes" : "no", geo.contribution_culling ? "on" : "off", geo.contribution_px);
@@ -71,9 +72,9 @@ void ProfilerDrawerTab::_copy_report(EditorContext& ctx)
     }
 
     _append(out, "\n--- Scene ---\n");
-    _append(out, "Instances: %u (static %u), cluster ref capacity: %u\n", r.frame.instance_count, (uint32_t)r.frame.static_insts.instances.size(), r.frame.cluster_ref_capacity);
+    _append(out, "Instances: %u (static %u), cluster ref capacity: %u\n", v.frame.instance_count, (uint32_t)v.frame.static_insts.instances.size(), v.frame.cluster_ref_capacity);
     _append(out, "Meshes loaded: %zu, cluster pool extent: %u\n", r.geometry.mesh_guids.size() - r.geometry.free_meshes.size(), r.geometry.cluster_extent);
-    _append(out, "Lights: %u directional, %u local\n", r.frame.directional_count, r.frame.light_count > MAX_DIRECTIONAL_LIGHTS ? r.frame.light_count - MAX_DIRECTIONAL_LIGHTS : 0u);
+    _append(out, "Lights: %u directional, %u local\n", v.frame.directional_count, v.frame.light_count > MAX_DIRECTIONAL_LIGHTS ? v.frame.light_count - MAX_DIRECTIONAL_LIGHTS : 0u);
     if (ctx.render_path && ctx.profiling && ctx.profiling->cull_stats_on()) {
         const GeometryFeature::CullStats& s = ctx.render_path->geometry.stats;
         _append(out, "Cull: refs %u, phase1 visible %u, retest %u, phase2 visible %u, instances visible %u / occluded %u / recovered %u\n", s.refs, s.phase1_visible, s.retest, s.phase2_visible, s.instances_visible, s.instances_occluded, s.instances_recovered);
@@ -150,7 +151,7 @@ void ProfilerDrawerTab::_draw_info(EditorContext& ctx, bool frozen)
 {
     if (!selected_draw) return;
 
-    RenderGraphProfiler& prof = ctx.renderer->graph.profiler;
+    RenderGraphProfiler& prof = ctx.renderer->main_view.graph.profiler;
 
     if (selected_draw->key != plot_key) { plot_key = selected_draw->key; plot_hist.clear(); }
     if (!frozen) plot_hist.add(static_cast<float>(selected_draw->raw_ms * 1000.0));
@@ -217,7 +218,7 @@ void ProfilerDrawerTab::_draw_info(EditorContext& ctx, bool frozen)
 
 void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 {
-    RenderGraphProfiler& prof = ctx.renderer->graph.profiler;
+    RenderGraphProfiler& prof = ctx.renderer->main_view.graph.profiler;
     const UiStyle& ui = ui_style();
 
     ImGuiIO& io = ImGui::GetIO();
@@ -646,7 +647,7 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
 void ProfilerDrawerTab::draw(EditorContext& ctx)
 {
-    auto& profiler = ctx.renderer->graph.profiler;
+    auto& profiler = ctx.renderer->main_view.graph.profiler;
     const UiStyle& ui = ui_style();
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -679,7 +680,7 @@ void ProfilerDrawerTab::draw(EditorContext& ctx)
         ImGui::BeginDisabled(!prof.gpu || !profiler.stats_supported);
         ImGui::Checkbox("Enable Pipeline Statistics", &prof.gpu_pipeline_stats);
         ImGui::EndDisabled();
-        ImGui::Checkbox("Enable Breadcrumbs", &ctx.renderer->graph.breadcrumbs);
+        ImGui::Checkbox("Enable Breadcrumbs", &ctx.renderer->main_view.graph.breadcrumbs);
 
 
         imgui_title("Legend");

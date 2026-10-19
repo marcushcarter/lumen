@@ -1,6 +1,7 @@
 #pragma once
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/render_graph.h>
+#include <core/rendering/render_view.h>
 #include <core/rendering/resources/texture_cache.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/rendering/resources/model_cache.h>
@@ -23,7 +24,7 @@ struct Renderer
     /**** SETUP ****/
     /***************/
 
-    RenderGraph graph;
+    RenderView main_view;
     
     TextureCache textures;
     GeometryPool geometry;
@@ -40,9 +41,6 @@ struct Renderer
     uint64_t swapchain_generation = 0;
     std::vector<drivers::DeviceDriverVulkan::CommandPool> command_pools;
     std::vector<VkCommandBuffer> command_buffers;
-
-    Error _create_dynamic_buffers();
-    void _destroy_dynamic_buffers();
 
     const ProfilingSettings* profiling = nullptr;
 
@@ -62,8 +60,6 @@ struct Renderer
     
     static constexpr uint32_t RESIZE_SETTLE_FRAMES = 4;
 
-    uint32_t width = 0;
-    uint32_t height = 0;
     uint32_t pending_width = 0;
     uint32_t pending_height = 0;
     uint32_t settle_width = 0;
@@ -71,43 +67,41 @@ struct Renderer
     uint32_t settle_frames = 0;
     uint64_t resize_epoch = 0;
 
-    drivers::DeviceDriverVulkan::Image hiz_pyramid;
-    std::vector<std::pair<uint64_t, drivers::DeviceDriverVulkan::Image>> hiz_retired;
-
-    void _create_hiz_pyramid(uint32_t p_width, uint32_t p_height);
-    void _destroy_hiz_pyramid();
-    void _collect_hiz_retired(bool p_all);
-
     void request_size(uint32_t p_width, uint32_t p_height);
     Error apply_pending_size();
     Error set_size(uint32_t p_width, uint32_t p_height);
 
-    /****************/
+    /***************/
+    /**** VIEWS ****/
+    /***************/
+
+    std::vector<RenderView*> views;
+    std::vector<RenderView*> _queued_views;
+
+    Error view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height);
+    void view_destroy(RenderView& r_view);
+    Error view_render(RenderView& r_view, const World& p_world);
+
+    Error _view_create_buffers(RenderView& r_view);
+    void _view_destroy_buffers(RenderView& r_view);
+    Error _view_set_size(RenderView& r_view, uint32_t p_width, uint32_t p_height);
+    void _view_create_hiz(RenderView& r_view);
+    void _view_destroy_hiz(RenderView& r_view);
+    void _view_collect_hiz(RenderView& r_view, bool p_all);
+    void _view_reset(RenderView& r_view);
+    void _view_begin(RenderView& r_view, const World& p_world);
+
+    /***************/
     /**** FRAME ****/
-    /****************/
-
-    FrameData frame;
-    const World* _last_world = nullptr;
-    float lod_bias = 1.0f;
-
-    Camera active_camera;
-    bool camera_cut_pending = true;
-
-    bool hiz_reset_pending = true;
-
-    void set_camera(const Camera& p_camera) { active_camera = p_camera; }
-    void camera_cut() { camera_cut_pending = true; }
-
-    std::vector<drivers::DeviceDriverVulkan::Buffer> instance_buffers;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> camera_buffers;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> light_buffers;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> atmosphere_buffers;
-
-    void _frame_build(const World& p_world);
-    void _frame_upload();
+    /***************/
 
     bool frame_acquired = false;
+
+    void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }
+    void camera_cut() { main_view.camera_cut_pending = true; }
+
+    void _frame_build(RenderView& r_view, const World& p_world);
+    void _frame_upload(RenderView& r_view);
 
     Error acquire_frame();
     Error begin_frame(const World& p_world);
@@ -115,7 +109,8 @@ struct Renderer
     Error record();
     Error end_frame();
     
-    RenderContext make_context();
+    RenderContext make_context() { return make_context(main_view); }
+    RenderContext make_context(RenderView& r_view);
 };
 
 }

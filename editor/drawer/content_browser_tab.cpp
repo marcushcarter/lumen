@@ -18,6 +18,7 @@
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/assets/texture_viewer.h>
+#include <editor/assets/thumbnail_cache.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -33,6 +34,18 @@ namespace lumen {
 /**** CACHE ****/
 /***************/
 
+static std::string _type_name(std::string p_ext)
+{
+    for (char& c : p_ext) c = (char)std::tolower((unsigned char)c);
+    if (p_ext == ".lmesh") return "Mesh";
+    if (p_ext == ".ltexture") return "Texture";
+    if (p_ext == ".lmodel") return "Model";
+    if (p_ext == ".lmaterial") return "Material";
+    if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
+    for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
+    return p_ext;
+}
+
 void ContentBrowserDrawerTab::_cache_tick(double p_now)
 {
     if (!refresh_requested && p_now - last_refresh < CACHE_REFRESH_INTERVAL_S) return;
@@ -46,18 +59,6 @@ ContentBrowserDrawerTab::Dir& ContentBrowserDrawerTab::_cache_get(const std::fil
     auto [it, inserted] = dirs.try_emplace(p_dir);
     if (inserted) _cache_scan(p_dir, it->second);
     return it->second;
-}
-
-static std::string _type_name(std::string p_ext)
-{
-    for (char& c : p_ext) c = (char)std::tolower((unsigned char)c);
-    if (p_ext == ".lmesh") return "Mesh";
-    if (p_ext == ".ltexture") return "Texture";
-    if (p_ext == ".lmodel") return "Model";
-    if (p_ext == ".lmaterial") return "Material";
-    if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
-    for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
-    return p_ext;
 }
 
 void ContentBrowserDrawerTab::_cache_scan(const std::filesystem::path& p_dir, Dir& r_dir)
@@ -202,13 +203,13 @@ void ContentBrowserDrawerTab::_delete_folder(EditorContext& ctx, const std::file
     Paths::remove_to_recycle(p_folder);
 }
 
-Guid ContentBrowserDrawerTab::_resolve_texture_guid(const std::filesystem::path& p_path)
+AssetInfo ContentBrowserDrawerTab::_resolve_asset(const std::filesystem::path& p_path)
 {
-    if (auto it = _thumb_guids.find(p_path); it != _thumb_guids.end()) return it->second;
+    if (auto it = _thumb_infos.find(p_path); it != _thumb_infos.end()) return it->second;
     AssetInfo info = read_asset_info(p_path);
-    if (!info.valid() || info.type != AssetType::TEXTURE) return Guid{};
-    _thumb_guids.emplace(p_path, info.guid);
-    return info.guid;
+    if (!info.valid()) info = AssetInfo{};
+    _thumb_infos.emplace(p_path, info);
+    return info;
 }
 
 float ContentBrowserDrawerTab::_row_height() const
@@ -285,31 +286,6 @@ void ContentBrowserDrawerTab::_new_folder(EditorContext& ctx)
     request_refresh();
 }
 
-void ContentBrowserDrawerTab::_new_model(EditorContext& ctx)
-{
-    const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
-    const std::filesystem::path path = _unique_path(parent, "New Model", ".lmodel");
-    LModel model;
-    model.guid = Guid::generate();
-    if (model.save(path) != Error::OK) {
-        log_write("Content Browser: failed to create '%s'.", path.string().c_str());
-        return;
-    }
-    if (ctx.renderer) ctx.renderer->models.load(path);
-    _select_only(path);
-    _rename_begin(path);
-    _scroll_to_rename = true;
-    request_refresh();
-}
-
-void ContentBrowserDrawerTab::_new_subfolder(EditorContext& ctx, const std::filesystem::path& p_parent)
-{
-    selected_folder = p_parent;
-    _selection_folder = p_parent;
-    _clear_selection();
-    _new_folder(ctx);
-}
-
 void ContentBrowserDrawerTab::_import(EditorContext& ctx)
 {
     std::error_code ec;
@@ -335,7 +311,7 @@ void ContentBrowserDrawerTab::_move_selection(const std::filesystem::path& p_dst
         Paths::move(p, p_dst);
     }
     _clear_selection();
-    _thumb_guids.clear();
+    _thumb_infos.clear();
     request_refresh();
 }
 
@@ -352,7 +328,7 @@ void ContentBrowserDrawerTab::_delete_folders_only(EditorContext& ctx)
     }
     (void)ctx;
     _clear_selection();
-    _thumb_guids.clear();
+    _thumb_infos.clear();
     request_refresh();
 }
 
@@ -370,39 +346,19 @@ void ContentBrowserDrawerTab::_drop_target(const std::filesystem::path& p_dst)
     ImGui::EndDragDropTarget();
 }
 
-void ContentBrowserDrawerTab::_add_asset_menu(EditorContext& ctx)
-{
-    if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) _new_model(ctx);
-    ImGui::BeginDisabled();
-    ImGui::MenuItem(ICON_FA_PALETTE "  Material");
-    ImGui::EndDisabled();
-}
-
 void ContentBrowserDrawerTab::_context_menu(EditorContext& ctx, const std::filesystem::path* p_row)
 {
-    if (ImGui::BeginMenu(ICON_FA_PLUS "  Add Asset")) {
-        _add_asset_menu(ctx);
-        ImGui::EndMenu();
-    }
-    if (ImGui::MenuItem(ICON_FA_FILE_IMPORT "  Import Asset")) _import(ctx);
-    if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  New Folder")) {
-        _clear_selection();
-        _new_folder(ctx);
-    }
     if (!p_row) return;
 
     std::error_code ec;
-    const bool is_dir = std::filesystem::is_directory(*p_row, ec);
     const uint32_t count = (uint32_t)selection.size();
     bool any_folder = false;
     for (const std::filesystem::path& p : selection) any_folder = any_folder || std::filesystem::is_directory(p, ec);
 
-    ImGui::Separator();
-    if (is_dir && ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  New Subfolder")) _new_subfolder(ctx, *p_row);
     if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin(*p_row);
     if (_duplicable(*p_row) && ImGui::MenuItem(ICON_FA_COPY "  Duplicate")) _duplicate_selection(ctx);
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
-    if (ImGui::MenuItem(ICON_FA_ARROW_UP "  Move To Root")) _move_selection(ctx.project->assets_dir);
+    
     ImGui::Separator();
     char del[48];
     snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
@@ -411,12 +367,6 @@ void ContentBrowserDrawerTab::_context_menu(EditorContext& ctx, const std::files
         if (ImGui::MenuItem(ICON_FA_FOLDER_MINUS "  Delete Folder Only")) _delete_folders_only(ctx);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the folder and moves its contents to the parent folder");
     }
-}
-
-void ContentBrowserDrawerTab::_draw_footer(uint32_t p_count)
-{
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
-    ImGui::TextDisabled("%u items (%u selected)", p_count, (uint32_t)selection.size());
 }
 
 void ContentBrowserDrawerTab::_rename_begin(const std::filesystem::path& p_path)
@@ -435,7 +385,7 @@ void ContentBrowserDrawerTab::_rename_commit()
     Paths::rename(rename_target, rename_buf);
     for (std::filesystem::path& p : selection) if (p == rename_target) p = dst;
     if (anchor == rename_target) anchor = dst;
-    _thumb_guids.clear();
+    _thumb_infos.clear();
     request_refresh();
 }
 
@@ -534,7 +484,7 @@ void ContentBrowserDrawerTab::_delete_now(EditorContext& ctx)
         else _delete_asset(ctx, p);
     }
     _clear_selection();
-    _thumb_guids.clear();
+    _thumb_infos.clear();
     request_refresh();
 }
 
@@ -704,12 +654,18 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                 VkDescriptorSet set = VK_NULL_HANDLE;
                 if (!e.is_dir) {
                     VkImageView view = VK_NULL_HANDLE;
+                    if (!e.guid_checked) {
+                        const AssetInfo info = _resolve_asset(e.path);
+                        e.guid = info.guid;
+                        e.asset_type = info.type;
+                        e.guid_checked = true;
+                    }
                     if (e.is_texture && ctx.renderer) {
-                        if (!e.guid_checked) {
-                            e.guid = _resolve_texture_guid(e.path);
-                            e.guid_checked = true;
+                        if (e.asset_type == AssetType::TEXTURE) {
+                            if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = _thumb_view(ctx, e.guid, bt->image);
                         }
-                        if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = _thumb_view(ctx, e.guid, bt->image);
+                    } else if (ctx.thumbnails) {
+                        view = ctx.thumbnails->get(ctx, e.guid, e.asset_type);
                     }
                     if (view) set = ctx.imgui->texture_cache.get(view);
                 }
@@ -732,13 +688,7 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                     const AssetInfo info = read_asset_info(e.path);
                     if (info.valid() && info.type == AssetType::MATERIAL) ctx.tabs->open<MaterialTab>(info.guid)->path = e.path;
                 }
-                if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer) {
-                    if (!e.guid_checked) {
-                        e.guid = _resolve_texture_guid(e.path);
-                        e.guid_checked = true;
-                    }
-                    if (!(e.guid == Guid{})) ctx.texture_viewer->open(e.guid);
-                }
+                if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer && e.asset_type == AssetType::TEXTURE && !(e.guid == Guid{})) ctx.texture_viewer->open(e.guid);
                 ImGui::PopID();
             }
         }
@@ -799,7 +749,7 @@ void ContentBrowserDrawerTab::_reset_root(const std::filesystem::path& p_root)
 {
     _root = p_root;
     dirs.clear();
-    _thumb_guids.clear();
+    _thumb_infos.clear();
     _clear_selection();
     _selection_folder.clear();
     rename_target.clear();
@@ -936,7 +886,36 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, ui.outliner.row_pad_y * 2.0f));
         dock_menu_push_style();
         if (ImGui::BeginPopup("##add_asset")) {
-            _add_asset_menu(ctx);
+            if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) {
+                const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
+                const std::filesystem::path path = _unique_path(parent, "New Model", ".lmodel");
+                LModel model;
+                model.guid = Guid::generate();
+                if (model.save(path) != Error::OK) {
+                    log_write("Content Browser: failed to create '%s'.", path.string().c_str());
+                    return;
+                }
+                if (ctx.renderer) ctx.renderer->models.load(path);
+                _select_only(path);
+                _rename_begin(path);
+                _scroll_to_rename = true;
+                request_refresh();
+            }
+            if (ImGui::MenuItem(ICON_FA_PALETTE "  Material")) {
+                const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
+                const std::filesystem::path path = _unique_path(parent, "New Material", ".lmaterial");
+                LMaterial material;
+                material.guid = Guid::generate();
+                if (material.save(path) != Error::OK) {
+                    log_write("Content Browser: failed to create '%s'.", path.string().c_str());
+                    return;
+                }
+                if (ctx.renderer) ctx.renderer->materials.load(path);
+                _select_only(path);
+                _rename_begin(path);
+                _scroll_to_rename = true;
+                request_refresh();
+            }
             ImGui::EndPopup();
         }
         dock_menu_pop_style();
@@ -946,7 +925,8 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
     ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), ImGuiChildFlags_None);
     _list_draw(ctx);
     ImGui::EndChild();
-    _draw_footer(selected_folder.empty() ? 0u : (uint32_t)_cache_get(selected_folder).entries.size());
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
+    ImGui::TextDisabled("%u items (%u selected)", selected_folder.empty() ? 0u : (uint32_t)_cache_get(selected_folder).entries.size(), (uint32_t)selection.size());
     ImGui::EndChild();
 
     _draw_delete_confirm(ctx);

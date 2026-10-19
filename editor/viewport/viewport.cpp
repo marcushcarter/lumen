@@ -87,12 +87,12 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
     static constexpr size_t MAX_BOUNDED = 4096;
     const World& world = *ctx.world;
     const Renderer& renderer = *ctx.renderer;
-    if (ctx.selection->entities.size() > MAX_BOUNDED || renderer.width == 0 || renderer.height == 0) {
+    if (ctx.selection->entities.size() > MAX_BOUNDED || renderer.main_view.width == 0 || renderer.main_view.height == 0) {
         r_outline.set_rect(vec2(0.0f), vec2(1.0f));
         return;
     }
-    const Camera& cam = renderer.active_camera;
-    const mat4 view_proj = cam.view_proj((float)renderer.width / (float)renderer.height);
+    const Camera& cam = renderer.main_view.camera;
+    const mat4 view_proj = cam.view_proj((float)renderer.main_view.width / (float)renderer.main_view.height);
     vec2 lo(FLT_MAX);
     vec2 hi(-FLT_MAX);
     bool full = false;
@@ -155,7 +155,7 @@ bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool
     }
 
     const ImGuiIO& io = ImGui::GetIO();
-    const Camera& cam = ctx.renderer->active_camera;
+    const Camera& cam = ctx.renderer->main_view.camera;
     const mat4 proj = cam.proj(p_size.x / p_size.y);
 
     TransformGizmo::Frame frame;
@@ -201,7 +201,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         ctx.renderer->request_size(w, h);
     }
     
-    RenderGraph::ImageResource* sel = ctx.renderer->graph.image_resource("Viewport");
+    RenderGraph::ImageResource* sel = ctx.renderer->main_view.graph.image_resource("Viewport");
     VkImageView sel_view = VK_NULL_HANDLE;
     if (sel && sel->image && sel->image->state.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) sel_view = sel->image->image_view;
     
@@ -234,7 +234,7 @@ void Viewport::_draw_image(EditorContext& ctx)
     left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
     if (left_overlay.begin_menu(ICON_FA_BARS)) {
         ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
-        ImGui::SliderFloat("LOD Bias", &ctx.renderer->lod_bias, 0.25f, 4.0f);
+        ImGui::SliderFloat("LOD Bias", &ctx.renderer->main_view.lod_bias, 0.25f, 4.0f);
         if (ctx.render_path) {
             GeometryFeature& geo = ctx.render_path->geometry;
             ImGui::Checkbox("Occlusion Culling", &geo.occlusion);

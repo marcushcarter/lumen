@@ -13,7 +13,7 @@ namespace lumen {
 Entity editor_spawn(EditorContext& ctx, SpawnType p_type, uint32_t p_folder, Guid p_model)
 {
     World& world = *ctx.world;
-    const Camera& cam = ctx.renderer->active_camera;
+    const Camera& cam = ctx.renderer->main_view.camera;
 
     const Entity e = world.create_persistent(Guid::generate());
     TransformComponent xf;

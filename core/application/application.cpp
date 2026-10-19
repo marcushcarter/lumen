@@ -159,7 +159,7 @@ Error Application::_frame()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Graph Build");
-    render_path->build(renderer.graph);
+    render_path->build(renderer.main_view.graph);
     err = renderer.compile();
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Render graph compile failed (transient allocation).");

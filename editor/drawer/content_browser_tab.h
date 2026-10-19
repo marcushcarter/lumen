@@ -33,6 +33,7 @@ struct ContentBrowserDrawerTab : DrawerTab
         bool is_dir = false;
         bool is_texture = false;
         bool guid_checked = false;
+        AssetType asset_type = AssetType::NONE;
     };
 
     struct Dir
@@ -92,7 +93,7 @@ struct ContentBrowserDrawerTab : DrawerTab
 
     AssetDragPayload drag_payload;
 
-    std::unordered_map<std::filesystem::path, Guid> _thumb_guids;
+    std::unordered_map<std::filesystem::path, AssetInfo> _thumb_infos;
     std::vector<uint32_t> _visible;
 
     struct ThumbView { VkImage image = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE; };
@@ -104,7 +105,7 @@ struct ContentBrowserDrawerTab : DrawerTab
     void _delete_content(EditorContext& ctx, const std::filesystem::path& p_asset);
     void _delete_asset(EditorContext& ctx, const std::filesystem::path& p_path);
     void _delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder);
-    Guid _resolve_texture_guid(const std::filesystem::path& p_path);
+    AssetInfo _resolve_asset(const std::filesystem::path& p_path);
     float _row_height() const;
     void _new_folder(EditorContext& ctx);
     void _new_model(EditorContext& ctx);

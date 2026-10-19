@@ -4,7 +4,9 @@
 #include <editor/assets/asset_registry.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <imgui.h>
+#include <algorithm>
 #include <cstdio>
+#include <vector>
 
 namespace lumen {
 
@@ -52,7 +54,22 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
 
     
     if (imgui_category("Materials")) {
-        
+        std::vector<Guid>& mats = tab->model.materials;
+        const uint32_t count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());
+        if (count == 0) ImGui::TextDisabled("No material slots");
+        bool changed = false;
+        for (uint32_t i = 0; i < count; ++i) {
+            char id[32];
+            std::snprintf(id, sizeof(id), "###model_material_%u", i);
+            ImGui::Text(i < tab->mesh_stats.slots ? "Slot %u" : "Slot %u (unused)", i);
+            Guid m = i < mats.size() ? mats[i] : Guid{};
+            if (asset_field(ctx, id, m, AssetType::MATERIAL, "Drop a material asset here (empty = default)")) {
+                if (i >= mats.size()) mats.resize(i + 1);
+                mats[i] = m;
+                changed = true;
+            }
+        }
+        while (changed && !mats.empty() && mats.back() == Guid{}) mats.pop_back();
     }
 }
 

@@ -72,10 +72,6 @@ void surface_default(out Surface r_s) {
     r_s.shading_model = SHADING_MODEL_DEFAULT_LIT;
 }
 
-vec3 to_world_rel(mat4 p_model, vec3 p_cam, vec3 p_local) {
-    return p_model[0].xyz * p_local.x + p_model[1].xyz * p_local.y + p_model[2].xyz * p_local.z + (p_model[3].xyz - p_cam);
-}
-
 bool ray_barycentrics(vec3 p_dir, vec3 p_0, vec3 p_1, vec3 p_2, out vec3 r_bary) {
     vec3 e1 = p_1 - p_0;
     vec3 e2 = p_2 - p_0;
@@ -95,20 +91,102 @@ vec4 sample_material(uint p_tex, vec2 p_uv, vec2 p_dx, vec2 p_dy) {
     return textureGrad(sampler2D(u_textures[nonuniformEXT(p_tex)], u_samplers[pc.sampler_index]), p_uv, p_dx, p_dy);
 }
 
-bool triangle_tangent(mat4 p_model, vec3 p_l0, vec3 p_l1, vec3 p_l2, vec2 p_uv0, vec2 p_uv1, vec2 p_uv2, vec3 p_n, out vec3 r_t, out vec3 r_b) {
-    vec3 e1 = p_l1 - p_l0;
-    vec3 e2 = p_l2 - p_l0;
+struct Object {
+    vec3 m0;
+    vec3 m1;
+    vec3 m2;
+    vec3 m3;
+    vec3 c0;
+    vec3 c1;
+    vec3 c2;
+    vec3 pos_min;
+    vec3 pos_extent;
+    vec2 uv_min;
+    vec2 uv_extent;
+    uint transform_id;
+    uint slot_base;
+    uint slot_count;
+};
+
+struct Triangle {
+    vec3 l0;
+    vec3 l1;
+    vec3 l2;
+    uvec2 a0;
+    uvec2 a1;
+    uvec2 a2;
+    uint slot;
+};
+
+Object load_object(uint p_inst) {
+    Object o;
+    const uint mesh_id = pc.instances.data[p_inst].mesh_id;
+    o.transform_id = pc.instances.data[p_inst].transform_id;
+    o.slot_base = pc.instances.data[p_inst].slot_base;
+    const mat4 mtx = pc.transforms.data[o.transform_id].curr_mtx;
+    o.m0 = mtx[0].xyz;
+    o.m1 = mtx[1].xyz;
+    o.m2 = mtx[2].xyz;
+    o.m3 = mtx[3].xyz;
+    o.c0 = cross(o.m1, o.m2);
+    o.c1 = cross(o.m2, o.m0);
+    o.c2 = cross(o.m0, o.m1);
+    o.pos_min = pc.geometry.meshes.data[mesh_id].pos_min;
+    o.pos_extent = pc.geometry.meshes.data[mesh_id].pos_extent;
+    o.uv_min = pc.geometry.meshes.data[mesh_id].uv_min;
+    o.uv_extent = pc.geometry.meshes.data[mesh_id].uv_extent;
+    o.slot_count = pc.geometry.meshes.data[mesh_id].slot_count;
+    return o;
+}
+
+// Vertices come from the cluster's own contiguous block, so every pixel of a cluster hits the same few cache lines
+// instead of three scattered fetches each from the global position and attribute streams.
+Triangle load_triangle(uint p_cluster, uint p_tri, vec3 p_pos_min, vec3 p_pos_extent) {
+    Triangle t;
+    const uint tri_index = pc.geometry.clusters.data[p_cluster].index_base / 3u + p_tri;
+    const uint lt = pc.geometry.local_triangles.data[tri_index];
+    const uint vbase = pc.geometry.cluster_vertex_base.data[p_cluster];
+    const uvec4 q0 = pc.geometry.cluster_vertices.data[vbase + (lt & 0xFFu)];
+    const uvec4 q1 = pc.geometry.cluster_vertices.data[vbase + ((lt >> 8u) & 0xFFu)];
+    const uvec4 q2 = pc.geometry.cluster_vertices.data[vbase + ((lt >> 16u) & 0xFFu)];
+    t.l0 = p_pos_min + vertex_position_unorm(q0.xy) * p_pos_extent;
+    t.l1 = p_pos_min + vertex_position_unorm(q1.xy) * p_pos_extent;
+    t.l2 = p_pos_min + vertex_position_unorm(q2.xy) * p_pos_extent;
+    t.a0 = q0.zw;
+    t.a1 = q1.zw;
+    t.a2 = q2.zw;
+    t.slot = lt >> 24u;
+    if (t.slot == LOCAL_TRI_SLOT_OVERFLOW) t.slot = pc.geometry.tri_slots.data[tri_index];
+    return t;
+}
+
+vec3 object_to_world_rel(Object p_o, vec3 p_cam, vec3 p_local) {
+    return p_o.m0 * p_local.x + p_o.m1 * p_local.y + p_o.m2 * p_local.z + (p_o.m3 - p_cam);
+}
+
+vec3 oct_decode_unnormalized(vec2 p_f) {
+    vec3 n = vec3(p_f, 1.0 - abs(p_f.x) - abs(p_f.y));
+    float t = clamp(-n.z, 0.0, 1.0);
+    n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+    return n;
+}
+
+bool triangle_tangent(Object p_o, Triangle p_t, vec2 p_uv0, vec2 p_uv1, vec2 p_uv2, vec3 p_n, out vec3 r_t, out vec3 r_b) {
+    vec3 e1 = p_t.l1 - p_t.l0;
+    vec3 e2 = p_t.l2 - p_t.l0;
     vec2 d1 = p_uv1 - p_uv0;
     vec2 d2 = p_uv2 - p_uv0;
     float det = d1.x * d2.y - d1.y * d2.x;
     if (abs(det) < 1e-12) return false;
     float r = 1.0 / det;
-    vec3 t = mat3(p_model) * ((e1 * d2.y - e2 * d1.y) * r);
-    vec3 b = mat3(p_model) * ((e2 * d1.x - e1 * d2.x) * r);
+    vec3 lt = (e1 * d2.y - e2 * d1.y) * r;
+    vec3 lb = (e2 * d1.x - e1 * d2.x) * r;
+    vec3 t = p_o.m0 * lt.x + p_o.m1 * lt.y + p_o.m2 * lt.z;
+    vec3 b = p_o.m0 * lb.x + p_o.m1 * lb.y + p_o.m2 * lb.z;
     t -= p_n * dot(p_n, t);
-    float len = length(t);
-    if (len < 1e-8) return false;
-    r_t = t / len;
+    float len_sq = dot(t, t);
+    if (len_sq < 1e-16) return false;
+    r_t = t * inversesqrt(len_sq);
     r_b = cross(p_n, r_t) * (dot(cross(p_n, r_t), b) < 0.0 ? -1.0 : 1.0);
     return true;
 }
@@ -118,47 +196,29 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
     if (vis_is_terrain(p_vis)) return false;
 
     const uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(p_vis)];
-    const Instance inst = pc.instances.data[ref.x];
-    const uint i0 = pc.geometry.clusters.data[ref.y].index_base + vis_triangle(p_vis) * 3u;
+    const Object o = load_object(ref.x);
+    const Triangle tri = load_triangle(ref.y, vis_triangle(p_vis), o.pos_min, o.pos_extent);
 
-    const uint v0 = pc.geometry.indices.data[i0 + 0u];
-    const uint v1 = pc.geometry.indices.data[i0 + 1u];
-    const uint v2 = pc.geometry.indices.data[i0 + 2u];
-
-    const Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
-    const vec3 l0 = mesh.pos_min + vertex_position_unorm(pc.geometry.vertices.data[v0]) * mesh.pos_extent;
-    const vec3 l1 = mesh.pos_min + vertex_position_unorm(pc.geometry.vertices.data[v1]) * mesh.pos_extent;
-    const vec3 l2 = mesh.pos_min + vertex_position_unorm(pc.geometry.vertices.data[v2]) * mesh.pos_extent;
-
-    const mat4 model = pc.transforms.data[inst.transform_id].curr_mtx;
     const vec3 cam = pc.camera.position.xyz;
-    const vec3 p0 = to_world_rel(model, cam, l0);
-    const vec3 p1 = to_world_rel(model, cam, l1);
-    const vec3 p2 = to_world_rel(model, cam, l2);
+    const vec3 p0 = object_to_world_rel(o, cam, tri.l0);
+    const vec3 p1 = object_to_world_rel(o, cam, tri.l1);
+    const vec3 p2 = object_to_world_rel(o, cam, tri.l2);
 
     vec3 b;
     if (!ray_barycentrics(p_dir, p0, p1, p2, b)) return false;
-    vec3 b_dx, b_dy;
-    if (!ray_barycentrics(p_dir_dx, p0, p1, p2, b_dx)) b_dx = b;
-    if (!ray_barycentrics(p_dir_dy, p0, p1, p2, b_dy)) b_dy = b;
 
-    const uvec2 a0 = pc.geometry.attributes.data[v0];
-    const uvec2 a1 = pc.geometry.attributes.data[v1];
-    const uvec2 a2 = pc.geometry.attributes.data[v2];
-    const vec3 local_n = oct_decode(vertex_normal_oct(a0)) * b.x + oct_decode(vertex_normal_oct(a1)) * b.y + oct_decode(vertex_normal_oct(a2)) * b.z;
-    const mat3 cof = mat3(cross(model[1].xyz, model[2].xyz), cross(model[2].xyz, model[0].xyz), cross(model[0].xyz, model[1].xyz));
-    const vec3 n = normalize(cof * local_n);
+    const vec3 local_n = oct_decode_unnormalized(vertex_normal_oct(tri.a0)) * b.x + oct_decode_unnormalized(vertex_normal_oct(tri.a1)) * b.y + oct_decode_unnormalized(vertex_normal_oct(tri.a2)) * b.z;
+    const vec3 n = normalize(o.c0 * local_n.x + o.c1 * local_n.y + o.c2 * local_n.z);
     r_s.normal = n;
 
     if (p_motion) {
-        const vec3 local = l0 * b.x + l1 * b.y + l2 * b.z;
-        const vec4 prev_world = pc.transforms.data[inst.transform_id].prev_mtx * vec4(local, 1.0);
+        const vec3 local = tri.l0 * b.x + tri.l1 * b.y + tri.l2 * b.z;
+        const vec4 prev_world = pc.transforms.data[o.transform_id].prev_mtx * vec4(local, 1.0);
         const vec4 prev_clip = pc.camera.prev_view_proj * prev_world;
         if (prev_clip.w > 0.0) r_s.motion = (p_ndc - prev_clip.xy / prev_clip.w) * 0.5;
     }
 
-    const uint slot = pc.geometry.tri_slots.data[i0 / 3u];
-    const uint material_index = (inst.slot_base == 0u || slot >= mesh.slot_count) ? MATERIAL_DEFAULT : pc.geometry.slot_table.data[inst.slot_base + slot];
+    const uint material_index = (o.slot_base == 0u || tri.slot >= o.slot_count) ? MATERIAL_DEFAULT : pc.geometry.slot_table.data[o.slot_base + tri.slot];
     const Material m = pc.geometry.materials.data[material_index];
 
     r_s.shading_model = material_shading_model(m);
@@ -170,32 +230,38 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
         return true;
     }
 
-    const vec2 uv0 = mesh.uv_min + vertex_uv_unorm(a0) * mesh.uv_extent;
-    const vec2 uv1 = mesh.uv_min + vertex_uv_unorm(a1) * mesh.uv_extent;
-    const vec2 uv2 = mesh.uv_min + vertex_uv_unorm(a2) * mesh.uv_extent;
-    const vec2 raw_uv = uv0 * b.x + uv1 * b.y + uv2 * b.z;
-    const vec2 uv = raw_uv * m.uv_transform.xy + m.uv_transform.zw;
-    const vec2 uv_dx = (uv0 * b_dx.x + uv1 * b_dx.y + uv2 * b_dx.z - raw_uv) * m.uv_transform.xy;
-    const vec2 uv_dy = (uv0 * b_dy.x + uv1 * b_dy.y + uv2 * b_dy.z - raw_uv) * m.uv_transform.xy;
-
     r_s.albedo = m.base_color.rgb;
-    if (m.base_color_tex != TEXTURE_NONE) r_s.albedo *= sample_material(m.base_color_tex, uv, uv_dx, uv_dy).rgb;
-
     r_s.roughness = m.roughness;
-    if (m.roughness_tex != TEXTURE_NONE) r_s.roughness *= sample_material(m.roughness_tex, uv, uv_dx, uv_dy).r;
     r_s.metallic = m.metallic;
-    if (m.metallic_tex != TEXTURE_NONE) r_s.metallic *= sample_material(m.metallic_tex, uv, uv_dx, uv_dy).r;
     r_s.ao = 1.0;
-    if (m.ao_tex != TEXTURE_NONE) r_s.ao = 1.0 + m.ao_strength * (sample_material(m.ao_tex, uv, uv_dx, uv_dy).r - 1.0);
-
     r_s.emissive = m.emissive;
-    if (m.emissive_tex != TEXTURE_NONE) r_s.emissive *= sample_material(m.emissive_tex, uv, uv_dx, uv_dy).rgb;
 
-    vec3 t, bt;
-    if (m.normal_tex != TEXTURE_NONE && triangle_tangent(model, l0, l1, l2, uv0, uv1, uv2, n, t, bt)) {
-        vec2 xy = (sample_material(m.normal_tex, uv, uv_dx, uv_dy).rg * 2.0 - 1.0) * m.normal_scale;
-        float z = sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0));
-        r_s.normal = normalize(t * xy.x + bt * xy.y + n * z);
+    const bool textured = m.base_color_tex != TEXTURE_NONE || m.normal_tex != TEXTURE_NONE || m.roughness_tex != TEXTURE_NONE || m.metallic_tex != TEXTURE_NONE || m.ao_tex != TEXTURE_NONE || m.emissive_tex != TEXTURE_NONE;
+    if (textured) {
+        vec3 b_dx, b_dy;
+        if (!ray_barycentrics(p_dir_dx, p0, p1, p2, b_dx)) b_dx = b;
+        if (!ray_barycentrics(p_dir_dy, p0, p1, p2, b_dy)) b_dy = b;
+
+        const vec2 uv0 = o.uv_min + vertex_uv_unorm(tri.a0) * o.uv_extent;
+        const vec2 uv1 = o.uv_min + vertex_uv_unorm(tri.a1) * o.uv_extent;
+        const vec2 uv2 = o.uv_min + vertex_uv_unorm(tri.a2) * o.uv_extent;
+        const vec2 raw_uv = uv0 * b.x + uv1 * b.y + uv2 * b.z;
+        const vec2 uv = raw_uv * m.uv_transform.xy + m.uv_transform.zw;
+        const vec2 uv_dx = (uv0 * b_dx.x + uv1 * b_dx.y + uv2 * b_dx.z - raw_uv) * m.uv_transform.xy;
+        const vec2 uv_dy = (uv0 * b_dy.x + uv1 * b_dy.y + uv2 * b_dy.z - raw_uv) * m.uv_transform.xy;
+
+        if (m.base_color_tex != TEXTURE_NONE) r_s.albedo *= sample_material(m.base_color_tex, uv, uv_dx, uv_dy).rgb;
+        if (m.roughness_tex != TEXTURE_NONE) r_s.roughness *= sample_material(m.roughness_tex, uv, uv_dx, uv_dy).r;
+        if (m.metallic_tex != TEXTURE_NONE) r_s.metallic *= sample_material(m.metallic_tex, uv, uv_dx, uv_dy).r;
+        if (m.ao_tex != TEXTURE_NONE) r_s.ao = 1.0 + m.ao_strength * (sample_material(m.ao_tex, uv, uv_dx, uv_dy).r - 1.0);
+        if (m.emissive_tex != TEXTURE_NONE) r_s.emissive *= sample_material(m.emissive_tex, uv, uv_dx, uv_dy).rgb;
+
+        vec3 t, bt;
+        if (m.normal_tex != TEXTURE_NONE && triangle_tangent(o, tri, uv0, uv1, uv2, n, t, bt)) {
+            vec2 xy = (sample_material(m.normal_tex, uv, uv_dx, uv_dy).rg * 2.0 - 1.0) * m.normal_scale;
+            float z = sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0));
+            r_s.normal = normalize(t * xy.x + bt * xy.y + n * z);
+        }
     }
 
     r_s.roughness = clamp(r_s.roughness, 0.0, 1.0);
@@ -215,10 +281,6 @@ uvec2 swizzled_group(uint p_groups_x, uint p_groups_y) {
     return uvec2(strip * SWIZZLE_STRIP + in_strip % w, in_strip / w);
 }
 
-vec3 pixel_dir(vec2 p_ndc) {
-    const vec4 near_h = pc.camera.inv_view_proj * vec4(p_ndc, 1.0, 1.0);
-    return near_h.xyz / near_h.w - pc.camera.position.xyz;
-}
 
 void main() {
     const uint groups_x = (pc.width + 7u) / 8u;
@@ -240,9 +302,14 @@ void main() {
 
     const vec2 texel = 2.0 / vec2(pc.width, pc.height);
     const vec2 ndc = (vec2(coord) + 0.5) * texel - 1.0;
-    const vec3 dir = pixel_dir(ndc);
-    const vec3 dir_dx = pixel_dir(ndc + vec2(texel.x, 0.0));
-    const vec3 dir_dy = pixel_dir(ndc + vec2(0.0, texel.y));
+    const mat4 inv_vp = pc.camera.inv_view_proj;
+    const vec3 cam = pc.camera.position.xyz;
+    const vec4 h = inv_vp * vec4(ndc, 1.0, 1.0);
+    const vec4 h_dx = h + inv_vp[0] * texel.x;
+    const vec4 h_dy = h + inv_vp[1] * texel.y;
+    const vec3 dir = h.xyz / h.w - cam;
+    const vec3 dir_dx = h_dx.xyz / h_dx.w - cam;
+    const vec3 dir_dy = h_dy.xyz / h_dy.w - cam;
 
     Surface s;
     const bool write_motion = (pc.flags & RESOLVE_WRITE_MOTION) != 0u;

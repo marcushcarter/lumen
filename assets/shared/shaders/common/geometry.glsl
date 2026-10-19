@@ -59,6 +59,9 @@ layout(buffer_reference, scalar) readonly buffer SkinVerticesBuffer { SkinVertex
 layout(buffer_reference, scalar) readonly buffer BVHNodeBuffer { BVHNode data[]; };
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
 layout(buffer_reference, scalar) readonly buffer UintBuffer { uint data[]; };
+layout(buffer_reference, scalar, buffer_reference_align = 16) readonly buffer ClusterVertexBuffer { uvec4 data[]; };
+
+const uint LOCAL_TRI_SLOT_OVERFLOW = 255u;
 
 layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     VertexPositionBuffer vertices;
@@ -73,7 +76,8 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     MeshBuffer meshes;
     UintBuffer meshlet_vertices; // global vertex index per (cluster, local vertex)
     UintBuffer cluster_vertex_base; // per cluster: first entry in meshlet_vertices
-    UintBuffer local_triangles; // per triangle: 3 x 8-bit cluster-local vertex indices
+    UintBuffer local_triangles; // per triangle: 3 x 8-bit cluster-local vertex indices, top 8 bits = material slot (255 = read tri_slots)
+    ClusterVertexBuffer cluster_vertices; // per (cluster, local vertex): position (xy) + attributes (zw), contiguous per cluster
     MaterialBuffer materials; // indexed by slot_table entries, 0 = default material
 };
 

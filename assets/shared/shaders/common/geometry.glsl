@@ -6,6 +6,8 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
+#include "common/material.glsl"
+
 struct SkinVertex {
     u8vec4 joints;
     u8vec4 weights;
@@ -72,6 +74,7 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     UintBuffer meshlet_vertices; // global vertex index per (cluster, local vertex)
     UintBuffer cluster_vertex_base; // per cluster: first entry in meshlet_vertices
     UintBuffer local_triangles; // per triangle: 3 x 8-bit cluster-local vertex indices
+    MaterialBuffer materials; // indexed by slot_table entries, 0 = default material
 };
 
 vec3 vertex_position_unorm(uvec2 p_p) { return vec3(unpackUnorm2x16(p_p.x), unpackUnorm2x16(p_p.y).x); }

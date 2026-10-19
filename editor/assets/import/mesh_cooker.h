@@ -2,6 +2,7 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <core/assets/lmesh.h>
 #include <filesystem>
+#include <vector>
 
 struct aiScene;
 
@@ -31,6 +32,7 @@ struct MeshCooker
     };
     
     static unsigned import_flags();
+    static std::vector<uint32_t> material_slots(const aiScene* p_scene);
     static Error _cook(const Job& p_job);
     static Error _cook_scene(const Job& p_job, const aiScene* p_scene);
 

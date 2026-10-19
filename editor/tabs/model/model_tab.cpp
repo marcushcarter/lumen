@@ -44,7 +44,8 @@ Error ModelTab::create(EditorContext& ctx)
     preview.atmosphere.time_of_day = 12.0f;
     _preview_model = Guid::generate();
     _preview_mesh = model.mesh;
-    ctx.renderer->models.set(_preview_model, _preview_mesh);
+    _preview_materials = model.materials;
+    ctx.renderer->models.set(_preview_model, _preview_mesh, _preview_materials);
     const Entity e = preview.create();
     preview.add<TransformComponent>(e);
     preview.add<ModelComponent>(e, { _preview_model });
@@ -125,9 +126,10 @@ void ModelTab::_refresh_stats(EditorContext& ctx)
 void ModelTab::_sync_preview(EditorContext& ctx)
 {
     if (!ctx.renderer) return;
-    if (!(model.mesh == _preview_mesh)) {
+    if (!(model.mesh == _preview_mesh) || model.materials != _preview_materials) {
         _preview_mesh = model.mesh;
-        ctx.renderer->models.set(_preview_model, _preview_mesh);
+        _preview_materials = model.materials;
+        ctx.renderer->models.set(_preview_model, _preview_mesh, _preview_materials);
     }
     if (_framed_mesh == _preview_mesh) return;
     if (const LMesh* mesh = ctx.renderer->geometry.get(ctx.renderer->geometry.find(_preview_mesh))) {

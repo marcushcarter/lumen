@@ -27,6 +27,7 @@ enum class DebugViewOp : uint32_t {
     SHADING_MODEL,
     LIGHT_COMPLEXITY,
     LIGHT_CULL_COST,
+    EMISSIVE,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -92,7 +93,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     { nullptr, "Shading Model", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::SHADING_MODEL, DebugViewInputs::SOURCE },
     // ao
     { nullptr, "Custom Data", &DV_CAT_BUFFERS, "G_Custom", DebugViewOp::COPY, DebugViewInputs::SOURCE },
-        // emissive
+    { nullptr, "Emissive", &DV_CAT_BUFFERS, "G_Emissive", DebugViewOp::EMISSIVE, DebugViewInputs::SOURCE },
     { nullptr, "Velocity", &DV_CAT_BUFFERS, "G_Motion", DebugViewOp::VELOCITY, DebugViewInputs::SOURCE },
     { nullptr, "Scene Depth", &DV_CAT_BUFFERS, "G_Depth", DebugViewOp::DEPTH, DebugViewInputs::SOURCE },
 

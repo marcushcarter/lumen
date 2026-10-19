@@ -43,6 +43,33 @@ struct Transform {
     mat4 curr_mtx;
 };
 
+static constexpr uint32_t TEXTURE_NONE = 0xFFFFFFFFu;
+static constexpr uint32_t MATERIAL_DEFAULT = 0u;
+static constexpr uint32_t MATERIAL_ALPHA_SHIFT = 8u;
+static constexpr uint32_t MATERIAL_FLAG_TWO_SIDED = 1u << 10;
+
+struct GPUMaterial {
+    vec4 base_color;
+    vec3 emissive;
+    float alpha_cutoff;
+    vec4 custom;
+    vec4 uv_transform;
+    float roughness;
+    float metallic;
+    float normal_scale;
+    float ao_strength;
+    uint32_t base_color_tex;
+    uint32_t normal_tex;
+    uint32_t roughness_tex;
+    uint32_t metallic_tex;
+    uint32_t ao_tex;
+    uint32_t emissive_tex;
+    uint32_t custom_tex;
+    uint32_t flags;
+};
+
+static_assert(sizeof(GPUMaterial) == 112, "GPUMaterial layout changed");
+
 static constexpr uint32_t LIGHT_IES_NONE = 0xFFFF;
 static constexpr uint32_t LIGHT_SHADOW_NONE = 0xFFFFFFFF;
 

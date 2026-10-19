@@ -343,6 +343,9 @@ void main() {
         float speed = length(m) * SCALE;
         float hue = atan(m.y, m.x) / 6.2831853 + 0.5;
         color = hsv_to_rgb(vec3(hue, 1.0, clamp(speed, 0.0, 1.0)));
+    } else if (pc.op == OP_EMISSIVE) {
+        vec3 e = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb * pc.camera.pre_exposure;
+        color = e / (1.0 + e);
     } else if (pc.op == OP_DEPTH) {
         color = vec3(linearize_depth(coord));
     } else if (pc.op == OP_LIGHT_COMPLEXITY || pc.op == OP_LIGHT_CULL_COST) {

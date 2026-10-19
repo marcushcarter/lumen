@@ -10,6 +10,7 @@
 namespace lumen {
 
 struct GeometryPool;
+struct MaterialCache;
 
 struct ModelCache
 {
@@ -22,6 +23,7 @@ struct ModelCache
         uint32_t mesh_index = INVALID_MESH;
         uint32_t slot_base = 0;
         uint32_t slot_count = 0;
+        std::vector<Guid> materials;
     };
 
     drivers::DeviceDriverVulkan* dd = nullptr;
@@ -32,15 +34,16 @@ struct ModelCache
     std::vector<uint32_t> slot_table;
     uint64_t version = 0;
     uint64_t _geometry_version = UINT64_MAX;
+    uint64_t _material_layout = UINT64_MAX;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
 
     Error load(const std::filesystem::path& p_path);
-    void set(Guid p_guid, Guid p_mesh);
+    void set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials);
     void unload(Guid p_guid);
     void clear();
-    void resolve(const GeometryPool& p_geometry);
+    void resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials);
     void upload(uint32_t p_frame);
 
     VkDeviceAddress slot_table_address(uint32_t p_frame) const {

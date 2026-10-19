@@ -23,5 +23,6 @@ const uint OP_MATERIAL_AO = 18u;
 const uint OP_SHADING_MODEL = 19u;
 const uint OP_LIGHT_COMPLEXITY = 20u;
 const uint OP_LIGHT_CULL_COST = 21u;
+const uint OP_EMISSIVE = 22u;
 
 #endif

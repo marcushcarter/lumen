@@ -792,6 +792,12 @@ void GeometryFeature::_create_material_resolve_pass()
         custom_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Custom", custom_ci);
 
+        drivers::DeviceDriverVulkan::ImageCreateInfo emissive_ci{};
+        emissive_ci.name = "G_Emissive";
+        emissive_ci.format = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+        emissive_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        b.create_image("G_Emissive", emissive_ci);
+
         drivers::DeviceDriverVulkan::ImageCreateInfo motion_ci{};
         motion_ci.name = "G_Motion";
         motion_ci.format = VK_FORMAT_R16G16_SFLOAT;
@@ -809,6 +815,7 @@ void GeometryFeature::_create_material_resolve_pass()
         b.write_image("G_Albedo", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Material", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Custom", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_image("G_Emissive", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Motion", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     material_resolve_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -817,6 +824,7 @@ void GeometryFeature::_create_material_resolve_pass()
         auto albedo = cl.graph->image("G_Albedo");
         auto matl = cl.graph->image("G_Material");
         auto custom = cl.graph->image("G_Custom");
+        auto emissive = cl.graph->image("G_Emissive");
         auto motion = cl.graph->image("G_Motion");
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
@@ -839,9 +847,11 @@ void GeometryFeature::_create_material_resolve_pass()
             uint32_t material_slot;
             uint32_t custom_slot;
             uint32_t motion_slot;
+            uint32_t emissive_slot;
             uint32_t width;
             uint32_t height;
             uint32_t flags;
+            uint32_t sampler_index;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -854,11 +864,13 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.material_slot = matl->bindless_storage;
         pc.custom_slot = custom->bindless_storage;
         pc.motion_slot = motion->bindless_storage;
+        pc.emissive_slot = emissive->bindless_storage;
         pc.width = vis->extent.width;
         pc.height = vis->extent.height;
         const RenderGraph::ImageResource* motion_res = cl.graph->image_resource("G_Motion");
         const RenderGraph::ImageResource* custom_res = cl.graph->image_resource("G_Custom");
         pc.flags = (motion_res && motion_res->read ? RESOLVE_WRITE_MOTION : 0u) | (custom_res && custom_res->read ? RESOLVE_WRITE_CUSTOM : 0u);
+        pc.sampler_index = material_sampler.bindless_sampler;
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
@@ -969,6 +981,15 @@ Error GeometryFeature::create_resources()
     hiz_sampler = ctx->dd->sampler_create(hiz_sampler_ci);
     LUMEN_ERR_FAIL_COND_V_MSG(!hiz_sampler.sampler, Error::FAILED, "GeometryFeature: HiZ sampler creation failed.");
 
+    drivers::DeviceDriverVulkan::SamplerCreateInfo material_sampler_ci{};
+    material_sampler_ci.filter = VK_FILTER_LINEAR;
+    material_sampler_ci.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    material_sampler_ci.address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    material_sampler_ci.anisotropy = 8.0f;
+    material_sampler_ci.name = "material";
+    material_sampler = ctx->dd->sampler_create(material_sampler_ci);
+    LUMEN_ERR_FAIL_COND_V_MSG(!material_sampler.sampler, Error::FAILED, "GeometryFeature: material sampler creation failed.");
+
     const VkDeviceSize tail_size = sizeof(uint32_t) * 4 + sizeof(float) * HIZ_TAIL_MAX * HIZ_TAIL_MAX;
     hiz_tail_buffer = ctx->dd->buffer_create({ .size = tail_size, .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "hiz_tail" });
     LUMEN_ERR_FAIL_COND_V_MSG(!hiz_tail_buffer.buffer, Error::FAILED, "GeometryFeature: HiZ tail buffer allocation failed.");
@@ -1062,6 +1083,7 @@ void GeometryFeature::destroy_resources()
     ctx->dd->pipeline_free(visbuffer_compact_pipe);
     ctx->dd->pipeline_free(visbuffer_spill_pipe);
     ctx->dd->sampler_free(hiz_sampler);
+    ctx->dd->sampler_free(material_sampler);
     ctx->dd->buffer_free(hiz_tail_buffer);
     for (drivers::DeviceDriverVulkan::Buffer& b : stats_readback) ctx->dd->buffer_free(b);
     stats_readback.clear();

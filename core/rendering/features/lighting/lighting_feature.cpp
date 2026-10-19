@@ -25,13 +25,12 @@ void LightingFeature::_create_lighting_pass()
         b.read_image("G_Albedo", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("G_Normal", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("G_Material", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("G_Emissive", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("SkyLighting", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        // b.read_image("SkyViewSun", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        // b.read_image("SkyViewMoon", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("AerialPerspective", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (local_lights) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -45,6 +44,7 @@ void LightingFeature::_create_lighting_pass()
         auto* albedo = cl.graph->image("G_Albedo");
         auto* normal = cl.graph->image("G_Normal");
         auto* material = cl.graph->image("G_Material");
+        auto* emissive = cl.graph->image("G_Emissive");
         auto* camera = cl.graph->buffer("Camera");
         auto* lights = cl.graph->buffer("Lights");
         auto* cull = cl.graph->buffer("LightCullData");
@@ -54,11 +54,8 @@ void LightingFeature::_create_lighting_pass()
         auto* atmosphere = cl.graph->buffer("Atmosphere");
         auto* sky_lighting = cl.graph->buffer("SkyLighting");
         auto* transmittance = cl.graph->image("TransmittanceLut");
-        // auto* skyview_sun = cl.graph->image("SkyViewSun");
-        // auto* skyview_moon = cl.graph->image("SkyViewMoon");
         auto* aerial = cl.graph->image("AerialPerspective");
-        if (!depth || !albedo || !normal || !material || !camera || !lights || !out) return;
-        // if (!atmosphere || !sky_lighting || !transmittance || !skyview_sun || !skyview_moon || !aerial || !lut_sampler) return;
+        if (!depth || !albedo || !normal || !material || !emissive || !camera || !lights || !out) return;
         if (!atmosphere || !sky_lighting || !transmittance || !aerial || !lut_sampler) return;
         const bool local_lights = cull && sorted;
         const uint32_t mode = !local_lights ? LIGHT_MODE_NONE : (masks ? LIGHT_MODE_TILED : LIGHT_MODE_ZBIN);
@@ -75,13 +72,12 @@ void LightingFeature::_create_lighting_pass()
             uint32_t albedo_index;
             uint32_t normal_index;
             uint32_t material_index;
+            uint32_t emissive_index;
             uint32_t out_slot;
             uint32_t width;
             uint32_t height;
             uint32_t directional_count;
             uint32_t transmittance_index;
-            // uint32_t skyview_sun_index;
-            // uint32_t skyview_moon_index;
             uint32_t aerial_index;
             uint32_t sampler_index;
         } pc{};
@@ -96,13 +92,12 @@ void LightingFeature::_create_lighting_pass()
         pc.albedo_index = albedo->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
         pc.material_index = material->bindless_sampled;
+        pc.emissive_index = emissive->bindless_sampled;
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
         pc.directional_count = (ctx->frame->directional_count & 0xFFFFu) | (local_lights ? LIGHTING_FLAG_LOCAL_LIGHTS : 0u);
         pc.transmittance_index = transmittance->bindless_sampled;
-        // pc.skyview_sun_index = skyview_sun->bindless_sampled;
-        // pc.skyview_moon_index = skyview_moon->bindless_sampled;
         pc.aerial_index = aerial->bindless_sampled;
         pc.sampler_index = *lut_sampler;
 
@@ -123,7 +118,6 @@ void LightingFeature::_create_sky_pass()
         b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("SkyView", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        // READ bit makes the graph order this after DeferredLighting (which owns the non-sky pixels) and keep both alive.
         b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     sky_pass.execute = [this](RenderGraph::CommandList& cl) {

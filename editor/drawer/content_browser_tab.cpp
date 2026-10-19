@@ -78,7 +78,7 @@ void ContentBrowserDrawerTab::_cache_scan(const std::filesystem::path& p_dir, Di
         for (char& c : e.lower_name) c = (char)std::tolower((unsigned char)c);
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
-        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : ICON_FA_FILE;
+        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? ICON_FA_PALETTE : ICON_FA_FILE;
         if (e.is_dir) r_dir.subdirs.push_back(e.path);
         r_dir.entries.push_back(std::move(e));
     }
@@ -175,6 +175,7 @@ void ContentBrowserDrawerTab::_delete_content(EditorContext& ctx, const std::fil
             case AssetType::TEXTURE: ctx.renderer->textures.unload(info.guid); break;
             case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); break;
             case AssetType::MODEL: ctx.renderer->models.unload(info.guid); break;
+            case AssetType::MATERIAL: ctx.renderer->materials.unload(info.guid); break;
             default: break;
         }
     }
@@ -257,6 +258,7 @@ void ContentBrowserDrawerTab::_duplicate_selection(EditorContext& ctx)
             continue;
         }
         if (ctx.renderer && dst.extension() == ".lmodel") ctx.renderer->models.load(dst);
+        if (ctx.renderer && dst.extension() == ".lmaterial") ctx.renderer->materials.load(dst);
         created.push_back(dst);
     }
     if (created.empty()) return;
@@ -706,7 +708,6 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                             e.guid = _resolve_texture_guid(e.path);
                             e.guid_checked = true;
                         }
-                        // if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = bt->image.image_view;
                         if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = _thumb_view(ctx, e.guid, bt->image);
                     }
                     if (view) set = ctx.imgui->texture_cache.get(view);
@@ -804,7 +805,6 @@ void ContentBrowserDrawerTab::_reset_root(const std::filesystem::path& p_root)
     last_refresh = -1.0e9;
 }
 
-// BC4/BC5 need a swizzled view to read as greyscale / normal map; everything else uses the texture's own view.
 VkImageView ContentBrowserDrawerTab::_thumb_view(EditorContext& ctx, Guid p_guid, const drivers::DeviceDriverVulkan::Image& p_image)
 {
     const uint32_t channels = TextureViewer::channel_count(p_image.format);
@@ -889,7 +889,6 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
     float left_w = ImFloor(ImClamp(body_w * 0.18f, ImMin(min_side, body_w * 0.5f), body_w - ImMin(min_side, body_w * 0.5f)));
     float right_w = body_w - left_w;
 
-    // ImGui::BeginChild("##left", ImVec2(left_w, avail.y), true);
     ImGui::BeginChild("##left", ImVec2(left_w, avail.y), ImGuiChildFlags_AlwaysUseWindowPadding);
     if (_cache_get(root).exists) _draw_folder_node(root, 0);
     {
@@ -904,7 +903,6 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
     ImGui::SameLine(0, thick);
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
-    // ImGui::BeginChild("##right", ImVec2(right_w, avail.y), true);
     ImGui::BeginChild("##right", ImVec2(right_w, avail.y), ImGuiChildFlags_None);
     ImGui::PopStyleColor();
     const float pad_y = ImGui::GetStyle().WindowPadding.y;
@@ -939,8 +937,6 @@ void ContentBrowserDrawerTab::draw(EditorContext& ctx)
         dock_menu_pop_style();
         ImGui::PopStyleVar();
     }
-    // const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-    // ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), true);
     const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + pad_y;
     ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), ImGuiChildFlags_None);
     _list_draw(ctx);

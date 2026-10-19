@@ -485,7 +485,7 @@ void GeometryPool::unload(Guid p_guid)
 /**** FRAME ****/
 /***************/
 
-void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table)
+void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials)
 {
     frame_number = p_frame_number;
     _collect(p_frame_number);
@@ -504,6 +504,7 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDevic
     a.meshlet_vertices = arenas[ARENA_MESHLET_VERTICES].buffer.device_address;
     a.cluster_vertex_base = arenas[ARENA_CLUSTER_VERTEX_BASE].buffer.device_address;
     a.local_triangles = arenas[ARENA_LOCAL_TRIANGLES].buffer.device_address;
+    a.materials = p_materials;
 
     Buffer& b = address_buffers[p_slot];
     dd->buffer_update(b, &a, sizeof(a));

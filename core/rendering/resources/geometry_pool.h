@@ -28,6 +28,7 @@ struct GeometryAddresses
     VkDeviceAddress meshlet_vertices;
     VkDeviceAddress cluster_vertex_base;
     VkDeviceAddress local_triangles;
+    VkDeviceAddress materials;
 };
 
 struct LMesh
@@ -178,7 +179,7 @@ struct GeometryPool
     /**** FRAME ****/
     /***************/
 
-    void begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table);
+    void begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials);
 
     drivers::DeviceDriverVulkan::Buffer& address_buffer(uint32_t p_slot) { return address_buffers[p_slot]; }
     const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return arenas[ARENA_INDICES].buffer; }

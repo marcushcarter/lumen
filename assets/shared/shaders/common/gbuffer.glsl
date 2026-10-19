@@ -5,6 +5,12 @@
 
 const uint SHADING_MODEL_SKY = 0u;
 const uint SHADING_MODEL_DEFAULT_LIT = 1u;
+const uint SHADING_MODEL_UNLIT = 2u;
+const uint SHADING_MODEL_FOLIAGE = 3u;
+const uint SHADING_MODEL_SKIN = 4u;
+const uint SHADING_MODEL_CLOTH = 5u;
+const uint SHADING_MODEL_HAIR = 6u;
+const uint SHADING_MODEL_EYE = 7u;
 
 vec4 gbuffer_encode_albedo(vec3 albedo, uint flags) {
     return vec4(sqrt(clamp(albedo, 0.0, 1.0)), float(flags & 3u) / 3.0);

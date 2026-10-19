@@ -15,14 +15,14 @@ struct TextureCooker
     struct CookSettings {
         TextureUsage usage = TextureUsage::COLOR;
         // TextureQuality quality = TextureQuality::BEST;
+        TextureQuality quality = TextureQuality::FAST;
         bool generate_mips = true;
         // uint32_t max_size = 0;
+        uint32_t max_size = 1024;
         bool flip_green = false;
         float alpha_cutoff = 0.0f;
         float rdo_lambda = 0.0f;
-        
-        TextureQuality quality = TextureQuality::FAST;
-        uint32_t max_size = 1024;
+        int32_t source_channel = -1;
     };
 
     struct Job {

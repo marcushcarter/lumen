@@ -1,5 +1,6 @@
 #include <core/rendering/resources/model_cache.h>
 #include <core/rendering/resources/geometry_pool.h>
+#include <core/rendering/resources/material_cache.h>
 #include <core/assets/lmodel.h>
 
 namespace lumen {
@@ -35,15 +36,21 @@ Error ModelCache::load(const std::filesystem::path& p_path)
     using enum Error;
     LModel model;
     if (model.load(p_path) != OK || model.guid == Guid{}) return FAILED;
-    by_guid[model.guid] = Entry{ model.mesh };
+    Entry& e = by_guid[model.guid];
+    e = Entry{};
+    e.mesh = model.mesh;
+    e.materials = model.materials;
     _geometry_version = UINT64_MAX;
     version++;
     return OK;
 }
 
-void ModelCache::set(Guid p_guid, Guid p_mesh)
+void ModelCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials)
 {
-    by_guid[p_guid] = Entry{ p_mesh };
+    Entry& e = by_guid[p_guid];
+    e = Entry{};
+    e.mesh = p_mesh;
+    e.materials = p_materials;
     _geometry_version = UINT64_MAX;
     version++;
 }
@@ -62,9 +69,10 @@ void ModelCache::clear()
     version++;
 }
 
-void ModelCache::resolve(const GeometryPool& p_geometry)
+// Rebuilt when meshes or material indices change; material edits alone keep their index and skip this.
+void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials)
 {
-    if (_geometry_version == p_geometry.version) return;
+    if (_geometry_version == p_geometry.version && _material_layout == p_materials.layout_version) return;
 
     slot_table.assign(1, DEFAULT_MATERIAL);
     bool overflow = false;
@@ -80,11 +88,13 @@ void ModelCache::resolve(const GeometryPool& p_geometry)
         }
         entry.slot_base = (uint32_t)slot_table.size();
         entry.slot_count = mesh->slot_count;
-        slot_table.insert(slot_table.end(), mesh->slot_count, DEFAULT_MATERIAL);
+        // slot_table.insert(slot_table.end(), mesh->slot_count, DEFAULT_MATERIAL);
+        for (uint32_t s = 0; s < mesh->slot_count; ++s) slot_table.push_back(s < entry.materials.size() ? p_materials.index_of(entry.materials[s]) : DEFAULT_MATERIAL);
     }
     if (overflow) log_write("ModelCache: slot table full (%u), some models use the default material.", MAX_SLOTS);
 
     _geometry_version = p_geometry.version;
+    _material_layout = p_materials.layout_version;
     version++;
 }
 

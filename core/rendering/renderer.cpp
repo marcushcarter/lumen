@@ -83,6 +83,8 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = models.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = materials.initialize(r_dd, frame_count);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = graph.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -101,6 +103,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
 void Renderer::shutdown()
 {
     unload();
+    materials.shutdown();
     models.shutdown();
     geometry.shutdown();
     
@@ -132,8 +135,10 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
     std::error_code ec;
     if (std::filesystem::exists(p_assets_dir, ec)) {
         for (auto it = std::filesystem::recursive_directory_iterator(p_assets_dir, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-            if (!it->is_regular_file(ec) || it->path().extension() != ".lmodel") continue;
-            models.load(it->path());
+            if (!it->is_regular_file(ec)) continue;
+            const std::filesystem::path ext = it->path().extension();
+            if (ext == ".lmodel") models.load(it->path());
+            else if (ext == ".lmaterial") materials.load(it->path());
         }
     }
 
@@ -165,6 +170,7 @@ void Renderer::unload()
 {
     textures.clear();
     models.clear();
+    materials.clear();
     _last_world = nullptr;
     geometry.free();
     frame.entity_cache.clear();
@@ -385,7 +391,7 @@ static bool _model_sane(const mat4& p_m)
 void Renderer::_frame_build(const World& p_world)
 {
     frame.reset();
-    models.resolve(geometry);
+    models.resolve(geometry, materials);
 
     StaticInstances& static_insts = frame.static_insts;
     if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version || static_insts.model_version != models.version) {
@@ -716,7 +722,10 @@ Error Renderer::begin_frame(const World& p_world)
 
     _collect_hiz_retired(false);
     textures.begin_frame(frame_number, frame_count);
-    geometry.begin_frame(frame_number, current_frame, models.slot_table_address(current_frame));
+    materials.begin_frame(frame_number);
+    materials.resolve(textures);
+    materials.upload(current_frame);
+    geometry.begin_frame(frame_number, current_frame, models.slot_table_address(current_frame), materials.address(current_frame));
 
     if (&p_world != _last_world) {
         _last_world = &p_world;

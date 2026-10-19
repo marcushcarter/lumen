@@ -171,11 +171,21 @@ Error TextureCooker::_cook(const Job& p_job)
     if (!img.valid()) return FAILED;
     const uint32_t width = static_cast<uint32_t>(img.width);
     const uint32_t height = static_cast<uint32_t>(img.height);
-    const uint8_t channels = static_cast<uint8_t>(img.source_channels);
+    uint8_t channels = static_cast<uint8_t>(img.source_channels);
     std::vector<uint8_t> mip0(reinterpret_cast<uint8_t*>(img.pixels), reinterpret_cast<uint8_t*>(img.pixels) + static_cast<size_t>(width) * height * 4);
     ImageIO::free_image(img);
 
     const CookSettings& cs = p_job.settings;
+    if (cs.source_channel >= 0 && cs.source_channel < 4) {
+        for (size_t i = 0; i < mip0.size(); i += 4) {
+            const uint8_t v = mip0[i + (size_t)cs.source_channel];
+            mip0[i + 0] = v;
+            mip0[i + 1] = v;
+            mip0[i + 2] = v;
+            mip0[i + 3] = 255;
+        }
+        channels = 1;
+    }
     const bool normal = cs.usage == TextureUsage::NORMAL;
     const FormatMap fmt = map_format(cs.usage, channels);
 
@@ -280,6 +290,7 @@ Error TextureCooker::_cook(const Job& p_job)
             { "source_width", static_cast<int64_t>(width) },
             { "source_height", static_cast<int64_t>(height) },
             { "channels", static_cast<int64_t>(channels) },
+            { "source_channel", static_cast<int64_t>(cs.source_channel) },
             { "srgb", fmt.srgb },
             { "usage", texture_usage_name(cs.usage) },
             { "quality", texture_quality_name(cs.quality) },

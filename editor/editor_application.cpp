@@ -105,6 +105,10 @@ void EditorApplication::on_update(float p_dt)
         if (!imports.completed.empty()) assets.request_rebuild();
         for (const auto& c : imports.completed) {
             if (c.dst.extension() == ".lmodel") {
+                std::error_code mat_ec;
+                for (auto it = std::filesystem::directory_iterator(c.dst.parent_path(), mat_ec); !mat_ec && it != std::filesystem::directory_iterator(); it.increment(mat_ec)) {
+                    if (it->path().extension() == ".lmaterial") renderer.materials.load(it->path());
+                }
                 renderer.models.load(c.dst);
                 continue;
             }

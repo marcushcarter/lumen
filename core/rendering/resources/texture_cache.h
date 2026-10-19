@@ -26,6 +26,7 @@ struct TextureCache
     std::vector<Retired> retired;
     uint64_t frame_number = 0;
     uint32_t frame_count = 1;
+    uint64_t version = 0;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd);
     void begin_frame(uint64_t p_frame_number, uint32_t p_frame_count);

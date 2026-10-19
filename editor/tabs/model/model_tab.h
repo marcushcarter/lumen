@@ -25,6 +25,7 @@ struct ModelTab : EditorTab
     World preview;
     Guid _preview_model;
     Guid _preview_mesh;
+    std::vector<Guid> _preview_materials;
     Guid _framed_mesh;
     std::string _title;
 
@@ -34,7 +35,7 @@ struct ModelTab : EditorTab
     double _stats_poll = -1.0e9;
 
     const char* title() const override { return _title.empty() ? "Model" : _title.c_str(); }
-    bool dirty() const override { return !(model.mesh == saved.mesh); }
+    bool dirty() const override { return !(model.mesh == saved.mesh) || model.materials != saved.materials; }
     const Camera* camera() const override { return &orbit.camera; }
     const World* scene() const override { return &preview; }
 

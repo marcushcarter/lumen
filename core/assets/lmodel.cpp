@@ -34,6 +34,10 @@ Error LModel::load(const std::filesystem::path& p_path)
     if (asset_type_from_u32((uint32_t)asset["type"].value_or<int64_t>(0)) != AssetType::MODEL) return FAILED;
     guid = Guid::from_string(asset["guid"].value_or(std::string{}));
     mesh = Guid::from_string(tbl["model"]["mesh"].value_or(std::string{}));
+    materials.clear();
+    if (const toml::array* arr = tbl["model"]["materials"].as_array()) {
+        for (const toml::node& n : *arr) materials.push_back(Guid::from_string(n.value_or(std::string{})));
+    }
 
     import = ImportRecord{};
     if (const toml::table* rec = tbl["import"].as_table()) {
@@ -47,13 +51,16 @@ Error LModel::load(const std::filesystem::path& p_path)
 Error LModel::save(const std::filesystem::path& p_path) const
 {
     using enum Error;
+    toml::array slots;
+    for (Guid m : materials) slots.push_back(m == Guid{} ? std::string{} : m.to_string());
     toml::table tbl {
         { "asset", toml::table{
             { "version", (int64_t)LASSET_VERSION },
             { "guid", guid.to_string() },
             { "type", (int64_t)AssetType::MODEL } }},
         { std::string(asset_type_section(AssetType::MODEL)), toml::table{
-            { "mesh", mesh.to_string() } }},
+            { "mesh", mesh.to_string() },
+            { "materials", std::move(slots) } }},
     };
     if (!import.source.empty()) {
         tbl.insert_or_assign("import", toml::table{

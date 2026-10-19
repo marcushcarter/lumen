@@ -83,6 +83,7 @@ uint32_t TextureCache::load(Guid p_guid, const std::filesystem::path& p_path)
         slots.push_back(LTexture{ p_guid, img });
     }
     by_guid.emplace(p_guid, slot);
+    version++;
 
     log_write("TextureCache: loaded %s %ux%u %s (mips=%u) slot=%u bindless=%u", p_path.string().c_str(), img.extent.width, img.extent.height, string_VkFormat(img.format), img.mip_levels, slot, img.bindless_sampled);
     return slot;
@@ -97,6 +98,7 @@ void TextureCache::unload(Guid p_guid)
     slots[slot] = LTexture{};
     free_slots.push_back(slot);
     by_guid.erase(it);
+    version++;
 }
 
 void TextureCache::clear()
@@ -107,6 +109,7 @@ void TextureCache::clear()
     slots.clear();
     free_slots.clear();
     by_guid.clear();
+    version++;
 }
 
 }

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace lumen {
 
@@ -21,6 +22,7 @@ struct LModel
 
     Guid guid;
     Guid mesh;
+    std::vector<Guid> materials;
     ImportRecord import;
 
     Error load(const std::filesystem::path& p_path);

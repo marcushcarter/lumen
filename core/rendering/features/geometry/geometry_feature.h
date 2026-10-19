@@ -49,6 +49,7 @@ struct GeometryFeature : Feature
     bool hiz_history = false;
     bool hiz_use_prev = false;
     drivers::DeviceDriverVulkan::Sampler hiz_sampler;
+    drivers::DeviceDriverVulkan::Sampler material_sampler;
     drivers::DeviceDriverVulkan::Buffer hiz_tail_buffer;
     bool hiz_ok = false;
 

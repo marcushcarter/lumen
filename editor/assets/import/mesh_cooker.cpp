@@ -31,6 +31,7 @@ struct MeshSource {
     std::vector<uint32_t> indices;
     std::vector<uint32_t> tri_slots;
     uint32_t slot_count = 0;
+    std::vector<uint32_t> vertex_slots;
     std::vector<SkinVertex> skin_vertices;
     std::vector<Cluster> clusters;
     std::vector<ClusterGroup> groups;
@@ -58,7 +59,7 @@ static i16vec2 _oct_encode(vec3 n)
 
 static const SkinVertex SKIN_RIGID = { u8vec4(0), u8vec4(255, 0, 0, 0) };
 
-void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, uint32_t& r_bone_base)
+void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, const std::vector<uint32_t>& p_slot_of, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, std::vector<uint32_t>& r_vert_slots, uint32_t& r_bone_base)
 {
     const aiMatrix4x4 world = p_parent * p_node->mTransformation;
 
@@ -81,6 +82,8 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
             v.uv = mesh->HasTextureCoords(0) ? vec2(mesh->mTextureCoords[0][vi].x, mesh->mTextureCoords[0][vi].y) : vec2(0.0f);
             r_verts.push_back(v);
         }
+        const uint32_t slot = mesh->mMaterialIndex < p_slot_of.size() ? p_slot_of[mesh->mMaterialIndex] : 0u;
+        r_vert_slots.resize(r_verts.size(), slot);
 
         const bool mesh_skinned = mesh->mNumBones > 0;
         if (mesh_skinned || !r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
@@ -133,13 +136,18 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
     }
 
     for (uint32_t c = 0; c < p_node->mNumChildren; c++)
-        _gather_node(p_scene, p_node->mChildren[c], world, r_verts, r_indices, r_skin, r_bone_base);
+        _gather_node(p_scene, p_node->mChildren[c], world, p_slot_of, r_verts, r_indices, r_skin, r_vert_slots, r_bone_base);
 }
 
-bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin)
+bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
 {
+    const std::vector<uint32_t> slots = MeshCooker::material_slots(p_scene);
+    std::vector<uint32_t> slot_of(p_scene->mNumMaterials, 0u);
+    for (uint32_t s = 0; s < (uint32_t)slots.size(); ++s) slot_of[slots[s]] = s;
+    r_src.slot_count = std::max(1u, (uint32_t)slots.size());
+
     uint32_t bone_base = 0;
-    _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), r_verts, r_indices, r_skin, bone_base);
+    _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), slot_of, r_verts, r_indices, r_skin, r_src.vertex_slots, bone_base);
     if (!r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
     return !r_verts.empty() && !r_indices.empty();
 }
@@ -213,8 +221,17 @@ std::pair<uint32_t, uint32_t> _build_meshlets(const std::vector<SrcVert>& p_vert
 void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
 {
     const uint32_t tri_count = (uint32_t)r_src.indices.size() / 3;
-    r_src.tri_slots.assign(tri_count, 0u);
-    r_src.slot_count = 1;
+    r_src.tri_slots.resize(tri_count);
+    uint32_t mixed = 0;
+    for (uint32_t t = 0; t < tri_count; ++t) {
+        const uint32_t s0 = r_src.vertex_slots[r_src.indices[t * 3u + 0u]];
+        const uint32_t s1 = r_src.vertex_slots[r_src.indices[t * 3u + 1u]];
+        const uint32_t s2 = r_src.vertex_slots[r_src.indices[t * 3u + 2u]];
+        if (s0 != s1 || s0 != s2) ++mixed;
+        r_src.tri_slots[t] = s0;
+    }
+    if (mixed) log_write("MeshCooker: %u triangles span more than one material slot.", mixed);
+    if (r_src.slot_count == 0) r_src.slot_count = 1;
 
     const vec3 pmin = r_src.pos_min;
     const vec3 pmax = r_src.pos_min + r_src.pos_extent;
@@ -224,7 +241,7 @@ void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
 bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
-    if (!_gather_scene(p_scene, verts, indices, skin)) return false;
+    if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
 
@@ -242,7 +259,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
 bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
-    if (!_gather_scene(p_scene, verts, indices, skin)) return false;
+    if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
 
@@ -263,7 +280,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
 bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
-    if (!_gather_scene(p_scene, verts, indices, skin)) return false;
+    if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
 
@@ -363,7 +380,26 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     return true;
 }
 
-unsigned MeshCooker::import_flags() { return aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality; }
+static void _collect_slots(const aiScene* p_scene, const aiNode* p_node, std::vector<uint32_t>& r_used)
+{
+    for (uint32_t i = 0; i < p_node->mNumMeshes; i++) {
+        const aiMesh* mesh = p_scene->mMeshes[p_node->mMeshes[i]];
+        if ((mesh->mPrimitiveTypes & aiPrimitiveType_TRIANGLE) && mesh->mMaterialIndex < p_scene->mNumMaterials) r_used.push_back(mesh->mMaterialIndex);
+    }
+    for (uint32_t c = 0; c < p_node->mNumChildren; c++) _collect_slots(p_scene, p_node->mChildren[c], r_used);
+}
+
+std::vector<uint32_t> MeshCooker::material_slots(const aiScene* p_scene)
+{
+    std::vector<uint32_t> used;
+    if (!p_scene || !p_scene->mRootNode) return used;
+    _collect_slots(p_scene, p_scene->mRootNode, used);
+    std::sort(used.begin(), used.end());
+    used.erase(std::unique(used.begin(), used.end()), used.end());
+    return used;
+}
+
+unsigned MeshCooker::import_flags() { return aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality | aiProcess_FlipUVs; }
 
 Error MeshCooker::_cook(const Job& p_job)
 {

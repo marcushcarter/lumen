@@ -30,6 +30,7 @@ layout(push_constant, scalar) uniform Push {
     uint albedo_index;
     uint normal_index;
     uint material_index;
+    uint emissive_index;
     uint out_slot;
     uint width;
     uint height;
@@ -201,7 +202,8 @@ void main() {
 
     vec3 indirect = s.diffuse_color * sh_irradiance(pc.sky_lighting, s.n) * (ATMO_INV_PI * ao);
 
-    vec3 color = (direct + indirect) * pc.camera.pre_exposure;
+    vec3 emissive = texelFetch(u_textures[pc.emissive_index], p, 0).rgb;
+    vec3 color = (direct + indirect + emissive) * pc.camera.pre_exposure;
     vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
     color = color * ap.a + ap.rgb;
 

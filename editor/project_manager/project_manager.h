@@ -13,6 +13,7 @@ struct ProjectManager
     struct ContentStats {
         uint32_t meshes = 0;
         uint32_t textures = 0;
+        uint32_t materials = 0;
         uint32_t models = 0;
         uint64_t disk_bytes = 0;
     };

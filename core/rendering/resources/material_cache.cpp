@@ -33,7 +33,15 @@ Error MaterialCache::load(const std::filesystem::path& p_path)
 {
     using enum Error;
     LMaterial m;
-    if (m.load(p_path) != OK || m.guid == Guid{}) return FAILED;
+    if (m.load(p_path) != OK) return FAILED;
+    return set(m);
+}
+
+Error MaterialCache::set(const LMaterial& p_material)
+{
+    using enum Error;
+    const LMaterial& m = p_material;
+    if (m.guid == Guid{}) return FAILED;
 
     auto it = by_guid.find(m.guid);
     if (it != by_guid.end()) {

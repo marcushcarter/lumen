@@ -48,6 +48,7 @@ struct MaterialCache
     void shutdown();
 
     Error load(const std::filesystem::path& p_path);
+    Error set(const LMaterial& p_material);
     void unload(Guid p_guid);
     void clear();
 

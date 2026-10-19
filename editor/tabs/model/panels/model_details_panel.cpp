@@ -47,12 +47,10 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::Text("Approx Size: %.2fm x %.2fm x %.2fm", s.size.x, s.size.y, s.size.z);
     }
 
-    
     if (imgui_category("Skeleton")) {
         
     }
 
-    
     if (imgui_category("Materials")) {
         std::vector<Guid>& mats = tab->model.materials;
         const uint32_t count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());

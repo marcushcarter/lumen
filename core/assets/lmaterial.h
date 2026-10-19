@@ -23,6 +23,8 @@ struct LMaterial
     struct ImportRecord {
         std::string source;
         std::string name;
+
+        bool operator==(const ImportRecord&) const = default;
     };
 
     Guid guid;
@@ -59,6 +61,8 @@ struct LMaterial
 
     Error load(const std::filesystem::path& p_path);
     Error save(const std::filesystem::path& p_path) const;
+
+    bool operator==(const LMaterial&) const = default;
 };
 
 }

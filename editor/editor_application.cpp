@@ -7,6 +7,7 @@
 #include <core/version.h>
 #include <drivers/imgui/tab_strip.h>
 #include <editor/tabs/model/model_tab.h>
+#include <editor/tabs/material/material_tab.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -261,7 +262,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::WORLD: opened = &world_tab; break;
             case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
             case TabKind::MODEL: if (!(t.guid == Guid{})) opened = tabs.open<ModelTab>(t.guid); break;
-            case TabKind::MATERIAL: break;
+            case TabKind::MATERIAL: if (!(t.guid == Guid{})) opened = tabs.open<MaterialTab>(t.guid); break;
         }
         if (opened && i == saved.active) active = opened;
     }

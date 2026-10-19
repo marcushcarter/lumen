@@ -499,14 +499,16 @@ Error MeshCooker::_cook_scene(const Job& p_job, const aiScene* p_scene)
             { "version", static_cast<int64_t>(LASSET_VERSION) },
             { "guid", p_job.guid.to_string() },
             { "type", static_cast<int64_t>(AssetType::MESH) } }},
-        { std::string(asset_type_section(AssetType::MESH)), toml::table{
-            { "path", p_job.source.generic_string() },
-            { "vertices", static_cast<int64_t>(0) },
-            { "triangles", static_cast<int64_t>(0) },
-            { "clusters", static_cast<int64_t>(0) },
-            { "skinned", skinned },
+        { "import", toml::table{
+            { "source", p_job.source.generic_string() },
+            { "scale", static_cast<double>(p_job.settings.scale) },
             { "dag_level", mesh_dag_level_name(p_job.settings.dag_level) },
-            }},
+            { "max_verts", static_cast<int64_t>(p_job.settings.max_verts) },
+            { "max_tris", static_cast<int64_t>(p_job.settings.max_tris) },
+            { "group_size", static_cast<int64_t>(p_job.settings.group_size) },
+            { "max_levels", static_cast<int64_t>(p_job.settings.max_levels) } }},
+        { std::string(asset_type_section(AssetType::MESH)), toml::table{
+            { "skinned", skinned } }},
     };
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;

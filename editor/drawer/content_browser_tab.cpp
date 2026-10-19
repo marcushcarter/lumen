@@ -16,6 +16,7 @@
 #include <drivers/imgui/tab_strip.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/model/model_tab.h>
+#include <editor/tabs/material/material_tab.h>
 #include <editor/assets/texture_viewer.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
@@ -78,7 +79,7 @@ void ContentBrowserDrawerTab::_cache_scan(const std::filesystem::path& p_dir, Di
         for (char& c : e.lower_name) c = (char)std::tolower((unsigned char)c);
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
-        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? ICON_FA_PALETTE : ICON_FA_FILE;
+        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : ICON_FA_FILE;
         if (e.is_dir) r_dir.subdirs.push_back(e.path);
         r_dir.entries.push_back(std::move(e));
     }
@@ -726,6 +727,10 @@ void ContentBrowserDrawerTab::_list_draw(EditorContext& ctx)
                 if (r.activated && !e.is_dir && e.path.extension() == ".lmodel") {
                     const AssetInfo info = read_asset_info(e.path);
                     if (info.valid() && info.type == AssetType::MODEL) ctx.tabs->open<ModelTab>(info.guid)->path = e.path;
+                }
+                if (r.activated && !e.is_dir && e.path.extension() == ".lmaterial") {
+                    const AssetInfo info = read_asset_info(e.path);
+                    if (info.valid() && info.type == AssetType::MATERIAL) ctx.tabs->open<MaterialTab>(info.guid)->path = e.path;
                 }
                 if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer) {
                     if (!e.guid_checked) {

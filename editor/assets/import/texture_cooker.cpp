@@ -283,22 +283,23 @@ Error TextureCooker::_cook(const Job& p_job)
             { "version", static_cast<int64_t>(LASSET_VERSION) },
             { "guid", p_job.guid.to_string() },
             { "type", static_cast<int64_t>(AssetType::TEXTURE) } }},
-        { std::string(asset_type_section(AssetType::TEXTURE)), toml::table{
-            { "path", p_job.source.generic_string() },
-            { "width", static_cast<int64_t>(base_w) },
-            { "height", static_cast<int64_t>(base_h) },
+        { "import", toml::table{
+            { "source", p_job.source.generic_string() },
             { "source_width", static_cast<int64_t>(width) },
             { "source_height", static_cast<int64_t>(height) },
-            { "channels", static_cast<int64_t>(channels) },
             { "source_channel", static_cast<int64_t>(cs.source_channel) },
-            { "srgb", fmt.srgb },
-            { "usage", texture_usage_name(cs.usage) },
-            { "quality", texture_quality_name(cs.quality) },
-            { "generate_mips", cs.generate_mips },
             { "max_size", static_cast<int64_t>(cs.max_size) },
+            { "generate_mips", cs.generate_mips },
+            { "quality", texture_quality_name(cs.quality) },
+            { "rdo_lambda", static_cast<double>(cs.rdo_lambda) },
             { "flip_green", cs.flip_green },
-            { "alpha_cutoff", static_cast<double>(cs.alpha_cutoff) },
-            { "rdo_lambda", static_cast<double>(cs.rdo_lambda) } }},
+            { "alpha_cutoff", static_cast<double>(cs.alpha_cutoff) } }},
+        { std::string(asset_type_section(AssetType::TEXTURE)), toml::table{
+            { "usage", texture_usage_name(cs.usage) },
+            { "width", static_cast<int64_t>(base_w) },
+            { "height", static_cast<int64_t>(base_h) },
+            { "channels", static_cast<int64_t>(channels) },
+            { "srgb", fmt.srgb } }},
     };
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_ltexture, text.data(), text.size())) return FAILED;

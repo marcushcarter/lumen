@@ -1,0 +1,66 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/exposure.glsl"
+
+layout(local_size_x = EXPOSURE_BIN_COUNT) in;
+
+layout(push_constant, scalar) uniform Push {
+    ExposureBuffer exposure;
+    float dt;
+    float min_ev;
+    float max_ev;
+    float low_percentile;
+    float high_percentile;
+    float speed_brighten;
+    float speed_darken;
+    uint reset;
+} pc;
+
+shared uint s_prefix[EXPOSURE_BIN_COUNT];
+shared vec2 s_sum[EXPOSURE_BIN_COUNT];
+
+void main() {
+    const uint li = gl_LocalInvocationIndex;
+    const uint count = pc.exposure.bins[li];
+    pc.exposure.bins[li] = 0u;
+
+    s_prefix[li] = count;
+    barrier();
+    for (uint offset = 1u; offset < EXPOSURE_BIN_COUNT; offset <<= 1u) {
+        const uint v = li >= offset ? s_prefix[li - offset] : 0u;
+        barrier();
+        s_prefix[li] += v;
+        barrier();
+    }
+
+    const float total = float(s_prefix[EXPOSURE_BIN_COUNT - 1u]);
+    const float end = float(s_prefix[li]);
+    const float start = end - float(count);
+    const float lo = total * pc.low_percentile;
+    const float hi = total * pc.high_percentile;
+    const float n = max(0.0, min(end, hi) - max(start, lo));
+    s_sum[li] = vec2(n * exposure_bin_log2(li), n);
+    barrier();
+    for (uint stride = EXPOSURE_BIN_COUNT / 2u; stride > 0u; stride >>= 1u) {
+        if (li < stride) s_sum[li] += s_sum[li + stride];
+        barrier();
+    }
+
+    if (li == 0u) {
+        const vec2 sum = s_sum[0];
+        const float measured = sum.y > 0.0 ? sum.x / sum.y : EXPOSURE_KEY_LOG2;
+        const float target_ev = clamp(EXPOSURE_KEY_LOG2 - measured, pc.min_ev, pc.max_ev);
+        float current = pc.exposure.correction_ev;
+        if (pc.reset != 0u || isnan(current) || isinf(current)) {
+            current = target_ev;
+        } else {
+            const float speed = target_ev > current ? pc.speed_brighten : pc.speed_darken;
+            current += (target_ev - current) * (1.0 - exp(-pc.dt * speed));
+        }
+        pc.exposure.correction_ev = current;
+        pc.exposure.scale = exp2(current);
+        pc.exposure.measured_log2 = measured;
+    }
+}

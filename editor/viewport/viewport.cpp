@@ -259,6 +259,7 @@ void Viewport::_draw_image(EditorContext& ctx)
             static const char* TONEMAPPERS[PostProcessFeature::TONEMAPPER_COUNT] = { "AgX", "ACES", "PBR Neutral", "None" };
             int tonemapper = (int)ctx.render_path->post.tonemapper;
             if (ImGui::Combo("Tonemapper", &tonemapper, TONEMAPPERS, PostProcessFeature::TONEMAPPER_COUNT)) ctx.render_path->post.tonemapper = (PostProcessFeature::Tonemapper)tonemapper;
+            ImGui::Checkbox("Auto Exposure", &ctx.render_path->exposure.enabled);
         }
         left_overlay.end_menu();
     }

@@ -1,15 +1,19 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
 
 #include "common/tonemap.glsl"
+#include "common/exposure.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
 
-layout(push_constant) uniform Push {
+layout(push_constant, scalar) uniform Push {
+    ExposureBuffer exposure;
     uint src_index;
     uint out_slot;
     uint width;
@@ -17,6 +21,7 @@ layout(push_constant) uniform Push {
     float sharpness;
     uint tonemapper;
     float exposure_scale;
+    uint has_exposure;
 } pc;
 
 const float RCAS_LIMIT = 0.25 - 1.0 / 16.0;
@@ -49,5 +54,6 @@ void main() {
         e = clamp((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0), 0.0, 0.999);
     }
 
-    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(untonemap(e) * pc.exposure_scale, pc.tonemapper, p));
+    const float exposure = pc.exposure_scale * (pc.has_exposure != 0u ? pc.exposure.scale : 1.0);
+    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(untonemap(e) * exposure, pc.tonemapper, p));
 }

@@ -76,14 +76,17 @@ void TAAFeature::_create_sharpen_pass()
         b.write_image("DisplayColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.read_image("TAAOutput", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("SceneColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        if (b.graph->buffer_resource("Exposure")) b.read_buffer("Exposure", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
     sharpen_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* src = cl.graph->image("TAAOutput");
         auto* color = cl.graph->image("SceneColor");
         auto* display = cl.graph->image("DisplayColor");
         if (!src || !color || !display) return;
+        auto* exposure = cl.graph->buffer("Exposure");
 
         struct Push {
+            VkDeviceAddress exposure_addr;
             uint32_t src_index;
             uint32_t out_slot;
             uint32_t width;
@@ -91,7 +94,10 @@ void TAAFeature::_create_sharpen_pass()
             float sharpness;
             uint32_t tonemapper;
             float exposure_scale;
+            uint32_t has_exposure;
         } pc{};
+        pc.exposure_addr = exposure ? exposure->device_address : 0;
+        pc.has_exposure = exposure ? 1u : 0u;
         pc.src_index = src->bindless_sampled;
         pc.out_slot = display->bindless_storage;
         pc.width = display->extent.width;

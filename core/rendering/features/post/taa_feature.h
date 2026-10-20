@@ -10,9 +10,6 @@ struct PostProcessFeature;
 
 struct TAAFeature : Feature
 {
-    // static constexpr const char* OUTPUT = "TAAOutput";
-    // static constexpr const char* HISTORY = "TAAHistory";
-
     struct Retired {
         drivers::DeviceDriverVulkan::Image image;
         uint64_t serial = 0;

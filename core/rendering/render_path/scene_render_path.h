@@ -4,6 +4,7 @@
 #include <core/rendering/features/lighting/light_cull_feature.h>
 #include <core/rendering/features/lighting/lighting_feature.h>
 #include <core/rendering/features/atmosphere/atmosphere_feature.h>
+#include <core/rendering/features/post/auto_exposure_feature.h>
 #include <core/rendering/features/post/taa_feature.h>
 #include <core/rendering/features/post/post_process_feature.h>
 
@@ -15,6 +16,7 @@ struct SceneRenderPath : RenderPath
     LightCullFeature light_cull;
     AtmosphereFeature atmosphere;
     LightingFeature lighting;
+    AutoExposureFeature exposure;
     TAAFeature taa;
     PostProcessFeature post;
     
@@ -25,6 +27,7 @@ struct SceneRenderPath : RenderPath
         features.push_back(&light_cull);
         features.push_back(&atmosphere);
         features.push_back(&lighting);
+        features.push_back(&exposure);
         features.push_back(&taa);
         features.push_back(&post);
     }

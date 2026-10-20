@@ -1,0 +1,41 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/exposure.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+
+layout(push_constant, scalar) uniform Push {
+    ExposureBuffer exposure;
+    uint src_index;
+    uint width;
+    uint height;
+    uint _pad;
+} pc;
+
+shared uint s_bins[EXPOSURE_BIN_COUNT];
+
+void main() {
+    const uint li = gl_LocalInvocationIndex;
+    s_bins[li] = 0u;
+    barrier();
+
+    const vec2 size = vec2(pc.width, pc.height);
+    const ivec2 base = ivec2(gl_GlobalInvocationID.xy) * 2;
+    for (int i = 0; i < 4; ++i) {
+        const ivec2 p = base + ivec2(i & 1, i >> 1);
+        if (p.x >= int(pc.width) || p.y >= int(pc.height)) continue;
+        const vec3 c = max(texelFetch(u_textures[pc.src_index], p, 0).rgb, vec3(0.0));
+        const vec2 uv = (vec2(p) + 0.5) / size * 2.0 - 1.0;
+        const uint w = 1u + uint(3.0 * exp(-2.0 * dot(uv, uv)) + 0.5);
+        atomicAdd(s_bins[exposure_bin(dot(c, vec3(0.2126, 0.7152, 0.0722)))], w);
+    }
+    barrier();
+
+    if (s_bins[li] != 0u) atomicAdd(pc.exposure.bins[li], s_bins[li]);
+}

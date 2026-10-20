@@ -11,6 +11,8 @@ struct AutoExposureFeature : Feature
     static constexpr VkDeviceSize HEADER_SIZE = 16;
     static constexpr VkDeviceSize BUFFER_SIZE = HEADER_SIZE + BIN_COUNT * sizeof(uint32_t);
     static constexpr float MAX_DT = 0.1f;
+    static constexpr float DAY_SUN_Y = -0.0349f;
+    static constexpr float NIGHT_SUN_Y = -0.2079f;
 
     float min_ev = -2.5f;
     float max_ev = 1.5f;

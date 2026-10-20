@@ -3,6 +3,7 @@
 #include <core/rendering/features/post/bloom_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
+#include <algorithm>
 #include <cmath>
 
 namespace lumen {
@@ -54,11 +55,13 @@ void PostProcessFeature::_create_composite_pass()
             uint32_t bloom_sampler;
             float bloom_intensity;
             uint32_t has_flare;
+            float night;
         } pc{};
         pc.exposure_addr = exposure ? exposure->device_address : 0;
         pc.has_exposure = exposure ? 1u : 0u;
         pc.flare_addr = flare ? flare->device_address : 0;
         pc.has_flare = flare ? 1u : 0u;
+        pc.night = night_factor();
         if (bloom_img && bloom_cfg) {
             pc.bloom_index = bloom_img->bindless_sampled;
             pc.bloom_sampler = bloom_cfg->linear_sampler.bindless_sampler;
@@ -77,6 +80,13 @@ void PostProcessFeature::_create_composite_pass()
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.dispatch("Composite", (pc.width + 7) / 8, (pc.height + 7) / 8);
     };
+}
+
+float PostProcessFeature::night_factor() const
+{
+    const float y = ctx->frame->atmosphere.sun_direction.y;
+    const float t = std::clamp((NIGHT_START_SUN_Y - y) / (NIGHT_START_SUN_Y - NIGHT_FULL_SUN_Y), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t) * night_shift;
 }
 
 Error PostProcessFeature::create_resources()

@@ -76,7 +76,9 @@ void AutoExposureFeature::_create_reduce_pass()
         pc.exposure_addr = buf->device_address;
         pc.dt = _dt;
         pc.min_ev = std::min(min_ev, max_ev);
-        pc.max_ev = std::max(min_ev, max_ev);
+        const float sun_y = ctx->frame->atmosphere.sun_direction.y;
+        const float day = std::clamp((sun_y - NIGHT_SUN_Y) / (DAY_SUN_Y - NIGHT_SUN_Y), 0.0f, 1.0f);
+        pc.max_ev = std::max(pc.min_ev, std::max(min_ev, max_ev) * day * day * (3.0f - 2.0f * day));
         pc.low_percentile = std::clamp(low_percentile, 0.0f, 1.0f);
         pc.high_percentile = std::clamp(high_percentile, pc.low_percentile, 1.0f);
         pc.speed_brighten = speed_brighten;

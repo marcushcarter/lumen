@@ -106,11 +106,13 @@ void TAAFeature::_create_sharpen_pass()
             uint32_t bloom_sampler;
             float bloom_intensity;
             uint32_t has_flare;
+            float night;
         } pc{};
         pc.exposure_addr = exposure ? exposure->device_address : 0;
         pc.has_exposure = exposure ? 1u : 0u;
         pc.flare_addr = flare ? flare->device_address : 0;
         pc.has_flare = flare ? 1u : 0u;
+        pc.night = (post ? post->night_factor() : 0.0f);
         if (bloom_img && bloom_cfg) {
             pc.bloom_index = bloom_img->bindless_sampled;
             pc.bloom_sampler = bloom_cfg->linear_sampler.bindless_sampler;

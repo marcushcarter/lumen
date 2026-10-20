@@ -42,7 +42,7 @@ void GameApplication::update_camera(float )
     vec3 target = vec3(0.0f, 2.0f, 0.0f);
     float radius = 1.5f;
     float height = -0.5f;
-    float angle = 0.0f;
+    float angle = 180.0f;
 
     const vec3 eye = target + vec3(radius * std::cos(angle), height, -radius * std::sin(angle));
     orbit_camera.position = eye;

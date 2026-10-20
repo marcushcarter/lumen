@@ -29,6 +29,7 @@ layout(push_constant, scalar) uniform Push {
     uint bloom_sampler;
     float bloom_intensity;
     uint has_flare;
+    float night;
 } pc;
 
 vec3 apply_bloom(vec3 p_hdr, ivec2 p_pixel) {
@@ -75,5 +76,5 @@ void main() {
     }
 
     const float exposure = pc.exposure_scale * (pc.has_exposure != 0u ? pc.exposure.scale : 1.0);
-    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(apply_flare(apply_bloom(untonemap(e), p), p) * exposure, pc.tonemapper, p));
+    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(night_shift(apply_flare(apply_bloom(untonemap(e), p), p), pc.night) * exposure, pc.tonemapper, p));
 }

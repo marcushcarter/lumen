@@ -74,7 +74,7 @@ void AutoExposureFeature::_create_reduce_pass()
             uint32_t reset;
         } pc{};
         pc.exposure_addr = buf->device_address;
-        pc.dt = _dt;
+        pc.dt = dt;
         pc.min_ev = std::min(min_ev, max_ev);
         const float sun_y = ctx->frame->atmosphere.sun_direction.y;
         const float day = std::clamp((sun_y - NIGHT_SUN_Y) / (DAY_SUN_Y - NIGHT_SUN_Y), 0.0f, 1.0f);
@@ -83,7 +83,7 @@ void AutoExposureFeature::_create_reduce_pass()
         pc.high_percentile = std::clamp(high_percentile, pc.low_percentile, 1.0f);
         pc.speed_brighten = speed_brighten;
         pc.speed_darken = speed_darken;
-        pc.reset = _reset ? 1u : 0u;
+        pc.reset = reset ? 1u : 0u;
 
         cl.dd->command_bind_pipeline(cl.cmd, reduce_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -101,8 +101,8 @@ Error AutoExposureFeature::create_resources()
     ci.name = "Exposure";
     exposure_buffer = ctx->dd->buffer_create(ci);
     LUMEN_ERR_FAIL_COND_V(!exposure_buffer.buffer, FAILED);
-    _initialized = false;
-    _reset = true;
+    initialized = false;
+    reset = true;
     _create_init_pass();
     _create_histogram_pass();
     _create_reduce_pass();
@@ -134,24 +134,24 @@ void AutoExposureFeature::destroy_resources()
 void AutoExposureFeature::build(RenderGraph& g)
 {
     const auto now = std::chrono::steady_clock::now();
-    _dt = _last_time.time_since_epoch().count() ? std::clamp(std::chrono::duration<float>(now - _last_time).count(), 0.0f, MAX_DT) : 0.0f;
-    _last_time = now;
+    dt = last_time.time_since_epoch().count() ? std::clamp(std::chrono::duration<float>(now - last_time).count(), 0.0f, MAX_DT) : 0.0f;
+    last_time = now;
 
     if (!enabled || !exposure_buffer.buffer || !g.image_resource("SceneColor")) {
-        _was_enabled = false;
+        was_enabled = false;
         return;
     }
-    if (!_was_enabled || ctx->frame->taa_reset) _reset = true;
-    _was_enabled = true;
+    if (!was_enabled || ctx->frame->taa_reset) reset = true;
+    was_enabled = true;
 
     g.import_buffer("Exposure", &exposure_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    if (!_initialized) {
+    if (!initialized) {
         g.add(&init_pass);
-        _initialized = true;
+        initialized = true;
     }
     g.add(&histogram_pass);
     g.add(&reduce_pass);
-    _reset = false;
+    reset = false;
 }
 
 }

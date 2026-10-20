@@ -88,13 +88,8 @@ Error PickFeature::create_resources()
 
 Error PickFeature::create_pipelines()
 {
-    using enum Error;
-
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_EDITOR_PICK_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/pick.comp" });
-    pick_pipe = ctx->dd->compute_pipeline_create({ cs, "editor/pick" });
-    ctx->dd->shader_free(cs);
-    return OK;
+    pick_pipe = _compute_pipeline(L"SHADERS_EDITOR_PICK_COMP", "editor/pick.comp");
+    return Error::OK;
 }
 
 void PickFeature::destroy_resources()

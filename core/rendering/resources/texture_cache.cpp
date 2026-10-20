@@ -8,9 +8,13 @@ namespace lumen {
     
 Error TextureCache::initialize(drivers::DeviceDriverVulkan& r_dd)
 {
-    using enum Error;
     dd = &r_dd;
-    return OK;
+    return Error::OK;
+}
+
+void TextureCache::shutdown()
+{
+    
 }
 
 void TextureCache::begin_frame(uint64_t p_frame_number, uint32_t p_frame_count)

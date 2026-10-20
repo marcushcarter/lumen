@@ -13,7 +13,7 @@ void PostProcessFeature::_create_composite_pass()
     composite_pass.name = "Composite";
     composite_pass.category = PASS_CATEGORY_POST;
     composite_pass.setup = [this](RenderGraph::Builder& b) {
-        _source = b.graph->image_resource("TAAOutput") ? "TAAOutput" : "SceneColor";
+        source = b.graph->image_resource("TAAOutput") ? "TAAOutput" : "SceneColor";
         drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
         ci.name = "DisplayColor";
         ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -24,14 +24,14 @@ void PostProcessFeature::_create_composite_pass()
             ci.fixed_height = ctx->frame->output_height;
         }
         b.create_image("DisplayColor", ci);
-        b.read_image(_source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image(source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image("DisplayColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (b.graph->image_resource("Bloom")) b.read_image("Bloom", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (b.graph->buffer_resource("LensFlare")) b.read_buffer("LensFlare", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         if (b.graph->buffer_resource("Exposure")) b.read_buffer("Exposure", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
     composite_pass.execute = [this](RenderGraph::CommandList& cl) {
-        auto* src = cl.graph->image(_source);
+        auto* src = cl.graph->image(source);
         auto* out = cl.graph->image("DisplayColor");
         if (!src || !out) return;
         auto* exposure = cl.graph->buffer("Exposure");

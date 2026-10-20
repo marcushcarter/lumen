@@ -380,7 +380,7 @@ VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_typ
 
 void ThumbnailCache::update(EditorContext& ctx)
 {
-    if (!ctx.renderer || !ctx.project || !ctx.imgui || !ctx.renderer->frame_acquired || !ctx.renderer->geometry.allocated) return;
+    if (!ctx.renderer || !ctx.project || !ctx.imgui || !ctx.renderer->frame_acquired) return;
     Renderer& r = *ctx.renderer;
     if (!_disk_scanned) _scan_disk();
     _collect(ctx, false);

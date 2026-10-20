@@ -17,6 +17,15 @@ struct MaterialCache
 {
     static constexpr uint32_t INITIAL_CAPACITY = 1024;
 
+    drivers::DeviceDriverVulkan* dd = nullptr;
+    uint32_t frame_count = 1;
+    uint64_t frame_number = 0;
+    uint64_t version = 0;
+    uint64_t layout_version = 0;
+    uint64_t content_version = 0;
+    uint64_t built_content = UINT64_MAX;
+    uint64_t built_textures = UINT64_MAX;
+
     struct Entry {
         LMaterial material;
         uint32_t index = MATERIAL_DEFAULT;
@@ -27,34 +36,30 @@ struct MaterialCache
         drivers::DeviceDriverVulkan::Buffer buffer;
     };
 
-    drivers::DeviceDriverVulkan* dd = nullptr;
-    uint32_t frame_count = 1;
-    uint64_t frame_number = 0;
     uint32_t capacity = 0;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> buffers;
-    std::vector<uint64_t> _uploaded_version;
-    std::vector<Retired> _retired;
-
+    std::vector<drivers::DeviceDriverVulkan::Buffer> slot_buffers;
+    std::vector<uint64_t> uploaded_version;
+    
+    std::vector<GPUMaterial> materials;
+    std::vector<uint32_t> free_slots;
+    std::vector<Retired> retired;
     std::unordered_map<Guid, Entry, GuidHash, GuidEq> by_guid;
-    std::vector<GPUMaterial> gpu;
-    std::vector<uint32_t> _free;
-    uint64_t version = 0;
-    uint64_t layout_version = 0;
-    uint64_t _content_version = 0;
-    uint64_t _built_content = UINT64_MAX;
-    uint64_t _built_textures = UINT64_MAX;
-
+    
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
+    void begin_frame(uint64_t p_frame_number);
 
     Error load(const std::filesystem::path& p_path);
-    Error set(const LMaterial& p_material);
     void unload(Guid p_guid);
+    Error set(const LMaterial& p_material);
     void clear();
 
-    void begin_frame(uint64_t p_frame_number);
+    GPUMaterial _build(const LMaterial& p_material, const TextureCache& p_textures);
+    Error _grow(uint32_t p_capacity);
     void resolve(const TextureCache& p_textures);
     void upload(uint32_t p_frame);
+
+    static GPUMaterial default_material();
 
     uint32_t index_of(Guid p_guid) const {
         auto it = by_guid.find(p_guid);
@@ -62,12 +67,8 @@ struct MaterialCache
     }
 
     VkDeviceAddress address(uint32_t p_frame) const {
-        return p_frame < buffers.size() ? buffers[p_frame].device_address : 0;
+        return p_frame < slot_buffers.size() ? slot_buffers[p_frame].device_address : 0;
     }
-
-    static GPUMaterial default_material();
-    static GPUMaterial _build(const LMaterial& p_material, const TextureCache& p_textures);
-    Error _grow(uint32_t p_capacity);
 };
 
 }

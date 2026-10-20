@@ -53,7 +53,7 @@ void TAAFeature::_create_resolve_pass()
         pc.out_height = out->extent.height;
         pc.jitter_px[0] = ctx->frame->camera.jitter.x * 0.5f * (float)pc.in_width;
         pc.jitter_px[1] = ctx->frame->camera.jitter.y * 0.5f * (float)pc.in_height;
-        pc.reset = _reset ? 1u : 0u;
+        pc.reset = reset ? 1u : 0u;
 
         cl.dd->command_bind_pipeline(cl.cmd, resolve_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -142,7 +142,7 @@ void TAAFeature::_ensure_history(uint32_t p_width, uint32_t p_height)
 {
     if (history[0].image && history[0].extent.width == p_width && history[0].extent.height == p_height) return;
     for (drivers::DeviceDriverVulkan::Image& h : history) {
-        if (h.image) _retired.push_back({ std::move(h), _serial });
+        if (h.image) retired.push_back({ std::move(h), serial });
         h = {};
     }
 
@@ -162,11 +162,11 @@ void TAAFeature::_ensure_history(uint32_t p_width, uint32_t p_height)
 void TAAFeature::_collect(bool p_all)
 {
     const uint64_t frames = ctx->graph->frame_count;
-    for (size_t i = 0; i < _retired.size();) {
-        if (p_all || _serial >= _retired[i].serial + frames + 1) {
-            ctx->dd->image_free(_retired[i].image);
-            _retired[i] = std::move(_retired.back());
-            _retired.pop_back();
+    for (size_t i = 0; i < retired.size();) {
+        if (p_all || serial >= retired[i].serial + frames + 1) {
+            ctx->dd->image_free(retired[i].image);
+            retired[i] = std::move(retired.back());
+            retired.pop_back();
         } else {
             ++i;
         }
@@ -216,7 +216,7 @@ void TAAFeature::destroy_resources()
 
 void TAAFeature::build(RenderGraph& g)
 {
-    ++_serial;
+    ++serial;
     _collect(false);
     if (!enabled || suppressed || !g.image_resource("SceneColor") || !g.image_resource("G_Motion") || !g.image_resource("G_Depth")) {
         history_valid = false;
@@ -231,7 +231,7 @@ void TAAFeature::build(RenderGraph& g)
     const uint32_t read = history_index ^ 1u;
     g.import_image("TAAOutput", &history[write], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     g.import_image("TAAHistory", &history[read], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
-    _reset = !history_valid || ctx->frame->taa_reset;
+    reset = !history_valid || ctx->frame->taa_reset;
     g.add(&resolve_pass);
     history_valid = true;
     history_index = read;

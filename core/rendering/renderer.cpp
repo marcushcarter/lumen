@@ -113,6 +113,7 @@ void Renderer::shutdown()
     materials.shutdown();
     models.shutdown();
     geometry.shutdown();
+    textures.shutdown();
 
     while (!views.empty()) view_destroy(*views.back());
     
@@ -137,8 +138,7 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
 {
     using enum Error;
     
-    Error err = geometry.allocate();
-    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    geometry.clear();
     main_view.hiz_reset_pending = true;
     for (RenderView* v : views) v->hiz_reset_pending = true;
 

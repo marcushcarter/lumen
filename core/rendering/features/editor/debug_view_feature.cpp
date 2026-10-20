@@ -220,22 +220,9 @@ Error DebugViewFeature::create_resources()
 };
 
 Error DebugViewFeature::create_pipelines()
-{
-    using enum Error;
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_EDITOR_DEBUG_VIEW_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/debug_view.comp" });
-    viewport_resolve_pipe = ctx->dd->compute_pipeline_create({cs, "editor/debug_view"});
-    ctx->dd->shader_free(cs);
-    }
-
-    {
-    EmbeddedResource::Blob comp_blob = EmbeddedResource::load(L"SHADERS_EDITOR_VIEWPORT_COPY_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)comp_blob.data, .glsl_size = comp_blob.size, .name = "editor/viewport_copy.comp" });
-    viewport_copy_pipe = ctx->dd->compute_pipeline_create({cs, "editor/viewport_copy"});
-    ctx->dd->shader_free(cs);
-    }
+{    
+    viewport_resolve_pipe = _compute_pipeline(L"SHADERS_EDITOR_DEBUG_VIEW_COMP", "editor/debug_view.comp");
+    viewport_copy_pipe = _compute_pipeline(L"SHADERS_EDITOR_VIEWPORT_COPY_COMP", "editor/viewport_copy.comp");
 
     {
     ctx->graph->declare_image_format("G_Depth", VK_FORMAT_D32_SFLOAT);
@@ -255,10 +242,11 @@ Error DebugViewFeature::create_pipelines()
     pipeline_ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::ADDITIVE };
     pipeline_ci.name = "editor/overdraw_raster";
     overdraw_compact_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
-    ctx->dd->shader_free(vs); ctx->dd->shader_free(fs);
+    ctx->dd->shader_free(vs);
+    ctx->dd->shader_free(fs);
     }
     
-    return OK;
+    return Error::OK;
 }
 
 void DebugViewFeature::destroy_resources()

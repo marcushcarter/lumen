@@ -29,13 +29,13 @@ void BloomFeature::_create_down_pass(uint32_t p_mip)
     pass.name = "BloomDown" + std::to_string(p_mip);
     pass.category = PASS_CATEGORY_POST;
     pass.setup = [this, p_mip](RenderGraph::Builder& b) {
-        const char* src = p_mip == 0 ? _source : DOWN_NAMES[p_mip - 1];
+        const char* src = p_mip == 0 ? source : DOWN_NAMES[p_mip - 1];
         b.create_image(DOWN_NAMES[p_mip], _mip_info(DOWN_NAMES[p_mip], mip_width[p_mip], mip_height[p_mip]));
         b.read_image(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image(DOWN_NAMES[p_mip], VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     pass.execute = [this, p_mip](RenderGraph::CommandList& cl) {
-        auto* src = cl.graph->image(p_mip == 0 ? _source : DOWN_NAMES[p_mip - 1]);
+        auto* src = cl.graph->image(p_mip == 0 ? source : DOWN_NAMES[p_mip - 1]);
         auto* out = cl.graph->image(DOWN_NAMES[p_mip]);
         if (!src || !out) return;
 
@@ -150,7 +150,7 @@ void BloomFeature::build(RenderGraph& g)
     if (!enabled || intensity <= 0.0f || !g.image_resource("SceneColor")) return;
 
     const bool taa = g.image_resource("TAAOutput") != nullptr;
-    _source = taa ? "TAAOutput" : "SceneColor";
+    source = taa ? "TAAOutput" : "SceneColor";
     uint32_t w = taa && ctx->frame->output_width ? ctx->frame->output_width : g.width;
     uint32_t h = taa && ctx->frame->output_height ? ctx->frame->output_height : g.height;
     while (mip_count < MAX_MIPS) {

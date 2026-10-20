@@ -4,12 +4,7 @@
 
 namespace lumen {
 
-static constexpr VkFormat LUT_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
-static constexpr VkFormat AERIAL_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
-static constexpr VkImageLayout LUT_READ_LAYOUT = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-static constexpr VkPipelineStageFlags2 CS = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
-static drivers::DeviceDriverVulkan::ImageCreateInfo _lut_info(uint32_t p_width, uint32_t p_height, const char* p_name, VkFormat p_format = LUT_FORMAT)
+static drivers::DeviceDriverVulkan::ImageCreateInfo _lut_info(uint32_t p_width, uint32_t p_height, const char* p_name, VkFormat p_format = VK_FORMAT_R16G16B16A16_SFLOAT)
 {
     drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
     ci.format = p_format;
@@ -21,23 +16,13 @@ static drivers::DeviceDriverVulkan::ImageCreateInfo _lut_info(uint32_t p_width, 
     return ci;
 }
 
-static void _read_lut(RenderGraph::Builder& b, const char* p_name)
-{
-    b.read_image(p_name, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-}
-
-static void _write_lut(RenderGraph::Builder& b, const char* p_name)
-{
-    b.write_image(p_name, VK_IMAGE_LAYOUT_GENERAL, CS, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-}
-
 void AtmosphereFeature::_create_transmittance_pass()
 {
     transmittance_pass.name = "AtmosphereTransmittance";
     transmittance_pass.category = PASS_CATEGORY_LIGHTING;
     transmittance_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        _write_lut(b, "TransmittanceLut");
+        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.write_image("TransmittanceLut", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     transmittance_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
@@ -66,9 +51,9 @@ void AtmosphereFeature::_create_multiscatter_pass()
     multiscatter_pass.name = "AtmosphereMultiscatter";
     multiscatter_pass.category = PASS_CATEGORY_LIGHTING;
     multiscatter_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        _read_lut(b, "TransmittanceLut");
-        _write_lut(b, "MultiscatterLut");
+        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.write_image("MultiscatterLut", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     multiscatter_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
@@ -101,10 +86,10 @@ void AtmosphereFeature::_create_skyview_pass()
     skyview_pass.name = "AtmosphereSkyView";
     skyview_pass.category = PASS_CATEGORY_LIGHTING;
     skyview_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        _read_lut(b, "TransmittanceLut");
-        _read_lut(b, "MultiscatterLut");
-        _write_lut(b, "SkyView");
+        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("MultiscatterLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.write_image("SkyView", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     skyview_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
@@ -138,18 +123,6 @@ void AtmosphereFeature::_create_skyview_pass()
     };
 }
 
-AtmosphereFeature::SkyViewKey AtmosphereFeature::_skyview_key() const
-{
-    const GpuAtmosphere& a = ctx->frame->atmosphere;
-    SkyViewKey k;
-    k.sun_direction = a.sun_direction;
-    k.moon_direction = a.moon_direction;
-    k.altitude_km = a.altitude_km;
-    k.mie_g = a.mie_g;
-    k.lut_version = ctx->frame->atmosphere_lut_version;
-    return k;
-}
-
 bool AtmosphereFeature::_skyview_dirty(const SkyViewKey& p_key) const
 {
     if (!skyview_valid || built_lut_version != p_key.lut_version || p_key.lut_version != skyview_built.lut_version) return true;
@@ -165,12 +138,12 @@ void AtmosphereFeature::_create_aerial_pass()
     aerial_pass.name = "AtmosphereAerialPerspective";
     aerial_pass.category = PASS_CATEGORY_LIGHTING;
     aerial_pass.setup = [](RenderGraph::Builder& b) {
-        b.create_image("AerialPerspective", _lut_info(AERIAL_SIZE * AERIAL_SLICES, AERIAL_SIZE, "AerialPerspective", AERIAL_FORMAT));
-        b.read_buffer("Camera", CS, VK_ACCESS_2_UNIFORM_READ_BIT);
-        b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        _read_lut(b, "TransmittanceLut");
-        _read_lut(b, "MultiscatterLut");
-        _write_lut(b, "AerialPerspective");
+        b.create_image("AerialPerspective", _lut_info(AERIAL_SIZE * AERIAL_SLICES, AERIAL_SIZE, "AerialPerspective", VK_FORMAT_R16G16B16A16_SFLOAT));
+        b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("MultiscatterLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.write_image("AerialPerspective", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     aerial_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
@@ -211,9 +184,9 @@ void AtmosphereFeature::_create_sky_lighting_pass()
         ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         ci.device_local = true;
         b.create_buffer("SkyLighting", ci);
-        b.read_buffer("Atmosphere", CS, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        _read_lut(b, "SkyView");
-        b.write_buffer("SkyLighting", CS, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_image("SkyView", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.write_buffer("SkyLighting", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     sky_lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* atmosphere = cl.graph->buffer("Atmosphere");
@@ -273,15 +246,6 @@ Error AtmosphereFeature::create_resources()
     return OK;
 }
 
-drivers::DeviceDriverVulkan::Pipeline AtmosphereFeature::_compute_pipeline(const wchar_t* p_resource, const char* p_name)
-{
-    EmbeddedResource::Blob blob = EmbeddedResource::load(p_resource);
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = p_name });
-    drivers::DeviceDriverVulkan::Pipeline pipe = ctx->dd->compute_pipeline_create({ cs, p_name });
-    ctx->dd->shader_free(cs);
-    return pipe;
-}
-
 Error AtmosphereFeature::create_pipelines()
 {
     transmittance_pipe = _compute_pipeline(L"SHADERS_ATMOSPHERE_TRANSMITTANCE_LUT_COMP", "atmosphere/transmittance_lut.comp");
@@ -315,15 +279,23 @@ void AtmosphereFeature::build(RenderGraph& g)
 {
     if (!g.image_resource("G_Depth")) return;
 
-    g.import_image("TransmittanceLut", &transmittance_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
-    g.import_image("MultiscatterLut", &multiscatter_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
-    g.import_image("SkyView", &skyview_lut, LUT_READ_LAYOUT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
+    g.import_image("TransmittanceLut", &transmittance_lut, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
+    g.import_image("MultiscatterLut", &multiscatter_lut, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
+    g.import_image("SkyView", &skyview_lut, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     if (built_lut_version != ctx->frame->atmosphere_lut_version) {
         g.add(&transmittance_pass);
         g.add(&multiscatter_pass);
     }
 
-    skyview_pending = _skyview_key();
+    const GpuAtmosphere& a = ctx->frame->atmosphere;
+    SkyViewKey k;
+    k.sun_direction = a.sun_direction;
+    k.moon_direction = a.moon_direction;
+    k.altitude_km = a.altitude_km;
+    k.mie_g = a.mie_g;
+    k.lut_version = ctx->frame->atmosphere_lut_version;
+    skyview_pending = k;
+
     if (_skyview_dirty(skyview_pending)) g.add(&skyview_pass);
     g.add(&aerial_pass);
     g.add(&sky_lighting_pass);

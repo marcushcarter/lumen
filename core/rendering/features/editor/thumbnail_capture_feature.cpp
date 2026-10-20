@@ -5,6 +5,19 @@
 
 namespace lumen {
 
+bool ThumbnailCaptureFeature::collect(uint32_t p_slot, uint64_t& r_ticket, std::vector<uint8_t>& r_pixels)
+{
+    if (p_slot >= tickets.size() || tickets[p_slot] == 0) return false;
+    drivers::DeviceDriverVulkan::Buffer& rb = readback[p_slot];
+    const size_t bytes = (size_t)OUTPUT_SIZE * OUTPUT_SIZE * 4;
+    ctx->dd->buffer_invalidate(rb, 0, bytes);
+    r_pixels.resize(bytes);
+    std::memcpy(r_pixels.data(), rb.mapped, bytes);
+    r_ticket = tickets[p_slot];
+    tickets[p_slot] = 0;
+    return true;
+}
+
 Error ThumbnailCaptureFeature::create_resources()
 {
     using enum Error;
@@ -57,10 +70,7 @@ Error ThumbnailCaptureFeature::create_resources()
 
 Error ThumbnailCaptureFeature::create_pipelines()
 {
-    EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_EDITOR_THUMBNAIL_CAPTURE_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "editor/thumbnail_capture.comp" });
-    capture_pipe = ctx->dd->compute_pipeline_create({ .compute_shader = cs, .name = "editor/thumbnail_capture" });
-    ctx->dd->shader_free(cs);
+    capture_pipe = _compute_pipeline(L"SHADERS_EDITOR_THUMBNAIL_CAPTURE_COMP", "editor/thumbnail_capture.comp");
     return Error::OK;
 }
 
@@ -72,19 +82,6 @@ void ThumbnailCaptureFeature::destroy_resources()
     }
     readback.clear();
     tickets.clear();
-}
-
-bool ThumbnailCaptureFeature::collect(uint32_t p_slot, uint64_t& r_ticket, std::vector<uint8_t>& r_pixels)
-{
-    if (p_slot >= tickets.size() || tickets[p_slot] == 0) return false;
-    drivers::DeviceDriverVulkan::Buffer& rb = readback[p_slot];
-    const size_t bytes = (size_t)OUTPUT_SIZE * OUTPUT_SIZE * 4;
-    ctx->dd->buffer_invalidate(rb, 0, bytes);
-    r_pixels.resize(bytes);
-    std::memcpy(r_pixels.data(), rb.mapped, bytes);
-    r_ticket = tickets[p_slot];
-    tickets[p_slot] = 0;
-    return true;
 }
 
 void ThumbnailCaptureFeature::build(RenderGraph& g)

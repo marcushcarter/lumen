@@ -57,28 +57,14 @@ struct GeometryPool
     static constexpr uint32_t MAX_BVH_NODES = 8u * 1024 * 1024;
     static constexpr uint32_t MAX_MESHES = 64u * 1024;
     static constexpr uint32_t MAX_MESHLET_VERTS = 2u * MAX_VERTS;
-    static constexpr uint32_t INVALID_MESH = UINT32_MAX;
     static constexpr uint32_t LOCAL_TRI_SLOT_OVERFLOW = 255u;
-    
-    /***************/
-    /**** SETUP ****/
-    /***************/
+
+    static constexpr uint32_t INVALID_MESH = UINT32_MAX;
 
     drivers::DeviceDriverVulkan* dd = nullptr;
     uint32_t frame_count = 1;
     uint64_t frame_number = 0;
-    bool allocated = false;
-    
-    Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
-    void shutdown();
-
-    Error allocate();
-    void free();
-    void clear();
-    
-    /****************/
-    /**** ARENAS ****/
-    /****************/
+    uint64_t version = 0;
 
     enum ArenaKind : uint32_t {
         ARENA_VERTICES,
@@ -130,19 +116,6 @@ struct GeometryPool
     
     uint32_t cluster_extent = 0;
     uint32_t max_cluster_tris = 0;
-    
-    void _arena_setup(ArenaKind p_kind, uint32_t p_stride, uint32_t p_initial, uint32_t p_max, VkBufferUsageFlags p_usage, const char* p_name);
-    Error _arena_create(Arena& r_arena, uint32_t p_capacity);
-    uint32_t _grow_target(ArenaKind p_kind, uint64_t p_min) const;
-    Error _arena_grow(ArenaKind p_kind, uint32_t p_capacity, uint32_t p_live);
-    uint32_t _allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint32_t p_count);
-    void _release(const MeshRanges& p_ranges);
-    void _retire_buffer(drivers::DeviceDriverVulkan::Buffer& r_buffer);
-    void _collect(uint64_t p_frame_number);
-
-    /****************/
-    /**** MESHES ****/
-    /****************/
 
     struct RetiredMesh {
         uint64_t frame;
@@ -159,15 +132,31 @@ struct GeometryPool
     std::vector<MeshRanges> mesh_ranges;
     std::vector<Guid> mesh_guids;
     std::vector<uint32_t> free_meshes;
-    std::unordered_map<Guid, uint32_t, GuidHash, GuidEq> by_guid;
-
-    uint64_t version = 0;
-
     std::vector<RetiredMesh> retired_meshes;
     std::vector<RetiredBuffer> retired_buffers;
+    std::unordered_map<Guid, uint32_t, GuidHash, GuidEq> by_guid;
+    
+    Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
+    void shutdown();
+    void begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials);
+    
+    void _arena_setup(ArenaKind p_kind, uint32_t p_stride, uint32_t p_initial, uint32_t p_max, VkBufferUsageFlags p_usage, const char* p_name);
+    Error _arena_create(Arena& r_arena, uint32_t p_capacity);
+    uint32_t _grow_target(ArenaKind p_kind, uint64_t p_min) const;
+    Error _arena_grow(ArenaKind p_kind, uint32_t p_capacity, uint32_t p_live);
+    uint32_t _allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint32_t p_count);
+    void _release(const MeshRanges& p_ranges);
+    void _retire_buffer(drivers::DeviceDriverVulkan::Buffer& r_buffer);
+    void _collect(uint64_t p_frame_number);
+    VkDeviceSize _resident_bytes() const;
 
     uint32_t load(Guid p_guid, const std::filesystem::path& p_path);
     void unload(Guid p_guid);
+    void clear();
+    void free();
+
+    drivers::DeviceDriverVulkan::Buffer& address_buffer(uint32_t p_slot) { return address_buffers[p_slot]; }
+    const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return arenas[ARENA_INDICES].buffer; }
 
     uint32_t find(Guid p_guid) const {
         auto it = by_guid.find(p_guid);
@@ -177,16 +166,6 @@ struct GeometryPool
     const LMesh* get(uint32_t p_id) const {
         return p_id < meshes.size() && mesh_guids[p_id] != Guid{} ? &meshes[p_id] : nullptr;
     }
-
-    /***************/
-    /**** FRAME ****/
-    /***************/
-
-    void begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials);
-
-    drivers::DeviceDriverVulkan::Buffer& address_buffer(uint32_t p_slot) { return address_buffers[p_slot]; }
-    const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return arenas[ARENA_INDICES].buffer; }
-    VkDeviceSize resident_bytes() const;
 };
 
 }

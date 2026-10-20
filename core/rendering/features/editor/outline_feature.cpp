@@ -26,20 +26,6 @@ static const char* _target(RenderGraph& g)
     return nullptr;
 }
 
-bool OutlineFeature::_pixel_rect(VkExtent2D p_extent, uint32_t (&r_rect)[4]) const
-{
-    const float pad = (float)std::clamp(radius, 1, 8) + 1.0f;
-    const float x0 = std::floor(pass_rect_min.x * (float)p_extent.width - pad);
-    const float y0 = std::floor(pass_rect_min.y * (float)p_extent.height - pad);
-    const float x1 = std::ceil(pass_rect_max.x * (float)p_extent.width + pad);
-    const float y1 = std::ceil(pass_rect_max.y * (float)p_extent.height + pad);
-    r_rect[0] = (uint32_t)std::clamp(x0, 0.0f, (float)p_extent.width);
-    r_rect[1] = (uint32_t)std::clamp(y0, 0.0f, (float)p_extent.height);
-    r_rect[2] = (uint32_t)std::clamp(x1, 0.0f, (float)p_extent.width);
-    r_rect[3] = (uint32_t)std::clamp(y1, 0.0f, (float)p_extent.height);
-    return r_rect[2] > r_rect[0] && r_rect[3] > r_rect[1];
-}
-
 void OutlineFeature::_create_init_pass()
 {
     init_pass.name = "SelectionInit";
@@ -188,8 +174,18 @@ void OutlineFeature::_create_outline_pass()
             uint32_t _pad;
             uint32_t rect[4];
         } pc{};
+
         const VkExtent2D extent = { std::min(ids->extent.width, out->extent.width), std::min(ids->extent.height, out->extent.height) };
-        if (!_pixel_rect(extent, pc.rect)) return;
+        const float pad = (float)std::clamp(radius, 1, 8) + 1.0f;
+        const float x0 = std::floor(pass_rect_min.x * (float)extent.width - pad);
+        const float y0 = std::floor(pass_rect_min.y * (float)extent.height - pad);
+        const float x1 = std::ceil(pass_rect_max.x * (float)extent.width + pad);
+        const float y1 = std::ceil(pass_rect_max.y * (float)extent.height + pad);
+        pc.rect[0] = (uint32_t)std::clamp(x0, 0.0f, (float)extent.width);
+        pc.rect[1] = (uint32_t)std::clamp(y0, 0.0f, (float)extent.height);
+        pc.rect[2] = (uint32_t)std::clamp(x1, 0.0f, (float)extent.width);
+        pc.rect[3] = (uint32_t)std::clamp(y1, 0.0f, (float)extent.height);
+        if (!(pc.rect[2] > pc.rect[0] && pc.rect[3] > pc.rect[1])) return;
         pc.color[0] = color.r;
         pc.color[1] = color.g;
         pc.color[2] = color.b;
@@ -218,12 +214,9 @@ Error OutlineFeature::create_resources()
 
 Error OutlineFeature::create_pipelines()
 {
-    {
-    EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_EDITOR_OUTLINE_GATHER_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "editor/outline_gather.comp" });
-    gather_pipe = ctx->dd->compute_pipeline_create({ cs, "editor/outline_gather" });
-    ctx->dd->shader_free(cs);
-    }
+    gather_pipe = _compute_pipeline(L"SHADERS_EDITOR_OUTLINE_GATHER_COMP", "editor/outline_gather.comp");
+    outline_pipe = _compute_pipeline(L"SHADERS_EDITOR_OUTLINE_COMP", "editor/outline.comp");
+
     {
     VkRenderPass rp = ctx->graph->acquire_render_pass(raster_pass);
     EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_EDITOR_OUTLINE_RASTER_VERT");
@@ -245,12 +238,7 @@ Error OutlineFeature::create_pipelines()
     ctx->dd->shader_free(vs);
     ctx->dd->shader_free(fs);
     }
-    {
-    EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_EDITOR_OUTLINE_COMP");
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "editor/outline.comp" });
-    outline_pipe = ctx->dd->compute_pipeline_create({ cs, "editor/outline" });
-    ctx->dd->shader_free(cs);
-    }
+    
     return Error::OK;
 }
 

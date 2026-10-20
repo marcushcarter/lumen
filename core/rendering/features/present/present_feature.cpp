@@ -32,7 +32,7 @@ Error PresentFeature::create_resources()
 
         cl.dd->command_render_set_viewport(cl.cmd, {{{0,0},bb->extent}});
         cl.dd->command_render_set_scissor(cl.cmd, {{{0,0},bb->extent}});
-        cl.dd->command_bind_pipeline(cl.cmd, blit_pipeline);
+        cl.dd->command_bind_pipeline(cl.cmd, blit_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.draw("blit", 3);
     };
@@ -43,29 +43,25 @@ Error PresentFeature::create_resources()
 Error PresentFeature::create_pipelines()
 {
     VkRenderPass rp = ctx->graph->acquire_render_pass(present_pass);
-
-    EmbeddedResource::Blob blit_vert_blob = EmbeddedResource::load(L"SHADERS_PRESENT_BLIT_VERT");
-    EmbeddedResource::Blob blit_frag_blob = EmbeddedResource::load(L"SHADERS_PRESENT_BLIT_FRAG");
-    VkShaderModule blit_vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)blit_vert_blob.data, .glsl_size = blit_vert_blob.size, .name = "present/blit.vert" });
-    VkShaderModule blit_fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)blit_frag_blob.data, .glsl_size = blit_frag_blob.size, .name = "present/blit.frag" });
-
+    EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_PRESENT_BLIT_VERT");
+    EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_PRESENT_BLIT_FRAG");
+    VkShaderModule vs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX, .glsl = (const char*)vs_blob.data, .glsl_size = vs_blob.size, .name = "present/blit.vert" });
+    VkShaderModule fs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)fs_blob.data, .glsl_size = fs_blob.size, .name = "present/blit.frag" });
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
-    pipeline_ci.vertex_shader = blit_vs;
-    pipeline_ci.fragment_shader = blit_fs;
+    pipeline_ci.vertex_shader = vs;
+    pipeline_ci.fragment_shader = fs;
     pipeline_ci.render_pass = rp;
     pipeline_ci.cull_mode = VK_CULL_MODE_NONE;
     pipeline_ci.name = "present/blit";
-    blit_pipeline = ctx->dd->graphics_pipeline_create(pipeline_ci);
-
-    ctx->dd->shader_free(blit_vs);
-    ctx->dd->shader_free(blit_fs);
-
+    blit_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
+    ctx->dd->shader_free(vs);
+    ctx->dd->shader_free(fs);
     return Error::OK;
 }
 
 void PresentFeature::destroy_resources()
 {
-    ctx->dd->pipeline_free(blit_pipeline);
+    ctx->dd->pipeline_free(blit_pipe);
 }
 
 void PresentFeature::build(RenderGraph& g)

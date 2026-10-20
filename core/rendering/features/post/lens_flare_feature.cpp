@@ -71,7 +71,7 @@ void LensFlareFeature::_create_visibility_pass()
         pc.rays = s.rays;
         pc.ray_length = std::max(s.ray_length, 1e-3f);
         pc.ghosts = s.ghosts;
-        pc.blend = _reset ? 1.0f : 1.0f - std::exp(-_dt / VISIBILITY_SMOOTHING_S);
+        pc.blend = reset ? 1.0f : 1.0f - std::exp(-dt / VISIBILITY_SMOOTHING_S);
 
         cl.dd->command_bind_pipeline(cl.cmd, visibility_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -89,8 +89,8 @@ Error LensFlareFeature::create_resources()
     ci.name = "LensFlare";
     flare_buffer = ctx->dd->buffer_create(ci);
     LUMEN_ERR_FAIL_COND_V(!flare_buffer.buffer, FAILED);
-    _initialized = false;
-    _reset = true;
+    initialized = false;
+    reset = true;
     _create_init_pass();
     _create_visibility_pass();
     return OK;
@@ -115,22 +115,22 @@ void LensFlareFeature::destroy_resources()
 void LensFlareFeature::build(RenderGraph& g)
 {
     const auto now = std::chrono::steady_clock::now();
-    _dt = _last_time.time_since_epoch().count() ? std::clamp(std::chrono::duration<float>(now - _last_time).count(), 0.0f, MAX_DT) : 0.0f;
-    _last_time = now;
+    dt = last_time.time_since_epoch().count() ? std::clamp(std::chrono::duration<float>(now - last_time).count(), 0.0f, MAX_DT) : 0.0f;
+    last_time = now;
 
     const bool active = enabled && flare_buffer.buffer && ctx->frame->flare.intensity > 0.0f
         && g.image_resource("G_Depth") && g.image_resource("TransmittanceLut") && g.buffer_resource("Camera") && g.buffer_resource("Atmosphere");
     if (!active) {
-        _was_enabled = false;
+        was_enabled = false;
         return;
     }
-    _reset = !_was_enabled || ctx->frame->taa_reset;
-    _was_enabled = true;
+    reset = !was_enabled || ctx->frame->taa_reset;
+    was_enabled = true;
 
     g.import_buffer("LensFlare", &flare_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    if (!_initialized) {
+    if (!initialized) {
         g.add(&init_pass);
-        _initialized = true;
+        initialized = true;
     }
     g.add(&visibility_pass);
 }

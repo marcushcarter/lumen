@@ -10,6 +10,8 @@ struct PostProcessFeature;
 
 struct TAAFeature : Feature
 {
+    float sharpness = 1.0f;
+
     struct Retired {
         drivers::DeviceDriverVulkan::Image image;
         uint64_t serial = 0;
@@ -17,20 +19,19 @@ struct TAAFeature : Feature
 
     const PostProcessFeature* post = nullptr;
 
+    drivers::DeviceDriverVulkan::Image history[2];
+    uint32_t history_index = 0;
+    bool history_valid = false;
+    bool suppressed = false;
+    bool reset = true;
+    uint64_t serial = 0;
+    std::vector<Retired> retired;
+
     RenderGraph::Pass resolve_pass;
     RenderGraph::Pass sharpen_pass;
     drivers::DeviceDriverVulkan::Pipeline resolve_pipe;
     drivers::DeviceDriverVulkan::Pipeline sharpen_pipe;
     drivers::DeviceDriverVulkan::Sampler linear_sampler;
-
-    drivers::DeviceDriverVulkan::Image history[2];
-    uint32_t history_index = 0;
-    bool history_valid = false;
-    bool suppressed = false;
-    float sharpness = 1.0f;
-    bool _reset = true;
-    uint64_t _serial = 0;
-    std::vector<Retired> _retired;
 
     void _create_resolve_pass();
     void _create_sharpen_pass();

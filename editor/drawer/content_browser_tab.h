@@ -129,6 +129,7 @@ struct ContentBrowserDrawerTab : DrawerTab
     void _draw_delete_confirm(EditorContext& ctx);
     ItemResult _list_item(ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress = -1.0f, bool p_importing = false);
     void _list_draw(EditorContext& ctx);
+    VkImageView thumbnail(EditorContext& ctx, Guid p_guid, AssetType p_type);
     VkImageView _thumb_view(EditorContext& ctx, Guid p_guid, const drivers::DeviceDriverVulkan::Image& p_image);
     void _thumb_collect(EditorContext& ctx);
 

@@ -21,18 +21,18 @@ struct AutoExposureFeature : Feature
     float speed_brighten = 1.5f;
     float speed_darken = 6.0f;
 
+    bool initialized = false;
+    bool reset = true;
+    bool was_enabled = false;
+    float dt = 0.0f;
+    std::chrono::steady_clock::time_point last_time{};
+
     RenderGraph::Pass init_pass;
     RenderGraph::Pass histogram_pass;
     RenderGraph::Pass reduce_pass;
     drivers::DeviceDriverVulkan::Pipeline histogram_pipe;
     drivers::DeviceDriverVulkan::Pipeline reduce_pipe;
     drivers::DeviceDriverVulkan::Buffer exposure_buffer;
-
-    bool _initialized = false;
-    bool _reset = true;
-    bool _was_enabled = false;
-    float _dt = 0.0f;
-    std::chrono::steady_clock::time_point _last_time{};
 
     void _create_init_pass();
     void _create_histogram_pass();

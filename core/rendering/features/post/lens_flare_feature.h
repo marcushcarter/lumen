@@ -14,16 +14,16 @@ struct LensFlareFeature : Feature
 
     const uint32_t* lut_sampler = nullptr;
 
+    bool initialized = false;
+    bool was_enabled = false;
+    bool reset = true;
+    float dt = 0.0f;
+    std::chrono::steady_clock::time_point last_time{};
+
     RenderGraph::Pass init_pass;
     RenderGraph::Pass visibility_pass;
     drivers::DeviceDriverVulkan::Pipeline visibility_pipe;
     drivers::DeviceDriverVulkan::Buffer flare_buffer;
-
-    bool _initialized = false;
-    bool _was_enabled = false;
-    bool _reset = true;
-    float _dt = 0.0f;
-    std::chrono::steady_clock::time_point _last_time{};
 
     void _create_init_pass();
     void _create_visibility_pass();

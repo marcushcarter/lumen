@@ -6,7 +6,7 @@ namespace lumen {
 struct PresentFeature : Feature
 {    
     RenderGraph::Pass present_pass;
-    drivers::DeviceDriverVulkan::Pipeline blit_pipeline;
+    drivers::DeviceDriverVulkan::Pipeline blit_pipe;
 
     Error create_resources() override;
     Error create_pipelines() override;

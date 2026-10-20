@@ -2,6 +2,7 @@
 #include <core/rendering/render_context.h>
 #include <core/rendering/render_graph.h>
 #include <core/rendering/pass_category.h>
+#include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/base/error.h>
 #include <string>
 
@@ -14,6 +15,7 @@ struct Feature
     std::string category = "?";
     bool enabled = true;
 
+    drivers::DeviceDriverVulkan::Pipeline _compute_pipeline(const wchar_t* p_resource, const char* p_name);
     virtual Error create_resources() { return Error::OK; };
     virtual Error create_pipelines() { return Error::OK; }
     virtual void destroy_resources() {}

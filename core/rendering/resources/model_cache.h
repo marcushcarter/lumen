@@ -18,6 +18,13 @@ struct ModelCache
     static constexpr uint32_t MAX_SLOTS = 64u * 1024;
     static constexpr uint32_t DEFAULT_MATERIAL = 0;
 
+    drivers::DeviceDriverVulkan* dd = nullptr;
+    uint64_t version = 0;
+    uint64_t slot_version = 0;
+    uint64_t geometry_version = UINT64_MAX;
+    uint64_t material_layout = UINT64_MAX;
+    bool slots_dirty = false;
+
     struct Entry {
         Guid mesh;
         uint32_t mesh_index = INVALID_MESH;
@@ -26,28 +33,23 @@ struct ModelCache
         std::vector<Guid> materials;
     };
 
-    drivers::DeviceDriverVulkan* dd = nullptr;
     std::vector<drivers::DeviceDriverVulkan::Buffer> slot_buffers;
-    std::vector<uint64_t> _uploaded_version;
-
-    std::unordered_map<Guid, Entry, GuidHash, GuidEq> by_guid;
+    std::vector<uint64_t> uploaded_version;
+    
     std::vector<uint32_t> slot_table;
-    uint64_t version = 0;
-    uint64_t slot_version = 0;
-    uint64_t _geometry_version = UINT64_MAX;
-    uint64_t _material_layout = UINT64_MAX;
-    bool _slots_dirty = false;
-
+    std::unordered_map<Guid, Entry, GuidHash, GuidEq> by_guid;
+    
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
 
     Error load(const std::filesystem::path& p_path);
-    void set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials);
     void unload(Guid p_guid);
+    void set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials);
     void clear();
+
+    void _write_slots(const Entry& p_entry, const MaterialCache& p_materials);
     void resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials);
     void upload(uint32_t p_frame);
-    void _write_slots(const Entry& p_entry, const MaterialCache& p_materials);
 
     VkDeviceAddress slot_table_address(uint32_t p_frame) const {
         return p_frame < slot_buffers.size() ? slot_buffers[p_frame].device_address : 0;

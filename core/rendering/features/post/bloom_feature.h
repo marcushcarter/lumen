@@ -14,16 +14,16 @@ struct BloomFeature : Feature
 
     float intensity = 0.04f;
 
+    uint32_t mip_count = 0;
+    uint32_t mip_width[MAX_MIPS] = {};
+    uint32_t mip_height[MAX_MIPS] = {};
+    const char* source = "SceneColor";
+
     RenderGraph::Pass down_passes[MAX_MIPS];
     RenderGraph::Pass up_passes[MAX_MIPS - 1];
     drivers::DeviceDriverVulkan::Pipeline down_pipe;
     drivers::DeviceDriverVulkan::Pipeline up_pipe;
     drivers::DeviceDriverVulkan::Sampler linear_sampler;
-
-    uint32_t mip_count = 0;
-    uint32_t mip_width[MAX_MIPS] = {};
-    uint32_t mip_height[MAX_MIPS] = {};
-    const char* _source = "SceneColor";
 
     void _create_down_pass(uint32_t p_mip);
     void _create_up_pass(uint32_t p_mip);

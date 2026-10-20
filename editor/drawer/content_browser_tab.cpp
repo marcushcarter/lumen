@@ -760,6 +760,17 @@ void ContentBrowserDrawerTab::_reset_root(const std::filesystem::path& p_root)
     last_refresh = -1.0e9;
 }
 
+VkImageView ContentBrowserDrawerTab::thumbnail(EditorContext& ctx, Guid p_guid, AssetType p_type)
+{
+    if (p_guid == Guid{}) return VK_NULL_HANDLE;
+    if (p_type == AssetType::TEXTURE) {
+        if (!ctx.renderer) return VK_NULL_HANDLE;
+        const LTexture* tex = ctx.renderer->textures.get(p_guid);
+        return tex ? _thumb_view(ctx, p_guid, tex->image) : VK_NULL_HANDLE;
+    }
+    return ctx.thumbnails ? ctx.thumbnails->get(ctx, p_guid, p_type) : VK_NULL_HANDLE;
+}
+
 VkImageView ContentBrowserDrawerTab::_thumb_view(EditorContext& ctx, Guid p_guid, const drivers::DeviceDriverVulkan::Image& p_image)
 {
     const uint32_t channels = TextureViewer::channel_count(p_image.format);

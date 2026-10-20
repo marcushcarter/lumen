@@ -8,30 +8,6 @@
 
 namespace lumen {
 
-Error ScreenshotFeature::create_resources()
-{
-    screenshot_pass.name = "Screenshot";
-    screenshot_pass.category = PASS_CATEGORY_PRESENT;
-    screenshot_pass.never_cull = true;
-    screenshot_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_image("Backbuffer", VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-        b.write_buffer("ScreenshotStaging", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-    };
-    screenshot_pass.execute = [this](RenderGraph::CommandList& cl) {
-        auto bb = cl.graph->image("Backbuffer");
-        if (!bb || !staging.buffer) return;
-        cl.dd->command_copy_image_to_buffer(cl.cmd, *bb, staging, bb->extent);
-    };
-
-    return Error::OK;
-};
-
-void ScreenshotFeature::destroy_resources()
-{
-    if (encode_job.valid()) encode_job.wait();
-    if (staging.buffer) ctx->dd->buffer_free(staging);
-}
-
 void ScreenshotFeature::_writeback()
 {
     ctx->dd->device_wait_idle();
@@ -66,6 +42,30 @@ void ScreenshotFeature::_writeback()
         img.height = h;
         return ImageIO::save_png(path.wstring(), img);
     });
+}
+
+Error ScreenshotFeature::create_resources()
+{
+    screenshot_pass.name = "Screenshot";
+    screenshot_pass.category = PASS_CATEGORY_PRESENT;
+    screenshot_pass.never_cull = true;
+    screenshot_pass.setup = [](RenderGraph::Builder& b) {
+        b.read_image("Backbuffer", VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.write_buffer("ScreenshotStaging", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    };
+    screenshot_pass.execute = [this](RenderGraph::CommandList& cl) {
+        auto bb = cl.graph->image("Backbuffer");
+        if (!bb || !staging.buffer) return;
+        cl.dd->command_copy_image_to_buffer(cl.cmd, *bb, staging, bb->extent);
+    };
+
+    return Error::OK;
+};
+
+void ScreenshotFeature::destroy_resources()
+{
+    if (encode_job.valid()) encode_job.wait();
+    if (staging.buffer) ctx->dd->buffer_free(staging);
 }
 
 void ScreenshotFeature::build(RenderGraph& g)

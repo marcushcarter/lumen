@@ -12,9 +12,79 @@ namespace lumen {
 
 using namespace glm;
 
-/******************/
-/**** CLUSTERS ****/
-/******************/
+void GeometryFeature::_compact_update(bool p_feedback, uint64_t p_demand)
+{
+    uint64_t target = compact_capacity;
+    if (target == 0) target = (uint64_t)ctx->graph->width * ctx->graph->height;
+
+    if (p_feedback) {
+        if (p_demand > compact_capacity) {
+            target = p_demand + p_demand / 2;
+            compact_low_frames = 0;
+        } else if (p_demand * 4 < compact_capacity) {
+            if (++compact_low_frames >= COMPACT_SHRINK_FRAMES) {
+                target = p_demand + p_demand / 2;
+                compact_low_frames = 0;
+            }
+        } else {
+            compact_low_frames = 0;
+        }
+    }
+
+    
+    const uint64_t bound = std::min<uint64_t>((uint64_t)std::max(1u, ctx->frame->cluster_ref_capacity) * std::max(1u, ctx->geometry->max_cluster_tris), COMPACT_INDEX_LIMIT_TRIS);
+    target = std::max<uint64_t>(target, COMPACT_MIN_TRIS);
+    target = (target + COMPACT_GRANULE_TRIS - 1) / COMPACT_GRANULE_TRIS * COMPACT_GRANULE_TRIS;
+    target = std::min(target, bound);
+    if (target == compact_capacity && compact_indices.buffer) return;
+    if (compact_failed_tris && target >= compact_failed_tris) return;
+
+    if (!_compact_reserve((uint32_t)target)) {
+        compact_failed_tris = target;
+    } else {
+        compact_failed_tris = 0;
+        ++compact_resizes;
+    }
+}
+
+bool GeometryFeature::_compact_reserve(uint32_t p_tris)
+{
+    drivers::DeviceDriverVulkan::Buffer indices = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * 3 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_indices" });
+    drivers::DeviceDriverVulkan::Buffer prims = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_prims" });
+    if (!indices.buffer || !prims.buffer) {
+        if (indices.buffer) ctx->dd->buffer_free(indices);
+        if (prims.buffer) ctx->dd->buffer_free(prims);
+        return false;
+    }
+
+    _compact_retire(compact_indices);
+    _compact_retire(compact_prims);
+    compact_indices = indices;
+    compact_prims = prims;
+    compact_capacity = p_tris;
+    return true;
+}
+
+void GeometryFeature::_compact_retire(drivers::DeviceDriverVulkan::Buffer& r_buffer)
+{
+    if (!r_buffer.buffer) return;
+    compact_retired.push_back({ compact_serial, r_buffer });
+    r_buffer = {};
+}
+
+void GeometryFeature::_compact_collect(bool p_all)
+{
+    const uint64_t frames = ctx->dd->frame_count;
+    for (size_t i = 0; i < compact_retired.size();) {
+        if (p_all || compact_serial - compact_retired[i].serial > frames) {
+            ctx->dd->buffer_free(compact_retired[i].buffer);
+            compact_retired[i] = compact_retired.back();
+            compact_retired.pop_back();
+        } else {
+            ++i;
+        }
+    }
+}
 
 void GeometryFeature::_create_clear_visible_pass()
 {
@@ -271,7 +341,7 @@ void GeometryFeature::_create_cluster_cull_args_pass()
             b.write_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
             drivers::DeviceDriverVulkan::BufferCreateInfo spill_ci{};
-            spill_ci.size = (VkDeviceSize)_compact_spill_stride() * 2 * COMPACT_SPILL_CMD_SIZE;
+            spill_ci.size = (VkDeviceSize)std::max(1u, ctx->frame->cluster_ref_capacity) * 2 * COMPACT_SPILL_CMD_SIZE;
             spill_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
             spill_ci.device_local = true;
             b.create_buffer("CompactSpill", spill_ci);
@@ -495,93 +565,6 @@ void GeometryFeature::_create_cluster_retest_pass()
     };
 }
 
-/****************/
-/**** RASTER ****/
-/****************/
-
-uint32_t GeometryFeature::_compact_capacity_tris() const { return compact_indices.buffer ? compact_capacity : 0u; }
-
-uint64_t GeometryFeature::_compact_bound_tris() const
-{
-    const uint64_t bound = (uint64_t)std::max(1u, ctx->frame->cluster_ref_capacity) * std::max(1u, ctx->geometry->max_cluster_tris);
-    return std::min<uint64_t>(bound, COMPACT_INDEX_LIMIT_TRIS);
-}
-
-uint32_t GeometryFeature::_compact_spill_stride() const { return std::max(1u, ctx->frame->cluster_ref_capacity); }
-
-void GeometryFeature::_compact_update(bool p_feedback, uint64_t p_demand)
-{
-    uint64_t target = compact_capacity;
-    if (target == 0) target = (uint64_t)ctx->graph->width * ctx->graph->height;
-
-    if (p_feedback) {
-        if (p_demand > compact_capacity) {
-            target = p_demand + p_demand / 2;
-            compact_low_frames = 0;
-        } else if (p_demand * 4 < compact_capacity) {
-            if (++compact_low_frames >= COMPACT_SHRINK_FRAMES) {
-                target = p_demand + p_demand / 2;
-                compact_low_frames = 0;
-            }
-        } else {
-            compact_low_frames = 0;
-        }
-    }
-
-    const uint64_t bound = _compact_bound_tris();
-    target = std::max<uint64_t>(target, COMPACT_MIN_TRIS);
-    target = (target + COMPACT_GRANULE_TRIS - 1) / COMPACT_GRANULE_TRIS * COMPACT_GRANULE_TRIS;
-    target = std::min(target, bound);
-    if (target == compact_capacity && compact_indices.buffer) return;
-    if (compact_failed_tris && target >= compact_failed_tris) return;
-
-    if (!_compact_reserve((uint32_t)target)) {
-        compact_failed_tris = target;
-    } else {
-        compact_failed_tris = 0;
-        ++compact_resizes;
-    }
-}
-
-bool GeometryFeature::_compact_reserve(uint32_t p_tris)
-{
-    drivers::DeviceDriverVulkan::Buffer indices = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * 3 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_indices" });
-    drivers::DeviceDriverVulkan::Buffer prims = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_prims" });
-    if (!indices.buffer || !prims.buffer) {
-        if (indices.buffer) ctx->dd->buffer_free(indices);
-        if (prims.buffer) ctx->dd->buffer_free(prims);
-        return false;
-    }
-
-    _compact_retire(compact_indices);
-    _compact_retire(compact_prims);
-    compact_indices = indices;
-    compact_prims = prims;
-    compact_capacity = p_tris;
-    return true;
-}
-
-void GeometryFeature::_compact_retire(drivers::DeviceDriverVulkan::Buffer& r_buffer)
-{
-    if (!r_buffer.buffer) return;
-    compact_retired.push_back({ r_buffer, compact_serial });
-    r_buffer = {};
-}
-
-void GeometryFeature::_compact_collect(bool p_all)
-{
-    const uint64_t frames = ctx->dd->frame_count;
-    for (size_t i = 0; i < compact_retired.size();) {
-        if (p_all || compact_serial - compact_retired[i].serial > frames) {
-            ctx->dd->buffer_free(compact_retired[i].buffer);
-            compact_retired[i] = compact_retired.back();
-            compact_retired.pop_back();
-        } else {
-            ++i;
-        }
-    }
-}
-
 void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool p_late)
 {
     r_pass.name = p_late ? "DrawCompact2" : "DrawCompact1";
@@ -643,8 +626,8 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
         pc.args_addr = args->device_address;
         pc.spill_addr = spill->device_address;
         pc.phase = p_late ? 1u : 0u;
-        pc.capacity_tris = indices && prims ? _compact_capacity_tris() : 0u;
-        pc.spill_stride = _compact_spill_stride();
+        pc.capacity_tris = (indices && prims) ? (compact_indices.buffer ? compact_capacity : 0u) : 0u;
+        pc.spill_stride = std::max(1u, ctx->frame->cluster_ref_capacity);
         if (hiz_args && hiz) {
             pc.hiz_args_addr = hiz_args->device_address;
             pc.hiz_groups_x = hiz->extent.width / HIZ_TILE;
@@ -745,7 +728,7 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
             sp.cluster_refs_addr = pc.cluster_refs_addr;
             sp.visible_addr = pc.visible_addr;
 
-            const uint32_t stride = _compact_spill_stride();
+            const uint32_t stride = std::max(1u, ctx->frame->cluster_ref_capacity);
             const uint32_t phase = p_late ? 1u : 0u;
             cl.dd->command_bind_pipeline(cl.cmd, visbuffer_spill_pipe);
             cl.dd->command_bind_push_constants(cl.cmd, sizeof(sp), &sp);
@@ -753,10 +736,6 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         }
     };
 }
-
-/******************/
-/**** MATERIAL ****/
-/******************/
 
 static constexpr uint32_t RESOLVE_WRITE_MOTION = 1u << 0;
 static constexpr uint32_t RESOLVE_WRITE_CUSTOM = 1u << 1;
@@ -910,10 +889,6 @@ void GeometryFeature::_create_compact_feedback_pass()
     };
 }
 
-/*******************/
-/**** PROFILING ****/
-/*******************/
-
 void GeometryFeature::_create_stats_pass()
 {
     stats_pass.name = "ClusterCullStats";
@@ -947,10 +922,6 @@ void GeometryFeature::_create_stats_pass()
         vkCmdPipelineBarrier2(cl.cmd, &dep);
     };
 }
-
-/**************/
-/**** BASE ****/
-/**************/
 
 Error GeometryFeature::create_resources()
 {
@@ -1014,15 +985,6 @@ Error GeometryFeature::create_resources()
     }
     return Error::OK;
 };
-
-drivers::DeviceDriverVulkan::Pipeline GeometryFeature::_compute_pipeline(const wchar_t* p_resource, const char* p_name)
-{
-    EmbeddedResource::Blob blob = EmbeddedResource::load(p_resource);
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = p_name });
-    drivers::DeviceDriverVulkan::Pipeline pipe = ctx->dd->compute_pipeline_create({ cs, p_name });
-    ctx->dd->shader_free(cs);
-    return pipe;
-}
 
 Error GeometryFeature::create_pipelines()
 {
@@ -1101,7 +1063,7 @@ void GeometryFeature::destroy_resources()
 
 void GeometryFeature::build(RenderGraph& g)
 {
-    if (!enabled || !ctx->geometry->allocated) {
+    if (!enabled) {
         hiz_history = false;
         return;
     }

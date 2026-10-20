@@ -15,7 +15,6 @@ struct LightCullFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline tiles_pipe;
 
     uint32_t _local_count() const { return ctx->frame->light_count > MAX_DIRECTIONAL_LIGHTS ? ctx->frame->light_count - MAX_DIRECTIONAL_LIGHTS : 0u; }
-    drivers::DeviceDriverVulkan::Pipeline _compute_pipeline(const wchar_t* p_resource, const char* p_name);
 
     void _create_cull_pass();
     void _create_bin_pass();

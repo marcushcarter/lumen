@@ -10,10 +10,6 @@ namespace lumen {
 
 using Buffer = drivers::DeviceDriverVulkan::Buffer;
 
-/***************/
-/**** SETUP ****/
-/***************/
-
 Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
 {
     using enum Error;
@@ -52,59 +48,34 @@ void GeometryPool::shutdown()
     address_buffers.clear();
 }
 
-Error GeometryPool::allocate()
+void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials)
 {
-    if (allocated) return Error::OK;
-    clear();
-    allocated = true;
-    return Error::OK;
+    frame_number = p_frame_number;
+    _collect(p_frame_number);
+
+    GeometryAddresses a{};
+    a.vertices = arenas[ARENA_VERTICES].buffer.device_address;
+    a.attributes = arenas[ARENA_VERTEX_ATTRIBUTES].buffer.device_address;
+    a.indices = arenas[ARENA_INDICES].buffer.device_address;
+    a.tri_slots = arenas[ARENA_TRI_SLOTS].buffer.device_address;
+    a.slot_table = p_slot_table;
+    a.clusters = arenas[ARENA_CLUSTERS].buffer.device_address;
+    a.groups = arenas[ARENA_GROUPS].buffer.device_address;
+    a.skin_vertices = arenas[ARENA_SKIN].buffer.device_address;
+    a.bvh_nodes = arenas[ARENA_BVH_NODES].buffer.device_address;
+    a.meshes = arenas[ARENA_MESHES].buffer.device_address;
+    a.meshlet_vertices = arenas[ARENA_MESHLET_VERTICES].buffer.device_address;
+    a.cluster_vertex_base = arenas[ARENA_CLUSTER_VERTEX_BASE].buffer.device_address;
+    a.local_triangles = arenas[ARENA_LOCAL_TRIANGLES].buffer.device_address;
+    a.cluster_vertices = arenas[ARENA_CLUSTER_VERTICES].buffer.device_address;
+    a.materials = p_materials;
+
+    Buffer& b = address_buffers[p_slot];
+    dd->buffer_update(b, &a, sizeof(a));
+    dd->buffer_flush(b, 0, sizeof(a));
+
+    cluster_extent = cluster_alloc.extent();
 }
-
-void GeometryPool::free()
-{
-    for (Arena& a : arenas) {
-        dd->buffer_free(a.buffer);
-        a.buffer = {};
-        a.capacity = 0;
-    }
-    for (RetiredBuffer& r : retired_buffers) dd->buffer_free(r.buffer);
-    retired_buffers.clear();
-    allocated = false;
-    clear();
-}
-
-void GeometryPool::clear()
-{
-    version++;
-    meshes.clear();
-    mesh_ranges.clear();
-    mesh_guids.clear();
-    free_meshes.clear();
-    by_guid.clear();
-    retired_meshes.clear();
-
-    vertex_alloc.reset(arenas[ARENA_VERTICES].capacity);
-    tri_alloc.reset(arenas[ARENA_INDICES].capacity);
-    cluster_alloc.reset(arenas[ARENA_CLUSTERS].capacity);
-    group_alloc.reset(arenas[ARENA_GROUPS].capacity);
-    skin_alloc.reset(arenas[ARENA_SKIN].capacity);
-    bvh_alloc.reset(arenas[ARENA_BVH_NODES].capacity);
-    meshlet_vertex_alloc.reset(arenas[ARENA_MESHLET_VERTICES].capacity);
-    cluster_extent = 0;
-    max_cluster_tris = 0;
-}
-
-VkDeviceSize GeometryPool::resident_bytes() const
-{
-    VkDeviceSize total = 0;
-    for (const Arena& a : arenas) total += a.buffer.capacity;
-    for (const RetiredBuffer& r : retired_buffers) total += r.buffer.capacity;
-    return total;
-}
-
-/****************/
-/**** ARENAS ****/
-/****************/
 
 void GeometryPool::_arena_setup(ArenaKind p_kind, uint32_t p_stride, uint32_t p_initial, uint32_t p_max, VkBufferUsageFlags p_usage, const char* p_name)
 {
@@ -218,13 +189,49 @@ void GeometryPool::_collect(uint64_t p_frame_number)
     }
 }
 
-/****************/
-/**** MESHES ****/
-/****************/
+VkDeviceSize GeometryPool::_resident_bytes() const
+{
+    VkDeviceSize total = 0;
+    for (const Arena& a : arenas) total += a.buffer.capacity;
+    for (const RetiredBuffer& r : retired_buffers) total += r.buffer.capacity;
+    return total;
+}
+
+void GeometryPool::free()
+{
+    for (Arena& a : arenas) {
+        dd->buffer_free(a.buffer);
+        a.buffer = {};
+        a.capacity = 0;
+    }
+    for (RetiredBuffer& r : retired_buffers) dd->buffer_free(r.buffer);
+    retired_buffers.clear();
+    clear();
+}
+
+void GeometryPool::clear()
+{
+    version++;
+    meshes.clear();
+    mesh_ranges.clear();
+    mesh_guids.clear();
+    free_meshes.clear();
+    by_guid.clear();
+    retired_meshes.clear();
+
+    vertex_alloc.reset(arenas[ARENA_VERTICES].capacity);
+    tri_alloc.reset(arenas[ARENA_INDICES].capacity);
+    cluster_alloc.reset(arenas[ARENA_CLUSTERS].capacity);
+    group_alloc.reset(arenas[ARENA_GROUPS].capacity);
+    skin_alloc.reset(arenas[ARENA_SKIN].capacity);
+    bvh_alloc.reset(arenas[ARENA_BVH_NODES].capacity);
+    meshlet_vertex_alloc.reset(arenas[ARENA_MESHLET_VERTICES].capacity);
+    cluster_extent = 0;
+    max_cluster_tris = 0;
+}
 
 uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
 {
-    if (!allocated) return INVALID_MESH;
     if (auto it = by_guid.find(p_guid); it != by_guid.end()) return it->second;
 
     const std::string name = p_path.string();
@@ -494,39 +501,6 @@ void GeometryPool::unload(Guid p_guid)
     meshes[id] = LMesh{};
     mesh_ranges[id] = MeshRanges{};
     mesh_guids[id] = Guid{};
-}
-
-/***************/
-/**** FRAME ****/
-/***************/
-
-void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials)
-{
-    frame_number = p_frame_number;
-    _collect(p_frame_number);
-
-    GeometryAddresses a{};
-    a.vertices = arenas[ARENA_VERTICES].buffer.device_address;
-    a.attributes = arenas[ARENA_VERTEX_ATTRIBUTES].buffer.device_address;
-    a.indices = arenas[ARENA_INDICES].buffer.device_address;
-    a.tri_slots = arenas[ARENA_TRI_SLOTS].buffer.device_address;
-    a.slot_table = p_slot_table;
-    a.clusters = arenas[ARENA_CLUSTERS].buffer.device_address;
-    a.groups = arenas[ARENA_GROUPS].buffer.device_address;
-    a.skin_vertices = arenas[ARENA_SKIN].buffer.device_address;
-    a.bvh_nodes = arenas[ARENA_BVH_NODES].buffer.device_address;
-    a.meshes = arenas[ARENA_MESHES].buffer.device_address;
-    a.meshlet_vertices = arenas[ARENA_MESHLET_VERTICES].buffer.device_address;
-    a.cluster_vertex_base = arenas[ARENA_CLUSTER_VERTEX_BASE].buffer.device_address;
-    a.local_triangles = arenas[ARENA_LOCAL_TRIANGLES].buffer.device_address;
-    a.cluster_vertices = arenas[ARENA_CLUSTER_VERTICES].buffer.device_address;
-    a.materials = p_materials;
-
-    Buffer& b = address_buffers[p_slot];
-    dd->buffer_update(b, &a, sizeof(a));
-    dd->buffer_flush(b, 0, sizeof(a));
-
-    cluster_extent = cluster_alloc.extent();
 }
 
 }

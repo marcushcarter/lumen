@@ -3,6 +3,7 @@
 #include <algorithm>
 
 namespace lumen {
+
 void LightCullFeature::_create_cull_pass()
 {
     cull_pass.name = "LightCull";
@@ -153,15 +154,6 @@ Error LightCullFeature::create_resources()
     return Error::OK;
 }
 
-drivers::DeviceDriverVulkan::Pipeline LightCullFeature::_compute_pipeline(const wchar_t* p_resource, const char* p_name)
-{
-    EmbeddedResource::Blob blob = EmbeddedResource::load(p_resource);
-    VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = p_name });
-    drivers::DeviceDriverVulkan::Pipeline pipe = ctx->dd->compute_pipeline_create({ cs, p_name });
-    ctx->dd->shader_free(cs);
-    return pipe;
-}
-
 Error LightCullFeature::create_pipelines()
 {
     cull_pipe = _compute_pipeline(L"SHADERS_LIGHTING_LIGHT_CULL_COMP", "lighting/light_cull.comp");
@@ -182,7 +174,6 @@ void LightCullFeature::build(RenderGraph& g)
     if (!g.image_resource("G_Depth") || _local_count() == 0) return;
     g.add(&cull_pass);
     g.add(&bin_pass);
-    // only built when tiles can be used; lighting and the debug view treat a missing LightTileMasks as z-bin-only
     if (_local_count() > LIGHT_TILE_MIN_LIGHTS) g.add(&tiles_pass);
 }
 

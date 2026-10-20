@@ -29,8 +29,6 @@ struct AtmosphereFeature : Feature
 
     drivers::DeviceDriverVulkan::Image transmittance_lut;
     drivers::DeviceDriverVulkan::Image multiscatter_lut;
-    // drivers::DeviceDriverVulkan::Image skyview_sun_lut;
-    // drivers::DeviceDriverVulkan::Image skyview_moon_lut;
     drivers::DeviceDriverVulkan::Image skyview_lut;
     drivers::DeviceDriverVulkan::Sampler lut_sampler;
     uint64_t built_lut_version = UINT64_MAX;
@@ -49,16 +47,14 @@ struct AtmosphereFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline aerial_pipe;
     drivers::DeviceDriverVulkan::Pipeline sky_lighting_pipe;
 
-    drivers::DeviceDriverVulkan::Pipeline _compute_pipeline(const wchar_t* p_resource, const char* p_name);
     drivers::DeviceDriverVulkan::Image _create_lut(uint32_t p_width, uint32_t p_height, const char* p_name);
+    bool _skyview_dirty(const SkyViewKey& p_key) const;
 
     void _create_transmittance_pass();
     void _create_multiscatter_pass();
     void _create_skyview_pass();
     void _create_aerial_pass();
     void _create_sky_lighting_pass();
-    SkyViewKey _skyview_key() const;
-    bool _skyview_dirty(const SkyViewKey& p_key) const;
 
     Error create_resources() override;
     Error create_pipelines() override;

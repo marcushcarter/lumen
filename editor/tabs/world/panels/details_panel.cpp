@@ -60,6 +60,13 @@ void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
         ImGui::DragFloat("Brightness", &atmosphere.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Density", &atmosphere.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
+    if (_component_begin("Sun Flare")) {
+        ImGui::DragFloat("Intensity", &atmosphere.flare_intensity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Glow", &atmosphere.flare_glow, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Rays", &atmosphere.flare_rays, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Ray Length", &atmosphere.flare_ray_length, 0.01f, 0.3f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Ghosts", &atmosphere.flare_ghosts, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    }
     if (_component_begin("World")) {
         ImGui::DragFloat("Sea Level Offset", &atmosphere.sea_level_offset_km, 0.01f, -1.0f, 9.0f, "%.3f km", ImGuiSliderFlags_AlwaysClamp);
     }

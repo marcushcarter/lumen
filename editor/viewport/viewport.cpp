@@ -262,6 +262,8 @@ void Viewport::_draw_image(EditorContext& ctx)
             ImGui::Checkbox("Auto Exposure", &ctx.render_path->exposure.enabled);
             ImGui::Checkbox("Bloom", &ctx.render_path->bloom.enabled);
             ImGui::SliderFloat("Bloom Intensity", &ctx.render_path->bloom.intensity, 0.0f, 0.2f);
+            ImGui::Checkbox("Lens Flare", &ctx.render_path->lens_flare.enabled);
+            // ImGui::SliderFloat("Lens Flare Intensity", &ctx.render_path->lens_flare.intensity, 0.0f, 4.0f);
         }
         left_overlay.end_menu();
     }

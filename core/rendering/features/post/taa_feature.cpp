@@ -78,6 +78,7 @@ void TAAFeature::_create_sharpen_pass()
         b.read_image("TAAOutput", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("SceneColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (b.graph->image_resource("Bloom")) b.read_image("Bloom", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        if (b.graph->buffer_resource("LensFlare")) b.read_buffer("LensFlare", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         if (b.graph->buffer_resource("Exposure")) b.read_buffer("Exposure", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
     sharpen_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -86,11 +87,13 @@ void TAAFeature::_create_sharpen_pass()
         auto* display = cl.graph->image("DisplayColor");
         if (!src || !color || !display) return;
         auto* exposure = cl.graph->buffer("Exposure");
+        auto* flare = cl.graph->buffer("LensFlare");
         auto* bloom_img = cl.graph->image("Bloom");
         const BloomFeature* bloom_cfg = post ? post->bloom : nullptr;
 
         struct Push {
             VkDeviceAddress exposure_addr;
+            VkDeviceAddress flare_addr;
             uint32_t src_index;
             uint32_t out_slot;
             uint32_t width;
@@ -102,9 +105,12 @@ void TAAFeature::_create_sharpen_pass()
             uint32_t bloom_index;
             uint32_t bloom_sampler;
             float bloom_intensity;
+            uint32_t has_flare;
         } pc{};
         pc.exposure_addr = exposure ? exposure->device_address : 0;
         pc.has_exposure = exposure ? 1u : 0u;
+        pc.flare_addr = flare ? flare->device_address : 0;
+        pc.has_flare = flare ? 1u : 0u;
         if (bloom_img && bloom_cfg) {
             pc.bloom_index = bloom_img->bindless_sampled;
             pc.bloom_sampler = bloom_cfg->linear_sampler.bindless_sampler;

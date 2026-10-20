@@ -90,6 +90,12 @@ struct AtmosphereComponent
     float star_brightness = 1.0f;
     float star_density = 0.8f;
     float sea_level_offset_km = 0.0f;
+
+    float flare_intensity = 1.0f;
+    float flare_glow = 0.5f;
+    float flare_rays = 1.0f;
+    float flare_ray_length = 0.06f;
+    float flare_ghosts = 0.1f;
 };
 
 struct StaticTag {};

@@ -1,0 +1,92 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+#include "common/camera.glsl"
+#include "common/atmosphere.glsl"
+#include "common/lens_flare.glsl"
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    AtmosphereBuffer atmosphere;
+    LensFlareBuffer flare;
+    uint depth_index;
+    uint transmittance_index;
+    uint sampler_index;
+    uint depth_width;
+    uint depth_height;
+    float intensity;
+    float glow;
+    float rays;
+    float ray_length;
+    float ghosts;
+    float blend;
+    uint _pad;
+} pc;
+
+const uint THREAD_COUNT = 64u;
+const uint SAMPLES_PER_THREAD = 4u;
+const uint SAMPLE_COUNT = THREAD_COUNT * SAMPLES_PER_THREAD;
+const float DISK_MARGIN = 1.5;
+const float MIN_RADIUS_PX = 2.0;
+const float EDGE_FADE = 0.5;
+
+shared float s_visible[THREAD_COUNT];
+
+void main() {
+    g_atmo = pc.atmosphere;
+    g_lut_sampler = pc.sampler_index;
+    g_transmittance_lut = pc.transmittance_index;
+    const uint li = gl_LocalInvocationIndex;
+
+    const vec3 l = g_atmo.sun_direction;
+    const vec4 clip = pc.camera.curr_view_proj * vec4(l, 0.0);
+    const bool front = clip.w > 1e-6;
+    const vec2 ndc = front ? clip.xy / clip.w - pc.camera.jitter.xy : vec2(0.0);
+    const vec2 uv = ndc * 0.5 + 0.5;
+
+    const vec2 size = vec2(pc.depth_width, pc.depth_height);
+    const float radius_px = max(0.5 * tan(g_atmo.sun_angular_radius) / pc.camera.tan_half_fov_y * size.y * DISK_MARGIN, MIN_RADIUS_PX);
+    float visible = 0.0;
+    for (uint k = 0u; k < SAMPLES_PER_THREAD; ++k) {
+        const uint i = li * SAMPLES_PER_THREAD + k;
+        const float a = 2.39996323 * float(i);
+        const vec2 px = uv * size + radius_px * sqrt((float(i) + 0.5) / float(SAMPLE_COUNT)) * vec2(cos(a), sin(a));
+        if (front && all(greaterThanEqual(px, vec2(0.0))) && all(lessThan(px, size))) {
+            visible += texelFetch(u_textures[pc.depth_index], ivec2(px), 0).r <= 0.0 ? 1.0 : 0.0;
+        } else {
+            visible += 1.0;
+        }
+    }
+    s_visible[li] = visible;
+    barrier();
+    for (uint stride = THREAD_COUNT / 2u; stride > 0u; stride >>= 1u) {
+        if (li < stride) s_visible[li] += s_visible[li + stride];
+        barrier();
+    }
+
+    if (li == 0u) {
+        const vec2 outside = max(max(-uv, uv - 1.0), vec2(0.0));
+        const float edge = 1.0 - smoothstep(0.0, EDGE_FADE, max(outside.x, outside.y));
+        const float target = front && atmo_sun_active() ? s_visible[0] / float(SAMPLE_COUNT) * edge : 0.0;
+        const float previous = pc.flare.visibility;
+        const float moved_px = length((uv - pc.flare.sun_uv) * size);
+        const float blend = moved_px > radius_px ? 1.0 : pc.blend;
+        const float visibility = isnan(previous) ? target : mix(previous, target, blend);
+        const vec3 sun = g_atmo.sun_illuminance * light_transmittance(atmo_observer(), l) * pc.camera.pre_exposure;
+        pc.flare.visibility = visibility;
+        pc.flare.color = sun * visibility * pc.intensity;
+        pc.flare.glow = pc.glow;
+        pc.flare.sun_uv = uv;
+        pc.flare.rays = pc.rays;
+        pc.flare.ray_length = pc.ray_length;
+        pc.flare.ghosts = pc.ghosts;
+    }
+}

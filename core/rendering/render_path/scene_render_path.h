@@ -7,6 +7,7 @@
 #include <core/rendering/features/post/auto_exposure_feature.h>
 #include <core/rendering/features/post/taa_feature.h>
 #include <core/rendering/features/post/bloom_feature.h>
+#include <core/rendering/features/post/lens_flare_feature.h>
 #include <core/rendering/features/post/post_process_feature.h>
 
 namespace lumen {
@@ -20,10 +21,12 @@ struct SceneRenderPath : RenderPath
     AutoExposureFeature exposure;
     TAAFeature taa;
     BloomFeature bloom;
+    LensFlareFeature lens_flare;
     PostProcessFeature post;
     
     SceneRenderPath() {
         lighting.lut_sampler = &atmosphere.lut_sampler.bindless_sampler;
+        lens_flare.lut_sampler = &atmosphere.lut_sampler.bindless_sampler;
         taa.post = &post;
         post.taa = &taa;
         post.bloom = &bloom;
@@ -34,6 +37,7 @@ struct SceneRenderPath : RenderPath
         features.push_back(&exposure);
         features.push_back(&taa);
         features.push_back(&bloom);
+        features.push_back(&lens_flare);
         features.push_back(&post);
     }
 };

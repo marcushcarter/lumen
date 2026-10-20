@@ -588,6 +588,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     {
         using A = AtmosphereComponent;
         const AtmosphereComponent& atmo = p_world.atmosphere;
+        frame.flare = { atmo.flare_intensity, atmo.flare_glow, atmo.flare_rays, atmo.flare_ray_length, atmo.flare_ghosts };
         GpuAtmosphere& g = frame.atmosphere;
 
         const vec4 lut_key[2] = { vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom), vec4(atmo.strat_aerosol_depth, atmo.strat_aerosol_height_km, 0.0f, 0.0f) };

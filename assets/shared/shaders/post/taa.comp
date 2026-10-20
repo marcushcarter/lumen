@@ -34,6 +34,9 @@ const float BLEND_MIN = 0.02;
 const float CLIP_GAMMA = 1.25;
 const float KERNEL = 2.29;
 const float KERNEL_TIGHT = 3.4;
+const float RESPONSE_EV_START = 2.0;
+const float RESPONSE_EV_END = 4.0;
+const float RESPONSE_LUMA_FLOOR = 0.01;
 
 shared uvec2 s_color[TILE_MAX_X * TILE_MAX_Y];
 shared float s_depth[TILE_MAX_X * TILE_MAX_Y];
@@ -42,6 +45,11 @@ vec3 rgb_to_ycocg(vec3 c) { return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5
 vec3 ycocg_to_rgb(vec3 c) { return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
 vec3 tonemap(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
 vec3 untonemap(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4); }
+
+float hdr_luma(vec3 p_ycc) {
+    const vec3 c = ycocg_to_rgb(p_ycc);
+    return p_ycc.x / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4);
+}
 
 vec3 history_tap(vec2 p_uv) {
     return textureLod(sampler2D(u_textures[pc.history_index], u_samplers[pc.sampler_index]), p_uv, 0.0).rgb;
@@ -132,6 +140,7 @@ void main() {
     float weight_sum = 0.0;
     vec3 m1 = vec3(0.0);
     vec3 m2 = vec3(0.0);
+    float min_luma = 1e30;
     float closest_depth = -1.0;
     ivec2 closest = local;
     for (int y = 0; y < 3; ++y) {
@@ -145,6 +154,7 @@ void main() {
             weight_sum += w;
             m1 += ycc;
             m2 += ycc * ycc;
+            min_luma = min(min_luma, hdr_luma(ycc));
             const float depth = s_depth[idx];
             if (depth > closest_depth) {
                 closest_depth = depth;
@@ -166,7 +176,10 @@ void main() {
 
         const float confidence = exp(-KERNEL * (near_x + near_y));
         const float density = max(1.0, ratio.x * ratio.y);
-        const float alpha = clamp(BLEND * confidence * density, BLEND_MIN, 1.0);
+        const float base_alpha = clamp(BLEND * confidence * density, BLEND_MIN, 1.0);
+        const float brighten_ev = log2(max(min_luma, RESPONSE_LUMA_FLOOR) / max(hdr_luma(history), RESPONSE_LUMA_FLOOR));
+        const float response = clamp((brighten_ev - RESPONSE_EV_START) / (RESPONSE_EV_END - RESPONSE_EV_START), 0.0, 1.0);
+        const float alpha = mix(base_alpha, 1.0, response);
         result = mix(history, current, alpha);
     }
 

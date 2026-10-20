@@ -286,6 +286,21 @@ void Viewport::_draw_image(EditorContext& ctx)
         }
         left_overlay.end_menu();
     }
+    if (time_of_day) {
+        const TimePreset* cur_time = nullptr;
+        for (const TimePreset& t : TIME_PRESETS) if (*time_of_day == t.time) cur_time = &t;
+        char time_btn[64];
+        snprintf(time_btn, sizeof(time_btn), "%s  %s###TimeOfDay", cur_time ? cur_time->icon : ICON_FA_CLOCK, cur_time ? cur_time->name : "Custom");
+        left_overlay.gap();
+        if (left_overlay.begin_menu(time_btn)) {
+            for (const TimePreset& t : TIME_PRESETS) {
+                char item[64];
+                snprintf(item, sizeof(item), "%s  %s", t.icon, t.name);
+                if (ImGui::MenuItem(item, nullptr, cur_time == &t)) *time_of_day = t.time;
+            }
+            left_overlay.end_menu();
+        }
+    }
     left_overlay.end();
 
     if (allow_gizmo) {

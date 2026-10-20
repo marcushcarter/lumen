@@ -41,6 +41,7 @@ Error MaterialTab::create(EditorContext& ctx)
     preview.initialize();
     preview.load();
     preview.atmosphere.time_of_day = 12.0f;
+    layout.viewport.time_of_day = &preview.atmosphere.time_of_day;
     _preview_model = Guid::generate();
     if (ctx.renderer && BuiltinMeshes::ensure_sphere()) {
         ctx.renderer->geometry.load(BuiltinMeshes::SPHERE, BuiltinMeshes::sphere_bin());

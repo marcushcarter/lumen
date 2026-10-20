@@ -42,6 +42,7 @@ Error ModelTab::create(EditorContext& ctx)
     preview.initialize();
     preview.load();
     preview.atmosphere.time_of_day = 12.0f;
+    layout.viewport.time_of_day = &preview.atmosphere.time_of_day;
     _preview_model = Guid::generate();
     _preview_mesh = model.mesh;
     _preview_materials = model.materials;

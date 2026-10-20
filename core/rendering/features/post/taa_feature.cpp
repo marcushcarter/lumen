@@ -1,5 +1,6 @@
 #include <core/rendering/features/post/taa_feature.h>
 #include <core/rendering/features/post/post_process_feature.h>
+#include <core/rendering/features/post/bloom_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
 #include <algorithm>
@@ -76,6 +77,7 @@ void TAAFeature::_create_sharpen_pass()
         b.write_image("DisplayColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.read_image("TAAOutput", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("SceneColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        if (b.graph->image_resource("Bloom")) b.read_image("Bloom", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (b.graph->buffer_resource("Exposure")) b.read_buffer("Exposure", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
     sharpen_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -84,6 +86,8 @@ void TAAFeature::_create_sharpen_pass()
         auto* display = cl.graph->image("DisplayColor");
         if (!src || !color || !display) return;
         auto* exposure = cl.graph->buffer("Exposure");
+        auto* bloom_img = cl.graph->image("Bloom");
+        const BloomFeature* bloom_cfg = post ? post->bloom : nullptr;
 
         struct Push {
             VkDeviceAddress exposure_addr;
@@ -95,9 +99,17 @@ void TAAFeature::_create_sharpen_pass()
             uint32_t tonemapper;
             float exposure_scale;
             uint32_t has_exposure;
+            uint32_t bloom_index;
+            uint32_t bloom_sampler;
+            float bloom_intensity;
         } pc{};
         pc.exposure_addr = exposure ? exposure->device_address : 0;
         pc.has_exposure = exposure ? 1u : 0u;
+        if (bloom_img && bloom_cfg) {
+            pc.bloom_index = bloom_img->bindless_sampled;
+            pc.bloom_sampler = bloom_cfg->linear_sampler.bindless_sampler;
+            pc.bloom_intensity = bloom_cfg->intensity;
+        }
         pc.src_index = src->bindless_sampled;
         pc.out_slot = display->bindless_storage;
         pc.width = display->extent.width;
@@ -213,7 +225,6 @@ void TAAFeature::build(RenderGraph& g)
     g.import_image("TAAHistory", &history[read], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     _reset = !history_valid || ctx->frame->taa_reset;
     g.add(&resolve_pass);
-    g.add(&sharpen_pass);
     history_valid = true;
     history_index = read;
 }

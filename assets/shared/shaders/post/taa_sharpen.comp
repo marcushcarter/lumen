@@ -10,6 +10,7 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
 
 layout(push_constant, scalar) uniform Push {
@@ -22,7 +23,17 @@ layout(push_constant, scalar) uniform Push {
     uint tonemapper;
     float exposure_scale;
     uint has_exposure;
+    uint bloom_index;
+    uint bloom_sampler;
+    float bloom_intensity;
 } pc;
+
+vec3 apply_bloom(vec3 p_hdr, ivec2 p_pixel) {
+    if (pc.bloom_intensity <= 0.0) return p_hdr;
+    const vec2 uv = (vec2(p_pixel) + 0.5) / vec2(pc.width, pc.height);
+    const vec3 bloom = textureLod(sampler2D(u_textures[pc.bloom_index], u_samplers[pc.bloom_sampler]), uv, 0.0).rgb;
+    return mix(p_hdr, bloom, pc.bloom_intensity);
+}
 
 const float RCAS_LIMIT = 0.25 - 1.0 / 16.0;
 
@@ -55,5 +66,5 @@ void main() {
     }
 
     const float exposure = pc.exposure_scale * (pc.has_exposure != 0u ? pc.exposure.scale : 1.0);
-    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(untonemap(e) * exposure, pc.tonemapper, p));
+    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(apply_bloom(untonemap(e), p) * exposure, pc.tonemapper, p));
 }

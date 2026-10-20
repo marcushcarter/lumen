@@ -1,0 +1,41 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant) uniform Push {
+    uint base_index;
+    uint low_index;
+    uint out_slot;
+    uint sampler_index;
+    uint out_width;
+    uint out_height;
+    uint low_width;
+    uint low_height;
+    float out_scale;
+} pc;
+
+vec3 low(vec2 p_uv) {
+    return textureLod(sampler2D(u_textures[pc.low_index], u_samplers[pc.sampler_index]), p_uv, 0.0).rgb;
+}
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.out_width) || p.y >= int(pc.out_height)) return;
+
+    const vec2 uv = (vec2(p) + 0.5) / vec2(pc.out_width, pc.out_height);
+    const vec2 t = 1.0 / vec2(pc.low_width, pc.low_height);
+
+    vec3 s = low(uv) * 4.0;
+    s += (low(uv + vec2(-t.x, 0.0)) + low(uv + vec2(t.x, 0.0)) + low(uv + vec2(0.0, -t.y)) + low(uv + vec2(0.0, t.y))) * 2.0;
+    s += low(uv + vec2(-t.x, -t.y)) + low(uv + vec2(t.x, -t.y)) + low(uv + vec2(-t.x, t.y)) + low(uv + t);
+    s *= 1.0 / 16.0;
+
+    const vec3 base = texelFetch(u_textures[pc.base_index], p, 0).rgb;
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4((base + s) * pc.out_scale, 1.0));
+}

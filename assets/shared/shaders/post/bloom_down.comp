@@ -1,0 +1,67 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant) uniform Push {
+    uint src_index;
+    uint out_slot;
+    uint sampler_index;
+    uint karis;
+    uint out_width;
+    uint out_height;
+    uint src_width;
+    uint src_height;
+} pc;
+
+vec3 tap(vec2 p_uv) {
+    return max(textureLod(sampler2D(u_textures[pc.src_index], u_samplers[pc.sampler_index]), p_uv, 0.0).rgb, vec3(0.0));
+}
+
+float karis_weight(vec3 p_c) {
+    return 1.0 / (1.0 + dot(p_c, vec3(0.2126, 0.7152, 0.0722)));
+}
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.out_width) || p.y >= int(pc.out_height)) return;
+
+    const vec2 uv = (vec2(p) + 0.5) / vec2(pc.out_width, pc.out_height);
+    const vec2 t = 1.0 / vec2(pc.src_width, pc.src_height);
+
+    const vec3 a = tap(uv + t * vec2(-2.0, -2.0));
+    const vec3 b = tap(uv + t * vec2( 0.0, -2.0));
+    const vec3 c = tap(uv + t * vec2( 2.0, -2.0));
+    const vec3 d = tap(uv + t * vec2(-2.0,  0.0));
+    const vec3 e = tap(uv);
+    const vec3 f = tap(uv + t * vec2( 2.0,  0.0));
+    const vec3 g = tap(uv + t * vec2(-2.0,  2.0));
+    const vec3 h = tap(uv + t * vec2( 0.0,  2.0));
+    const vec3 i = tap(uv + t * vec2( 2.0,  2.0));
+    const vec3 j = tap(uv + t * vec2(-1.0, -1.0));
+    const vec3 k = tap(uv + t * vec2( 1.0, -1.0));
+    const vec3 l = tap(uv + t * vec2(-1.0,  1.0));
+    const vec3 m = tap(uv + t * vec2( 1.0,  1.0));
+
+    vec3 result;
+    if (pc.karis != 0u) {
+        const vec3 g0 = (j + k + l + m) * 0.25;
+        const vec3 g1 = (a + b + d + e) * 0.25;
+        const vec3 g2 = (b + c + e + f) * 0.25;
+        const vec3 g3 = (d + e + g + h) * 0.25;
+        const vec3 g4 = (e + f + h + i) * 0.25;
+        const float w0 = 0.5 * karis_weight(g0);
+        const float w1 = 0.125 * karis_weight(g1);
+        const float w2 = 0.125 * karis_weight(g2);
+        const float w3 = 0.125 * karis_weight(g3);
+        const float w4 = 0.125 * karis_weight(g4);
+        result = (g0 * w0 + g1 * w1 + g2 * w2 + g3 * w3 + g4 * w4) / (w0 + w1 + w2 + w3 + w4);
+    } else {
+        result = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
+    }
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(result, 1.0));
+}

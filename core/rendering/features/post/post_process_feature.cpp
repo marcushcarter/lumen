@@ -1,5 +1,6 @@
 #include <core/rendering/features/post/post_process_feature.h>
 #include <core/rendering/features/post/taa_feature.h>
+#include <core/rendering/features/post/bloom_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
 #include <cmath>
@@ -24,6 +25,7 @@ void PostProcessFeature::_create_composite_pass()
         b.create_image("DisplayColor", ci);
         b.read_image(_source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image("DisplayColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        if (b.graph->image_resource("Bloom")) b.read_image("Bloom", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         if (b.graph->buffer_resource("Exposure")) b.read_buffer("Exposure", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     };
     composite_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -31,6 +33,8 @@ void PostProcessFeature::_create_composite_pass()
         auto* out = cl.graph->image("DisplayColor");
         if (!src || !out) return;
         auto* exposure = cl.graph->buffer("Exposure");
+        auto* bloom_img = cl.graph->image("Bloom");
+        const BloomFeature* bloom_cfg = bloom;
 
         struct Push {
             VkDeviceAddress exposure_addr;
@@ -43,9 +47,17 @@ void PostProcessFeature::_create_composite_pass()
             uint32_t src_width;
             uint32_t src_height;
             uint32_t has_exposure;
+            uint32_t bloom_index;
+            uint32_t bloom_sampler;
+            float bloom_intensity;
         } pc{};
         pc.exposure_addr = exposure ? exposure->device_address : 0;
         pc.has_exposure = exposure ? 1u : 0u;
+        if (bloom_img && bloom_cfg) {
+            pc.bloom_index = bloom_img->bindless_sampled;
+            pc.bloom_sampler = bloom_cfg->linear_sampler.bindless_sampler;
+            pc.bloom_intensity = bloom_cfg->intensity;
+        }
         pc.src_index = src->bindless_sampled;
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
@@ -84,7 +96,8 @@ void PostProcessFeature::destroy_resources()
 void PostProcessFeature::build(RenderGraph& g)
 {
     if (!g.image_resource("SceneColor") || g.image_resource("DisplayColor")) return;
-    g.add(&composite_pass);
+    if (taa && g.image_resource("TAAOutput")) g.add(&taa->sharpen_pass);
+    else g.add(&composite_pass);
 }
 
 }

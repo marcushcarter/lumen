@@ -260,6 +260,8 @@ void Viewport::_draw_image(EditorContext& ctx)
             int tonemapper = (int)ctx.render_path->post.tonemapper;
             if (ImGui::Combo("Tonemapper", &tonemapper, TONEMAPPERS, PostProcessFeature::TONEMAPPER_COUNT)) ctx.render_path->post.tonemapper = (PostProcessFeature::Tonemapper)tonemapper;
             ImGui::Checkbox("Auto Exposure", &ctx.render_path->exposure.enabled);
+            ImGui::Checkbox("Bloom", &ctx.render_path->bloom.enabled);
+            ImGui::SliderFloat("Bloom Intensity", &ctx.render_path->bloom.intensity, 0.0f, 0.2f);
         }
         left_overlay.end_menu();
     }

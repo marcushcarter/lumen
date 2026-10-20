@@ -37,15 +37,12 @@ void GameApplication::on_update(float p_dt)
     if (world.atmosphere.time_of_day > 24.0f) world.atmosphere.time_of_day = 0.0f;
 }
 
-void GameApplication::update_camera(float p_dt)
+void GameApplication::update_camera(float )
 {
-    const vec3 target(0.0f, 50.0f, 0.0f);
-    const float height = 50.0f;
-    const float angle = 0.0f;
-
-    orbit_time += 0.5f * p_dt;
-    const float t = 0.5f * (std::sin(orbit_time / 4.0f) + 1.0f);
-    const float radius = mix(100.0f, 1150.0f, t);
+    vec3 target = vec3(0.0f, 2.0f, 0.0f);
+    float radius = 1.5f;
+    float height = -0.5f;
+    float angle = 0.0f;
 
     const vec3 eye = target + vec3(radius * std::cos(angle), height, -radius * std::sin(angle));
     orbit_camera.position = eye;

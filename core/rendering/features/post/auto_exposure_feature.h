@@ -12,12 +12,12 @@ struct AutoExposureFeature : Feature
     static constexpr VkDeviceSize BUFFER_SIZE = HEADER_SIZE + BIN_COUNT * sizeof(uint32_t);
     static constexpr float MAX_DT = 0.1f;
 
-    float min_ev = -2.0f;
-    float max_ev = 4.0f;
+    float min_ev = -2.5f;
+    float max_ev = 1.5f;
     float low_percentile = 0.5f;
     float high_percentile = 0.98f;
     float speed_brighten = 1.5f;
-    float speed_darken = 3.0f;
+    float speed_darken = 6.0f;
 
     RenderGraph::Pass init_pass;
     RenderGraph::Pass histogram_pass;

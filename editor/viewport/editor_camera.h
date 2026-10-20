@@ -10,9 +10,9 @@ struct EditorCamera
 {
     Camera camera;
 
-    vec3 target = vec3(0.0f);
+    vec3 target = vec3(0.0f, 2.0f, 0.0f);
     float radius = 1.5f;
-    float height = 0.5f;
+    float height = -0.5f;
     float orbit_speed = 0.1f;
     float angle = 0.0f;
 

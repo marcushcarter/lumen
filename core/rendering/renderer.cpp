@@ -387,7 +387,8 @@ static GpuLight _directional_pack(vec3 p_to_light, vec3 p_illuminance, float p_a
 
 static float _cycle_ev100(float p_sun_altitude_deg)
 {
-    static constexpr float KEYS[][2] = { {-90.0f, -2.5f}, {-18.0f, -2.5f}, {-12.0f, -1.0f}, {-9.0f, 1.5f}, {-6.0f, 5.6f}, {-3.0f, 8.8f}, {0.0f, 10.9f}, {2.0f, 11.4f}, {8.0f, 13.0f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
+    // static constexpr float KEYS[][2] = { {-90.0f, -2.5f}, {-18.0f, -2.5f}, {-12.0f, -1.0f}, {-9.0f, 1.5f}, {-6.0f, 5.6f}, {-3.0f, 8.8f}, {0.0f, 10.9f}, {2.0f, 11.4f}, {8.0f, 13.0f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
+    static constexpr float KEYS[][2] = { {-90.0f, -2.5f}, {-18.0f, -2.5f}, {-12.0f, -1.0f}, {-9.0f, 1.5f}, {-6.0f, 5.6f}, {-3.0f, 9.3f}, {0.0f, 11.8f}, {2.0f, 12.3f}, {8.0f, 13.3f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
     constexpr int COUNT = (int)(sizeof(KEYS) / sizeof(KEYS[0]));
     const float e = std::clamp(p_sun_altitude_deg, -90.0f, 90.0f);
     

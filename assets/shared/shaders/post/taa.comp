@@ -2,8 +2,6 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
 
-#include "common/tonemap.glsl"
-
 const int GROUP_X = 16;
 const int GROUP_Y = 8;
 const int MAX_RATIO = 2;
@@ -29,15 +27,13 @@ layout(push_constant) uniform Push {
     uint out_height;
     vec2 jitter_px;
     uint reset;
-    uint display_slot;
-    uint tonemapper;
-    float exposure_scale;
 } pc;
 
 const float BLEND = 0.1;
 const float BLEND_MIN = 0.02;
 const float CLIP_GAMMA = 1.25;
 const float KERNEL = 2.29;
+const float KERNEL_TIGHT = 3.4;
 
 shared uvec2 s_color[TILE_MAX_X * TILE_MAX_Y];
 shared float s_depth[TILE_MAX_X * TILE_MAX_Y];
@@ -116,6 +112,7 @@ void main() {
     const ivec2 local = clamp(center - tile_origin, ivec2(1), tile_size - 2);
     const vec2 to_out = 1.0 / ratio;
     const float kernel_scale = min(1.0, to_out.x);
+    const float kernel = mix(KERNEL, KERNEL_TIGHT, clamp(ratio.x * 2.0 - 1.0, 0.0, 1.0));
 
     float wx[3];
     float wy[3];
@@ -124,8 +121,8 @@ void main() {
     for (int k = 0; k < 3; ++k) {
         const vec2 d = vec2(center + (k - 1)) + 0.5 - pc.jitter_px - q;
         const vec2 dk = d * kernel_scale;
-        wx[k] = exp(-KERNEL * dk.x * dk.x);
-        wy[k] = exp(-KERNEL * dk.y * dk.y);
+        wx[k] = exp(-kernel * dk.x * dk.x);
+        wy[k] = exp(-kernel * dk.y * dk.y);
         const vec2 d_out = d * to_out;
         near_x = min(near_x, d_out.x * d_out.x);
         near_y = min(near_y, d_out.y * d_out.y);
@@ -175,5 +172,4 @@ void main() {
 
     const vec3 hdr = untonemap(ycocg_to_rgb(result));
     imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(hdr, 1.0));
-    imageStore(u_storage_rgba16f[pc.display_slot], p, display_output(hdr * pc.exposure_scale, pc.tonemapper, p));
 }

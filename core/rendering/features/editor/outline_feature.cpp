@@ -22,7 +22,7 @@ void OutlineFeature::set_selection(const Entity* p_entities, uint32_t p_count)
 static const char* _target(RenderGraph& g)
 {
     if (g.image_resource("Viewport")) return "Viewport";
-    if (g.image_resource(PostProcessFeature::DISPLAY_COLOR)) return PostProcessFeature::DISPLAY_COLOR;
+    if (g.image_resource("DisplayColor")) return "DisplayColor";
     return nullptr;
 }
 

@@ -27,11 +27,11 @@ Error ThumbnailCaptureFeature::create_resources()
     capture_pass.category = PASS_CATEGORY_EDITOR;
     capture_pass.never_cull = true;
     capture_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_image(PostProcessFeature::DISPLAY_COLOR, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("DisplayColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_buffer("ThumbnailReadback", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     capture_pass.execute = [this](RenderGraph::CommandList& cl) {
-        auto* src = cl.graph->image(PostProcessFeature::DISPLAY_COLOR);
+        auto* src = cl.graph->image("DisplayColor");
         auto* dst = cl.graph->buffer("ThumbnailReadback");
         if (!src || !dst) return;
 
@@ -90,7 +90,7 @@ bool ThumbnailCaptureFeature::collect(uint32_t p_slot, uint64_t& r_ticket, std::
 void ThumbnailCaptureFeature::build(RenderGraph& g)
 {
     const uint32_t slot = g.current_frame;
-    if (request == 0 || slot >= readback.size() || !g.image_resource(PostProcessFeature::DISPLAY_COLOR)) return;
+    if (request == 0 || slot >= readback.size() || !g.image_resource("DisplayColor")) return;
     g.import_buffer("ThumbnailReadback", &readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
     g.add(&capture_pass);
     tickets[slot] = request;

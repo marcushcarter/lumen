@@ -11,11 +11,11 @@ Error PresentFeature::create_resources()
     present_pass.category = PASS_CATEGORY_PRESENT;
     present_pass.setup = [](RenderGraph::Builder& b) {
         b.color_attachment("Backbuffer", VK_ATTACHMENT_LOAD_OP_CLEAR, { { 0.1f, 0.1f, 0.1f, 1.0f } });
-        b.read_image(PostProcessFeature::DISPLAY_COLOR, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("DisplayColor", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     };
     present_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* bb = cl.graph->image("Backbuffer");
-        auto* out_color = cl.graph->image(PostProcessFeature::DISPLAY_COLOR);
+        auto* out_color = cl.graph->image("DisplayColor");
 
         if (!bb || !out_color) return;
 

@@ -6,6 +6,7 @@
 #include <core/rendering/render_graph.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/features/editor/debug_view.h>
+#include <core/rendering/features/post/post_process_feature.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
 #include <editor/tabs/world/scene/editor_selection.h>
@@ -203,7 +204,7 @@ void Viewport::_draw_image(EditorContext& ctx)
     
     if (ctx.render_path) {
         const DebugView& view = DEBUG_VIEWS[selected_view];
-        const bool lit = view.op == DebugViewOp::COPY && view.image && std::strcmp(view.image, PostProcessFeature::DISPLAY_COLOR) == 0;
+        const bool lit = view.op == DebugViewOp::COPY && view.image && std::strcmp(view.image, "DisplayColor") == 0;
         ctx.render_path->taa.suppressed = !lit;
         ctx.renderer->main_view.jitter = ctx.render_path->taa.enabled && lit;
     }
@@ -254,6 +255,10 @@ void Viewport::_draw_image(EditorContext& ctx)
             ImGui::Checkbox("Task Shading", &geo.task_shading);
             ImGui::Separator();
             ImGui::Checkbox("TAA", &ctx.render_path->taa.enabled);
+            ImGui::SliderFloat("Sharpness", &ctx.render_path->taa.sharpness, 0.0f, 2.0f);
+            static const char* TONEMAPPERS[PostProcessFeature::TONEMAPPER_COUNT] = { "AgX", "ACES", "PBR Neutral", "None" };
+            int tonemapper = (int)ctx.render_path->post.tonemapper;
+            if (ImGui::Combo("Tonemapper", &tonemapper, TONEMAPPERS, PostProcessFeature::TONEMAPPER_COUNT)) ctx.render_path->post.tonemapper = (PostProcessFeature::Tonemapper)tonemapper;
         }
         left_overlay.end_menu();
     }

@@ -8,8 +8,6 @@ struct PostProcessFeature : Feature
 {
     enum Tonemapper : uint32_t { TONEMAPPER_AGX, TONEMAPPER_ACES, TONEMAPPER_PBR_NEUTRAL, TONEMAPPER_NONE, TONEMAPPER_COUNT };
 
-    static constexpr const char* DISPLAY_COLOR = "DisplayColor";
-
     Tonemapper tonemapper = TONEMAPPER_AGX;
     float exposure_compensation_ev = 0.0f;
     const char* _source = "SceneColor";

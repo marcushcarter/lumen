@@ -278,7 +278,7 @@ void DebugViewFeature::build(RenderGraph& g)
         g.add(&overdraw_raster_pass_2);
     }
     const DebugView& d = DEBUG_VIEWS[pass_view];
-    if (d.op == DebugViewOp::COPY && d.image && std::string_view(d.image) == PostProcessFeature::DISPLAY_COLOR) return;
+    if (d.op == DebugViewOp::COPY && d.image && std::string_view(d.image) == "DisplayColor") return;
     g.add(&viewport_resolve_pass);
 };
 

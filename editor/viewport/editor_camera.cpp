@@ -10,7 +10,7 @@ using namespace glm;
 
 void EditorCamera::update(float )
 {
-    radius = 3.0f;
+    radius = 1.5f;
     const vec3 eye = target + vec3(radius * std::cos(angle), height, -radius * std::sin(angle));
     camera.position = eye;
     camera.rotation = quatLookAt(normalize(target - eye), vec3(0.0f, 1.0f, 0.0f));

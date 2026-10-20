@@ -1,0 +1,53 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/tonemap.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant) uniform Push {
+    uint src_index;
+    uint out_slot;
+    uint width;
+    uint height;
+    float sharpness;
+    uint tonemapper;
+    float exposure_scale;
+} pc;
+
+const float RCAS_LIMIT = 0.25 - 1.0 / 16.0;
+
+vec3 tonemap(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
+vec3 untonemap(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4); }
+
+vec3 fetch(ivec2 p_p, ivec2 p_max) {
+    return tonemap(max(texelFetch(u_textures[pc.src_index], clamp(p_p, ivec2(0), p_max), 0).rgb, vec3(0.0)));
+}
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
+    const ivec2 p_max = ivec2(pc.width, pc.height) - 1;
+
+    vec3 e = fetch(p, p_max);
+    if (pc.sharpness > 0.0) {
+        const vec3 b = fetch(p + ivec2(0, -1), p_max);
+        const vec3 d = fetch(p + ivec2(-1, 0), p_max);
+        const vec3 f = fetch(p + ivec2(1, 0), p_max);
+        const vec3 h = fetch(p + ivec2(0, 1), p_max);
+
+        const vec3 mn4 = min(min(b, d), min(f, h));
+        const vec3 mx4 = max(max(b, d), max(f, h));
+        const vec3 hit_min = min(mn4, e) / max(4.0 * mx4, vec3(1e-5));
+        const vec3 hit_max = (1.0 - max(mx4, e)) / min(4.0 * mn4 - 4.0, vec3(-1e-5));
+        const vec3 lobe3 = max(-hit_min, hit_max);
+        const float lobe = max(-RCAS_LIMIT, min(max(lobe3.r, max(lobe3.g, lobe3.b)), 0.0)) * pc.sharpness;
+        e = clamp((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0), 0.0, 0.999);
+    }
+
+    imageStore(u_storage_rgba16f[pc.out_slot], p, display_output(untonemap(e) * pc.exposure_scale, pc.tonemapper, p));
+}

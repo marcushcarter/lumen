@@ -11,9 +11,9 @@ void PostProcessFeature::_create_composite_pass()
     composite_pass.name = "Composite";
     composite_pass.category = PASS_CATEGORY_POST;
     composite_pass.setup = [this](RenderGraph::Builder& b) {
-        _source = b.graph->image_resource(TAAFeature::OUTPUT) ? TAAFeature::OUTPUT : "SceneColor";
+        _source = b.graph->image_resource("TAAOutput") ? "TAAOutput" : "SceneColor";
         drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
-        ci.name = DISPLAY_COLOR;
+        ci.name = "DisplayColor";
         ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
         ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         if (ctx->frame->output_width && ctx->frame->output_height) {
@@ -21,13 +21,13 @@ void PostProcessFeature::_create_composite_pass()
             ci.fixed_width = ctx->frame->output_width;
             ci.fixed_height = ctx->frame->output_height;
         }
-        b.create_image(DISPLAY_COLOR, ci);
+        b.create_image("DisplayColor", ci);
         b.read_image(_source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.write_image(DISPLAY_COLOR, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_image("DisplayColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     composite_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* src = cl.graph->image(_source);
-        auto* out = cl.graph->image(DISPLAY_COLOR);
+        auto* out = cl.graph->image("DisplayColor");
         if (!src || !out) return;
 
         struct Push {
@@ -77,7 +77,7 @@ void PostProcessFeature::destroy_resources()
 
 void PostProcessFeature::build(RenderGraph& g)
 {
-    if (!g.image_resource("SceneColor") || g.image_resource(DISPLAY_COLOR)) return;
+    if (!g.image_resource("SceneColor") || g.image_resource("DisplayColor")) return;
     g.add(&composite_pass);
 }
 

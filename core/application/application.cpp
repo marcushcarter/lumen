@@ -1,6 +1,7 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/render_path.h>
 #include <core/world/components.h>
+#include <core/assets/lmodel.h>
 #include <core/io/path.h>
 #include <core/version.h>
 #include <drivers/windows/dialogs_win32.h>

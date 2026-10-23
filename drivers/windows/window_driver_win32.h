@@ -17,6 +17,7 @@ struct WindowDriverWin32
     void shutdown();
 
     void poll_events();
+    bool wait_events(uint32_t p_timeout_ms);
 
     /****************/
     /**** WINDOW ****/
@@ -36,6 +37,9 @@ struct WindowDriverWin32
 
         RECT ctrl_min{}, ctrl_max{}, ctrl_close{};
         bool has_ctrls = false;
+
+        bool focus_gained = false;
+        bool resized = false;
     };
 
     Window window;
@@ -61,6 +65,9 @@ struct WindowDriverWin32
     bool window_is_maximized();
     bool window_is_minimized();
     bool window_is_focused();
+    bool window_is_visible();
+    bool window_consume_focus_gained();
+    bool window_consume_resized();
     
     void window_set_custom_titlebar(bool p_enabled);
     void window_titlebar_reset(int height);

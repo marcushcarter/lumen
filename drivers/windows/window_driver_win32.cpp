@@ -63,6 +63,14 @@ void WindowDriverWin32::poll_events()
     }
 }
 
+// Blocks with zero CPU until a message (input, focus, size, sent message) arrives or the timeout elapses, then drains the queue.
+bool WindowDriverWin32::wait_events(uint32_t p_timeout_ms)
+{
+    const DWORD r = MsgWaitForMultipleObjectsEx(0, nullptr, p_timeout_ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    poll_events();
+    return r == WAIT_OBJECT_0;
+}
+
 Error WindowDriverWin32::window_create(const std::string& p_title, int p_width, int p_height, bool p_custom_titlebar)
 {
     using enum Error;
@@ -210,6 +218,29 @@ bool WindowDriverWin32::window_is_minimized()
 bool WindowDriverWin32::window_is_focused()
 {
     return window.hwnd && GetForegroundWindow() == window.hwnd;
+}
+
+// Visible = something can actually be presented: not hidden, not minimized, not cloaked (e.g. on another virtual desktop).
+bool WindowDriverWin32::window_is_visible()
+{
+    if (!window.hwnd || !IsWindowVisible(window.hwnd) || IsIconic(window.hwnd)) return false;
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(window.hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return false;
+    return window.width > 0 && window.height > 0;
+}
+
+bool WindowDriverWin32::window_consume_focus_gained()
+{
+    const bool gained = window.focus_gained;
+    window.focus_gained = false;
+    return gained;
+}
+
+bool WindowDriverWin32::window_consume_resized()
+{
+    const bool resized = window.resized;
+    window.resized = false;
+    return resized;
 }
 
 void WindowDriverWin32::notify(const std::string& p_title, const std::string& p_message)
@@ -402,6 +433,16 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
             break;
         }
 
+        case WM_SETFOCUS: {
+            if (window) window->focus_gained = true;
+            break;
+        }
+
+        case WM_ACTIVATE: {
+            if (window && LOWORD(p_wparam) != WA_INACTIVE) window->focus_gained = true;
+            break;
+        }
+
         case WM_CLOSE: {
             if (window) window->close_requested = true;
             return 0;
@@ -416,6 +457,7 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
             if (window) {
                 window->width = LOWORD(p_lparam);
                 window->height = HIWORD(p_lparam);
+                window->resized = true;
                 if (window->custom_titlebar && window->has_ctrls) {
                     const long BW = 46, MH = 34;
                     long right = (long)LOWORD(p_lparam);

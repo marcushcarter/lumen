@@ -101,6 +101,7 @@ struct EditorApplication : Application
     bool should_tick_game() const override { return false; }
     VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
     float fps_cap() const override { return (float)settings.fps_cap; }
+    BackgroundPolicy background_policy() const override { return { .tick_ms = 1000, .throttle = true, .pause_sim = false }; }
     
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;

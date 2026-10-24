@@ -49,6 +49,14 @@ static constexpr uint32_t MATERIAL_DEFAULT = 0u;
 static constexpr uint32_t MATERIAL_ALPHA_SHIFT = 8u;
 static constexpr uint32_t MATERIAL_FLAG_TWO_SIDED = 1u << 10;
 
+// Raster bins (compact_draw.glsl): bit 0 = two-sided, bit 1 = masked. Stored in the top bits of each slot table entry.
+static constexpr uint32_t RASTER_BIN_OPAQUE = 0u;
+static constexpr uint32_t RASTER_BIN_TWO_SIDED = 1u;
+static constexpr uint32_t RASTER_BIN_MASKED = 2u;
+static constexpr uint32_t RASTER_BIN_COUNT = 4u;
+static constexpr uint32_t SLOT_BIN_SHIFT = 29u;
+static constexpr uint32_t SLOT_MATERIAL_MASK = (1u << SLOT_BIN_SHIFT) - 1u;
+
 struct GPUMaterial {
     vec4 base_color;
     vec3 emissive;

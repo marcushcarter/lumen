@@ -207,8 +207,7 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
     if (!ray_barycentrics(p_dir, p0, p1, p2, b)) return false;
 
     const vec3 local_n = oct_decode_unnormalized(vertex_normal_oct(tri.a0)) * b.x + oct_decode_unnormalized(vertex_normal_oct(tri.a1)) * b.y + oct_decode_unnormalized(vertex_normal_oct(tri.a2)) * b.z;
-    const vec3 n = normalize(o.c0 * local_n.x + o.c1 * local_n.y + o.c2 * local_n.z);
-    r_s.normal = n;
+    vec3 n = normalize(o.c0 * local_n.x + o.c1 * local_n.y + o.c2 * local_n.z);
 
     if (p_motion) {
         const vec3 local = tri.l0 * b.x + tri.l1 * b.y + tri.l2 * b.z;
@@ -217,8 +216,10 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
         if (prev_clip.w > 0.0) r_s.motion = ((p_ndc - pc.camera.jitter.xy) - (prev_clip.xy / prev_clip.w - pc.camera.jitter.zw)) * 0.5;
     }
 
-    const uint material_index = (o.slot_base == 0u || tri.slot >= o.slot_count) ? MATERIAL_DEFAULT : pc.geometry.slot_table.data[o.slot_base + tri.slot];
+    const uint material_index = (o.slot_base == 0u || tri.slot >= o.slot_count) ? MATERIAL_DEFAULT : slot_material(pc.geometry.slot_table.data[o.slot_base + tri.slot]);
     const Material m = pc.geometry.materials.data[material_index];
+    if (material_two_sided(m) && dot(n, p_dir) > 0.0) n = -n;
+    r_s.normal = n;
 
     r_s.shading_model = material_shading_model(m);
     if (r_s.shading_model != SHADING_MODEL_DEFAULT_LIT) {

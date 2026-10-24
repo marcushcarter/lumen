@@ -30,6 +30,7 @@ struct GeometryAddresses
     VkDeviceAddress local_triangles;
     VkDeviceAddress cluster_vertices;
     VkDeviceAddress materials;
+    VkDeviceAddress cluster_slots;
 };
 
 struct LMesh
@@ -58,6 +59,7 @@ struct GeometryPool
     static constexpr uint32_t MAX_MESHES = 64u * 1024;
     static constexpr uint32_t MAX_MESHLET_VERTS = 2u * MAX_VERTS;
     static constexpr uint32_t LOCAL_TRI_SLOT_OVERFLOW = 255u;
+    static constexpr uint32_t CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
 
     static constexpr uint32_t INVALID_MESH = UINT32_MAX;
 
@@ -80,6 +82,7 @@ struct GeometryPool
         ARENA_CLUSTER_VERTEX_BASE,
         ARENA_LOCAL_TRIANGLES,
         ARENA_CLUSTER_VERTICES,
+        ARENA_CLUSTER_SLOTS,
         ARENA_COUNT,
     };
 

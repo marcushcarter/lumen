@@ -62,13 +62,18 @@ layout(buffer_reference, scalar) readonly buffer UintBuffer { uint data[]; };
 layout(buffer_reference, scalar, buffer_reference_align = 16) readonly buffer ClusterVertexBuffer { uvec4 data[]; };
 
 const uint LOCAL_TRI_SLOT_OVERFLOW = 255u;
+const uint CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
+
+// Slot table entry: material index in the low bits, raster bin (see compact_draw.glsl) in the top bits.
+const uint SLOT_BIN_SHIFT = 29u;
+const uint SLOT_MATERIAL_MASK = (1u << SLOT_BIN_SHIFT) - 1u;
 
 layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     VertexPositionBuffer vertices;
     VertexAttributeBuffer attributes;
     IndexBuffer indices;
     TriSlotBuffer tri_slots;
-    SlotTableBuffer slot_table; // per model: material index per slot, indexed by instance slot_base + tri slot
+    SlotTableBuffer slot_table; // per model: packed material index + raster bin per slot, indexed by instance slot_base + tri slot
     ClusterBuffer clusters;
     ClusterGroupBuffer groups;
     SkinVerticesBuffer skin_vertices;
@@ -79,7 +84,20 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     UintBuffer local_triangles; // per triangle: 3 x 8-bit cluster-local vertex indices, top 8 bits = material slot (255 = read tri_slots)
     ClusterVertexBuffer cluster_vertices; // per (cluster, local vertex): position (xy) + attributes (zw), contiguous per cluster
     MaterialBuffer materials; // indexed by slot_table entries, 0 = default material
+    UintBuffer cluster_slots; // per cluster: the slot every triangle uses, CLUSTER_SLOT_MIXED if they differ
 };
+
+uint slot_material(uint p_entry) { return p_entry & SLOT_MATERIAL_MASK; }
+uint slot_bin(uint p_entry) { return p_entry >> SLOT_BIN_SHIFT; }
+
+uint geometry_tri_slot(GeometryBuffer p_geometry, uint p_tri_index, uint p_lt) {
+    const uint slot = p_lt >> 24u;
+    return slot == LOCAL_TRI_SLOT_OVERFLOW ? p_geometry.tri_slots.data[p_tri_index] : slot;
+}
+
+uint geometry_slot_entry(GeometryBuffer p_geometry, uint p_slot_base, uint p_slot) {
+    return p_slot_base == 0u ? 0u : p_geometry.slot_table.data[p_slot_base + p_slot];
+}
 
 vec3 vertex_position_unorm(uvec2 p_p) { return vec3(unpackUnorm2x16(p_p.x), unpackUnorm2x16(p_p.y).x); }
 vec2 vertex_normal_oct(uvec2 p_a) { return unpackSnorm2x16(p_a.x); }

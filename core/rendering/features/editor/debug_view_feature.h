@@ -14,6 +14,7 @@ struct DebugViewFeature : Feature
     RenderGraph::Pass overdraw_raster_pass_2;
     RenderGraph::Pass viewport_resolve_pass;
     drivers::DeviceDriverVulkan::Pipeline overdraw_compact_pipe;
+    drivers::DeviceDriverVulkan::Pipeline overdraw_two_sided_pipe;
     drivers::DeviceDriverVulkan::Pipeline viewport_resolve_pipe;
     drivers::DeviceDriverVulkan::Pipeline viewport_copy_pipe;
 

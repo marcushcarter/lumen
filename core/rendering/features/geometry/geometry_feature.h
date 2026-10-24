@@ -1,5 +1,6 @@
 #pragma once
 #include <core/rendering/features/feature.h>
+#include <core/rendering/world_gpu.h>
 
 namespace lumen {
 
@@ -10,9 +11,11 @@ struct GeometryFeature : Feature
     static constexpr uint32_t HIZ_TAIL_MAX = 64;
     static constexpr uint32_t HIZ_MAX_MIPS = 16;
     static constexpr uint32_t VIS_EMPTY = 0xFFFFFFFFu;
-    static constexpr uint32_t COMPACT_ARGS_SIZE = 64;
-    static constexpr uint32_t COMPACT_ARGS_TRIS_OFFSET = 40;
-    static constexpr uint32_t COMPACT_ARGS_SPILL_OFFSET = 56;
+    static constexpr uint32_t COMPACT_CMD_SIZE = 20;
+    static constexpr uint32_t COMPACT_CMD_COUNT = 2 * RASTER_BIN_COUNT;
+    static constexpr uint32_t COMPACT_ARGS_TRIS_OFFSET = COMPACT_CMD_COUNT * COMPACT_CMD_SIZE;
+    static constexpr uint32_t COMPACT_ARGS_SPILL_OFFSET = COMPACT_ARGS_TRIS_OFFSET + COMPACT_CMD_COUNT * 4 + 2 * 4;
+    static constexpr uint32_t COMPACT_ARGS_SIZE = COMPACT_ARGS_SPILL_OFFSET + 2 * 4;
     static constexpr uint32_t COMPACT_SPILL_CMD_SIZE = 16;
     static constexpr uint32_t COMPACT_MIN_TRIS = 256u * 1024;
     static constexpr uint32_t COMPACT_GRANULE_TRIS = 64u * 1024;
@@ -49,7 +52,7 @@ struct GeometryFeature : Feature
     std::vector<uint8_t> stats_written;
 
     struct CompactFeedback {
-        uint32_t tris[2];
+        uint32_t tris[COMPACT_CMD_COUNT];
         uint32_t done[2];
         uint32_t spill[2];
     };
@@ -61,6 +64,7 @@ struct GeometryFeature : Feature
 
     drivers::DeviceDriverVulkan::Buffer compact_indices;
     drivers::DeviceDriverVulkan::Buffer compact_prims;
+    drivers::DeviceDriverVulkan::Buffer compact_materials;
     std::vector<CompactRetired> compact_retired;
     std::vector<drivers::DeviceDriverVulkan::Buffer> compact_feedback;
     std::vector<uint8_t> compact_feedback_written;
@@ -69,7 +73,10 @@ struct GeometryFeature : Feature
     uint32_t compact_demand = 0;
     uint32_t compact_spilled = 0;
     uint32_t compact_resizes = 0;
-    uint32_t compact_low_frames = 0;
+    uint32_t compact_bin_capacity[RASTER_BIN_COUNT] = {};
+    uint32_t compact_bin_base[RASTER_BIN_COUNT] = {};
+    uint32_t compact_bin_demand[RASTER_BIN_COUNT] = {};
+    uint32_t compact_low_frames[RASTER_BIN_COUNT] = {};
     uint64_t compact_failed_tris = 0;
 
     struct CullPush {
@@ -117,12 +124,12 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_args_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_retest_pipe;
     drivers::DeviceDriverVulkan::Pipeline draw_compact_pipe;
-    drivers::DeviceDriverVulkan::Pipeline visbuffer_compact_pipe;
-    drivers::DeviceDriverVulkan::Pipeline visbuffer_spill_pipe;
+    drivers::DeviceDriverVulkan::Pipeline visbuffer_compact_pipes[RASTER_BIN_COUNT];
+    drivers::DeviceDriverVulkan::Pipeline visbuffer_spill_pipes[RASTER_BIN_COUNT];
     drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
     
-    void _compact_update(bool p_feedback, uint64_t p_demand);
-    bool _compact_reserve(uint32_t p_tris);
+    void _compact_update(bool p_feedback, const uint64_t* p_demand);
+    bool _compact_reserve(const uint32_t* p_bin_tris);
     void _compact_retire(drivers::DeviceDriverVulkan::Buffer& r_buffer);
     void _compact_collect(bool p_all);
 

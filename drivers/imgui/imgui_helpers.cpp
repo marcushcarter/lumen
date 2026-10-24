@@ -209,13 +209,12 @@ bool imgui_category(const char* p_label, bool* r_remove)
     ImGui::PushID(p_label);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");
-    bool open = storage->GetBool(open_id, true);
+    bool open = storage->GetBool(open_id, false);
 
     const ImVec2 mouse = ImGui::GetMousePos();
     const bool in_row = ImGui::IsWindowHovered() && mouse.x >= min_x && mouse.x < max_x && mouse.y >= y0 && mouse.y < y1;
     const bool hovered = in_row && !(r_remove && mouse.x >= button_x);
 
-    // dl->PushClipRect(ImVec2(min_x, y0), ImVec2(max_x, y1), false);
     const ImRect& clip = window->InnerClipRect;
     dl->PushClipRect(ImMax(ImVec2(min_x, y0), clip.Min), ImMin(ImVec2(max_x, y1), clip.Max), false);
     dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(max_x, y1 - d.line), hovered ? ui.color.category_header_hover : ui.color.category_header);

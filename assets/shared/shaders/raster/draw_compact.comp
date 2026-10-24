@@ -5,8 +5,15 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
 #include "common/geometry.glsl"
+#include "common/instances.glsl"
 #include "common/visbuffer.glsl"
 #include "common/compact_draw.glsl"
+
+// One thread per visible cluster, 64 per group. Each triangle goes to the raster bin of its material: a cluster
+// with a single slot (cluster_slots) is binned once as a whole, a mixed cluster is binned per triangle.
+// Each bin owns a region of the index buffer; phase 2 appends after phase 1 inside every region. A cluster whose
+// bin run does not fit is drawn by the spill path instead, and the part of its run that is inside the region is
+// filled with degenerate triangles so the indexed draw never reads stale indices.
 
 layout(local_size_x = 64) in;
 
@@ -16,82 +23,182 @@ layout(buffer_reference, scalar) writeonly buffer HiZArgsBuffer { uvec3 build; }
 
 layout(push_constant) uniform Push {
     GeometryBuffer geometry;
+    InstanceBuffer instances;
     ClusterRefsBuffer cluster_refs;
     VisibleClusterBuffer visible;
     CompactIndexBuffer indices;
     CompactPrimBuffer prims;
+    CompactMaterialBuffer materials;
     CompactDrawArgs args;
     HiZArgsBuffer hiz_args;
     CompactSpillBuffer spill;
+    uvec4 region_base;
+    uint region_end;
     uint phase;
-    uint capacity_tris;
     uint hiz_groups_x;
     uint hiz_groups_y;
     uint spill_stride;
 } pc;
 
-shared uint s_total;
-shared uint s_base_tri;
-shared uint s_first[64];
-shared uint s_count[64];
-shared uint s_out[64];
-shared uint s_ref[64];
+const uint GROUP_SIZE = 64u;
+const uint BIN_MIXED = 0xFFu;
+
+shared uint s_ref[GROUP_SIZE];
+shared uint s_first[GROUP_SIZE];
+shared uint s_count[GROUP_SIZE];
+shared uint s_slot_base[GROUP_SIZE];
+shared uint s_entry[GROUP_SIZE];
+shared uint s_bin[GROUP_SIZE];
+shared uint s_spill[GROUP_SIZE];
+shared uint s_mixed[GROUP_SIZE];
+shared uint s_mixed_count;
+shared uint s_bin_count[GROUP_SIZE * RASTER_BIN_COUNT];
+shared uint s_bin_offset[GROUP_SIZE * RASTER_BIN_COUNT];
+shared uint s_cursor[GROUP_SIZE * RASTER_BIN_COUNT];
+shared uint s_total[RASTER_BIN_COUNT];
+shared uint s_base[RASTER_BIN_COUNT];
+shared uint s_phase_base[RASTER_BIN_COUNT];
+shared uint s_capacity[RASTER_BIN_COUNT];
+
+uint region_size(uint p_bin) {
+    return (p_bin + 1u < RASTER_BIN_COUNT ? pc.region_base[p_bin + 1u] : pc.region_end) - pc.region_base[p_bin];
+}
+
+uint phase_base(uint p_bin) {
+    return pc.phase == 0u ? 0u : min(pc.args.cmd[p_bin].index_count / 3u, region_size(p_bin));
+}
+
+uint tri_entry(uint p_slot_base, uint p_tri_index, uint p_lt) {
+    return geometry_slot_entry(pc.geometry, p_slot_base, geometry_tri_slot(pc.geometry, p_tri_index, p_lt));
+}
+
+void write_tri(uint p_out, uint p_vbase, uint p_lt, uint p_vis, uint p_bin, uint p_entry) {
+    const uint w = p_out * 3u;
+    pc.indices.data[w + 0u] = p_vbase | (p_lt & 0xFFu);
+    pc.indices.data[w + 1u] = p_vbase | ((p_lt >> 8u) & 0xFFu);
+    pc.indices.data[w + 2u] = p_vbase | ((p_lt >> 16u) & 0xFFu);
+    pc.prims.data[p_out] = p_vis;
+    if ((p_bin & RASTER_BIN_MASKED) != 0u) pc.materials.data[p_out - pc.region_base[RASTER_BIN_MASKED]] = slot_material(p_entry);
+}
+
+void write_degenerate(uint p_out, uint p_vbase) {
+    const uint w = p_out * 3u;
+    pc.indices.data[w + 0u] = p_vbase;
+    pc.indices.data[w + 1u] = p_vbase;
+    pc.indices.data[w + 2u] = p_vbase;
+}
 
 void main() {
     const uint lid = gl_LocalInvocationID.x;
-    const uint first_slot = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 64u;
+    const uint first_slot = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * GROUP_SIZE;
     const uint visible_count = pc.visible.count;
-    const uint phase_base = pc.phase == 0u ? 0u : pc.args.cmd[0].index_count / 3u;
-    const uint capacity = pc.capacity_tris - min(phase_base, pc.capacity_tris);
 
     if (first_slot < visible_count) {
+        if (lid < RASTER_BIN_COUNT) {
+            const uint base = phase_base(lid);
+            s_phase_base[lid] = base;
+            s_capacity[lid] = region_size(lid) - base;
+            s_total[lid] = 0u;
+        }
+        if (lid == 0u) s_mixed_count = 0u;
+        for (uint b = 0u; b < RASTER_BIN_COUNT; b++) {
+            s_bin_count[lid * RASTER_BIN_COUNT + b] = 0u;
+            s_cursor[lid * RASTER_BIN_COUNT + b] = 0u;
+        }
+        barrier();
+
         const uint slot = first_slot + lid;
         uint n = 0u;
-        uint tri_first = 0u;
-        uint ref_idx = 0u;
+        uint bin = BIN_MIXED;
         if (slot < visible_count) {
-            ref_idx = pc.visible.data[slot];
-            const uint cluster_id = pc.cluster_refs.data[ref_idx].y;
-            tri_first = pc.geometry.clusters.data[cluster_id].index_base / 3u;
-            n = pc.geometry.clusters.data[cluster_id].index_count / 3u;
+            const uint ref_idx = pc.visible.data[slot];
+            const uvec2 ref = pc.cluster_refs.data[ref_idx];
+            const uint slot_base = pc.instances.data[ref.x].slot_base;
+            const uint cluster_slot = pc.geometry.cluster_slots.data[ref.y];
+            n = pc.geometry.clusters.data[ref.y].index_count / 3u;
+            s_ref[lid] = ref_idx;
+            s_first[lid] = pc.geometry.clusters.data[ref.y].index_base / 3u;
+            s_slot_base[lid] = slot_base;
+            if (cluster_slot != CLUSTER_SLOT_MIXED) {
+                const uint entry = geometry_slot_entry(pc.geometry, slot_base, cluster_slot);
+                bin = slot_bin(entry);
+                s_entry[lid] = entry;
+                s_bin_count[lid * RASTER_BIN_COUNT + bin] = n;
+            } else {
+                s_mixed[atomicAdd(s_mixed_count, 1u)] = lid;
+            }
         }
-
-        if (lid == 0u) s_total = 0u;
-        barrier();
-        const uint local_off = atomicAdd(s_total, n);
-        barrier();
-        if (lid == 0u) {
-            s_base_tri = atomicAdd(pc.args.tris[pc.phase], s_total);
-            if (pc.hiz_groups_x != 0u && s_total > 0u) pc.hiz_args.build = uvec3(pc.hiz_groups_x, pc.hiz_groups_y, 1u);
-        }
-        barrier();
-
-        const uint out_first = s_base_tri + local_off;
-        s_first[lid] = tri_first;
         s_count[lid] = n;
-        s_out[lid] = out_first;
-        s_ref[lid] = ref_idx;
+        s_bin[lid] = bin;
+        barrier();
 
-        const uint fit = out_first >= capacity ? 0u : min(n, capacity - out_first);
-        if (fit < n) {
-            const uint k = atomicAdd(pc.args.spill[pc.phase], 1u);
-            pc.spill.cmd[pc.phase * pc.spill_stride + k] = CompactSpillCommand((n - fit) * 3u, 1u, fit * 3u, slot);
+        const uint mixed_count = s_mixed_count;
+        for (uint m = 0u; m < mixed_count; m++) {
+            const uint j = s_mixed[m];
+            const uint first = s_first[j];
+            const uint slot_base = s_slot_base[j];
+            for (uint t = lid; t < s_count[j]; t += GROUP_SIZE) {
+                const uint e = tri_entry(slot_base, first + t, pc.geometry.local_triangles.data[first + t]);
+                atomicAdd(s_bin_count[j * RASTER_BIN_COUNT + slot_bin(e)], 1u);
+            }
         }
         barrier();
 
-        const uint lanes = min(64u, visible_count - first_slot);
+        for (uint b = 0u; b < RASTER_BIN_COUNT; b++) {
+            const uint c = s_bin_count[lid * RASTER_BIN_COUNT + b];
+            s_bin_offset[lid * RASTER_BIN_COUNT + b] = c != 0u ? atomicAdd(s_total[b], c) : 0u;
+        }
+        barrier();
+
+        if (lid < RASTER_BIN_COUNT) s_base[lid] = s_total[lid] != 0u ? atomicAdd(pc.args.tris[pc.phase * RASTER_BIN_COUNT + lid], s_total[lid]) : 0u;
+        if (lid == 0u && pc.hiz_groups_x != 0u && (s_total[0] | s_total[1] | s_total[2] | s_total[3]) != 0u) pc.hiz_args.build = uvec3(pc.hiz_groups_x, pc.hiz_groups_y, 1u);
+        barrier();
+
+        uint spill_bins = 0u;
+        if (slot < visible_count) {
+            for (uint b = 0u; b < RASTER_BIN_COUNT; b++) {
+                const uint c = s_bin_count[lid * RASTER_BIN_COUNT + b];
+                if (c != 0u && s_base[b] + s_bin_offset[lid * RASTER_BIN_COUNT + b] + c > s_capacity[b]) spill_bins |= 1u << b;
+            }
+            if (spill_bins != 0u) {
+                const uint k = atomicAdd(pc.args.spill[pc.phase], 1u);
+                pc.spill.cmd[pc.phase * pc.spill_stride + k] = CompactSpillCommand(n * 3u, 1u, 0u, slot | (spill_bins << COMPACT_SPILL_SLOT_BITS));
+            }
+        }
+        s_spill[lid] = spill_bins;
+        barrier();
+
+        const uint lanes = min(GROUP_SIZE, visible_count - first_slot);
         for (uint j = 0u; j < lanes; j++) {
             const uint cnt = s_count[j];
+            const uint bin_j = s_bin[j];
+            const uint spill_j = s_spill[j];
+            const uint first = s_first[j];
             const uint vbase = (first_slot + j) << COMPACT_LOCAL_BITS;
-            for (uint t = lid; t < cnt; t += 64u) {
-                const uint o = s_out[j] + t;
-                if (o >= capacity) break;
-                const uint lt = pc.geometry.local_triangles.data[s_first[j] + t];
-                const uint w = (phase_base + o) * 3u;
-                pc.indices.data[w + 0u] = vbase | (lt & 0xFFu);
-                pc.indices.data[w + 1u] = vbase | ((lt >> 8) & 0xFFu);
-                pc.indices.data[w + 2u] = vbase | ((lt >> 16) & 0xFFu);
-                pc.prims.data[phase_base + o] = vis_encode_cluster(s_ref[j], t);
+
+            for (uint b = 0u; spill_j != 0u && b < RASTER_BIN_COUNT; b++) {
+                if (((spill_j >> b) & 1u) == 0u) continue;
+                const uint rel = s_base[b] + s_bin_offset[j * RASTER_BIN_COUNT + b];
+                if (rel >= s_capacity[b]) continue;
+                const uint out_first = pc.region_base[b] + s_phase_base[b] + rel;
+                for (uint t = lid; t < s_capacity[b] - rel; t += GROUP_SIZE) write_degenerate(out_first + t, vbase);
+            }
+
+            if (bin_j != BIN_MIXED) {
+                if (spill_j != 0u) continue;
+                const uint out_first = pc.region_base[bin_j] + s_phase_base[bin_j] + s_base[bin_j] + s_bin_offset[j * RASTER_BIN_COUNT + bin_j];
+                const uint entry = s_entry[j];
+                for (uint t = lid; t < cnt; t += GROUP_SIZE) write_tri(out_first + t, vbase, pc.geometry.local_triangles.data[first + t], vis_encode_cluster(s_ref[j], t), bin_j, entry);
+            } else {
+                const uint slot_base = s_slot_base[j];
+                for (uint t = lid; t < cnt; t += GROUP_SIZE) {
+                    const uint lt = pc.geometry.local_triangles.data[first + t];
+                    const uint entry = tri_entry(slot_base, first + t, lt);
+                    const uint b = slot_bin(entry);
+                    if (((spill_j >> b) & 1u) != 0u) continue;
+                    const uint r = atomicAdd(s_cursor[j * RASTER_BIN_COUNT + b], 1u);
+                    write_tri(pc.region_base[b] + s_phase_base[b] + s_base[b] + s_bin_offset[j * RASTER_BIN_COUNT + b] + r, vbase, lt, vis_encode_cluster(s_ref[j], t), b, entry);
+                }
             }
         }
     }
@@ -100,9 +207,13 @@ void main() {
         const uint groups = gl_NumWorkGroups.x * gl_NumWorkGroups.y;
         memoryBarrierBuffer();
         if (atomicAdd(pc.args.done[pc.phase], 1u) == groups - 1u) {
-            const uint total = min(atomicAdd(pc.args.tris[pc.phase], 0u), capacity);
-            pc.args.cmd[pc.phase].index_count = total * 3u;
-            pc.args.cmd[pc.phase].first_index = phase_base * 3u;
+            for (uint b = 0u; b < RASTER_BIN_COUNT; b++) {
+                const uint base = phase_base(b);
+                const uint cmd = pc.phase * RASTER_BIN_COUNT + b;
+                const uint total = min(atomicAdd(pc.args.tris[cmd], 0u), region_size(b) - base);
+                pc.args.cmd[cmd].index_count = total * 3u;
+                pc.args.cmd[cmd].first_index = (pc.region_base[b] + base) * 3u;
+            }
         }
     }
 }

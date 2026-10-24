@@ -13,6 +13,7 @@ Error MaterialCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fr
     slot_buffers.resize(frame_count);
     uploaded_version.assign(frame_count, UINT64_MAX);
     materials.assign(1, default_material());
+    bins.assign(1, (uint8_t)RASTER_BIN_OPAQUE);
     return _grow(INITIAL_CAPACITY);
 }
 
@@ -25,6 +26,7 @@ void MaterialCache::shutdown()
     uploaded_version.clear();
     by_guid.clear();
     materials.clear();
+    bins.clear();
     free_slots.clear();
     capacity = 0;
 }
@@ -56,6 +58,7 @@ void MaterialCache::unload(Guid p_guid)
     auto it = by_guid.find(p_guid);
     if (it == by_guid.end()) return;
     free_slots.push_back(it->second.index);
+    _set_bin(it->second.index, (uint8_t)RASTER_BIN_OPAQUE);
     by_guid.erase(it);
     layout_version++;
     content_version++;
@@ -70,6 +73,7 @@ Error MaterialCache::set(const LMaterial& p_material)
     auto it = by_guid.find(m.guid);
     if (it != by_guid.end()) {
         it->second.material = m;
+        _set_bin(it->second.index, _bin(m));
     } else {
         uint32_t index;
         if (!free_slots.empty()) {
@@ -78,8 +82,10 @@ Error MaterialCache::set(const LMaterial& p_material)
         } else {
             index = (uint32_t)materials.size();
             materials.push_back(default_material());
+            bins.push_back((uint8_t)RASTER_BIN_OPAQUE);
         }
         by_guid.emplace(m.guid, Entry{ m, index });
+        _set_bin(index, _bin(m));
         layout_version++;
     }
     content_version++;
@@ -91,6 +97,8 @@ void MaterialCache::clear()
     by_guid.clear();
     free_slots.clear();
     materials.assign(1, default_material());
+    bins.assign(1, (uint8_t)RASTER_BIN_OPAQUE);
+    bin_version++;
     layout_version++;
     content_version++;
 }
@@ -117,6 +125,19 @@ GPUMaterial MaterialCache::_build(const LMaterial& p_material, const TextureCach
     g.custom_tex = p_textures.bindless_of(m.custom_texture);
     g.flags = (uint32_t)m.shading_model | ((uint32_t)m.alpha_mode << MATERIAL_ALPHA_SHIFT) | (m.two_sided ? MATERIAL_FLAG_TWO_SIDED : 0u);
     return g;
+}
+
+uint8_t MaterialCache::_bin(const LMaterial& p_material)
+{
+    const bool masked = p_material.alpha_mode == AlphaMode::MASKED && (p_material.base_color_texture != Guid{} || p_material.base_color.a < p_material.alpha_cutoff);
+    return (uint8_t)((masked ? RASTER_BIN_MASKED : 0u) | (p_material.two_sided ? RASTER_BIN_TWO_SIDED : 0u));
+}
+
+void MaterialCache::_set_bin(uint32_t p_index, uint8_t p_bin)
+{
+    if (p_index >= bins.size() || bins[p_index] == p_bin) return;
+    bins[p_index] = p_bin;
+    bin_version++;
 }
 
 Error MaterialCache::_grow(uint32_t p_capacity)

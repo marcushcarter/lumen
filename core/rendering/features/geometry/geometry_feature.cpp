@@ -12,56 +12,81 @@ namespace lumen {
 
 using namespace glm;
 
-void GeometryFeature::_compact_update(bool p_feedback, uint64_t p_demand)
+void GeometryFeature::_compact_update(bool p_feedback, const uint64_t* p_demand)
 {
-    uint64_t target = compact_capacity;
-    if (target == 0) target = (uint64_t)ctx->graph->width * ctx->graph->height;
+    const uint64_t bound = std::min<uint64_t>((uint64_t)std::max(1u, ctx->frame->cluster_ref_capacity) * std::max(1u, ctx->geometry->max_cluster_tris), COMPACT_INDEX_LIMIT_TRIS);
+    uint32_t target[RASTER_BIN_COUNT];
+    uint64_t total = 0;
+    bool changed = !compact_indices.buffer;
+    for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+        const uint64_t capacity = compact_bin_capacity[b];
+        uint64_t t = capacity;
+        if (t == 0) t = b == RASTER_BIN_OPAQUE ? (uint64_t)ctx->graph->width * ctx->graph->height : 0;
 
-    if (p_feedback) {
-        if (p_demand > compact_capacity) {
-            target = p_demand + p_demand / 2;
-            compact_low_frames = 0;
-        } else if (p_demand * 4 < compact_capacity) {
-            if (++compact_low_frames >= COMPACT_SHRINK_FRAMES) {
-                target = p_demand + p_demand / 2;
-                compact_low_frames = 0;
+        if (p_feedback) {
+            const uint64_t demand = p_demand[b];
+            if (demand > capacity) {
+                t = demand + demand / 2;
+                compact_low_frames[b] = 0;
+            } else if (demand * 4 < capacity) {
+                if (++compact_low_frames[b] >= COMPACT_SHRINK_FRAMES) {
+                    t = demand + demand / 2;
+                    compact_low_frames[b] = 0;
+                }
+            } else {
+                compact_low_frames[b] = 0;
             }
-        } else {
-            compact_low_frames = 0;
         }
+
+        t = std::max<uint64_t>(t, b == RASTER_BIN_OPAQUE ? COMPACT_MIN_TRIS : COMPACT_GRANULE_TRIS);
+        t = (t + COMPACT_GRANULE_TRIS - 1) / COMPACT_GRANULE_TRIS * COMPACT_GRANULE_TRIS;
+        t = std::min(t, bound);
+        target[b] = (uint32_t)t;
+        total += t;
+        changed |= target[b] != compact_bin_capacity[b];
     }
 
-    
-    const uint64_t bound = std::min<uint64_t>((uint64_t)std::max(1u, ctx->frame->cluster_ref_capacity) * std::max(1u, ctx->geometry->max_cluster_tris), COMPACT_INDEX_LIMIT_TRIS);
-    target = std::max<uint64_t>(target, COMPACT_MIN_TRIS);
-    target = (target + COMPACT_GRANULE_TRIS - 1) / COMPACT_GRANULE_TRIS * COMPACT_GRANULE_TRIS;
-    target = std::min(target, bound);
-    if (target == compact_capacity && compact_indices.buffer) return;
-    if (compact_failed_tris && target >= compact_failed_tris) return;
+    if (!changed || total > COMPACT_INDEX_LIMIT_TRIS) return;
+    if (compact_failed_tris && total >= compact_failed_tris) return;
 
-    if (!_compact_reserve((uint32_t)target)) {
-        compact_failed_tris = target;
+    if (!_compact_reserve(target)) {
+        compact_failed_tris = total;
     } else {
         compact_failed_tris = 0;
         ++compact_resizes;
     }
 }
 
-bool GeometryFeature::_compact_reserve(uint32_t p_tris)
+bool GeometryFeature::_compact_reserve(const uint32_t* p_bin_tris)
 {
-    drivers::DeviceDriverVulkan::Buffer indices = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * 3 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_indices" });
-    drivers::DeviceDriverVulkan::Buffer prims = ctx->dd->buffer_create({ .size = (VkDeviceSize)p_tris * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_prims" });
-    if (!indices.buffer || !prims.buffer) {
+    uint64_t total = 0;
+    for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) total += p_bin_tris[b];
+    const uint64_t masked = (uint64_t)p_bin_tris[RASTER_BIN_MASKED] + p_bin_tris[RASTER_BIN_MASKED | RASTER_BIN_TWO_SIDED];
+
+    drivers::DeviceDriverVulkan::Buffer indices = ctx->dd->buffer_create({ .size = (VkDeviceSize)total * 3 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_indices" });
+    drivers::DeviceDriverVulkan::Buffer prims = ctx->dd->buffer_create({ .size = (VkDeviceSize)total * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_prims" });
+    drivers::DeviceDriverVulkan::Buffer materials = ctx->dd->buffer_create({ .size = (VkDeviceSize)std::max<uint64_t>(masked, 1) * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = true, .name = "compact_materials" });
+    if (!indices.buffer || !prims.buffer || !materials.buffer) {
         if (indices.buffer) ctx->dd->buffer_free(indices);
         if (prims.buffer) ctx->dd->buffer_free(prims);
+        if (materials.buffer) ctx->dd->buffer_free(materials);
         return false;
     }
 
     _compact_retire(compact_indices);
     _compact_retire(compact_prims);
+    _compact_retire(compact_materials);
     compact_indices = indices;
     compact_prims = prims;
-    compact_capacity = p_tris;
+    compact_materials = materials;
+
+    uint32_t base = 0;
+    for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+        compact_bin_base[b] = base;
+        compact_bin_capacity[b] = p_bin_tris[b];
+        base += p_bin_tris[b];
+    }
+    compact_capacity = base;
     return true;
 }
 
@@ -571,11 +596,13 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
     r_pass.category = PASS_CATEGORY_RASTER;
     r_pass.setup = [p_late](RenderGraph::Builder& b) {
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+        b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer(p_late ? "VisibleClusters2" : "VisibleClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer(p_late ? "ClusterRetestArgs" : "ClusterCullArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.write_buffer("CompactIndices", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("CompactPrims", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("CompactMaterials", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("CompactSpill", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (p_late && b.graph->buffer_resource("HiZArgs2")) b.write_buffer("HiZArgs2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -587,11 +614,13 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
         auto* dispatch_args = cl.graph->buffer(p_late ? "ClusterRetestArgs" : "ClusterCullArgs");
         auto* indices = cl.graph->buffer("CompactIndices");
         auto* prims = cl.graph->buffer("CompactPrims");
+        auto* materials = cl.graph->buffer("CompactMaterials");
+        auto* instances = cl.graph->buffer("Instances");
         auto* args = cl.graph->buffer("CompactDrawArgs");
         auto* hiz_args = p_late ? cl.graph->buffer("HiZArgs2") : nullptr;
         auto* hiz = cl.graph->image("HiZ");
         auto* spill = cl.graph->buffer("CompactSpill");
-        if (!geometry || !refs || !visible || !dispatch_args || !args || !spill) return;
+        if (!geometry || !instances || !refs || !visible || !dispatch_args || !args || !spill) return;
 
         if (!p_late) {
             VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
@@ -605,28 +634,37 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
 
         struct Push {
             VkDeviceAddress geometry_addr;
+            VkDeviceAddress instances_addr;
             VkDeviceAddress cluster_refs_addr;
             VkDeviceAddress visible_addr;
             VkDeviceAddress indices_addr;
             VkDeviceAddress prims_addr;
+            VkDeviceAddress materials_addr;
             VkDeviceAddress args_addr;
             VkDeviceAddress hiz_args_addr;
             VkDeviceAddress spill_addr;
+            uint32_t region_base[RASTER_BIN_COUNT];
+            uint32_t region_end;
             uint32_t phase;
-            uint32_t capacity_tris;
             uint32_t hiz_groups_x;
             uint32_t hiz_groups_y;
             uint32_t spill_stride;
         } pc{};
+        static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
         pc.geometry_addr = geometry->device_address;
+        pc.instances_addr = instances->device_address;
         pc.cluster_refs_addr = refs->device_address;
         pc.visible_addr = visible->device_address;
         pc.indices_addr = indices ? indices->device_address : 0;
         pc.prims_addr = prims ? prims->device_address : 0;
+        pc.materials_addr = materials ? materials->device_address : 0;
         pc.args_addr = args->device_address;
         pc.spill_addr = spill->device_address;
         pc.phase = p_late ? 1u : 0u;
-        pc.capacity_tris = (indices && prims) ? (compact_indices.buffer ? compact_capacity : 0u) : 0u;
+        if (indices && prims && materials) {
+            for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) pc.region_base[b] = compact_bin_base[b];
+            pc.region_end = compact_capacity;
+        }
         pc.spill_stride = std::max(1u, ctx->frame->cluster_ref_capacity);
         if (hiz_args && hiz) {
             pc.hiz_args_addr = hiz_args->device_address;
@@ -667,9 +705,10 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         b.read_buffer("CompactIndices", VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT);
         b.read_buffer("CompactDrawArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("CompactPrims", VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer("CompactMaterials", VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("CompactSpill", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
-        b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+        b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -678,6 +717,8 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
     r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
         auto* vis = cl.graph->image("G_Visibility");
         auto* indices = cl.graph->buffer("CompactIndices");
+        auto* prims = cl.graph->buffer("CompactPrims");
+        auto* materials = cl.graph->buffer("CompactMaterials");
         auto* args = cl.graph->buffer("CompactDrawArgs");
 
         struct Push {
@@ -689,7 +730,11 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
             VkDeviceAddress visible_addr;
             VkDeviceAddress prims_addr;
             VkDeviceAddress args_addr;
+            VkDeviceAddress materials_addr;
             uint32_t phase;
+            uint32_t bin;
+            uint32_t sampler_index;
+            uint32_t material_base;
         } pc{};
         pc.camera_addr = cl.graph->buffer("Camera")->device_address;
         pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
@@ -697,19 +742,24 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         pc.transforms_addr = cl.graph->buffer("Transforms")->device_address;
         pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
         pc.visible_addr = cl.graph->buffer(p_late ? "VisibleClusters2" : "VisibleClusters")->device_address;
-        auto* prims = cl.graph->buffer("CompactPrims");
         pc.prims_addr = prims ? prims->device_address : 0;
         pc.args_addr = args->device_address;
+        pc.materials_addr = materials ? materials->device_address : 0;
         pc.phase = p_late ? 1u : 0u;
+        pc.sampler_index = material_sampler.bindless_sampler;
+        pc.material_base = compact_bin_base[RASTER_BIN_MASKED];
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
 
-        if (indices && prims) {
-            cl.dd->command_bind_pipeline(cl.cmd, visbuffer_compact_pipe);
+        if (indices && prims && materials) {
             cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
-            cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-            cl.draw_indexed_indirect(p_late ? "Visbuffer 2" : "Visbuffer 1", *args, p_late ? sizeof(VkDrawIndexedIndirectCommand) : 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+            for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+                pc.bin = b;
+                cl.dd->command_bind_pipeline(cl.cmd, visbuffer_compact_pipes[b]);
+                cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+                cl.draw_indexed_indirect(p_late ? "Visbuffer 2" : "Visbuffer 1", *args, (pc.phase * RASTER_BIN_COUNT + b) * COMPACT_CMD_SIZE, 1, COMPACT_CMD_SIZE);
+            }
         }
 
         if (auto* spill = cl.graph->buffer("CompactSpill")) {
@@ -720,6 +770,8 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
                 VkDeviceAddress transforms_addr;
                 VkDeviceAddress cluster_refs_addr;
                 VkDeviceAddress visible_addr;
+                uint32_t bin;
+                uint32_t sampler_index;
             } sp{};
             sp.camera_addr = pc.camera_addr;
             sp.geometry_addr = pc.geometry_addr;
@@ -727,12 +779,15 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
             sp.transforms_addr = pc.transforms_addr;
             sp.cluster_refs_addr = pc.cluster_refs_addr;
             sp.visible_addr = pc.visible_addr;
+            sp.sampler_index = pc.sampler_index;
 
             const uint32_t stride = std::max(1u, ctx->frame->cluster_ref_capacity);
-            const uint32_t phase = p_late ? 1u : 0u;
-            cl.dd->command_bind_pipeline(cl.cmd, visbuffer_spill_pipe);
-            cl.dd->command_bind_push_constants(cl.cmd, sizeof(sp), &sp);
-            cl.draw_indirect_count(p_late ? "Visbuffer 2 spill" : "Visbuffer 1 spill", *spill, (VkDeviceSize)phase * stride * COMPACT_SPILL_CMD_SIZE, *args, COMPACT_ARGS_SPILL_OFFSET + phase * sizeof(uint32_t), stride, COMPACT_SPILL_CMD_SIZE);
+            for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+                sp.bin = b;
+                cl.dd->command_bind_pipeline(cl.cmd, visbuffer_spill_pipes[b]);
+                cl.dd->command_bind_push_constants(cl.cmd, sizeof(sp), &sp);
+                cl.draw_indirect_count(p_late ? "Visbuffer 2 spill" : "Visbuffer 1 spill", *spill, (VkDeviceSize)pc.phase * stride * COMPACT_SPILL_CMD_SIZE, *args, COMPACT_ARGS_SPILL_OFFSET + pc.phase * sizeof(uint32_t), stride, COMPACT_SPILL_CMD_SIZE);
+            }
         }
     };
 }
@@ -1002,30 +1057,44 @@ Error GeometryFeature::create_pipelines()
 
     {
     VkRenderPass rp = ctx->graph->acquire_render_pass(visbuffer_compact_pass);
-    EmbeddedResource::Blob cvs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_COMPACT_VERT");
-    EmbeddedResource::Blob cfs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_COMPACT_FRAG");
-    VkShaderModule cvs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX,   .glsl = (const char*)cvs_blob.data, .glsl_size = cvs_blob.size, .name = "raster/visbuffer_compact.vert" });
-    VkShaderModule cfs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)cfs_blob.data, .glsl_size = cfs_blob.size, .name = "raster/visbuffer_compact.frag" });
+    auto shader = [&](const wchar_t* p_resource, drivers::DeviceDriverVulkan::ShaderStage p_stage, const char* p_name) {
+        EmbeddedResource::Blob blob = EmbeddedResource::load(p_resource);
+        return ctx->dd->shader_create({ .stage = p_stage, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = p_name });
+    };
+    using Stage = drivers::DeviceDriverVulkan::ShaderStage;
+    VkShaderModule shaders[8] = {
+        shader(L"SHADERS_RASTER_VISBUFFER_COMPACT_VERT", Stage::VERTEX, "raster/visbuffer_compact.vert"),
+        shader(L"SHADERS_RASTER_VISBUFFER_COMPACT_FRAG", Stage::FRAGMENT, "raster/visbuffer_compact.frag"),
+        shader(L"SHADERS_RASTER_VISBUFFER_COMPACT_MASKED_VERT", Stage::VERTEX, "raster/visbuffer_compact_masked.vert"),
+        shader(L"SHADERS_RASTER_VISBUFFER_COMPACT_MASKED_FRAG", Stage::FRAGMENT, "raster/visbuffer_compact_masked.frag"),
+        shader(L"SHADERS_RASTER_VISBUFFER_SPILL_VERT", Stage::VERTEX, "raster/visbuffer_spill.vert"),
+        shader(L"SHADERS_RASTER_VISBUFFER_SPILL_FRAG", Stage::FRAGMENT, "raster/visbuffer_spill.frag"),
+        shader(L"SHADERS_RASTER_VISBUFFER_SPILL_MASKED_VERT", Stage::VERTEX, "raster/visbuffer_spill_masked.vert"),
+        shader(L"SHADERS_RASTER_VISBUFFER_SPILL_MASKED_FRAG", Stage::FRAGMENT, "raster/visbuffer_spill_masked.frag"),
+    };
+    static const char* COMPACT_NAMES[RASTER_BIN_COUNT] = { "raster/visbuffer_opaque", "raster/visbuffer_two_sided", "raster/visbuffer_masked", "raster/visbuffer_masked_two_sided" };
+    static const char* SPILL_NAMES[RASTER_BIN_COUNT] = { "raster/visbuffer_spill_opaque", "raster/visbuffer_spill_two_sided", "raster/visbuffer_spill_masked", "raster/visbuffer_spill_masked_two_sided" };
+
     drivers::DeviceDriverVulkan::GraphicsPipelineCreateInfo pipeline_ci{};
-    pipeline_ci.vertex_shader = cvs; pipeline_ci.fragment_shader = cfs; pipeline_ci.render_pass = rp;
+    pipeline_ci.render_pass = rp;
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    pipeline_ci.cull_mode = VK_CULL_MODE_FRONT_BIT;
     pipeline_ci.front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     pipeline_ci.depth_test = true;
     pipeline_ci.depth_write = true;
     pipeline_ci.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL;
-    pipeline_ci.name = "raster/visbuffer_compact";
-    visbuffer_compact_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
-    ctx->dd->shader_free(cvs); ctx->dd->shader_free(cfs);
-
-    EmbeddedResource::Blob svs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_SPILL_VERT");
-    EmbeddedResource::Blob sfs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_SPILL_FRAG");
-    VkShaderModule svs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::VERTEX,   .glsl = (const char*)svs_blob.data, .glsl_size = svs_blob.size, .name = "raster/visbuffer_spill.vert" });
-    VkShaderModule sfs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::FRAGMENT, .glsl = (const char*)sfs_blob.data, .glsl_size = sfs_blob.size, .name = "raster/visbuffer_spill.frag" });
-    pipeline_ci.vertex_shader = svs; pipeline_ci.fragment_shader = sfs;
-    pipeline_ci.name = "raster/visbuffer_spill";
-    visbuffer_spill_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
-    ctx->dd->shader_free(svs); ctx->dd->shader_free(sfs);
+    for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+        const uint32_t variant = (b & RASTER_BIN_MASKED) ? 2u : 0u;
+        pipeline_ci.cull_mode = (b & RASTER_BIN_TWO_SIDED) ? VK_CULL_MODE_NONE : VK_CULL_MODE_FRONT_BIT;
+        pipeline_ci.vertex_shader = shaders[variant];
+        pipeline_ci.fragment_shader = shaders[variant + 1];
+        pipeline_ci.name = COMPACT_NAMES[b];
+        visbuffer_compact_pipes[b] = ctx->dd->graphics_pipeline_create(pipeline_ci);
+        pipeline_ci.vertex_shader = shaders[4 + variant];
+        pipeline_ci.fragment_shader = shaders[4 + variant + 1];
+        pipeline_ci.name = SPILL_NAMES[b];
+        visbuffer_spill_pipes[b] = ctx->dd->graphics_pipeline_create(pipeline_ci);
+    }
+    for (VkShaderModule m : shaders) ctx->dd->shader_free(m);
     }
 
     return OK;
@@ -1043,8 +1112,8 @@ void GeometryFeature::destroy_resources()
     ctx->dd->pipeline_free(cluster_retest_pipe);
     ctx->dd->pipeline_free(material_resolve_pipe);
     ctx->dd->pipeline_free(draw_compact_pipe);
-    ctx->dd->pipeline_free(visbuffer_compact_pipe);
-    ctx->dd->pipeline_free(visbuffer_spill_pipe);
+    for (drivers::DeviceDriverVulkan::Pipeline& p : visbuffer_compact_pipes) ctx->dd->pipeline_free(p);
+    for (drivers::DeviceDriverVulkan::Pipeline& p : visbuffer_spill_pipes) ctx->dd->pipeline_free(p);
     ctx->dd->sampler_free(hiz_sampler);
     ctx->dd->sampler_free(material_sampler);
     ctx->dd->buffer_free(hiz_tail_buffer);
@@ -1057,7 +1126,13 @@ void GeometryFeature::destroy_resources()
     _compact_collect(true);
     ctx->dd->buffer_free(compact_indices);
     ctx->dd->buffer_free(compact_prims);
+    ctx->dd->buffer_free(compact_materials);
     compact_capacity = 0;
+    for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+        compact_bin_capacity[b] = 0;
+        compact_bin_base[b] = 0;
+        compact_low_frames[b] = 0;
+    }
 }
 
 void GeometryFeature::build(RenderGraph& g)
@@ -1092,20 +1167,26 @@ void GeometryFeature::build(RenderGraph& g)
     _compact_collect(false);
     if (compact_raster_frame) {
         bool feedback = false;
-        uint64_t demand = 0;
+        uint64_t demand[RASTER_BIN_COUNT] = {};
         if (slot < compact_feedback.size() && compact_feedback_written[slot]) {
             CompactFeedback fb{};
             ctx->dd->buffer_invalidate(compact_feedback[slot], 0, sizeof(CompactFeedback));
             std::memcpy(&fb, compact_feedback[slot].mapped, sizeof(CompactFeedback));
-            demand = (uint64_t)fb.tris[0] + fb.tris[1];
-            compact_demand = (uint32_t)std::min<uint64_t>(demand, UINT32_MAX);
+            uint64_t total = 0;
+            for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+                demand[b] = (uint64_t)fb.tris[b] + fb.tris[RASTER_BIN_COUNT + b];
+                compact_bin_demand[b] = (uint32_t)std::min<uint64_t>(demand[b], UINT32_MAX);
+                total += demand[b];
+            }
+            compact_demand = (uint32_t)std::min<uint64_t>(total, UINT32_MAX);
             compact_spilled = fb.spill[0] + fb.spill[1];
             feedback = true;
         }
         _compact_update(feedback, demand);
-        if (compact_indices.buffer && compact_prims.buffer) {
+        if (compact_indices.buffer && compact_prims.buffer && compact_materials.buffer) {
             g.import_buffer("CompactIndices", &compact_indices, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
             g.import_buffer("CompactPrims", &compact_prims, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+            g.import_buffer("CompactMaterials", &compact_materials, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         }
     }
 

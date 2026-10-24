@@ -3,6 +3,7 @@
 #include <core/rendering/features/post/post_process_feature.h>
 #include <string_view>
 #include <core/rendering/frame_data.h>
+#include <core/rendering/world_gpu.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/io/embedded_resource.h>
 
@@ -63,7 +64,11 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
         VkDeviceAddress visible_addr;
         VkDeviceAddress prims_addr;
         VkDeviceAddress args_addr;
+        VkDeviceAddress materials_addr;
         uint32_t phase;
+        uint32_t bin;
+        uint32_t sampler_index;
+        uint32_t material_base;
     } pc{};
     pc.camera_addr = cl.graph->buffer("Camera")->device_address;
     pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
@@ -76,10 +81,13 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
 
     cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, out->extent }});
     cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, out->extent }});
-    cl.dd->command_bind_pipeline(cl.cmd, overdraw_compact_pipe);
     cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
-    cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-    cl.draw_indexed_indirect(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *args, phase * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
+    for (uint32_t b = 0; b < RASTER_BIN_COUNT; b++) {
+        pc.bin = b;
+        cl.dd->command_bind_pipeline(cl.cmd, (b & RASTER_BIN_TWO_SIDED) ? overdraw_two_sided_pipe : overdraw_compact_pipe);
+        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+        cl.draw_indexed_indirect(phase == 0 ? "Overdraw raster 1" : "Overdraw raster 2", *args, (phase * RASTER_BIN_COUNT + b) * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
+    }
 }
 
 void DebugViewFeature::_create_overdraw_raster_passes()
@@ -242,6 +250,9 @@ Error DebugViewFeature::create_pipelines()
     pipeline_ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::ADDITIVE };
     pipeline_ci.name = "editor/overdraw_raster";
     overdraw_compact_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
+    pipeline_ci.cull_mode = VK_CULL_MODE_NONE;
+    pipeline_ci.name = "editor/overdraw_raster_two_sided";
+    overdraw_two_sided_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
     ctx->dd->shader_free(vs);
     ctx->dd->shader_free(fs);
     }
@@ -252,6 +263,7 @@ Error DebugViewFeature::create_pipelines()
 void DebugViewFeature::destroy_resources()
 {
     ctx->dd->pipeline_free(overdraw_compact_pipe);
+    ctx->dd->pipeline_free(overdraw_two_sided_pipe);
     ctx->dd->pipeline_free(viewport_resolve_pipe);
     ctx->dd->pipeline_free(viewport_copy_pipe);
 }

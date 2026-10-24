@@ -86,6 +86,7 @@ void GpuProfilerDrawerTab::_copy_report(EditorContext& ctx)
     if (ctx.render_path && ctx.render_path->geometry.compact_raster_frame) {
         const GeometryFeature& geo = ctx.render_path->geometry;
         _append(out, "Compact raster: capacity %u tris (%.1f MB), demand %u tris, spilled clusters %u, resizes %u\n", geo.compact_capacity, (double)geo.compact_capacity * 16.0 / (1024.0 * 1024.0), geo.compact_demand, geo.compact_spilled, geo.compact_resizes);
+        _append(out, "Raster bins (capacity/demand tris): opaque %u/%u, two-sided %u/%u, masked %u/%u, masked two-sided %u/%u\n", geo.compact_bin_capacity[0], geo.compact_bin_demand[0], geo.compact_bin_capacity[1], geo.compact_bin_demand[1], geo.compact_bin_capacity[2], geo.compact_bin_demand[2], geo.compact_bin_capacity[3], geo.compact_bin_demand[3]);
     }
 
     _append(out, "\n--- CPU ---\n");

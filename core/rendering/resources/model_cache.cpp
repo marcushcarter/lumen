@@ -78,15 +78,19 @@ void ModelCache::clear()
 
 void ModelCache::_write_slots(const Entry& p_entry, const MaterialCache& p_materials)
 {
-    for (uint32_t s = 0; s < p_entry.slot_count; ++s) slot_table[p_entry.slot_base + s] = s < p_entry.materials.size() ? p_materials.index_of(p_entry.materials[s]) : DEFAULT_MATERIAL;
+    for (uint32_t s = 0; s < p_entry.slot_count; ++s) {
+        const uint32_t index = s < p_entry.materials.size() ? p_materials.index_of(p_entry.materials[s]) : DEFAULT_MATERIAL;
+        slot_table[p_entry.slot_base + s] = (index & SLOT_MATERIAL_MASK) | (p_materials.bin_of(index) << SLOT_BIN_SHIFT);
+    }
 }
 
 void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials)
 {
     if (geometry_version == p_geometry.version && material_layout == p_materials.layout_version) {
-        if (!slots_dirty) return;
+        if (!slots_dirty && material_bins == p_materials.bin_version) return;
         for (const auto& [guid, entry] : by_guid) _write_slots(entry, p_materials);
         slots_dirty = false;
+        material_bins = p_materials.bin_version;
         slot_version++;
         return;
     }
@@ -112,6 +116,7 @@ void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_
 
     geometry_version = p_geometry.version;
     material_layout = p_materials.layout_version;
+    material_bins = p_materials.bin_version;
     slots_dirty = false;
     version++;
     slot_version++;

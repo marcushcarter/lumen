@@ -10,44 +10,44 @@ namespace lumen {
 const char* shading_model_name(ShadingModel p_model)
 {
     switch (p_model) {
-        case ShadingModel::SKY: return "sky";
-        case ShadingModel::DEFAULT_LIT: return "default_lit";
-        case ShadingModel::UNLIT: return "unlit";
-        case ShadingModel::FOLIAGE: return "foliage";
-        case ShadingModel::SKIN: return "skin";
-        case ShadingModel::CLOTH: return "cloth";
-        case ShadingModel::HAIR: return "hair";
-        case ShadingModel::EYE: return "eye";
+        case ShadingModel::SKY: return "Sky";
+        case ShadingModel::DEFAULT_LIT: return "Default Lit";
+        case ShadingModel::UNLIT: return "Unlit";
+        case ShadingModel::FOLIAGE: return "Foliage";
+        case ShadingModel::SKIN: return "Skin";
+        case ShadingModel::CLOTH: return "Cloth";
+        case ShadingModel::HAIR: return "Hair";
+        case ShadingModel::EYE: return "Eye";
     }
     return "default_lit";
 }
 
 ShadingModel shading_model_from_name(const std::string& p_name, ShadingModel p_fallback)
 {
-    if (p_name == "sky") return ShadingModel::SKY;
-    if (p_name == "default_lit") return ShadingModel::DEFAULT_LIT;
-    if (p_name == "unlit") return ShadingModel::UNLIT;
-    if (p_name == "foliage") return ShadingModel::FOLIAGE;
-    if (p_name == "skin") return ShadingModel::SKIN;
-    if (p_name == "cloth") return ShadingModel::CLOTH;
-    if (p_name == "hair") return ShadingModel::HAIR;
-    if (p_name == "eye") return ShadingModel::EYE;
+    if (p_name == "Sky") return ShadingModel::SKY;
+    if (p_name == "Default Lit") return ShadingModel::DEFAULT_LIT;
+    if (p_name == "Unlit") return ShadingModel::UNLIT;
+    if (p_name == "Foliage") return ShadingModel::FOLIAGE;
+    if (p_name == "Skin") return ShadingModel::SKIN;
+    if (p_name == "Cloth") return ShadingModel::CLOTH;
+    if (p_name == "Hair") return ShadingModel::HAIR;
+    if (p_name == "Eye") return ShadingModel::EYE;
     return p_fallback;
 }
 
 const char* alpha_mode_name(AlphaMode p_mode)
 {
     switch (p_mode) {
-        case AlphaMode::NONE: return "opaque";
-        case AlphaMode::MASKED: return "masked";
+        case AlphaMode::NONE: return "Opaque";
+        case AlphaMode::MASKED: return "Masked";
     }
-    return "opaque";
+    return "Opaque";
 }
 
 AlphaMode alpha_mode_from_name(const std::string& p_name, AlphaMode p_fallback)
 {
-    if (p_name == "opaque") return AlphaMode::NONE;
-    if (p_name == "masked") return AlphaMode::MASKED;
+    if (p_name == "Opaque") return AlphaMode::NONE;
+    if (p_name == "Masked") return AlphaMode::MASKED;
     return p_fallback;
 }
 

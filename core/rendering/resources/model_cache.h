@@ -23,6 +23,7 @@ struct ModelCache
     uint64_t slot_version = 0;
     uint64_t geometry_version = UINT64_MAX;
     uint64_t material_layout = UINT64_MAX;
+    uint64_t material_bins = UINT64_MAX;
     bool slots_dirty = false;
 
     struct Entry {

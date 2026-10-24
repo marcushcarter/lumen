@@ -13,11 +13,12 @@ void LensFlareFeature::_create_init_pass()
     init_pass.setup = [](RenderGraph::Builder& b) {
         b.write_buffer("LensFlare", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     };
-    init_pass.execute = [](RenderGraph::CommandList& cl) {
+    init_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* buf = cl.graph->buffer("LensFlare");
         if (!buf) return;
         static const uint32_t zeros[BUFFER_SIZE / sizeof(uint32_t)] = {};
         cl.update_buffer("Lens flare init", *buf, zeros, BUFFER_SIZE, 0);
+        initialized = true;
     };
 }
 
@@ -76,6 +77,7 @@ void LensFlareFeature::_create_visibility_pass()
         cl.dd->command_bind_pipeline(cl.cmd, visibility_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.dispatch("Lens flare visibility", 1);
+        was_enabled = true;
     };
 }
 
@@ -125,13 +127,10 @@ void LensFlareFeature::build(RenderGraph& g)
         return;
     }
     reset = !was_enabled || ctx->frame->taa_reset;
-    was_enabled = true;
+    was_enabled = false;
 
     g.import_buffer("LensFlare", &flare_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    if (!initialized) {
-        g.add(&init_pass);
-        initialized = true;
-    }
+    if (!initialized) g.add(&init_pass);
     g.add(&visibility_pass);
 }
 

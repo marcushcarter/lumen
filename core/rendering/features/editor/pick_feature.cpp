@@ -125,7 +125,7 @@ void PickFeature::build(RenderGraph& g)
     *static_cast<uint32_t*>(readback[slot].mapped) = NONE;
     ctx->dd->buffer_flush(readback[slot]);
 
-    g.import_buffer("PickResult", &readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+    g.import_buffer("PickResult", &readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
     g.add(&pick_pass);
 }
 

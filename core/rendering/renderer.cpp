@@ -799,7 +799,7 @@ Error Renderer::begin_frame(const World& p_world)
     _queued_views.clear();
 
     _view_begin(main_view, p_world);
-    main_view.graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    main_view.graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0, false, true);
 
     return OK;
 }
@@ -824,7 +824,7 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
 
     RenderGraph& graph = r_view.graph;
     graph.begin(current_frame);
-    graph.import_image("HiZ", &r_view.hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
+    graph.import_image("HiZ", &r_view.hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true, true);
 
     graph.import_buffer("Camera", &r_view.camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Atmosphere", &r_view.atmosphere_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);

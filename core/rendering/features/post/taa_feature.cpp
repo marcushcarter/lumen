@@ -58,6 +58,8 @@ void TAAFeature::_create_resolve_pass()
         cl.dd->command_bind_pipeline(cl.cmd, resolve_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.dispatch("TAA", (pc.out_width + 15) / 16, (pc.out_height + 7) / 8);
+        history_valid = true;
+        history_index ^= 1u;
     };
 }
 
@@ -232,9 +234,8 @@ void TAAFeature::build(RenderGraph& g)
     g.import_image("TAAOutput", &history[write], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     g.import_image("TAAHistory", &history[read], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     reset = !history_valid || ctx->frame->taa_reset;
+    history_valid = false;
     g.add(&resolve_pass);
-    history_valid = true;
-    history_index = read;
 }
 
 }

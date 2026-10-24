@@ -12,11 +12,12 @@ void AutoExposureFeature::_create_init_pass()
     init_pass.setup = [](RenderGraph::Builder& b) {
         b.write_buffer("Exposure", VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     };
-    init_pass.execute = [](RenderGraph::CommandList& cl) {
+    init_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* buf = cl.graph->buffer("Exposure");
         if (!buf) return;
         static const uint32_t zeros[BUFFER_SIZE / sizeof(uint32_t)] = {};
         cl.update_buffer("Exposure init", *buf, zeros, BUFFER_SIZE, 0);
+        initialized = true;
     };
 }
 
@@ -88,6 +89,8 @@ void AutoExposureFeature::_create_reduce_pass()
         cl.dd->command_bind_pipeline(cl.cmd, reduce_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.dispatch("Exposure reduce", 1);
+        reset = false;
+        was_enabled = true;
     };
 }
 
@@ -142,16 +145,12 @@ void AutoExposureFeature::build(RenderGraph& g)
         return;
     }
     if (!was_enabled || ctx->frame->taa_reset) reset = true;
-    was_enabled = true;
+    was_enabled = false;
 
     g.import_buffer("Exposure", &exposure_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    if (!initialized) {
-        g.add(&init_pass);
-        initialized = true;
-    }
+    if (!initialized) g.add(&init_pass);
     g.add(&histogram_pass);
     g.add(&reduce_pass);
-    reset = false;
 }
 
 }

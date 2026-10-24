@@ -72,6 +72,7 @@ struct RenderGraph
         VkImageLayout final_layout = VK_IMAGE_LAYOUT_UNDEFINED;
         VkPipelineStageFlags2 final_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
         VkAccessFlags2 final_access = 0;
+        bool output = false;
 
         int producer = -1;
         bool read = false;
@@ -120,7 +121,7 @@ struct RenderGraph
     drivers::DeviceDriverVulkan::Image* image(std::string_view p_name);
     ImageResource* image_resource(std::string_view p_name);
     ImageResource* image_resource_by_id(uint64_t p_name_id);
-    void import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve = false);
+    void import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve = false, bool p_output = false);
     
     void create_image(std::string_view p_name, const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info);
     uint64_t _image_transient_key(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info, VkExtent2D p_extent);
@@ -142,6 +143,7 @@ struct RenderGraph
 
         VkPipelineStageFlags2 final_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
         VkAccessFlags2 final_access = 0;
+        bool output = false;
 
         int producer = -1;
         bool read = false;
@@ -182,7 +184,7 @@ struct RenderGraph
     drivers::DeviceDriverVulkan::Buffer* buffer(std::string_view p_name);
     BufferResource* buffer_resource(std::string_view p_name);
     BufferResource* buffer_resource_by_id(uint64_t p_name_id);
-    void import_buffer(std::string_view p_name, drivers::DeviceDriverVulkan::Buffer* p_buffer, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access);
+    void import_buffer(std::string_view p_name, drivers::DeviceDriverVulkan::Buffer* p_buffer, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_output = false);
     
     void create_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::BufferCreateInfo& p_create_info);
     uint64_t _buffer_transient_key(VkBufferUsageFlags p_usage, bool p_device_local, bool p_host_visible, bool p_cpu_read, VkDeviceSize p_capacity);

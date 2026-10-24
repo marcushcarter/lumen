@@ -111,7 +111,7 @@ void ScreenshotFeature::build(RenderGraph& g)
         return;
     }
 
-    g.import_buffer("ScreenshotStaging", &staging, VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+    g.import_buffer("ScreenshotStaging", &staging, VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
     g.add(&screenshot_pass);
     pending = true;
 };

@@ -175,7 +175,7 @@ RenderGraph::ImageResource* RenderGraph::image_resource_by_id(uint64_t p_name_id
     return i == IdMap::NONE ? nullptr : &image_resources[i];
 }
 
-void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve)
+void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve, bool p_output)
 {
     uint64_t id = intern_named(p_name);
 
@@ -186,6 +186,7 @@ void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVul
     r.final_layout = p_final_layout;
     r.final_stage = p_final_stage;
     r.final_access = p_final_access;
+    r.output = p_output;
     
     if (!p_preserve) {
         p_image->state.layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -327,7 +328,7 @@ RenderGraph::BufferResource* RenderGraph::buffer_resource_by_id(uint64_t p_name_
     return i == IdMap::NONE ? nullptr : &buffer_resources[i];
 }
 
-void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVulkan::Buffer* p_buffer, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access)
+void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVulkan::Buffer* p_buffer, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_output)
 {
     uint64_t id = intern_named(p_name);
 
@@ -337,6 +338,7 @@ void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVu
     r.buffer = p_buffer;
     r.final_stage = p_final_stage;
     r.final_access = p_final_access;
+    r.output = p_output;
 
     p_buffer->state.stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
     p_buffer->state.access = 0;
@@ -964,12 +966,12 @@ Error RenderGraph::compile()
         for (ImageAccess& a : nodes[n].image_accesses) {
             if (!a.is_write || a.resource_index < 0) continue;
             ImageResource& r = image_resources[a.resource_index];
-            if (r.kind == ResourceKind::IMPORTED && r.final_layout != VK_IMAGE_LAYOUT_UNDEFINED) root = true;
+            if (r.output) root = true;
         }
         for (BufferAccess& a : nodes[n].buffer_accesses) {
             if (!a.is_write || a.resource_index < 0) continue;
             BufferResource& r = buffer_resources[a.resource_index];
-            if (r.kind == ResourceKind::IMPORTED && r.final_access != 0) root = true;
+            if (r.output) root = true;
         }
 
         if (root) {

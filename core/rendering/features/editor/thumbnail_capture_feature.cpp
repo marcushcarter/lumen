@@ -88,7 +88,7 @@ void ThumbnailCaptureFeature::build(RenderGraph& g)
 {
     const uint32_t slot = g.current_frame;
     if (request == 0 || slot >= readback.size() || !g.image_resource("DisplayColor")) return;
-    g.import_buffer("ThumbnailReadback", &readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+    g.import_buffer("ThumbnailReadback", &readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
     g.add(&capture_pass);
     tickets[slot] = request;
     request = 0;

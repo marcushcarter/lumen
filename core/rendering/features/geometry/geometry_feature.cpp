@@ -744,7 +744,6 @@ void GeometryFeature::_create_material_resolve_pass()
 {
     material_resolve_pass.name = "MaterialResolve";
     material_resolve_pass.category = PASS_CATEGORY_MATERIAL;
-    material_resolve_pass.never_cull = true;
     material_resolve_pass.setup = [this](RenderGraph::Builder& b) {
         
         drivers::DeviceDriverVulkan::ImageCreateInfo normal_ci{};
@@ -1125,7 +1124,7 @@ void GeometryFeature::build(RenderGraph& g)
         g.add(&visbuffer_compact_pass);
     }
     if (occlusion_frame && hiz_ok) {
-        g.import_buffer("HiZTail", &hiz_tail_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        g.import_buffer("HiZTail", &hiz_tail_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
         g.add(&hiz_build_pass);
     }
     if (hiz_use_prev) {
@@ -1143,7 +1142,7 @@ void GeometryFeature::build(RenderGraph& g)
         g.add(&draw_compact_pass_2);
         g.add(&visbuffer_compact_pass_2);
         if (slot < compact_feedback.size()) {
-            g.import_buffer("CompactFeedbackReadback", &compact_feedback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+            g.import_buffer("CompactFeedbackReadback", &compact_feedback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
             g.add(&compact_feedback_pass);
         }
     }
@@ -1153,7 +1152,7 @@ void GeometryFeature::build(RenderGraph& g)
     if (slot < stats_readback.size()) {
         stats_written[slot] = want_stats ? 1 : 0;
         if (want_stats) {
-            g.import_buffer("CullStatsReadback", &stats_readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+            g.import_buffer("CullStatsReadback", &stats_readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
             g.add(&stats_pass);
         }
     }

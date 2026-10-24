@@ -42,9 +42,9 @@ void WorldSettingsPanel::draw_contents(EditorContext& ctx)
         ImGui::TextUnformatted(!geo.occlusion ? "off" : !geo.hiz_ok ? "unavailable" : geo.hiz_use_prev ? "active" : "warming up");
         imgui_property_grid_end();
     }
-    if (!ctx.profiling || !ctx.profiling->cull_stats_on()) {
+    if (!ctx.profiling || !ctx.profiling->gpu_on()) {
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextDisabled("Enable pipeline statistics in the GPU profiler to see counts.");
+        ImGui::TextDisabled("Enable GPU profiling in the GPU profiler to see counts.");
         ImGui::PopTextWrapPos();
     } else {
         auto draw_occlusion = [](const char* p_title, const char* p_input_label, uint32_t p_input, uint32_t p_drawn_1, uint32_t p_deferred, uint32_t p_drawn_2) {

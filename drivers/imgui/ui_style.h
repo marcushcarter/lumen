@@ -144,6 +144,9 @@ struct UiStyle
         ImU32 viz_ok;
         ImU32 viz_warn;
         ImU32 viz_full;
+        ImU32 viz_wait;
+        ImU32 viz_frame_marker;
+        ImU32 viz_submit;
     };
 
     /*****************/
@@ -357,6 +360,10 @@ struct UiStyle
         float cursor_stroke;
         float side_panel_ratio;
         float plot_aspect;
+        float lane_header_height;
+        float zone_height;
+        float section_gap;
+        float marker_stroke;
     };
 
     struct DataTable {

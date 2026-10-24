@@ -26,6 +26,7 @@ struct GpuProfiler
     const ProfilingSettings* settings = nullptr;
     
     bool frozen = false;
+    uint64_t frame_number = 0;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
@@ -55,6 +56,8 @@ struct GpuProfiler
         const char* category = "";
         double gap_ms = 0.0;
         double gpu_ms = 0.0;
+        int64_t begin_ticks = 0;
+        int64_t end_ticks = 0;
         uint32_t ordinal = 0;
         uint32_t parent = INVALID;
         MarkKind kind = MarkKind::PASS;
@@ -70,6 +73,27 @@ struct GpuProfiler
     double total_ms = 0.0;
     uint32_t total_draws = 0;
     bool truncated = false;
+
+    // Ticks are QueryPerformanceCounter ticks (CpuProfiler clock). Not aligned = anchored at the submit time (no calibration).
+    uint64_t result_frame = UINT64_MAX;
+    bool result_aligned = false;
+    int64_t result_begin_ticks = 0;
+    int64_t result_end_ticks = 0;
+    int64_t result_submit_ticks = 0;
+
+    // Last few resolved frames, so a view can show every GPU frame that ran during one CPU frame.
+    struct FrameResults {
+        uint64_t frame = UINT64_MAX;
+        bool aligned = false;
+        int64_t begin_ticks = 0;
+        int64_t end_ticks = 0;
+        int64_t submit_ticks = 0;
+        std::vector<Timing> timings;
+    };
+
+    static constexpr uint32_t HISTORY = 8;
+    FrameResults history[HISTORY];
+    uint32_t history_head = 0;
 
 
     /*******************/
@@ -114,6 +138,9 @@ struct GpuProfiler
         uint32_t occl_count = 0;
         uint32_t stat_reset = 0;
         bool stats_recorded = false;
+
+        uint64_t frame_number = 0;
+        int64_t submit_ticks = 0;
     };
     
     std::vector<Slot> slots;
@@ -140,6 +167,7 @@ struct GpuProfiler
 
     void frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot);
     void frame_end();
+    void frame_submitted(int64_t p_ticks);
     
     void pass_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category);
     void pass_end(VkCommandBuffer p_cmd, uint32_t p_draw_count);

@@ -4,12 +4,10 @@ namespace lumen {
 
 struct ProfilingSettings
 {
+    // GPU profiling always includes pipeline statistics (when the device supports them) and cull stats.
     bool gpu = false;
-    bool gpu_pipeline_stats = false;
 
     bool gpu_on() const { return gpu; }
-    bool gpu_pipeline_stats_on() const { return gpu && gpu_pipeline_stats; }
-    bool cull_stats_on() const { return gpu_pipeline_stats_on(); }
 };
 
 }

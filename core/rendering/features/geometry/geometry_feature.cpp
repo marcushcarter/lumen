@@ -1069,7 +1069,7 @@ void GeometryFeature::build(RenderGraph& g)
     }
 
     const uint32_t slot = ctx->graph->current_frame;
-    const bool want_stats = ctx->profiling && ctx->profiling->cull_stats_on();
+    const bool want_stats = ctx->profiling && ctx->profiling->gpu_on();
     if (want_stats && slot < stats_readback.size() && stats_written[slot]) {
         drivers::DeviceDriverVulkan::Buffer& rb = stats_readback[slot];
         ctx->dd->buffer_invalidate(rb, 0, sizeof(CullStats));

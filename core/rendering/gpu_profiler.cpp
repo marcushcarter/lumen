@@ -1,6 +1,7 @@
 #include <core/rendering/gpu_profiler.h>
 #include <core/base/cpu_profiler.h>
 #include <algorithm>
+#include <cmath>
 
 namespace lumen {
 
@@ -111,6 +112,14 @@ void GpuProfiler::_clear_results()
     total_ms = 0.0;
     total_draws = 0;
     truncated = false;
+    result_frame = UINT64_MAX;
+    result_aligned = false;
+    result_begin_ticks = result_end_ticks = result_submit_ticks = 0;
+    for (FrameResults& h : history) {
+        h.frame = UINT64_MAX;
+        h.timings.clear();
+    }
+    history_head = 0;
     last_query_count = 0;
     last_stat_count = 0;
 }
@@ -132,7 +141,7 @@ void GpuProfiler::_resolve()
 
     Slot& s = slots[slot];
     if (!s.recorded) return;
-    if (s.query_count < 2 || s.marks.empty()) { results.clear(); total_ms = 0.0; total_draws = 0; return; }
+    if (s.query_count < 2 || s.marks.empty()) { results.clear(); total_ms = 0.0; total_draws = 0; result_frame = UINT64_MAX; return; }
 
     if (dd->query_pool_get_results(s.pool, 0, s.query_count, raw_scratch.data()) != OK) return;
 
@@ -157,8 +166,24 @@ void GpuProfiler::_resolve()
         return (b >= a ? double(b - a) : 0.0) * period_ns * 1e-6;
     };
 
+    uint64_t cal_gpu = raw_scratch[0] & valid_mask;
+    int64_t cal_cpu = s.submit_ticks;
+    uint64_t max_deviation = 0;
+    const bool aligned = dd->timestamps_calibrate(cal_gpu, cal_cpu, max_deviation);
+    cal_gpu &= valid_mask;
+    const double cpu_per_gpu = period_ns * cpu_profiler().ticks_per_ns;
+
+    auto to_ticks = [&](uint32_t p_query) -> int64_t {
+        if (p_query == INVALID) return 0;
+        const uint64_t d = ((raw_scratch[p_query] & valid_mask) - cal_gpu) & valid_mask;
+        int64_t sd = (int64_t)d;
+        if (valid_mask != ~0ull && d > (valid_mask >> 1)) sd = (int64_t)d - (int64_t)(valid_mask + 1);
+        return cal_cpu + (int64_t)std::llround((double)sd * cpu_per_gpu);
+    };
+
     double sum = 0.0;
     uint32_t draws = 0;
+    int64_t last_ticks = to_ticks(0);
 
     for (const Mark& m : s.marks) {
         const double gap = delta_ms(m.lead_query,  m.begin_query);
@@ -174,6 +199,9 @@ void GpuProfiler::_resolve()
         t.category = (m.kind == MarkKind::PASS || m.kind == MarkKind::BARRIER) ? name_of(m.cat_id) : "";
         t.gap_ms = gap;
         t.gpu_ms = dur;
+        t.begin_ticks = to_ticks(m.begin_query);
+        t.end_ticks = m.end_query != INVALID ? to_ticks(m.end_query) : t.begin_ticks;
+        last_ticks = std::max(last_ticks, t.end_ticks);
         t.draw_count = m.draw_count;
         t.ordinal = m.ordinal;
         t.parent = m.parent;
@@ -200,6 +228,23 @@ void GpuProfiler::_resolve()
 
     total_ms = sum;
     total_draws = draws;
+
+    result_frame = (aligned || s.submit_ticks != 0) ? s.frame_number : UINT64_MAX;
+    result_aligned = aligned;
+    result_begin_ticks = to_ticks(0);
+    result_end_ticks = last_ticks;
+    result_submit_ticks = s.submit_ticks;
+
+    if (result_frame != UINT64_MAX) {
+        FrameResults& h = history[history_head];
+        h.frame = result_frame;
+        h.aligned = result_aligned;
+        h.begin_ticks = result_begin_ticks;
+        h.end_ticks = result_end_ticks;
+        h.submit_ticks = result_submit_ticks;
+        h.timings = results;
+        history_head = (history_head + 1) % HISTORY;
+    }
 }
 
 void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
@@ -213,7 +258,7 @@ void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
 
     prev_active = active;
     active = supported && settings && settings->gpu_on();
-    stats_active = active && stats_supported && settings->gpu_pipeline_stats_on();
+    stats_active = active && stats_supported;
 
     if (prev_active && !active) {
         _clear_results();
@@ -232,6 +277,8 @@ void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
     s.pass_ordinal = 0;
     s.recorded = false;
     s.overflowed = false;
+    s.frame_number = frame_number;
+    s.submit_ticks = 0;
 
     uint32_t want = std::max(RESET_MIN, last_query_count * 2);
     s.reset_count = std::min(CAPACITY, want);
@@ -255,6 +302,12 @@ void GpuProfiler::frame_end()
     Slot& s = slots[slot];
     s.recorded = true;
     s.stats_recorded = stats_active;
+}
+
+void GpuProfiler::frame_submitted(int64_t p_ticks)
+{
+    if (!active) return;
+    slots[slot].submit_ticks = p_ticks;
 }
 
 void GpuProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)

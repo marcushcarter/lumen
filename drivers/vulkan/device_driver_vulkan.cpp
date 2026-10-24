@@ -41,6 +41,7 @@ Error DeviceDriverVulkan::_initialize_device_extensions()
     _register_requested_device_extension(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME, false);
     _register_requested_device_extension(VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME, false);
     _register_requested_device_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME, false);
+    _register_requested_device_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME, false);
 
 #ifdef LUMEN_EDITOR
     _register_requested_device_extension(VK_EXT_DEBUG_MARKER_EXTENSION_NAME, false);
@@ -563,6 +564,26 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
             functions = {};
         }
     }
+
+    timestamp_calibration = false;
+    if (enabled_device_extension_names.contains(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)) {
+        const auto get_domains = reinterpret_cast<PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT>(vkGetInstanceProcAddr(cd->instance, "vkGetPhysicalDeviceCalibrateableTimeDomainsEXT"));
+        functions.GetCalibratedTimestampsEXT = reinterpret_cast<PFN_vkGetCalibratedTimestampsEXT>(vkGetDeviceProcAddr(device, "vkGetCalibratedTimestampsEXT"));
+        uint32_t domain_count = 0;
+        if (get_domains && functions.GetCalibratedTimestampsEXT && get_domains(physical_device, &domain_count, nullptr) == VK_SUCCESS && domain_count) {
+            std::vector<VkTimeDomainEXT> domains(domain_count);
+            get_domains(physical_device, &domain_count, domains.data());
+            bool has_device = false;
+            bool has_qpc = false;
+            for (VkTimeDomainEXT d : domains) {
+                has_device |= d == VK_TIME_DOMAIN_DEVICE_EXT;
+                has_qpc |= d == VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+            }
+            timestamp_calibration = has_device && has_qpc;
+        }
+        if (!timestamp_calibration) functions.GetCalibratedTimestampsEXT = nullptr;
+    }
+    log_write("Timestamp calibration (GPU <-> QPC): %s", timestamp_calibration ? "supported" : "unsupported, GPU profiler timeline will be approximate");
 
     return OK;
 }
@@ -1787,6 +1808,20 @@ void DeviceDriverVulkan::semaphore_free(VkSemaphore& r_semaphore)
 /***************/
 /**** QUERY ****/
 /***************/
+
+bool DeviceDriverVulkan::timestamps_calibrate(uint64_t& r_gpu_ticks, int64_t& r_cpu_ticks, uint64_t& r_max_deviation)
+{
+    if (!timestamp_calibration) return false;
+
+    VkCalibratedTimestampInfoEXT infos[2] = { { VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT }, { VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT } };
+    infos[0].timeDomain = VK_TIME_DOMAIN_DEVICE_EXT;
+    infos[1].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+    uint64_t values[2] = {};
+    if (functions.GetCalibratedTimestampsEXT(device, 2, infos, values, &r_max_deviation) != VK_SUCCESS) return false;
+    r_gpu_ticks = values[0];
+    r_cpu_ticks = (int64_t)values[1];
+    return true;
+}
 
 uint32_t DeviceDriverVulkan::timestamp_valid_bits(uint32_t p_queue_family_index)
 {

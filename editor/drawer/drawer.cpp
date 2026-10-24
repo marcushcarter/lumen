@@ -3,7 +3,8 @@
 #include <drivers/imgui/ui_style.h>
 #include <imgui_internal.h>
 #include <editor/drawer/content_browser_tab.h>
-#include <editor/drawer/profiler_tab.h>
+#include <editor/drawer/gpu_profiler_tab.h>
+#include <editor/drawer/cpu_profiler_tab.h>
 #include <editor/drawer/memory_tab.h>
 #include <editor/drawer/output_tab.h>
 #include <core/base/error.h>
@@ -57,7 +58,8 @@ void DrawerState::close_all()
 void Drawer::initialize()
 {
     content_browser = _add<ContentBrowserDrawerTab>();
-    profiler = _add<ProfilerDrawerTab>();
+    gpu_profiler = _add<GpuProfilerDrawerTab>();
+    cpu_profiler_ = _add<CpuProfilerDrawerTab>();
     memory = _add<MemoryDrawerTab>();
     output = _add<OutputDrawerTab>();
 }
@@ -66,7 +68,8 @@ void Drawer::shutdown()
 {
     for (auto& t : tabs) t->shutdown();
     content_browser = nullptr;
-    profiler = nullptr;
+    gpu_profiler = nullptr;
+    cpu_profiler_ = nullptr;
     memory = nullptr;
     output = nullptr;
     tabs.clear();

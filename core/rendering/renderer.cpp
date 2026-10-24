@@ -915,6 +915,7 @@ Error Renderer::record()
     dd->command_bind_graphics_uniform_sets(cmd, { dd->bindless_heap.set });
     dd->command_bind_compute_uniform_sets(cmd, { dd->bindless_heap.set });
 
+    main_view.graph.gpu_profiler.frame_number = frame_number;
     cpu_profiler().zone_begin("Graph Execute");
     for (RenderView* v : _queued_views) v->graph.execute(cmd);
     main_view.graph.execute(cmd);
@@ -948,8 +949,10 @@ Error Renderer::end_frame()
     Error ferr = dd->fence_reset(in_flight_fences[current_frame]);
     LUMEN_ERR_FAIL_COND_V(ferr != OK, ferr);
     cpu.zone_begin("Queue Submit");
+    const int64_t submit_ticks = CpuProfiler::now();
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
     cpu.zone_end();
+    if (result == VK_SUCCESS) main_view.graph.gpu_profiler.frame_submitted(submit_ticks);
     if (result != VK_SUCCESS) {
         log_write("Renderer: vkQueueSubmit returned %d", (int)result);
         main_view.graph.breadcrumb_report();

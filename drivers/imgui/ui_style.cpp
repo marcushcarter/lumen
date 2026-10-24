@@ -204,6 +204,10 @@ void UiStyle::_build_components()
     profiler.cursor_stroke = stroke.hairline;
     profiler.side_panel_ratio = 0.2f;
     profiler.plot_aspect = 2.0f / 3.0f;
+    profiler.lane_header_height = 16.0f;
+    profiler.zone_height = 18.0f;
+    profiler.section_gap = space.lg;
+    profiler.marker_stroke = stroke.hairline;
 
     data_table.column_xs = 50.0f;
     data_table.column_sm = 60.0f;
@@ -312,6 +316,9 @@ void UiStyle::_build_colors()
     color.viz_ok = IM_COL32(88, 180, 120, 255);
     color.viz_warn = color.warning;
     color.viz_full = color.danger;
+    color.viz_wait = IM_COL32(110, 110, 110, 90);
+    color.viz_frame_marker = IM_COL32(120, 150, 255, 200);
+    color.viz_submit = color.warning;
 }
 
 void UiStyle::apply_to_imgui() const

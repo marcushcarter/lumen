@@ -56,6 +56,7 @@ struct DeviceDriverVulkan
         PFN_vkCmdDrawMeshTasksEXT CmdDrawMeshTasksEXT = nullptr;
         PFN_vkCmdDrawMeshTasksIndirectEXT CmdDrawMeshTasksIndirectEXT = nullptr;
         PFN_vkCmdDrawMeshTasksIndirectCountEXT CmdDrawMeshTasksIndirectCountEXT = nullptr;
+        PFN_vkGetCalibratedTimestampsEXT GetCalibratedTimestampsEXT = nullptr;
     };
 
     VkDevice device = VK_NULL_HANDLE;
@@ -323,7 +324,11 @@ struct DeviceDriverVulkan
         uint32_t capacity = 0;
     };
 
+    // GPU timestamps <-> QueryPerformanceCounter, so GPU work can be placed on the CPU profiler's clock.
+    bool timestamp_calibration = false;
+
     uint32_t timestamp_valid_bits(uint32_t p_queue_family_index);
+    bool timestamps_calibrate(uint64_t& r_gpu_ticks, int64_t& r_cpu_ticks, uint64_t& r_max_deviation);
 
     QueryPool query_pool_create_timestamp(uint32_t p_query_count);
     QueryPool query_pool_create_occlusion(uint32_t p_query_count);

@@ -8,7 +8,8 @@
 namespace lumen {
 
 struct ContentBrowserDrawerTab;
-struct ProfilerDrawerTab;
+struct GpuProfilerDrawerTab;
+struct CpuProfilerDrawerTab;
 struct MemoryDrawerTab;
 struct OutputDrawerTab;
 
@@ -30,7 +31,8 @@ struct Drawer
 {
     std::vector<std::unique_ptr<DrawerTab>> tabs;
     ContentBrowserDrawerTab* content_browser = nullptr;
-    ProfilerDrawerTab* profiler = nullptr;
+    GpuProfilerDrawerTab* gpu_profiler = nullptr;
+    CpuProfilerDrawerTab* cpu_profiler_ = nullptr;
     MemoryDrawerTab* memory = nullptr;
     OutputDrawerTab* output = nullptr;
     char console_buffer[512] = {};

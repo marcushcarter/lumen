@@ -9,6 +9,7 @@
 #include "common/camera.glsl"
 #include "common/gbuffer.glsl"
 #include "common/lights.glsl"
+#include "common/shading_tiles.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -27,6 +28,7 @@ layout(push_constant, scalar) uniform Push {
     LightTileMaskBuffer masks;
     AtmosphereBuffer atmosphere;
     SkyLightingBuffer sky_lighting;
+    ShadingTileBuffer tiles;
     uint depth_index;
     uint albedo_index;
     uint normal_index;
@@ -52,6 +54,7 @@ uint directional_count() { return pc.directional_count & 0xFFFFu; }
 bool has_local_lights() { return (pc.directional_count & LIGHTING_FLAG_LOCAL_LIGHTS) != 0u; }
 
 layout(constant_id = 0) const uint LIGHT_MODE = 2u;
+layout(constant_id = 1) const uint TILE_TYPE = SHADING_TILE_MIXED;
 
 vec4 aerial_sample(vec2 p_uv, float p_dist_km) {
     float s = sqrt(clamp(p_dist_km / AERIAL_MAX_KM, 0.0, 1.0)) * float(AERIAL_SLICES) - 0.5;
@@ -124,22 +127,28 @@ vec3 shade_local(Surface p_s, GpuLight p_light, vec3 p_world_pos) {
 }
 
 void main() {
-    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (group >= pc.tiles.args[TILE_TYPE].w) return;
+    const uvec2 tile = shading_tile_unpack(pc.tiles.tiles[TILE_TYPE * pc.tiles.capacity + group]);
+    ivec2 p = ivec2(tile * SHADING_TILE_SIZE + gl_LocalInvocationID.xy);
     if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
     g_atmo = pc.atmosphere;
     g_lut_sampler = pc.sampler_index;
     g_transmittance_lut = pc.transmittance_index;
 
-    float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
+    float depth = 0.0;
     float roughness = 1.0, metallic = 0.0, ao = 1.0;
     uint shading_model = SHADING_MODEL_SKY;
-    if (depth != 0.0) gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
+    if (TILE_TYPE != SHADING_TILE_SKY) {
+        depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
+        if (TILE_TYPE != SHADING_TILE_MIXED || depth != 0.0) gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
+    }
 
     vec2 ndc = (vec2(p) + 0.5) / vec2(pc.width, pc.height) * 2.0 - 1.0;
     vec4 near_h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
     vec3 view_dir = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
 
-    if (shading_model == SHADING_MODEL_SKY) {
+    if (TILE_TYPE == SHADING_TILE_SKY || (TILE_TYPE == SHADING_TILE_MIXED && shading_model == SHADING_MODEL_SKY)) {
         float pixel_angle = 2.0 * pc.camera.tan_half_fov_y / float(pc.height);
         vec3 sky = sky_color(view_dir, pc.skyview_index, pixel_angle, pc.camera.pre_exposure, pc.sun_reject_cos, pc.moon_reject_cos) * pc.camera.pre_exposure;
         imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(sky, vec3(HDR_MAX)), 1.0));
@@ -152,6 +161,13 @@ void main() {
     vec3 albedo;
     uint flags;
     gbuffer_decode_albedo(texelFetch(u_textures[pc.albedo_index], p, 0), albedo, flags);
+
+    if (TILE_TYPE == SHADING_TILE_UNLIT || (TILE_TYPE == SHADING_TILE_MIXED && shading_model == SHADING_MODEL_UNLIT)) {
+        vec3 unlit = albedo + texelFetch(u_textures[pc.emissive_index], p, 0).rgb * pc.camera.pre_exposure;
+        vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(unlit * ap.a + ap.rgb, vec3(HDR_MAX)), 1.0));
+        return;
+    }
 
     Surface s;
     s.n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);

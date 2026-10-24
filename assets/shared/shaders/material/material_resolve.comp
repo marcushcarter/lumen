@@ -5,12 +5,15 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "common/geometry.glsl"
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/gbuffer.glsl"
 #include "common/visbuffer.glsl"
+#include "common/shading_tiles.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -32,6 +35,7 @@ layout(push_constant) uniform Push {
     InstanceBuffer instances;
     TransformBuffer transforms;
     ClusterRefsBuffer cluster_refs;
+    ShadingTileBuffer shading_tiles;
     uint vis_index;
     uint normal_slot;
     uint albedo_slot;
@@ -222,7 +226,8 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
     r_s.normal = n;
 
     r_s.shading_model = material_shading_model(m);
-    if (r_s.shading_model != SHADING_MODEL_DEFAULT_LIT) {
+    const bool unlit = r_s.shading_model == SHADING_MODEL_UNLIT;
+    if (r_s.shading_model != SHADING_MODEL_DEFAULT_LIT && !unlit) {
         r_s.albedo = vec3(0.0);
         r_s.roughness = 1.0;
         r_s.metallic = 0.0;
@@ -236,7 +241,7 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
     r_s.ao = 1.0;
     r_s.emissive = m.emissive;
 
-    const bool textured = m.base_color_tex != TEXTURE_NONE || m.normal_tex != TEXTURE_NONE || m.roughness_tex != TEXTURE_NONE || m.metallic_tex != TEXTURE_NONE || m.ao_tex != TEXTURE_NONE || m.emissive_tex != TEXTURE_NONE;
+    const bool textured = m.base_color_tex != TEXTURE_NONE || m.emissive_tex != TEXTURE_NONE || (!unlit && (m.normal_tex != TEXTURE_NONE || m.roughness_tex != TEXTURE_NONE || m.metallic_tex != TEXTURE_NONE || m.ao_tex != TEXTURE_NONE));
     if (textured) {
         vec3 b_dx, b_dy;
         if (!ray_barycentrics(p_dir_dx, p0, p1, p2, b_dx)) b_dx = b;
@@ -251,13 +256,13 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
         const vec2 uv_dy = (uv0 * b_dy.x + uv1 * b_dy.y + uv2 * b_dy.z - raw_uv) * m.uv_transform.xy * pc.grad_scale;
 
         if (m.base_color_tex != TEXTURE_NONE) r_s.albedo *= sample_material(m.base_color_tex, uv, uv_dx, uv_dy).rgb;
-        if (m.roughness_tex != TEXTURE_NONE) r_s.roughness *= sample_material(m.roughness_tex, uv, uv_dx, uv_dy).r;
-        if (m.metallic_tex != TEXTURE_NONE) r_s.metallic *= sample_material(m.metallic_tex, uv, uv_dx, uv_dy).r;
-        if (m.ao_tex != TEXTURE_NONE) r_s.ao = 1.0 + m.ao_strength * (sample_material(m.ao_tex, uv, uv_dx, uv_dy).r - 1.0);
+        if (!unlit && m.roughness_tex != TEXTURE_NONE) r_s.roughness *= sample_material(m.roughness_tex, uv, uv_dx, uv_dy).r;
+        if (!unlit && m.metallic_tex != TEXTURE_NONE) r_s.metallic *= sample_material(m.metallic_tex, uv, uv_dx, uv_dy).r;
+        if (!unlit && m.ao_tex != TEXTURE_NONE) r_s.ao = 1.0 + m.ao_strength * (sample_material(m.ao_tex, uv, uv_dx, uv_dy).r - 1.0);
         if (m.emissive_tex != TEXTURE_NONE) r_s.emissive *= sample_material(m.emissive_tex, uv, uv_dx, uv_dy).rgb;
 
         vec3 t, bt;
-        if (m.normal_tex != TEXTURE_NONE && triangle_tangent(o, tri, uv0, uv1, uv2, n, t, bt)) {
+        if (!unlit && m.normal_tex != TEXTURE_NONE && triangle_tangent(o, tri, uv0, uv1, uv2, n, t, bt)) {
             vec2 xy = (sample_material(m.normal_tex, uv, uv_dx, uv_dy).rg * 2.0 - 1.0) * m.normal_scale;
             float z = sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0));
             r_s.normal = normalize(t * xy.x + bt * xy.y + n * z);
@@ -281,15 +286,9 @@ uvec2 swizzled_group(uint p_groups_x, uint p_groups_y) {
     return uvec2(strip * SWIZZLE_STRIP + in_strip % w, in_strip / w);
 }
 
+shared uint s_paths;
 
-void main() {
-    const uint groups_x = (pc.width + 7u) / 8u;
-    const uint groups_y = (pc.height + 7u) / 8u;
-    if (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x >= groups_x * groups_y) return;
-    const uvec2 px = swizzled_group(groups_x, groups_y) * 8u + gl_LocalInvocationID.xy;
-    if (px.x >= pc.width || px.y >= pc.height) return;
-    const ivec2 coord = ivec2(px);
-
+uint resolve_pixel(ivec2 coord) {
     const uint v = texelFetch(u_textures_uint[pc.vis_index], coord, 0).x;
 
     const vec2 texel = 2.0 / vec2(pc.width, pc.height);
@@ -307,7 +306,7 @@ void main() {
             imageStore(u_storage_rg16f[pc.motion_slot], coord, vec4(motion, 0.0, 0.0));
         }
         imageStore(u_storage_r11g11b10f[pc.emissive_slot], coord, vec4(0.0));
-        return;
+        return SHADING_MODEL_SKY;
     }
 
     const vec4 h_dx = h + inv_vp[0] * texel.x;
@@ -326,4 +325,37 @@ void main() {
     if ((pc.flags & RESOLVE_WRITE_CUSTOM) != 0u) imageStore(u_storage_rgba8[pc.custom_slot], coord, vec4(0.0));
     imageStore(u_storage_r11g11b10f[pc.emissive_slot], coord, vec4(min(s.emissive, vec3(EMISSIVE_MAX)), 0.0));
     if (write_motion) imageStore(u_storage_rg16f[pc.motion_slot], coord, vec4(s.motion, 0.0, 0.0));
+    return s.shading_model;
+}
+
+void classify_tile(uvec2 p_tile, uint p_tiles) {
+    const uint type = shading_tile_type(s_paths);
+    const uint k = atomicAdd(pc.shading_tiles.args[type].w, 1u);
+    pc.shading_tiles.tiles[type * p_tiles + k] = shading_tile_pack(p_tile);
+    memoryBarrierBuffer();
+    if (atomicAdd(pc.shading_tiles.done, 1u) != p_tiles - 1u) return;
+    pc.shading_tiles.capacity = p_tiles;
+    for (uint t = 0u; t < SHADING_TILE_TYPES; t++) {
+        const uint count = atomicAdd(pc.shading_tiles.args[t].w, 0u);
+        pc.shading_tiles.args[t].x = min(count, SHADING_TILE_DISPATCH_MAX);
+        pc.shading_tiles.args[t].y = (count + SHADING_TILE_DISPATCH_MAX - 1u) / SHADING_TILE_DISPATCH_MAX;
+        pc.shading_tiles.args[t].z = 1u;
+    }
+}
+
+void main() {
+    const uint groups_x = (pc.width + SHADING_TILE_SIZE - 1u) / SHADING_TILE_SIZE;
+    const uint groups_y = (pc.height + SHADING_TILE_SIZE - 1u) / SHADING_TILE_SIZE;
+    const uint tiles = groups_x * groups_y;
+    if (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x >= tiles) return;
+    const uvec2 tile = swizzled_group(groups_x, groups_y);
+    const uvec2 px = tile * SHADING_TILE_SIZE + gl_LocalInvocationID.xy;
+
+    if (gl_LocalInvocationIndex == 0u) s_paths = 0u;
+    barrier();
+    const uint path = (px.x < pc.width && px.y < pc.height) ? shading_path(resolve_pixel(ivec2(px))) : 0u;
+    const uint wave_paths = subgroupOr(path);
+    if (subgroupElect()) atomicOr(s_paths, wave_paths);
+    barrier();
+    if (gl_LocalInvocationIndex == 0u) classify_tile(tile, tiles);
 }

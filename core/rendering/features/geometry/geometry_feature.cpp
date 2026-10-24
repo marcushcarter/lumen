@@ -837,12 +837,19 @@ void GeometryFeature::_create_material_resolve_pass()
         motion_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Motion", motion_ci);
 
+        drivers::DeviceDriverVulkan::BufferCreateInfo tiles_ci{};
+        tiles_ci.size = SHADING_TILES_HEADER_SIZE + (VkDeviceSize)SHADING_TILE_TYPES * shading_tile_count(b.graph->width, b.graph->height) * sizeof(uint32_t);
+        tiles_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        tiles_ci.device_local = true;
+        b.create_buffer("ShadingTiles", tiles_ci);
+
         b.read_image("G_Visibility", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.write_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
         b.write_image("G_Normal", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Albedo", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -864,6 +871,8 @@ void GeometryFeature::_create_material_resolve_pass()
         auto inst = cl.graph->buffer("Instances");
         auto xf = cl.graph->buffer("Transforms");
         auto refs = cl.graph->buffer("ClusterRefs");
+        auto tiles = cl.graph->buffer("ShadingTiles");
+        if (!tiles) return;
         
         uint32_t gx = (vis->extent.width + 7) / 8;
         uint32_t gy = (vis->extent.height + 7) / 8;
@@ -874,6 +883,7 @@ void GeometryFeature::_create_material_resolve_pass()
             VkDeviceAddress instances_addr;
             VkDeviceAddress transforms_addr;
             VkDeviceAddress cluster_refs_addr;
+            VkDeviceAddress shading_tiles_addr;
             uint32_t vis_index;
             uint32_t normal_slot;
             uint32_t albedo_slot;
@@ -892,6 +902,7 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.instances_addr = inst->device_address;
         pc.transforms_addr = xf->device_address;
         pc.cluster_refs_addr = refs->device_address;
+        pc.shading_tiles_addr = tiles->device_address;
         pc.vis_index = vis->bindless_sampled;
         pc.normal_slot = normal->bindless_storage;
         pc.albedo_slot = albedo->bindless_storage;
@@ -909,6 +920,17 @@ void GeometryFeature::_create_material_resolve_pass()
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
+        cl.fill_buffer("Shading tiles clear", *tiles, 0u, 0, SHADING_TILES_HEADER_SIZE);
+        VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        mb.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &mb;
+        vkCmdPipelineBarrier2(cl.cmd, &dep);
+
         cl.dd->command_bind_pipeline(cl.cmd, material_resolve_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         const uint32_t groups = gx * gy;

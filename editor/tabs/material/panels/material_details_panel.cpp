@@ -55,7 +55,7 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
     
     if (imgui_category("Normal")) {
         changed |= _texture(ctx, "Normal Texture", "###mat_normal_tex", m.normal_texture);
-        // if (m.normal_texture != Guid::INVALID) changed |= ImGui::DragFloat("Normal Scale", &m.normal_scale, 0.01f, 0.0f, 10.0f);
+        if (m.normal_texture.value != Guid::INVALID) changed |= ImGui::DragFloat("Normal Scale", &m.normal_scale, 0.01f, 0.0f, 10.0f);
     }
     
     if (imgui_category("Roughness / Metallic / AO")) {
@@ -63,8 +63,8 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
         changed |= _texture(ctx, "Roughness Texture", "###mat_roughness_tex", m.roughness_texture);
         changed |= ImGui::SliderFloat("Metallic", &m.metallic, 0.0f, 1.0f);
         changed |= _texture(ctx, "Metallic Texture", "###mat_metallic_tex", m.metallic_texture);
-        changed |= ImGui::SliderFloat("AO Strength", &m.ao_strength, 0.0f, 1.0f);
         changed |= _texture(ctx, "AO Texture", "###mat_ao_tex", m.ao_texture);
+        if (m.ao_texture.value != Guid::INVALID) changed |= ImGui::SliderFloat("AO Strength", &m.ao_strength, 0.0f, 1.0f);
     }
     
     if (imgui_category("Emmisive")) {
@@ -77,13 +77,6 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
         changed |= ImGui::DragFloat2("UV Scale", &m.uv_scale.x, 0.01f);
         changed |= ImGui::DragFloat2("UV Offset", &m.uv_offset.x, 0.01f);
     }
-    
-    // if (imgui_category("Misc")) {    
-    //     ImGui::SeparatorText("Custom");
-    //     changed |= ImGui::DragFloat4("Custom", &m.custom.x, 0.01f);
-    //     changed |= _texture(ctx, "Custom Texture", "###mat_custom_tex", m.custom_texture);
-
-    // }
     
     if (changed && ctx.renderer) ctx.renderer->materials.set(m);
 }

@@ -26,6 +26,7 @@ void LightingFeature::_create_lighting_pass()
         b.read_image("G_Normal", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("G_Material", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("G_Emissive", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -57,6 +58,8 @@ void LightingFeature::_create_lighting_pass()
         auto* transmittance = cl.graph->image("TransmittanceLut");
         auto* aerial = cl.graph->image("AerialPerspective");
         auto* skyview = cl.graph->image("SkyView");
+        auto* tiles = cl.graph->buffer("ShadingTiles");
+        if (!tiles) return;
         if (!depth || !albedo || !normal || !material || !emissive || !camera || !lights || !out) return;
         if (!atmosphere || !sky_lighting || !transmittance || !aerial || !skyview || !lut_sampler) return;
         const bool local_lights = cull && sorted;
@@ -70,6 +73,7 @@ void LightingFeature::_create_lighting_pass()
             VkDeviceAddress masks_addr;
             VkDeviceAddress atmosphere_addr;
             VkDeviceAddress sky_lighting_addr;
+            VkDeviceAddress tiles_addr;
             uint32_t depth_index;
             uint32_t albedo_index;
             uint32_t normal_index;
@@ -93,6 +97,7 @@ void LightingFeature::_create_lighting_pass()
         pc.masks_addr = masks ? masks->device_address : 0;
         pc.atmosphere_addr = atmosphere->device_address;
         pc.sky_lighting_addr = sky_lighting->device_address;
+        pc.tiles_addr = tiles->device_address;
         pc.depth_index = depth->bindless_sampled;
         pc.albedo_index = albedo->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
@@ -110,9 +115,13 @@ void LightingFeature::_create_lighting_pass()
         pc.sun_reject_cos = std::cos(std::min(AtmosphereComponent::SUN_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
         pc.moon_reject_cos = std::cos(std::min(AtmosphereComponent::MOON_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
 
-        cl.dd->command_bind_pipeline(cl.cmd, lighting_pipes[mode]);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Deferred lighting", (pc.width + 7) / 8, (pc.height + 7) / 8);
+        static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
+        static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (unlit)", "Deferred lighting (mixed)" };
+        for (uint32_t t = 0; t < SHADING_TILE_TYPES; t++) {
+            cl.dd->command_bind_pipeline(cl.cmd, lighting_pipes[t][mode]);
+            cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+            cl.dispatch_indirect(NAMES[t], *tiles, t * SHADING_TILES_ARGS_STRIDE);
+        }
     };
 }
 
@@ -124,13 +133,25 @@ Error LightingFeature::create_resources()
 
 Error LightingFeature::create_pipelines()
 {
-    static const char* NAMES[LIGHT_MODE_COUNT] = { "lighting/deferred_lighting (no local)", "lighting/deferred_lighting (zbin)", "lighting/deferred_lighting (tiled)" };
+    static const char* NAMES[SHADING_TILE_TYPES][LIGHT_MODE_COUNT] = {
+        { "lighting/deferred_lighting (sky)", "lighting/deferred_lighting (sky)", "lighting/deferred_lighting (sky)" },
+        { "lighting/deferred_lighting (lit, no local)", "lighting/deferred_lighting (lit, zbin)", "lighting/deferred_lighting (lit, tiled)" },
+        { "lighting/deferred_lighting (unlit)", "lighting/deferred_lighting (unlit)", "lighting/deferred_lighting (unlit)" },
+        { "lighting/deferred_lighting (mixed, no local)", "lighting/deferred_lighting (mixed, zbin)", "lighting/deferred_lighting (mixed, tiled)" },
+    };
     EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_LIGHTING_DEFERRED_LIGHTING_COMP");
     VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "lighting/deferred_lighting.comp" });
-    for (uint32_t m = 0; m < LIGHT_MODE_COUNT; m++) {
-        const VkSpecializationMapEntry entry{ 0, 0, sizeof(uint32_t) };
-        const VkSpecializationInfo spec{ 1, &entry, sizeof(uint32_t), &m };
-        lighting_pipes[m] = ctx->dd->compute_pipeline_create({ .compute_shader = cs, .name = NAMES[m], .specialization = &spec });
+    const VkSpecializationMapEntry entries[2] = { { 0, 0, sizeof(uint32_t) }, { 1, sizeof(uint32_t), sizeof(uint32_t) } };
+    for (uint32_t t = 0; t < SHADING_TILE_TYPES; t++) {
+        for (uint32_t m = 0; m < LIGHT_MODE_COUNT; m++) {
+            if ((t == SHADING_TILE_SKY || t == SHADING_TILE_UNLIT) && m != LIGHT_MODE_NONE) {
+                lighting_pipes[t][m] = lighting_pipes[t][LIGHT_MODE_NONE];
+                continue;
+            }
+            const uint32_t values[2] = { m, t };
+            const VkSpecializationInfo spec{ 2, entries, sizeof(values), values };
+            lighting_pipes[t][m] = ctx->dd->compute_pipeline_create({ .compute_shader = cs, .name = NAMES[t][m], .specialization = &spec });
+        }
     }
     ctx->dd->shader_free(cs);
     return Error::OK;
@@ -138,7 +159,12 @@ Error LightingFeature::create_pipelines()
 
 void LightingFeature::destroy_resources()
 {
-    for (drivers::DeviceDriverVulkan::Pipeline& p : lighting_pipes) ctx->dd->pipeline_free(p);
+    for (uint32_t t = 0; t < SHADING_TILE_TYPES; t++) {
+        for (uint32_t m = 0; m < LIGHT_MODE_COUNT; m++) {
+            if ((t != SHADING_TILE_SKY && t != SHADING_TILE_UNLIT) || m == LIGHT_MODE_NONE) ctx->dd->pipeline_free(lighting_pipes[t][m]);
+            lighting_pipes[t][m] = {};
+        }
+    }
 }
 
 void LightingFeature::build(RenderGraph& g)

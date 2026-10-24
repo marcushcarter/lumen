@@ -49,13 +49,25 @@ static constexpr uint32_t MATERIAL_DEFAULT = 0u;
 static constexpr uint32_t MATERIAL_ALPHA_SHIFT = 8u;
 static constexpr uint32_t MATERIAL_FLAG_TWO_SIDED = 1u << 10;
 
-// Raster bins (compact_draw.glsl): bit 0 = two-sided, bit 1 = masked. Stored in the top bits of each slot table entry.
 static constexpr uint32_t RASTER_BIN_OPAQUE = 0u;
 static constexpr uint32_t RASTER_BIN_TWO_SIDED = 1u;
 static constexpr uint32_t RASTER_BIN_MASKED = 2u;
 static constexpr uint32_t RASTER_BIN_COUNT = 4u;
 static constexpr uint32_t SLOT_BIN_SHIFT = 29u;
 static constexpr uint32_t SLOT_MATERIAL_MASK = (1u << SLOT_BIN_SHIFT) - 1u;
+
+static constexpr uint32_t SHADING_TILE_SIZE = 8u;
+static constexpr uint32_t SHADING_TILE_SKY = 0u;
+static constexpr uint32_t SHADING_TILE_LIT = 1u;
+static constexpr uint32_t SHADING_TILE_UNLIT = 2u;
+static constexpr uint32_t SHADING_TILE_MIXED = 3u;
+static constexpr uint32_t SHADING_TILE_TYPES = 4u;
+static constexpr uint32_t SHADING_TILES_HEADER_SIZE = SHADING_TILE_TYPES * 16u + 16u;
+static constexpr uint32_t SHADING_TILES_ARGS_STRIDE = 16u;
+
+inline uint32_t shading_tile_count(uint32_t p_width, uint32_t p_height) {
+    return ((p_width + SHADING_TILE_SIZE - 1) / SHADING_TILE_SIZE) * ((p_height + SHADING_TILE_SIZE - 1) / SHADING_TILE_SIZE);
+}
 
 struct GPUMaterial {
     vec4 base_color;
@@ -76,7 +88,6 @@ struct GPUMaterial {
     uint32_t custom_tex;
     uint32_t flags;
 };
-
 static_assert(sizeof(GPUMaterial) == 112, "GPUMaterial layout changed");
 
 static constexpr uint32_t LIGHT_IES_NONE = 0xFFFF;

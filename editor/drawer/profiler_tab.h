@@ -1,6 +1,6 @@
 #pragma once
 #include <editor/drawer/drawer_tab.h>
-#include <core/rendering/render_graph_profiler.h>
+#include <core/rendering/gpu_profiler.h>
 #include <IconsFontAwesome6.h>
 #include <cstdint>
 
@@ -11,8 +11,8 @@ struct ProfilerDrawerTab : DrawerTab
     uint64_t sel_pass_key = 0;
     uint64_t sel_draw_key = 0;
     
-    const RenderGraphProfiler::Timing* selected_pass = nullptr;
-    const RenderGraphProfiler::Timing* selected_draw = nullptr;
+    const GpuProfiler::Timing* selected_pass = nullptr;
+    const GpuProfiler::Timing* selected_draw = nullptr;
 
     char sel_name[64] = {};
     bool follow = false;

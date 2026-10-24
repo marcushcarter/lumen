@@ -4,7 +4,7 @@
 #include <core/assets/lmodel.h>
 #include <core/assets/lmaterial.h>
 #include <core/project/project.h>
-#include <core/base/tasks.h>
+#include <core/base/jobs.h>
 #include <core/base/error.h>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -425,9 +425,9 @@ void ModelImporter::import_async(EditorContext& ctx, const std::filesystem::path
 
     job.progress = ctx.imports->add(job.dst_lmesh, job.mesh_guid, job.mesh_content_bin, nullptr, false);
     ctx.imports->add(job.dst_lmodel, job.model_guid, {}, job.progress, true);
-    ctx.tasks->dispatch([job]{
+    job_system().run_background_owned([job]{
         if (ModelImporter::_import(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
-    });
+    }, nullptr, "Model Import");
 }
 
 }

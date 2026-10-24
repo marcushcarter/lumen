@@ -8,10 +8,11 @@
 #include <core/world/world.h>
 #include <core/world/camera.h>
 #include <core/base/error.h>
+#include <core/base/jobs.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <deque>
 #include <filesystem>
-#include <future>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -65,20 +66,21 @@ struct ThumbnailCache
     struct ParsedMaterial { uint64_t stamp = 0; LMaterial material; };
     struct ParsedModel { uint64_t stamp = 0; LModel model; };
     struct Retired { drivers::DeviceDriverVulkan::Image image; uint64_t frame = 0; };
+    struct PendingWrite { JobCounter counter; bool ok = false; };
 
     drivers::DeviceDriverVulkan* dd = nullptr;
 
     std::filesystem::path dir;
-    bool _disk_scanned = false;
+    bool disk_scanned = false;
     std::unordered_map<Guid, uint64_t, GuidHash, GuidEq> disk;
 
     std::unordered_map<Guid, Entry, GuidHash, GuidEq> entries;
-    std::unordered_map<Guid, ParsedMaterial, GuidHash, GuidEq> _materials;
-    std::unordered_map<Guid, ParsedModel, GuidHash, GuidEq> _models;
-    std::deque<Guid> _queue;
-    Job _job;
-    uint64_t _ticket_serial = 0;
-    std::vector<uint8_t> _pixels;
+    std::unordered_map<Guid, ParsedMaterial, GuidHash, GuidEq> materials;
+    std::unordered_map<Guid, ParsedModel, GuidHash, GuidEq> models;
+    std::deque<Guid> queue;
+    Job job;
+    uint64_t ticket_serial = 0;
+    std::vector<uint8_t> pixels;
 
     RenderView view;
     ThumbnailRenderPath* path = nullptr;
@@ -87,8 +89,8 @@ struct ThumbnailCache
     Guid preview_sphere;
     Guid preview_mesh;
 
-    std::vector<Retired> _retired;
-    std::vector<std::future<bool>> _writes;
+    std::vector<Retired> retired;
+    std::vector<std::unique_ptr<PendingWrite>> writes;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd);
     void shutdown(EditorContext& ctx);

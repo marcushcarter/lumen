@@ -25,14 +25,14 @@ static void _append(std::string& r_out, const char* p_fmt, ...)
     if (n > 0) r_out.append(buf, (size_t)std::min(n, (int)sizeof(buf) - 1));
 }
 
-static const char* _kind_name(RenderGraphProfiler::MarkKind p_kind)
+static const char* _kind_name(GpuProfiler::MarkKind p_kind)
 {
     switch (p_kind) {
-        case RenderGraphProfiler::MarkKind::PASS: return "PASS";
-        case RenderGraphProfiler::MarkKind::DRAW: return "DRAW";
-        case RenderGraphProfiler::MarkKind::BARRIER: return "SYNC";
-        case RenderGraphProfiler::MarkKind::DISPATCH: return "DISPATCH";
-        case RenderGraphProfiler::MarkKind::TRANSFER: return "TRANSFER";
+        case GpuProfiler::MarkKind::PASS: return "PASS";
+        case GpuProfiler::MarkKind::DRAW: return "DRAW";
+        case GpuProfiler::MarkKind::BARRIER: return "SYNC";
+        case GpuProfiler::MarkKind::DISPATCH: return "DISPATCH";
+        case GpuProfiler::MarkKind::TRANSFER: return "TRANSFER";
     }
     return "?";
 }
@@ -42,8 +42,8 @@ void ProfilerDrawerTab::_copy_report(EditorContext& ctx)
     const Renderer& r = *ctx.renderer;
     const RenderView& v = r.main_view;
     const drivers::DeviceDriverVulkan& dd = *r.dd;
-    const RenderGraphProfiler& prof = v.graph.profiler;
-    const std::vector<RenderGraphProfiler::Timing>& results = prof.results;
+    const GpuProfiler& prof = v.graph.gpu_profiler;
+    const std::vector<GpuProfiler::Timing>& results = prof.results;
 
     std::string out;
     out.reserve(16 * 1024);
@@ -115,10 +115,10 @@ void ProfilerDrawerTab::_copy_report(EditorContext& ctx)
         uint32_t pass_count = 0, sync_count = 0;
         std::vector<uint32_t> top;
         for (uint32_t i = 0; i < (uint32_t)results.size(); i++) {
-            const RenderGraphProfiler::Timing& t = results[i];
-            if (t.parent != RenderGraphProfiler::INVALID) continue;
+            const GpuProfiler::Timing& t = results[i];
+            if (t.parent != GpuProfiler::INVALID) continue;
             gap_ms += t.gap_ms;
-            if (t.kind == RenderGraphProfiler::MarkKind::BARRIER) { sync_ms += t.gpu_ms; sync_count++; }
+            if (t.kind == GpuProfiler::MarkKind::BARRIER) { sync_ms += t.gpu_ms; sync_count++; }
             else { pass_ms += t.gpu_ms; pass_count++; top.push_back(i); }
         }
         _append(out, "Total: %.3f ms, draws: %u%s\n", prof.total_ms, prof.total_draws, prof.truncated ? " (TRUNCATED)" : "");
@@ -128,19 +128,19 @@ void ProfilerDrawerTab::_copy_report(EditorContext& ctx)
         std::sort(top.begin(), top.end(), [&](uint32_t a, uint32_t b) { return results[a].gpu_ms > results[b].gpu_ms; });
         _append(out, "\nTop passes:\n");
         for (uint32_t i = 0; i < (uint32_t)std::min<size_t>(top.size(), 10); i++) {
-            const RenderGraphProfiler::Timing& t = results[top[i]];
+            const GpuProfiler::Timing& t = results[top[i]];
             _append(out, "  %-28s %8.3f ms  %5.1f%%\n", t.name, t.gpu_ms, prof.total_ms > 0.0 ? 100.0 * t.gpu_ms / prof.total_ms : 0.0);
         }
 
-        _append(out, "\nTimeline (ms smoothed / raw, gap before):\n");
-        _append(out, "%-9s %-36s %-12s %9s %9s %8s %6s %11s %11s %11s %7s\n", "kind", "name", "category", "gpu", "raw", "gap", "draws", "verts", "prims", "samples", "inst");
+        _append(out, "\nTimeline (ms, gap before):\n");
+        _append(out, "%-9s %-36s %-12s %9s %8s %6s %11s %11s %11s %7s\n", "kind", "name", "category", "gpu", "gap", "draws", "verts", "prims", "samples", "inst");
         for (uint32_t i = 0; i < (uint32_t)results.size(); i++) {
-            const RenderGraphProfiler::Timing& t = results[i];
+            const GpuProfiler::Timing& t = results[i];
             uint32_t depth = 0;
-            for (uint32_t pi = t.parent; pi != RenderGraphProfiler::INVALID && pi < results.size() && depth < 8; pi = results[pi].parent) depth++;
+            for (uint32_t pi = t.parent; pi != GpuProfiler::INVALID && pi < results.size() && depth < 8; pi = results[pi].parent) depth++;
             char name[64];
             std::snprintf(name, sizeof(name), "%*s%s", (int)(depth * 2), "", t.name);
-            _append(out, "%-9s %-36s %-12s %9.3f %9.3f %8.3f %6u %11llu %11llu %11llu %7u\n", _kind_name(t.kind), name, t.kind == RenderGraphProfiler::MarkKind::PASS || t.kind == RenderGraphProfiler::MarkKind::BARRIER ? t.category : t.type, t.gpu_ms, t.raw_ms, t.gap_ms, t.draw_count, (unsigned long long)t.vertices, (unsigned long long)t.primitives, (unsigned long long)t.samples, t.instances);
+            _append(out, "%-9s %-36s %-12s %9.3f %8.3f %6u %11llu %11llu %11llu %7u\n", _kind_name(t.kind), name, t.kind == GpuProfiler::MarkKind::PASS || t.kind == GpuProfiler::MarkKind::BARRIER ? t.category : t.type, t.gpu_ms, t.gap_ms, t.draw_count, (unsigned long long)t.vertices, (unsigned long long)t.primitives, (unsigned long long)t.samples, t.instances);
         }
     }
 
@@ -151,10 +151,10 @@ void ProfilerDrawerTab::_draw_info(EditorContext& ctx, bool frozen)
 {
     if (!selected_draw) return;
 
-    RenderGraphProfiler& prof = ctx.renderer->main_view.graph.profiler;
+    GpuProfiler& prof = ctx.renderer->main_view.graph.gpu_profiler;
 
     if (selected_draw->key != plot_key) { plot_key = selected_draw->key; plot_hist.clear(); }
-    if (!frozen) plot_hist.add(static_cast<float>(selected_draw->raw_ms * 1000.0));
+    if (!frozen) plot_hist.add(static_cast<float>(selected_draw->gpu_ms * 1000.0));
 
     imgui_title("%s · %s", selected_draw->name, selected_draw->type);
 
@@ -175,14 +175,14 @@ void ProfilerDrawerTab::_draw_info(EditorContext& ctx, bool frozen)
         median = (n & 1) ? sort_scratch[n / 2] : 0.5 * (sort_scratch[n / 2 - 1] + sort_scratch[n / 2]);
     }
 
-    const std::vector<RenderGraphProfiler::Timing>& results = prof.results;
+    const std::vector<GpuProfiler::Timing>& results = prof.results;
     int occ = 0;
     double total_us = 0.0;
-    if (selected_draw->parent != RenderGraphProfiler::INVALID && selected_draw->parent < results.size()) {
+    if (selected_draw->parent != GpuProfiler::INVALID && selected_draw->parent < results.size()) {
         const char* sel_pass = results[selected_draw->parent].name;
-        for (const RenderGraphProfiler::Timing& t : results) {
-            if (t.kind != RenderGraphProfiler::MarkKind::DRAW) continue;
-            if (t.parent == RenderGraphProfiler::INVALID || t.parent >= results.size()) continue;
+        for (const GpuProfiler::Timing& t : results) {
+            if (t.kind != GpuProfiler::MarkKind::DRAW) continue;
+            if (t.parent == GpuProfiler::INVALID || t.parent >= results.size()) continue;
             if (std::strcmp(results[t.parent].name, sel_pass) != 0) continue;
             if (std::strcmp(t.name, selected_draw->name) != 0) continue;
             ++occ;
@@ -218,7 +218,7 @@ void ProfilerDrawerTab::_draw_info(EditorContext& ctx, bool frozen)
 
 void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 {
-    RenderGraphProfiler& prof = ctx.renderer->main_view.graph.profiler;
+    GpuProfiler& prof = ctx.renderer->main_view.graph.gpu_profiler;
     const UiStyle& ui = ui_style();
 
     ImGuiIO& io = ImGui::GetIO();
@@ -228,14 +228,14 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) prof.frozen = false;
     }
 
-    const std::vector<RenderGraphProfiler::Timing>& src = prof.results;
+    const std::vector<GpuProfiler::Timing>& src = prof.results;
     const float total_ms = (float)prof.total_ms;
 
     selected_pass = nullptr;
     selected_draw = nullptr;
-    for (const RenderGraphProfiler::Timing& t : src) {
-        if (sel_pass_key && t.kind == RenderGraphProfiler::MarkKind::PASS && t.key == sel_pass_key) selected_pass = &t;
-        if (sel_draw_key && t.kind == RenderGraphProfiler::MarkKind::DRAW && t.key == sel_draw_key) selected_draw = &t;
+    for (const GpuProfiler::Timing& t : src) {
+        if (sel_pass_key && t.kind == GpuProfiler::MarkKind::PASS && t.key == sel_pass_key) selected_pass = &t;
+        if (sel_draw_key && t.kind == GpuProfiler::MarkKind::DRAW && t.key == sel_draw_key) selected_draw = &t;
     }
     
     ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -255,8 +255,8 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
         float frame_cursor = 0.0f;
         for (size_t i = 0; i < n; ++i) {
-            const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind == RenderGraphProfiler::MarkKind::PASS || t.parent == RenderGraphProfiler::INVALID) {
+            const GpuProfiler::Timing& t = src[i];
+            if (t.kind == GpuProfiler::MarkKind::PASS || t.parent == GpuProfiler::INVALID) {
                 start[i] = frame_cursor + (float)t.gap_ms;
                 frame_cursor = start[i] + (float)t.gpu_ms;
             } else {
@@ -347,7 +347,7 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
         if (follow && sel_name[0]) {
             for (size_t i = 0; i < n; ++i) {
-                if (src[i].kind != RenderGraphProfiler::MarkKind::PASS) continue;
+                if (src[i].kind != GpuProfiler::MarkKind::PASS) continue;
                 if (std::strcmp(src[i].name ? src[i].name : "", sel_name) != 0) continue;
                 float target_start = start[i];
                 float target_range = std::max((float)src[i].gpu_ms, MIN_RANGE_MS);
@@ -475,8 +475,8 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
                 run_ms = 0.0f;
             };
 
-            for (const RenderGraphProfiler::Timing& t : src) {
-                if (t.kind != RenderGraphProfiler::MarkKind::PASS && t.kind != RenderGraphProfiler::MarkKind::BARRIER) continue;
+            for (const GpuProfiler::Timing& t : src) {
+                if (t.kind != GpuProfiler::MarkKind::PASS && t.kind != GpuProfiler::MarkKind::BARRIER) continue;
                 const char* cat = t.category ? t.category : "";
                 const float span = (float)(t.gap_ms + t.gpu_ms);
                 if (run_cat && std::strcmp(run_cat, cat) == 0) { run_ms += span; continue; }
@@ -490,8 +490,8 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
         // Passes.
         for (size_t i = 0; i < n; ++i) {
-            const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind != RenderGraphProfiler::MarkKind::PASS) continue;
+            const GpuProfiler::Timing& t = src[i];
+            if (t.kind != GpuProfiler::MarkKind::PASS) continue;
 
             bool bar_hovered = false;
             ImVec2 x = bar(start[i], (float)t.gpu_ms, y_pass0, y_pass1, imgui_rg_category_u32(t.category), &bar_hovered);
@@ -505,7 +505,7 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
                     selected_draw = nullptr;
                 } else {
                     sel_pass_key = t.key; selected_pass = &t;
-                    if (selected_draw && selected_draw->parent != RenderGraphProfiler::INVALID && src[selected_draw->parent].key != t.key) {
+                    if (selected_draw && selected_draw->parent != GpuProfiler::INVALID && src[selected_draw->parent].key != t.key) {
                         sel_draw_key = 0;
                         selected_draw = nullptr;
                     }
@@ -528,11 +528,11 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
         // Draw calls + compute dispatches.
         for (size_t i = 0; i < n; ++i) {
-            const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind != RenderGraphProfiler::MarkKind::DRAW && t.kind != RenderGraphProfiler::MarkKind::DISPATCH && t.kind != RenderGraphProfiler::MarkKind::TRANSFER) continue;
+            const GpuProfiler::Timing& t = src[i];
+            if (t.kind != GpuProfiler::MarkKind::DRAW && t.kind != GpuProfiler::MarkKind::DISPATCH && t.kind != GpuProfiler::MarkKind::TRANSFER) continue;
 
             const uint32_t p = t.parent;
-            if (p == RenderGraphProfiler::INVALID) continue;
+            if (p == GpuProfiler::INVALID) continue;
             const float parent_end = start[p] + (float)src[p].gpu_ms;
             const float a_ms = start[i];
             if (a_ms >= parent_end) continue;
@@ -546,7 +546,7 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
                     sel_draw_key = 0; selected_draw = nullptr;
                 } else {
                     sel_draw_key = t.key; selected_draw = &t;
-                    const RenderGraphProfiler::Timing& parent = src[p];
+                    const GpuProfiler::Timing& parent = src[p];
                     sel_pass_key = parent.key; selected_pass = &parent;
                     snprintf(sel_name, sizeof(sel_name), "%s", parent.name ? parent.name : "");
                 }
@@ -561,11 +561,11 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
             if (bar_hovered) {
                 ImGui::BeginTooltip();
 
-                const bool is_graphics = t.kind == RenderGraphProfiler::MarkKind::DRAW;
+                const bool is_graphics = t.kind == GpuProfiler::MarkKind::DRAW;
                 if (named) {
                     imgui_title("%s · %s", t.name, t.type);
                 } else {
-                    const char* k = t.kind == RenderGraphProfiler::MarkKind::DISPATCH ? "Dispatch" : t.kind == RenderGraphProfiler::MarkKind::TRANSFER ? "Transfer" : "Draw";
+                    const char* k = t.kind == GpuProfiler::MarkKind::DISPATCH ? "Dispatch" : t.kind == GpuProfiler::MarkKind::TRANSFER ? "Transfer" : "Draw";
                     imgui_title("%s %u", k, t.ordinal);
                 }
                 imgui_property_row("Time", "%.0f µs", t.gpu_ms*1000.0);
@@ -594,8 +594,8 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
         // Barriers.
         for (size_t i = 0; i < n; ++i) {
-            const RenderGraphProfiler::Timing& t = src[i];
-            if (t.kind != RenderGraphProfiler::MarkKind::BARRIER) continue;
+            const GpuProfiler::Timing& t = src[i];
+            if (t.kind != GpuProfiler::MarkKind::BARRIER) continue;
             if (t.gpu_ms <= 0.0) continue;
 
             bool bar_hovered = false;
@@ -647,7 +647,7 @@ void ProfilerDrawerTab::_draw_timeline(EditorContext& ctx)
 
 void ProfilerDrawerTab::draw(EditorContext& ctx)
 {
-    auto& profiler = ctx.renderer->main_view.graph.profiler;
+    auto& gpu_profiler = ctx.renderer->main_view.graph.gpu_profiler;
     const UiStyle& ui = ui_style();
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -674,10 +674,10 @@ void ProfilerDrawerTab::draw(EditorContext& ctx)
         ProfilingSettings& prof = *ctx.profiling;
         if (ImGui::Button(ICON_FA_COPY "  Copy Report", ImVec2(-FLT_MIN, 0.0f))) _copy_report(ctx);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copy passes, timings, counts, resolution and settings to the clipboard.");
-        ImGui::BeginDisabled(!profiler.supported);
+        ImGui::BeginDisabled(!gpu_profiler.supported);
         ImGui::Checkbox("Enable GPU Profiling", &prof.gpu);
         ImGui::EndDisabled();
-        ImGui::BeginDisabled(!prof.gpu || !profiler.stats_supported);
+        ImGui::BeginDisabled(!prof.gpu || !gpu_profiler.stats_supported);
         ImGui::Checkbox("Enable Pipeline Statistics", &prof.gpu_pipeline_stats);
         ImGui::EndDisabled();
         ImGui::Checkbox("Enable Breadcrumbs", &ctx.renderer->main_view.graph.breadcrumbs);
@@ -693,7 +693,7 @@ void ProfilerDrawerTab::draw(EditorContext& ctx)
         imgui_property_row_value_aligned("Resume", "ESC");
         imgui_spacing();
 
-        _draw_info(ctx, profiler.frozen);
+        _draw_info(ctx, gpu_profiler.frozen);
     }
     ImGui::EndChild();
 

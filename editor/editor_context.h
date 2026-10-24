@@ -7,7 +7,6 @@ namespace lumen {
 namespace drivers { struct WindowDriverWin32; }
 namespace drivers { struct ImGuiDriver; }
 struct Renderer;
-struct TaskSystem;
 struct Project;
 struct World;
 struct ProjectManager;
@@ -31,7 +30,6 @@ struct EditorContext
     drivers::ImGuiDriver* imgui = nullptr;
 
     Renderer* renderer = nullptr;
-    TaskSystem* tasks = nullptr;
     Project* project = nullptr;
     World* world = nullptr;
     
@@ -53,7 +51,6 @@ struct EditorContext
         
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;
-    std::function<bool()> confirm_gpu_support;
 
     std::function<bool(const std::filesystem::path&)> run_is_running;
     std::function<void(const std::filesystem::path&)> run_toggle;

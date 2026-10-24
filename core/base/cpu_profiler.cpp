@@ -100,6 +100,41 @@ void CpuProfiler::zone_end()
     l->pending.push_back(z);
 }
 
+void CpuProfiler::fiber_suspend(FiberZones& r_zones)
+{
+    Lane* l = _lane();
+    r_zones.depth = 0;
+    if (!l) return;
+    const uint32_t depth = l->depth;
+    const uint32_t tracked = depth < MAX_DEPTH ? depth : MAX_DEPTH;
+    r_zones.depth = depth;
+    l->depth = 0;
+    if (tracked == 0) return;
+
+    const int64_t t = now();
+    const bool record = enabled.load(std::memory_order_relaxed);
+    std::lock_guard lock(l->mutex);
+    for (uint32_t d = tracked; d-- > 0;) {
+        r_zones.name[d] = l->stack_name[d];
+        r_zones.flags[d] = l->stack_flags[d];
+        if (record) l->pending.push_back({ l->stack_name[d], l->stack_begin[d], t, l->index, (uint8_t)d, l->stack_flags[d] });
+    }
+}
+
+void CpuProfiler::fiber_resume(const FiberZones& p_zones)
+{
+    Lane* l = _lane();
+    if (!l) return;
+    const uint32_t tracked = p_zones.depth < MAX_DEPTH ? p_zones.depth : MAX_DEPTH;
+    const int64_t t = now();
+    for (uint32_t d = 0; d < tracked; d++) {
+        l->stack_name[d] = p_zones.name[d];
+        l->stack_flags[d] = p_zones.flags[d];
+        l->stack_begin[d] = t;
+    }
+    l->depth = p_zones.depth;
+}
+
 void CpuProfiler::begin_frame(uint64_t p_number)
 {
     const int64_t t = now();

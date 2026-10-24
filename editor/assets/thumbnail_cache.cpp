@@ -63,10 +63,8 @@ Error ThumbnailCache::initialize(drivers::DeviceDriverVulkan& r_dd)
 void ThumbnailCache::shutdown(EditorContext& ctx)
 {
     close(ctx);
-    for (std::future<bool>& w : _writes) {
-        if (w.valid()) w.wait();
-    }
-    _writes.clear();
+    for (std::unique_ptr<PendingWrite>& w : writes) job_system().wait(w->counter);
+    writes.clear();
 }
 
 void ThumbnailCache::close(EditorContext& ctx)
@@ -79,10 +77,10 @@ void ThumbnailCache::close(EditorContext& ctx)
     }
     entries.clear();
     _collect(ctx, true);
-    _queue.clear();
-    _job = {};
-    _materials.clear();
-    _models.clear();
+    queue.clear();
+    job = {};
+    materials.clear();
+    models.clear();
 
     if (ctx.renderer) {
         ctx.renderer->models.unload(preview_sphere);
@@ -136,7 +134,7 @@ Error ThumbnailCache::_ensure_view(EditorContext& ctx)
 
 void ThumbnailCache::_scan_disk()
 {
-    _disk_scanned = true;
+    disk_scanned = true;
     dir = Paths::local_data(L"thumbnails");
     if (dir.empty()) return;
     std::error_code ec;
@@ -186,7 +184,7 @@ void ThumbnailCache::_retire(EditorContext& ctx, drivers::DeviceDriverVulkan::Im
 {
     if (!r_image.image) return;
     ctx.imgui->texture_cache.retire(r_image.image_view, ctx.renderer->frame_number, ctx.renderer->frame_count);
-    _retired.push_back({ r_image, ctx.renderer->frame_number });
+    retired.push_back({ r_image, ctx.renderer->frame_number });
     r_image = {};
 }
 
@@ -194,23 +192,23 @@ void ThumbnailCache::_collect(EditorContext& ctx, bool p_all)
 {
     const uint64_t frame = ctx.renderer ? ctx.renderer->frame_number : 0;
     const uint32_t frames = ctx.renderer ? ctx.renderer->frame_count : 0;
-    for (size_t i = 0; i < _retired.size();) {
-        if (p_all || frame >= _retired[i].frame + frames) {
-            dd->image_free(_retired[i].image);
-            _retired[i] = std::move(_retired.back());
-            _retired.pop_back();
+    for (size_t i = 0; i < retired.size();) {
+        if (p_all || frame >= retired[i].frame + frames) {
+            dd->image_free(retired[i].image);
+            retired[i] = std::move(retired.back());
+            retired.pop_back();
         } else {
             ++i;
         }
     }
-    for (size_t i = 0; i < _writes.size();) {
-        if (_writes[i].valid() && _writes[i].wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    for (size_t i = 0; i < writes.size();) {
+        if (!writes[i]->counter.done()) {
             ++i;
             continue;
         }
-        if (_writes[i].valid() && !_writes[i].get()) log_write("ThumbnailCache: failed to write a thumbnail to disk.");
-        _writes[i] = std::move(_writes.back());
-        _writes.pop_back();
+        if (!writes[i]->ok) log_write("ThumbnailCache: failed to write a thumbnail to disk.");
+        writes[i] = std::move(writes.back());
+        writes.pop_back();
     }
 }
 
@@ -234,7 +232,7 @@ const LMaterial* ThumbnailCache::_parsed_material(EditorContext& ctx, Guid p_gui
     const std::filesystem::path file = _asset_file(ctx, p_guid);
     r_stamp = _stamp(file);
     if (r_stamp == STAMP_MISSING) return nullptr;
-    ParsedMaterial& p = _materials[p_guid];
+    ParsedMaterial& p = materials[p_guid];
     if (p.stamp != r_stamp) {
         p.stamp = r_stamp;
         if (p.material.load(file) != Error::OK) p.material = LMaterial{};
@@ -247,7 +245,7 @@ const LModel* ThumbnailCache::_parsed_model(EditorContext& ctx, Guid p_guid, uin
     const std::filesystem::path file = _asset_file(ctx, p_guid);
     r_stamp = _stamp(file);
     if (r_stamp == STAMP_MISSING) return nullptr;
-    ParsedModel& p = _models[p_guid];
+    ParsedModel& p = models[p_guid];
     if (p.stamp != r_stamp) {
         p.stamp = r_stamp;
         if (p.model.load(file) != Error::OK) p.model = LModel{};
@@ -338,8 +336,8 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
 
     for (Guid g : p_job.materials) {
         if (g == Guid{}) continue;
-        auto parsed = _materials.find(g);
-        if (parsed == _materials.end() || !(parsed->second.material.guid == g)) continue;
+        auto parsed = materials.find(g);
+        if (parsed == materials.end() || !(parsed->second.material.guid == g)) continue;
         auto cached = r.materials.by_guid.find(g);
         if (cached == r.materials.by_guid.end()) {
             r.materials.set(parsed->second.material);
@@ -349,8 +347,8 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
     }
 
     if (p_job.type == AssetType::MODEL) {
-        auto parsed = _models.find(p_job.model);
-        if (parsed == _models.end() || !(parsed->second.model.guid == p_job.model)) return FAIL;
+        auto parsed = models.find(p_job.model);
+        if (parsed == models.end() || !(parsed->second.model.guid == p_job.model)) return FAIL;
         const ModelCache::Entry* cached = r.models.get(p_job.model);
         if (!cached || !(cached->mesh == parsed->second.model.mesh) || cached->materials != parsed->second.model.materials) {
             r.models.load(_asset_file(ctx, p_job.model));
@@ -382,18 +380,18 @@ void ThumbnailCache::update(EditorContext& ctx)
 {
     if (!ctx.renderer || !ctx.project || !ctx.imgui || !ctx.renderer->frame_acquired) return;
     Renderer& r = *ctx.renderer;
-    if (!_disk_scanned) _scan_disk();
+    if (!disk_scanned) _scan_disk();
     _collect(ctx, false);
 
     if (path) {
         uint64_t ticket = 0;
-        if (path->capture.collect(r.current_frame, ticket, _pixels) && _job.state == JobState::RENDERING && ticket == _job.ticket) _finish(ctx);
+        if (path->capture.collect(r.current_frame, ticket, pixels) && job.state == JobState::RENDERING && ticket == job.ticket) _finish(ctx);
     }
-    if (_job.state == JobState::RENDERING && r.frame_number > _job.frame + r.frame_count + RENDER_TIMEOUT_FRAMES) _job = {};
-    if (_job.state == JobState::PREPARED && r.frame_number > _job.frame) _render(ctx);
+    if (job.state == JobState::RENDERING && r.frame_number > job.frame + r.frame_count + RENDER_TIMEOUT_FRAMES) job = {};
+    if (job.state == JobState::PREPARED && r.frame_number > job.frame) _render(ctx);
 
     _check_visible(ctx);
-    if (_job.state == JobState::NONE) _start_next(ctx);
+    if (job.state == JobState::NONE) _start_next(ctx);
 }
 
 void ThumbnailCache::_check_visible(EditorContext& ctx)
@@ -403,67 +401,67 @@ void ThumbnailCache::_check_visible(EditorContext& ctx)
     for (auto& [guid, e] : entries) {
         if (e.seen_frame + VISIBLE_FRAMES < frame || now < e.next_check) continue;
         e.next_check = now + CHECK_INTERVAL_S;
-        Job job;
-        if (!_resolve(ctx, guid, e.type, job)) continue;
-        e.key = job.key;
-        if (job.key == e.shown_key || job.key == e.failed_key || e.queued) continue;
-        if (auto it = disk.find(guid); it != disk.end() && it->second == job.key && _load_disk(ctx, guid, e, job.key)) continue;
-        if (_job.state != JobState::NONE && _job.guid == guid && _job.key == job.key) continue;
+        Job resolved;
+        if (!_resolve(ctx, guid, e.type, resolved)) continue;
+        e.key = resolved.key;
+        if (resolved.key == e.shown_key || resolved.key == e.failed_key || e.queued) continue;
+        if (auto it = disk.find(guid); it != disk.end() && it->second == resolved.key && _load_disk(ctx, guid, e, resolved.key)) continue;
+        if (job.state != JobState::NONE && job.guid == guid && job.key == resolved.key) continue;
         e.queued = true;
-        _queue.push_back(guid);
+        queue.push_back(guid);
     }
 }
 
 void ThumbnailCache::_start_next(EditorContext& ctx)
 {
     Renderer& r = *ctx.renderer;
-    for (uint32_t attempt = 0; attempt < START_ATTEMPTS && !_queue.empty(); ++attempt) {
-        const Guid guid = _queue.front();
-        _queue.pop_front();
+    for (uint32_t attempt = 0; attempt < START_ATTEMPTS && !queue.empty(); ++attempt) {
+        const Guid guid = queue.front();
+        queue.pop_front();
         auto it = entries.find(guid);
         if (it == entries.end()) continue;
         Entry& e = it->second;
         e.queued = false;
         if (e.seen_frame + VISIBLE_FRAMES < r.frame_number) continue;
 
-        Job job;
-        if (!_resolve(ctx, guid, e.type, job)) continue;
-        e.key = job.key;
-        if (job.key == e.shown_key) continue;
+        Job next;
+        if (!_resolve(ctx, guid, e.type, next)) continue;
+        e.key = next.key;
+        if (next.key == e.shown_key) continue;
 
-        const Readiness ready = _ready(ctx, job);
+        const Readiness ready = _ready(ctx, next);
         if (ready == Readiness::FAIL) {
-            e.failed_key = job.key;
+            e.failed_key = next.key;
             continue;
         }
         if (ready == Readiness::WAIT) {
             e.queued = true;
-            _queue.push_back(guid);
+            queue.push_back(guid);
             continue;
         }
         if (_ensure_view(ctx) != Error::OK) return;
 
-        const LMesh* mesh = r.geometry.get(r.geometry.find(job.mesh));
+        const LMesh* mesh = r.geometry.get(r.geometry.find(next.mesh));
         const float fov = glm::radians(CAMERA_FOV_DEG);
         const float radius = std::max(mesh->bounds_sphere.w, 0.001f);
         const float distance = radius / std::sin(fov * 0.5f) * FRAME_MARGIN;
         const float yaw = glm::radians(CAMERA_YAW_DEG);
         const float pitch = glm::radians(CAMERA_PITCH_DEG);
         const glm::vec3 offset(std::cos(pitch) * std::sin(yaw), std::sin(pitch), std::cos(pitch) * std::cos(yaw));
-        job.camera.fov_y = fov;
-        job.camera.position = glm::vec3(mesh->bounds_sphere) + offset * distance;
-        job.camera.rotation = glm::quatLookAt(-offset, glm::vec3(0.0f, 1.0f, 0.0f));
-        job.camera.near_z = std::max(distance - radius * 1.5f, distance * 0.01f);
-        job.camera.far_z = distance + radius * 2.0f;
+        next.camera.fov_y = fov;
+        next.camera.position = glm::vec3(mesh->bounds_sphere) + offset * distance;
+        next.camera.rotation = glm::quatLookAt(-offset, glm::vec3(0.0f, 1.0f, 0.0f));
+        next.camera.near_z = std::max(distance - radius * 1.5f, distance * 0.01f);
+        next.camera.far_z = distance + radius * 2.0f;
 
-        if (job.type != AssetType::MODEL) r.models.set(job.model, job.mesh, job.materials);
-        if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && !(mc->model == job.model)) {
-            mc->model = job.model;
+        if (next.type != AssetType::MODEL) r.models.set(next.model, next.mesh, next.materials);
+        if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && !(mc->model == next.model)) {
+            mc->model = next.model;
             world.touch(entity);
         }
-        job.state = JobState::PREPARED;
-        job.frame = r.frame_number;
-        _job = std::move(job);
+        next.state = JobState::PREPARED;
+        next.frame = r.frame_number;
+        job = std::move(next);
         return;
     }
 }
@@ -471,43 +469,44 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
 void ThumbnailCache::_render(EditorContext& ctx)
 {
     Renderer& r = *ctx.renderer;
-    view.camera = _job.camera;
+    view.camera = job.camera;
     view.camera_cut_pending = true;
-    _job.ticket = ++_ticket_serial;
-    path->capture.request = _job.ticket;
+    job.ticket = ++ticket_serial;
+    path->capture.request = job.ticket;
     if (r.view_render(view, world) != Error::OK) {
         path->capture.request = 0;
-        _job = {};
+        job = {};
         return;
     }
-    _job.state = JobState::RENDERING;
-    _job.frame = r.frame_number;
+    job.state = JobState::RENDERING;
+    job.frame = r.frame_number;
 }
 
 void ThumbnailCache::_finish(EditorContext& ctx)
 {
-    const Job job = std::move(_job);
-    _job = {};
-    auto it = entries.find(job.guid);
+    const Job done = std::move(job);
+    job = {};
+    auto it = entries.find(done.guid);
     if (it == entries.end()) return;
     Entry& e = it->second;
 
-    _swap_image(ctx, e, dd->image_create_texture(_pixels.data(), OUTPUT_SIZE, OUTPUT_SIZE, "thumbnail"), job.key);
+    _swap_image(ctx, e, dd->image_create_texture(pixels.data(), OUTPUT_SIZE, OUTPUT_SIZE, "thumbnail"), done.key);
     if (dir.empty()) return;
 
     std::filesystem::path old;
-    if (auto d = disk.find(job.guid); d != disk.end() && d->second != job.key) old = _disk_path(job.guid, d->second);
-    disk[job.guid] = job.key;
-    _writes.push_back(std::async(std::launch::async, [file = _disk_path(job.guid, job.key), old, pixels = _pixels]() mutable -> bool {
+    if (auto d = disk.find(done.guid); d != disk.end() && d->second != done.key) old = _disk_path(done.guid, d->second);
+    disk[done.guid] = done.key;
+    PendingWrite* write = writes.emplace_back(std::make_unique<PendingWrite>()).get();
+    job_system().run_background_owned([write, file = _disk_path(done.guid, done.key), old, data = pixels]() mutable {
         ImageData<uint8_t, 4> img{};
-        img.pixels = pixels.data();
+        img.pixels = data.data();
         img.width = (int)OUTPUT_SIZE;
         img.height = (int)OUTPUT_SIZE;
         const bool ok = ImageIO::save_png(file.wstring(), img);
         std::error_code ec;
         if (ok && !old.empty()) std::filesystem::remove(old, ec);
-        return ok;
-    }));
+        write->ok = ok;
+    }, &write->counter, "Thumbnail Write");
 }
 
 }

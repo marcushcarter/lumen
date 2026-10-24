@@ -18,7 +18,7 @@ Error RenderGraph::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
     buffer_transient_pools.clear();
     buffer_transient_pools.resize(frame_count);
 
-    profiler.initialize(r_dd, p_frame_count);
+    gpu_profiler.initialize(r_dd, p_frame_count);
 
     const uint32_t ts_bits = dd->timestamp_valid_bits(dd->cd->graphics_queue_family);
     frame_timer_mask = ts_bits >= 64 ? ~0ull : ((1ull << ts_bits) - 1ull);
@@ -47,7 +47,7 @@ void RenderGraph::shutdown()
     dd->device_wait_idle();
     _collect_retired(true);
 
-    profiler.shutdown();
+    gpu_profiler.shutdown();
 
     for (VkQueryPool pool : frame_timer_pools) if (pool) vkDestroyQueryPool(dd->device, pool, nullptr);
     frame_timer_pools.clear();
@@ -437,104 +437,104 @@ void RenderGraph::_buffer_release_transients()
 
 void RenderGraph::CommandList::draw(std::string_view p_name, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw", p_instance_count);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw", p_instance_count);
     dd->command_render_draw(cmd, p_vertex_count, p_instance_count, p_base_vertex, p_first_instance);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_indexed(std::string_view p_name, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed", p_instance_count);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Indexed", p_instance_count);
     dd->command_render_draw_indexed(cmd, p_index_count, p_instance_count, p_first_index, p_vertex_offset, p_first_instance);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Indirect", p_draw_count);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Indirect", p_draw_count);
     dd->command_render_draw_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Indirect Count", p_max_draws);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Indirect Count", p_max_draws);
     dd->command_render_draw_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_indexed_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect", p_draw_count);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect", p_draw_count);
     dd->command_render_draw_indexed_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_indexed_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect Count", p_max_draws);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Indexed Indirect Count", p_max_draws);
     dd->command_render_draw_indexed_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_mesh_tasks(std::string_view p_name, uint32_t p_x, uint32_t p_y, uint32_t p_z)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks", 1);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks", 1);
     dd->command_render_draw_mesh_tasks(cmd, p_x, p_y, p_z);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_mesh_tasks_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks Indirect", p_draw_count);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks Indirect", p_draw_count);
     dd->command_render_draw_mesh_tasks_indirect(cmd, p_indirect, p_offset, p_draw_count, p_stride);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::draw_mesh_tasks_indirect_count(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset, const drivers::DeviceDriverVulkan::Buffer& p_count, uint64_t p_count_offset, uint32_t p_max_draws, uint32_t p_stride)
 {
-    graph->profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks Indirect Count", p_max_draws);
+    graph->gpu_profiler.draw_begin(cmd, p_name, "Draw Mesh Tasks Indirect Count", p_max_draws);
     dd->command_render_draw_mesh_tasks_indirect_count(cmd, p_indirect, p_offset, p_count, p_count_offset, p_max_draws, p_stride);
     ++draw_count;
-    graph->profiler.draw_end(cmd);
+    graph->gpu_profiler.draw_end(cmd);
 }
 
 void RenderGraph::CommandList::dispatch(std::string_view p_name, uint32_t p_x, uint32_t p_y, uint32_t p_z)
 {
-    graph->profiler.dispatch_begin(cmd, p_name, "Dispatch");
+    graph->gpu_profiler.dispatch_begin(cmd, p_name, "Dispatch");
     dd->command_compute_dispatch(cmd, p_x, p_y, p_z);
     ++draw_count;
-    graph->profiler.dispatch_end(cmd);
+    graph->gpu_profiler.dispatch_end(cmd);
 }
 
 void RenderGraph::CommandList::dispatch_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset)
 {
-    graph->profiler.dispatch_begin(cmd, p_name, "Indirect Dispatch");
+    graph->gpu_profiler.dispatch_begin(cmd, p_name, "Indirect Dispatch");
     dd->command_compute_dispatch_indirect(cmd, p_indirect, p_offset);
     ++draw_count;
-    graph->profiler.dispatch_end(cmd);
+    graph->gpu_profiler.dispatch_end(cmd);
 }
 
 void RenderGraph::CommandList::fill_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_buffer, uint32_t p_value, VkDeviceSize p_offset, VkDeviceSize p_size)
 {
-    graph->profiler.transfer_begin(cmd, p_name, "Fill");
+    graph->gpu_profiler.transfer_begin(cmd, p_name, "Fill");
     dd->command_fill_buffer(cmd, p_buffer, p_value, p_offset, p_size);
-    graph->profiler.transfer_end(cmd);
+    graph->gpu_profiler.transfer_end(cmd);
 }
 
 void RenderGraph::CommandList::update_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_buffer, const void* p_data, VkDeviceSize p_size, VkDeviceSize p_offset)
 {
-    graph->profiler.transfer_begin(cmd, p_name, "Update");
+    graph->gpu_profiler.transfer_begin(cmd, p_name, "Update");
     dd->command_update_buffer(cmd, p_buffer, p_data, p_size, p_offset);
-    graph->profiler.transfer_end(cmd);
+    graph->gpu_profiler.transfer_end(cmd);
 }
 
 /**************/
@@ -1275,7 +1275,6 @@ void RenderGraph::_frame_timer_read()
     frame_timer_written[current_frame] = 0;
     const uint64_t delta = ((ts[1] & frame_timer_mask) - (ts[0] & frame_timer_mask)) & frame_timer_mask;
     gpu_frame_ms = (double)delta * frame_timer_period_ns * 1e-6;
-    gpu_frame_ms_avg = gpu_frame_ms_avg == 0.0 ? gpu_frame_ms : gpu_frame_ms_avg * 0.95 + gpu_frame_ms * 0.05;
 }
 
 void RenderGraph::execute(VkCommandBuffer p_cmd)
@@ -1285,7 +1284,7 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
         vkCmdResetQueryPool(p_cmd, frame_timer_pools[current_frame], 0, 2);
         vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, frame_timer_pools[current_frame], 0);
     }
-    profiler.frame_begin(p_cmd, current_frame);
+    gpu_profiler.frame_begin(p_cmd, current_frame);
     if (breadcrumbs) _breadcrumb_reset(p_cmd);
 
     for (uint32_t n = 0; n < node_count; ++n) {
@@ -1293,11 +1292,11 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
         if (node.culled) continue;
 
         const bool has_barriers = !node.pre_image_barriers.empty() || !node.pre_buffer_barriers.empty();
-        if (has_barriers) profiler.sync_begin(p_cmd, node.pass->name, node.pass->category);
+        if (has_barriers) gpu_profiler.sync_begin(p_cmd, node.pass->name, node.pass->category);
         _emit_barriers(p_cmd, node.pre_image_barriers, node.pre_buffer_barriers);
-        if (has_barriers) profiler.sync_end(p_cmd);
+        if (has_barriers) gpu_profiler.sync_end(p_cmd);
 
-        profiler.pass_begin(p_cmd, node.pass->name, node.pass->category);
+        gpu_profiler.pass_begin(p_cmd, node.pass->name, node.pass->category);
         if (node.has_render_pass) dd->command_begin_render_pass(p_cmd, node.render_pass, node.framebuffer, node.area, node.clear_values);
         CommandList cl;
         cl.cmd = p_cmd;
@@ -1306,7 +1305,7 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
         cl.node_index = n;
         if (node.pass->execute) node.pass->execute(cl);
         if (node.has_render_pass) dd->command_end_render_pass(p_cmd);
-        profiler.pass_end(p_cmd, cl.draw_count);
+        gpu_profiler.pass_end(p_cmd, cl.draw_count);
 
         if (breadcrumbs) {
             breadcrumb_names[current_frame].push_back(node.pass->name);
@@ -1316,7 +1315,7 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
 
     _emit_barriers(p_cmd, final_image_barriers, final_buffer_barriers);
 
-    profiler.frame_end();
+    gpu_profiler.frame_end();
     if (frame_timer) {
         vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_timer_pools[current_frame], 1);
         frame_timer_written[current_frame] = 1;

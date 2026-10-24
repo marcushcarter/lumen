@@ -60,6 +60,8 @@ struct EditorApplication : Application
     void on_shutdown() override;
     void on_update(float p_dt) override;
 
+    size_t imports_notified = 0;
+
     Error open_project(const std::filesystem::path& p_root);
     void close_project();
 
@@ -101,7 +103,8 @@ struct EditorApplication : Application
     bool should_tick_game() const override { return false; }
     VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
     float fps_cap() const override { return (float)settings.fps_cap; }
-    BackgroundPolicy background_policy() const override { return { .tick_ms = 1000, .throttle = true, .pause_sim = false }; }
+    BackgroundPolicy background_policy() const override { return { .render_unfocused = false, .housekeeping_ms = 1000 }; }
+    void on_background_tick() override;
     
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;

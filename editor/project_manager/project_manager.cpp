@@ -31,6 +31,8 @@ Error ProjectManager::initialize()
 
 void ProjectManager::shutdown()
 {
+    if (stats_job) job_system().wait(stats_job->counter);
+    stats_job.reset();
     save_recents();
 }
 
@@ -243,23 +245,24 @@ ProjectManager::ContentStats ProjectManager::_scan_content(const std::filesystem
 
 void ProjectManager::_update_stats()
 {
-    if (stats_job.valid()) {
-        if (stats_job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-        const ContentStats s = stats_job.get();
+    if (stats_job) {
+        if (!stats_job->counter.done()) return;
         for (Entry& e : recent) {
-            if (e.path != stats_job_path) continue;
-            e.stats = s;
+            if (e.path != stats_job->path) continue;
+            e.stats = stats_job->stats;
             e.stats_valid = true;
         }
-        stats_job_path.clear();
+        stats_job.reset();
     }
 
     if (selected < 0 || selected >= (int)recent.size()) return;
     const Entry& e = recent[selected];
     if (e.stats_valid || e.missing) return;
 
-    stats_job_path = e.path;
-    stats_job = std::async(std::launch::async, &ProjectManager::_scan_content, e.path);
+    stats_job = std::make_unique<StatsJob>();
+    StatsJob* job = stats_job.get();
+    job->path = e.path;
+    job_system().run_background_owned([job] { job->stats = _scan_content(job->path); }, &job->counter, "Project Stats");
 }
 
 void ProjectManager::_rebuild_visible()
@@ -523,7 +526,7 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     if (playing) _push_neutral_button();
     else _push_run_button();
     if (ImGui::Button(playing ? ICON_FA_STOP "  Stop" : ICON_FA_PLAY "  Run", ImVec2(full, pm.action_height)) && ctx.run_toggle) {
-        if (playing || (ctx.confirm_gpu_support && ctx.confirm_gpu_support())) ctx.run_toggle(e.path);
+        ctx.run_toggle(e.path);
     }
     ImGui::PopStyleColor(4);
     ImGui::EndDisabled();
@@ -629,7 +632,7 @@ void ProjectManager::on_update(EditorContext& ctx)
 
         ImGui::Spacing();
         ImGui::BeginDisabled(!has_name || !has_location || taken);
-        if (ImGui::Button("Create", ImVec2(ui.project_manager.button_width, 0)) && ctx.confirm_gpu_support() && Project::create(root, new_project_name) == Error::OK) {
+        if (ImGui::Button("Create", ImVec2(ui.project_manager.button_width, 0)) && Project::create(root, new_project_name) == Error::OK) {
             add_recent(root, new_project_name);
             ImGui::CloseCurrentPopup();
             ctx.open_project_callback(root);

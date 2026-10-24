@@ -1,6 +1,5 @@
 #pragma once
 #include <editor/drawer/drawer_tab.h>
-#include <core/rendering/render_graph_profiler.h>
 #include <cstdint>
 #include <vector>
 

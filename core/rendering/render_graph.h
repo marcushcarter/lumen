@@ -1,6 +1,6 @@
 #pragma once
 #include <drivers/vulkan/device_driver_vulkan.h>
-#include <core/rendering/render_graph_profiler.h>
+#include <core/rendering/gpu_profiler.h>
 #include <core/base/error.h>
 #include <core/base/id_map.h>
 #include <functional>
@@ -33,7 +33,7 @@ struct RenderGraph
     uint64_t epoch = 0;
     std::vector<RetiredResources> retired;
     
-    RenderGraphProfiler profiler;
+    GpuProfiler gpu_profiler;
     
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t frame_count);
     void shutdown();
@@ -295,7 +295,6 @@ struct RenderGraph
     double frame_timer_period_ns = 1.0;
     uint64_t frame_timer_mask = ~0ull;
     double gpu_frame_ms = 0.0;
-    double gpu_frame_ms_avg = 0.0;
 
     void _frame_timer_read();
     void _breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order);

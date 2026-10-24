@@ -7,7 +7,7 @@
 
 namespace lumen {
 
-enum class Error 
+enum class Error
 {
     OK,
     FAILED,

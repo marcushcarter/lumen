@@ -6,7 +6,7 @@
 #include <core/rendering/renderer.h>
 #include <core/project/project.h>
 #include <core/world/world.h>
-#include <core/base/tasks.h>
+#include <core/base/jobs.h>
 #include <core/base/error.h>
 #include <core/base/profiling.h>
 #include <core/application/frame_stats.h>
@@ -28,18 +28,14 @@ struct ApplicationCreateInfo
     const char* ini_path = nullptr;
 };
 
-// What the main loop does while the window is not focused. Hidden/minimized windows never render regardless.
 struct BackgroundPolicy
 {
-    uint32_t tick_ms = 1000;
-    bool throttle = true;
-    bool pause_sim = false;
+    bool render_unfocused = true;
+    uint32_t housekeeping_ms = 1000;
 };
 
 struct Application
 {
-    static constexpr float UNFOCUSED_FPS_CAP = 30.0f;
-
     drivers::WindowDriverWin32 win32;
 
     drivers::ContextDriverVulkan cd;
@@ -51,12 +47,9 @@ struct Application
 
     drivers::ImGuiDriver imgui;
 
-    TaskSystem tasks;
-
     ProfilingSettings profiling;
 
     bool paused = false;
-    bool gpu_support_confirmed = false;
     World world;
 
     Project project;
@@ -67,19 +60,18 @@ struct Application
 
     bool window_focused = true;
     bool window_visible = true;
-    bool background_paused = false;
-    std::chrono::steady_clock::time_point throttle_last_tick;
+    std::chrono::steady_clock::time_point background_last_tick;
 
     Error initialize(const ApplicationCreateInfo& p_initialize_info);
+    Error _initialize(const ApplicationCreateInfo& p_initialize_info);
     void shutdown();
 
     Error _frame();
     Error run();
     void _update_window_state();
-    void _wait_throttled(uint32_t p_tick_ms);
+    bool _should_render(const BackgroundPolicy& p_policy) const { return window_visible && (window_focused || p_policy.render_unfocused); }
     void report_fatal_error(Error p_error);
 
-    bool confirm_gpu_support();
     Error project_load(const std::filesystem::path &p_root);
     void project_unload();
     
@@ -97,7 +89,6 @@ struct Application
     virtual float fps_cap() const { return 0.0f; }
     virtual BackgroundPolicy background_policy() const { return {}; }
 
-    // Hooks for systems that must react to focus/visibility explicitly (audio mute, network keepalives).
     virtual void on_focus_changed(bool p_focused) { (void)p_focused; }
     virtual void on_visibility_changed(bool p_visible) { (void)p_visible; }
     virtual void on_background_tick() {}

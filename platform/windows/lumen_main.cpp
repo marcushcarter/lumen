@@ -8,16 +8,12 @@
     #include <editor/editor_application.h>
     #include <core/io/path.h>
     #include <filesystem>
-// #elif defined(LUMEN_GAME)
-//     #include <game/game_application.h>
-// #else
 #elif !defined(LUMEN_GAME)
     #error "lumen_main.cpp requires LUMEN_EDITOR or LUMEN_GAME"
 #endif
 
 #if !defined(LUMEN_CONSOLE)
-static void attach_console_or_null()
-{
+static void attach_console_or_null() {
     FILE* dummy;
     if (AttachConsole(ATTACH_PARENT_PROCESS)) {
         freopen_s(&dummy, "CONOUT$", "w", stdout);
@@ -31,9 +27,7 @@ static void attach_console_or_null()
 }
 #endif
 
-static std::unique_ptr<lumen::Application> create_application(
-    const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info, [[maybe_unused]] std::string& ini_storage)
-{
+static std::unique_ptr<lumen::Application> create_application(const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info, [[maybe_unused]] std::string& ini_storage) {
 #if defined(LUMEN_EDITOR)
     if (!p_args.game) {
         info.window_title = "Lumen Editor";
@@ -48,15 +42,13 @@ static std::unique_ptr<lumen::Application> create_application(
 #else
     info.window_title = "Lumen Game";
 #endif
+
     auto game = std::make_unique<lumen::GameApplication>();
     game->project_root = p_args.project;
-    // Editor already showed the GPU capability prompt before Play.
-    game->gpu_support_confirmed = p_args.pie;
     return game;
 }
 
-static int run_app()
-{
+static int run_app() {
     lumen::ApplicationCreateInfo info;
     info.width  = 1280;
     info.height = 720;
@@ -68,21 +60,16 @@ static int run_app()
     
     lumen::Error err = app->initialize(info);
     if (err == lumen::Error::OK) err = app->run();
-    // if (err != lumen::Error::OK) app->report_fatal_error(err);
-    // return err == lumen::Error::OK ? 0 : 1;
-    if (err == lumen::Error::CANCELED) return 0;
     if (err != lumen::Error::OK) app->report_fatal_error(err);
     return err == lumen::Error::OK ? 0 : 1;
 }
 
 #if defined(LUMEN_CONSOLE)
-int main()
-{
+int main() {
     return run_app();
 }
 #else
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
-{
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     attach_console_or_null();
     return run_app();
 }

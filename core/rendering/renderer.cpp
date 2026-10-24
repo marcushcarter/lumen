@@ -64,7 +64,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
 
     dd = &r_dd;
     profiling = &p_profiling;
-    main_view.graph.profiler.settings = &p_profiling;
+    main_view.graph.gpu_profiler.settings = &p_profiling;
     frame_count = dd->frame_count;
     current_frame = 0;
 
@@ -847,7 +847,7 @@ void Renderer::_view_reset(RenderView& r_view)
 Error Renderer::view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height)
 {
     using enum Error;
-    r_view.graph.profiler.settings = profiling;
+    r_view.graph.gpu_profiler.settings = profiling;
     Error err = r_view.graph.initialize(*dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = _view_create_buffers(r_view);

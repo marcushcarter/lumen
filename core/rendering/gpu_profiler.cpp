@@ -1,4 +1,4 @@
-#include <core/rendering/render_graph_profiler.h>
+#include <core/rendering/gpu_profiler.h>
 #include <core/base/cpu_profiler.h>
 #include <algorithm>
 
@@ -8,7 +8,7 @@ namespace lumen {
 /**** SETUP ****/
 /***************/
 
-Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
+Error GpuProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
 {
     using enum Error;
 
@@ -19,7 +19,7 @@ Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_
     if (valid_bits == 0 || period_ns == 0.0) {
         supported = false;
         active = prev_active = false;
-        log_write("RenderGraphProfiler: GPU timing unsupported (validBits=%u, period=%f).", valid_bits, period_ns);
+        log_write("GpuProfiler: GPU timing unsupported (validBits=%u, period=%f).", valid_bits, period_ns);
         return OK;
     }
 
@@ -28,7 +28,7 @@ Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_
     valid_mask = (valid_bits >= 64) ? ~0ull : ((1ull << valid_bits) - 1);
 
     if (!stats_supported) {
-        log_write("RenderGraphProfiler: extended stats UNSUPPORTED (pipelineStatisticsQuery=%d, occlusionQueryPrecise=%d).", (int)dd->physical_device_features.pipelineStatisticsQuery, (int)dd->physical_device_features.occlusionQueryPrecise);
+        log_write("GpuProfiler: extended stats UNSUPPORTED (pipelineStatisticsQuery=%d, occlusionQueryPrecise=%d).", (int)dd->physical_device_features.pipelineStatisticsQuery, (int)dd->physical_device_features.occlusionQueryPrecise);
     }
 
     slots.resize(p_frame_count);
@@ -47,7 +47,7 @@ Error RenderGraphProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_
     return OK;
 }
 
-void RenderGraphProfiler::shutdown()
+void GpuProfiler::shutdown()
 {
     for (Slot& s : slots) {
         dd->query_pool_free(s.pool);
@@ -73,21 +73,21 @@ void RenderGraphProfiler::shutdown()
 /**** NAMES ****/
 /***************/
 
-uint64_t RenderGraphProfiler::intern(std::string_view p_s)
+uint64_t GpuProfiler::intern(std::string_view p_s)
 {
     uint64_t h = 1469598103934665603ull;
     for (char c : p_s) { h ^= static_cast<uint8_t>(c); h *= 1099511628211ull; }
     return h;
 }
 
-uint64_t RenderGraphProfiler::intern_named(std::string_view p_s)
+uint64_t GpuProfiler::intern_named(std::string_view p_s)
 {
     uint64_t id = intern(p_s);
     if (_named_ids.insert(id, (uint32_t)name_table.size())) name_table.emplace_back(p_s);
     return id;
 }
 
-uint64_t RenderGraphProfiler::draw_key(uint64_t p_pass_name_id, uint64_t p_name_id, uint32_t p_occurrence)
+uint64_t GpuProfiler::draw_key(uint64_t p_pass_name_id, uint64_t p_name_id, uint32_t p_occurrence)
 {
     uint64_t h = p_pass_name_id;
     h ^= p_name_id + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
@@ -95,7 +95,7 @@ uint64_t RenderGraphProfiler::draw_key(uint64_t p_pass_name_id, uint64_t p_name_
     return h;
 }
 
-const char* RenderGraphProfiler::name_of(uint64_t p_id) const
+const char* GpuProfiler::name_of(uint64_t p_id) const
 {
     const uint32_t i = _named_ids.get(p_id);
     return i != IdMap::NONE ? name_table[i].c_str() : "?";
@@ -105,11 +105,9 @@ const char* RenderGraphProfiler::name_of(uint64_t p_id) const
 /**** RECORDING ****/
 /*******************/
 
-void RenderGraphProfiler::_clear_results()
+void GpuProfiler::_clear_results()
 {
     results.clear();
-    smoothed.clear();
-    smoothed_index.clear();
     total_ms = 0.0;
     total_draws = 0;
     truncated = false;
@@ -117,7 +115,7 @@ void RenderGraphProfiler::_clear_results()
     last_stat_count = 0;
 }
 
-bool RenderGraphProfiler::_write_boundary(VkCommandBuffer p_cmd, uint32_t& r_index)
+bool GpuProfiler::_write_boundary(VkCommandBuffer p_cmd, uint32_t& r_index)
 {
     Slot& s = slots[slot];
     if (s.query_count >= s.reset_count) { s.overflowed = true; return false; }
@@ -126,7 +124,7 @@ bool RenderGraphProfiler::_write_boundary(VkCommandBuffer p_cmd, uint32_t& r_ind
     return true;
 }
 
-void RenderGraphProfiler::_resolve()
+void GpuProfiler::_resolve()
 {
     using enum Error;
     if (!active) return;
@@ -166,20 +164,7 @@ void RenderGraphProfiler::_resolve()
         const double gap = delta_ms(m.lead_query,  m.begin_query);
         const double dur = delta_ms(m.begin_query, m.end_query);
 
-        uint32_t si = smoothed_index.get(m.key);
-        const bool fresh = si == IdMap::NONE;
-        if (fresh) {
-            si = (uint32_t)smoothed.size();
-            smoothed_index.insert(m.key, si);
-            smoothed.push_back(Smoothed{ gap, dur });
-        }
-        Smoothed& acc = smoothed[si];
-        if (!fresh) {
-            acc.gap += smoothing * (gap - acc.gap);
-            acc.dur += smoothing * (dur - acc.dur);
-        }
-
-        if (m.kind == MarkKind::PASS || m.kind == MarkKind::BARRIER) sum += acc.gap + acc.dur;
+        if (m.kind == MarkKind::PASS || m.kind == MarkKind::BARRIER) sum += gap + dur;
         if (m.kind == MarkKind::DRAW) draws++;
 
         Timing t;
@@ -187,10 +172,8 @@ void RenderGraphProfiler::_resolve()
         t.name = (m.name_id != 0) ? name_of(m.name_id) : "";
         t.type = (m.type_id != 0) ? name_of(m.type_id) : "";
         t.category = (m.kind == MarkKind::PASS || m.kind == MarkKind::BARRIER) ? name_of(m.cat_id) : "";
-        t.gap_ms = acc.gap;
-        t.gpu_ms = acc.dur;
-        t.raw_gap_ms = gap;
-        t.raw_ms = dur;
+        t.gap_ms = gap;
+        t.gpu_ms = dur;
         t.draw_count = m.draw_count;
         t.ordinal = m.ordinal;
         t.parent = m.parent;
@@ -219,7 +202,7 @@ void RenderGraphProfiler::_resolve()
     total_draws = draws;
 }
 
-void RenderGraphProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
+void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
 {
     slot = p_slot;
 
@@ -266,7 +249,7 @@ void RenderGraphProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
     s.last_boundary = t0;
 }
 
-void RenderGraphProfiler::frame_end()
+void GpuProfiler::frame_end()
 {
     if (!active) return;
     Slot& s = slots[slot];
@@ -274,7 +257,7 @@ void RenderGraphProfiler::frame_end()
     s.stats_recorded = stats_active;
 }
 
-void RenderGraphProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)
+void GpuProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)
 {
     if (!active) return;
     Slot& s = slots[slot];
@@ -299,7 +282,7 @@ void RenderGraphProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_n
     s.marks.push_back(m);
 }
 
-void RenderGraphProfiler::pass_end(VkCommandBuffer p_cmd, uint32_t p_draw_count)
+void GpuProfiler::pass_end(VkCommandBuffer p_cmd, uint32_t p_draw_count)
 {
     if (!active || slots[slot].open_pass == INVALID) return;
     Slot& s = slots[slot];
@@ -316,7 +299,7 @@ void RenderGraphProfiler::pass_end(VkCommandBuffer p_cmd, uint32_t p_draw_count)
     s.open_draw = INVALID;
 }
 
-void RenderGraphProfiler::sync_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)
+void GpuProfiler::sync_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)
 {
     if (!active) return;
     Slot& s = slots[slot];
@@ -339,7 +322,7 @@ void RenderGraphProfiler::sync_begin(VkCommandBuffer p_cmd, std::string_view p_n
     s.marks.push_back(m);
 }
 
-void RenderGraphProfiler::sync_end(VkCommandBuffer p_cmd)
+void GpuProfiler::sync_end(VkCommandBuffer p_cmd)
 {
     if (!active || slots[slot].open_barrier == INVALID) return;
     Slot& s = slots[slot];
@@ -353,7 +336,7 @@ void RenderGraphProfiler::sync_end(VkCommandBuffer p_cmd)
     s.open_barrier = INVALID;
 }
 
-void RenderGraphProfiler::_leaf_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type, MarkKind p_kind, uint32_t p_instances, bool p_query_stats)
+void GpuProfiler::_leaf_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type, MarkKind p_kind, uint32_t p_instances, bool p_query_stats)
 {
     if (!active) return;
     Slot& s = slots[slot];
@@ -401,7 +384,7 @@ void RenderGraphProfiler::_leaf_begin(VkCommandBuffer p_cmd, std::string_view p_
     s.marks.push_back(m);
 }
 
-void RenderGraphProfiler::_leaf_end(VkCommandBuffer p_cmd)
+void GpuProfiler::_leaf_end(VkCommandBuffer p_cmd)
 {
     if (!active || slots[slot].open_draw == INVALID) return;
     Slot& s = slots[slot];
@@ -420,32 +403,32 @@ void RenderGraphProfiler::_leaf_end(VkCommandBuffer p_cmd)
     s.open_draw = INVALID;
 }
 
-void RenderGraphProfiler::draw_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type, uint32_t p_instances)
+void GpuProfiler::draw_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type, uint32_t p_instances)
 {
     _leaf_begin(p_cmd, p_name, p_type, MarkKind::DRAW, p_instances, true);
 }
 
-void RenderGraphProfiler::draw_end(VkCommandBuffer p_cmd)
+void GpuProfiler::draw_end(VkCommandBuffer p_cmd)
 {
     _leaf_end(p_cmd);
 }
 
-void RenderGraphProfiler::dispatch_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type)
+void GpuProfiler::dispatch_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type)
 {
     _leaf_begin(p_cmd, p_name, p_type, MarkKind::DISPATCH, 0, false);
 }
 
-void RenderGraphProfiler::dispatch_end(VkCommandBuffer p_cmd)
+void GpuProfiler::dispatch_end(VkCommandBuffer p_cmd)
 {
     _leaf_end(p_cmd);
 }
 
-void RenderGraphProfiler::transfer_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type)
+void GpuProfiler::transfer_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type)
 {
     _leaf_begin(p_cmd, p_name, p_type, MarkKind::TRANSFER, 0, false);
 }
 
-void RenderGraphProfiler::transfer_end(VkCommandBuffer p_cmd)
+void GpuProfiler::transfer_end(VkCommandBuffer p_cmd)
 {
     _leaf_end(p_cmd);
 }

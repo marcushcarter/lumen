@@ -4,7 +4,6 @@
 #include <core/assets/lmodel.h>
 #include <core/io/path.h>
 #include <core/version.h>
-#include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <windows.h>
 #include <cfloat>
@@ -14,16 +13,11 @@
 
 namespace lumen {
 
-Error Application::initialize(const ApplicationCreateInfo& p_create_info)
+Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
 {
     using enum Error;
-    Error err;
 
-    log_write("\n\n%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
-
-    cpu_profiler().initialize();
-
-    err = win32.initialize();
+    Error err = win32.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     err = win32.window_create(p_create_info.window_title, p_create_info.width, p_create_info.height, wants_custom_titlebar());
@@ -64,29 +58,36 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     err = render_path->create_resources();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    tasks.start(std::max(2u, std::thread::hardware_concurrency()) - 1u, 1);
-    
     err = on_init();
-    if (err == CANCELED) {
-        on_shutdown();
-        shutdown();
-        return err;
-    }
-    if (err != OK) tasks.stop();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     
     frame_stats.initialize(win32.window.hwnd);
     err = frame_limiter.initialize();
-    if (err != OK) tasks.stop();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     win32.window_show();
     return OK;
 }
 
+Error Application::initialize(const ApplicationCreateInfo& p_create_info)
+{
+    using enum Error;
+
+    log_write("\n\n%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
+
+    cpu_profiler().initialize();
+
+    Error err = job_system().initialize();
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
+    err = _initialize(p_create_info);
+    if (err != OK) job_system().shutdown();
+    return err;
+}
+
 void Application::shutdown()
 {
-    tasks.stop();
+    job_system().shutdown();
 
     dd.device_wait_idle();
 
@@ -142,7 +143,6 @@ Error Application::_frame()
     double delta = std::chrono::duration<double>(now - last_time).count();
     last_time = now;
     if (delta > 0.25) delta = 0.25;
-    if (background_paused) delta = 0.0;
 
     if (!win32.window_is_focused()) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 
@@ -199,10 +199,7 @@ void Application::_update_window_state()
     const bool focus_gained = win32.window_consume_focus_gained();
     const bool regained = (focused && !window_focused) || (visible && !window_visible) || (focus_gained && focused);
 
-    if (regained) {
-        last_time = std::chrono::steady_clock::now();
-        throttle_last_tick = last_time;
-    }
+    if (regained) last_time = std::chrono::steady_clock::now();
     if (focused != window_focused) {
         window_focused = focused;
         on_focus_changed(focused);
@@ -211,24 +208,6 @@ void Application::_update_window_state()
         window_visible = visible;
         on_visibility_changed(visible);
     }
-    const BackgroundPolicy policy = background_policy();
-    background_paused = !window_focused && policy.pause_sim;
-}
-
-// Sleeps until the next throttled tick. Input while unfocused is still dispatched but doesn't produce frames;
-// only regaining focus, a visibility change, a resize, or close ends the wait early.
-void Application::_wait_throttled(uint32_t p_tick_ms)
-{
-    const auto deadline = throttle_last_tick + std::chrono::milliseconds(p_tick_ms);
-    for (;;) {
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline) break;
-        const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - now).count();
-        win32.wait_events((uint32_t)remaining);
-        if (win32.window_should_close()) return;
-        if (win32.window_is_focused() || !win32.window_is_visible() || win32.window_consume_resized()) break;
-    }
-    throttle_last_tick = std::chrono::steady_clock::now();
 }
 
 Error Application::run()
@@ -237,7 +216,7 @@ Error Application::run()
 
     CpuProfiler& cpu = cpu_profiler();
     last_time = std::chrono::steady_clock::now();
-    throttle_last_tick = last_time;
+    background_last_tick = last_time;
     window_focused = win32.window_is_focused();
     window_visible = win32.window_is_visible();
 
@@ -245,56 +224,38 @@ Error Application::run()
     while (!win32.window_should_close()) {
         const BackgroundPolicy policy = background_policy();
 
-        // float cap = fps_cap();
-        // if (!win32.window_is_focused() && (cap <= 0.0f || cap > UNFOCUSED_FPS_CAP)) cap = UNFOCUSED_FPS_CAP;
-        // if (cap > 0.0f) {
-        //     cpu.zone_begin("Frame Limiter", CpuProfiler::FLAG_WAIT);
-        //     frame_limiter.wait(cap);
-        //     cpu.zone_end();
-        // }
-        if (!window_visible) {
-            // Minimized / hidden / cloaked: no acquire, no present. Wake on any message or once per tick for keepalives.
-            cpu.zone_begin("Background Wait", CpuProfiler::FLAG_WAIT);
-            win32.wait_events(policy.tick_ms);
-            cpu.zone_end();
-            if (win32.window_should_close()) break;
-            _update_window_state();
-            if (!window_visible) {
-                on_background_tick();
-                continue;
-            }
-        } else if (!window_focused && policy.throttle) {
-            cpu.zone_begin("Background Throttle", CpuProfiler::FLAG_WAIT);
-            _wait_throttled(policy.tick_ms);
-            cpu.zone_end();
-            if (win32.window_should_close()) break;
-            on_background_tick();
-        } else {
-            float cap = fps_cap();
-            if (!window_focused && (cap <= 0.0f || cap > UNFOCUSED_FPS_CAP)) cap = UNFOCUSED_FPS_CAP;
+        if (_should_render(policy)) {
+            const float cap = fps_cap();
             if (cap > 0.0f) {
                 cpu.zone_begin("Frame Limiter", CpuProfiler::FLAG_WAIT);
                 frame_limiter.wait(cap);
                 cpu.zone_end();
             }
+            win32.poll_events();
+        } else {
+            const auto elapsed = std::chrono::steady_clock::now() - background_last_tick;
+            const auto remaining = std::chrono::milliseconds(policy.housekeeping_ms) - std::chrono::ceil<std::chrono::milliseconds>(elapsed);
+            cpu.zone_begin("Background Wait", CpuProfiler::FLAG_WAIT);
+            win32.wait_events(remaining.count() > 0 ? (uint32_t)remaining.count() : 0u);
+            cpu.zone_end();
         }
-
-        win32.poll_events();
         if (win32.window_should_close()) break;
 
-        // if (win32.window_is_minimized()) {
-        //     WaitMessage();
-        //     continue;
-        // }
         _update_window_state();
-        if (!window_visible) continue;
+        if (!_should_render(policy)) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - background_last_tick >= std::chrono::milliseconds(policy.housekeeping_ms)) {
+                background_last_tick = now;
+                on_background_tick();
+            }
+            continue;
+        }
         win32.window_consume_resized();
 
         err = _frame();
         if (err != OK) break;
     }
 
-    tasks.stop();
     dd.device_wait_idle();
     on_shutdown();
     shutdown();
@@ -323,22 +284,9 @@ void Application::report_fatal_error(Error p_error)
     Paths::reveal_in_explorer(file);
 }
 
-bool Application::confirm_gpu_support()
-{
-    if (gpu_support_confirmed || dd.capabilities.mesh.mesh_shader) return true;
-
-    const std::wstring body = dd.driver_device.name + L" does not support mesh shaders (VK_EXT_mesh_shader).\n\n"
-        L"Lumen will use its compatibility geometry path instead. Everything still works, but performance may differ from GPUs with mesh shader support.\n\n"
-        L"If your GPU is recent, updating your graphics driver may enable support.";
-    gpu_support_confirmed = drivers::Win32Dialogs::confirm(L"Lumen", L"Mesh shaders not supported", body.c_str());
-    return gpu_support_confirmed;
-}
-
 Error Application::project_load(const std::filesystem::path &p_root)
 {
     using enum Error;
-
-    if (!confirm_gpu_support()) return CANCELED;
 
     Error err = project.load(p_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);

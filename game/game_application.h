@@ -22,7 +22,6 @@ struct GameApplication : Application
     const Camera& active_camera() const override { return orbit_camera; }
 
     bool wants_docking() const override { return false; }
-    BackgroundPolicy background_policy() const override { return { .tick_ms = 1000, .throttle = true, .pause_sim = true }; }
     RenderPath* create_render_path() override { return new GameRenderPath(); }
 };
 

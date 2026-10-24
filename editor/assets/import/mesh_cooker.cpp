@@ -5,7 +5,7 @@
 #include <core/assets/asset_common.h>
 #include <core/assets/lmesh.h>
 #include <core/project/project.h>
-#include <core/base/tasks.h>
+#include <core/base/jobs.h>
 #include <drivers/toml/toml_helpers.h>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -528,9 +528,9 @@ void MeshCooker::import_async(EditorContext& ctx, const std::filesystem::path& p
         return;
     }
     job.progress = ctx.imports->add(p_dst, job.guid, job.content_bin);
-    ctx.tasks->dispatch([job]{
+    job_system().run_background_owned([job]{
         if (MeshCooker::_cook(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
-    });
+    }, nullptr, "Mesh Import");
 }
 
 }

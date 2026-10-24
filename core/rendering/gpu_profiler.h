@@ -12,7 +12,7 @@
 
 namespace lumen {
 
-struct RenderGraphProfiler
+struct GpuProfiler
 {
     static constexpr uint32_t INVALID = UINT32_MAX;
     static constexpr uint32_t CAPACITY = 8192;
@@ -55,8 +55,6 @@ struct RenderGraphProfiler
         const char* category = "";
         double gap_ms = 0.0;
         double gpu_ms = 0.0;
-        double raw_gap_ms = 0.0;
-        double raw_ms = 0.0;
         uint32_t ordinal = 0;
         uint32_t parent = INVALID;
         MarkKind kind = MarkKind::PASS;
@@ -73,10 +71,6 @@ struct RenderGraphProfiler
     uint32_t total_draws = 0;
     bool truncated = false;
 
-    struct Smoothed { double gap = 0.0; double dur = 0.0; };
-    std::vector<Smoothed> smoothed;
-    IdMap smoothed_index;
-    double smoothing = 0.001;
 
     /*******************/
     /**** RECORDING ****/

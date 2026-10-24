@@ -13,8 +13,7 @@ struct CpuProfiler
     static constexpr uint32_t FRAME_HISTORY = 16;
     static constexpr uint8_t FLAG_WAIT = 1;
 
-    struct Zone
-    {
+    struct Zone {
         const char* name;
         int64_t begin;
         int64_t end;
@@ -23,8 +22,7 @@ struct CpuProfiler
         uint8_t flags;
     };
 
-    struct Lane
-    {
+    struct Lane {
         char name[32];
         uint16_t index;
         std::mutex mutex;
@@ -36,11 +34,16 @@ struct CpuProfiler
         uint32_t depth;
     };
 
-    struct Frame
-    {
+    struct Frame {
         uint64_t number;
         int64_t begin;
         int64_t end;
+    };
+
+    struct FiberZones {
+        const char* name[MAX_DEPTH];
+        uint8_t flags[MAX_DEPTH];
+        uint32_t depth;
     };
 
     double ticks_to_ms = 0.0;
@@ -64,6 +67,8 @@ struct CpuProfiler
     void zone_begin(const char* p_name, uint8_t p_flags = 0);
     void zone_end();
     void set_thread_name(const char* p_name);
+    void fiber_suspend(FiberZones& r_zones);
+    void fiber_resume(const FiberZones& p_zones);
 
     const Frame* frame(uint64_t p_number) const;
     const Frame* last_complete_frame() const;

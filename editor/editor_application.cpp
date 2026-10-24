@@ -132,14 +132,8 @@ void EditorApplication::on_update(float p_dt)
                     break;
             }
         }
-        std::vector<std::string> finished;
-        for (const auto& c : imports.completed) if (c.notify) finished.push_back(c.dst.stem().string());
-        if (!finished.empty() && !win32.window_is_focused()) {
-            const std::string message = finished.size() == 1 ? finished.front() + " finished importing." : std::to_string(finished.size()) + " assets finished importing.";
-            win32.notify("Import complete", message);
-            win32.window_flash();
-        }
         imports.completed.clear();
+        imports_notified = 0;
         assets.tick();
         selection.prune(world, folders);
 
@@ -163,12 +157,29 @@ void EditorApplication::on_update(float p_dt)
     }
 }
 
+void EditorApplication::on_background_tick()
+{
+    play.poll();
+    run.poll();
+    if (!project.loaded()) return;
+
+    imports.tick();
+    std::vector<std::string> finished;
+    for (size_t i = imports_notified; i < imports.completed.size(); i++) {
+        if (imports.completed[i].notify) finished.push_back(imports.completed[i].dst.stem().string());
+    }
+    imports_notified = imports.completed.size();
+    if (finished.empty()) return;
+    const std::string message = finished.size() == 1 ? finished.front() + " finished importing." : std::to_string(finished.size()) + " assets finished importing.";
+    win32.notify("Import complete", message);
+    win32.window_flash();
+}
+
 Error EditorApplication::open_project(const std::filesystem::path& p_root)
 {
     using enum Error;
     
     Error err = project_load(p_root);
-    if (err == CANCELED) return err;
     if (err != OK) project_unload();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
@@ -773,7 +784,6 @@ EditorContext EditorApplication::_make_context()
     ctx.imgui = &imgui;
     
     ctx.renderer = &renderer;
-    ctx.tasks = &tasks;
     ctx.project = &project;
     ctx.world = &world;
     
@@ -795,7 +805,6 @@ EditorContext EditorApplication::_make_context()
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};
-    ctx.confirm_gpu_support = [this]{ return confirm_gpu_support(); };
     
     ctx.pie_is_playing = [this]{ return play.is_running(); };
     ctx.pie_toggle_play = [this]{ if (play.is_running()) play.stop(); else play.launch(project.root); };

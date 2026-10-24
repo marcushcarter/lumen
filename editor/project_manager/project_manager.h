@@ -1,8 +1,9 @@
 #pragma once
 #include <editor/editor_context.h>
 #include <core/base/error.h>
+#include <core/base/jobs.h>
 #include <filesystem>
-#include <future>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,12 @@ struct ProjectManager
 
     enum class Filter { ALL, FAVORITES, MISSING };
 
+    struct StatsJob {
+        JobCounter counter;
+        std::filesystem::path path;
+        ContentStats stats;
+    };
+
     std::vector<Entry> recent;
     std::vector<int> visible;
     Filter filter = Filter::ALL;
@@ -37,8 +44,7 @@ struct ProjectManager
     int  sort_index = 0;
     char filter_buf[128] = {};
 
-    std::future<ContentStats> stats_job;
-    std::filesystem::path stats_job_path;
+    std::unique_ptr<StatsJob> stats_job;
 
     bool new_project_request = false;
     char new_project_name[128] = {};

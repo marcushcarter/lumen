@@ -7,7 +7,7 @@
 #include <core/project/project.h>
 #include <core/assets/ltexture.h>
 #include <core/io/image_io.h>
-#include <core/base/tasks.h>
+#include <core/base/jobs.h>
 #include <drivers/toml/toml_helpers.h>
 #include <vulkan/vulkan.h>
 #include <rdo_bc_encoder.h>
@@ -339,9 +339,9 @@ void TextureCooker::import_async(EditorContext& ctx, const std::filesystem::path
         return;
     }
     job.progress = ctx.imports->add(p_dst, job.guid, job.content_bin);
-    ctx.tasks->dispatch([job]{
+    job_system().run_background_owned([job]{
         if (TextureCooker::_cook(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
-    });
+    }, nullptr, "Texture Import");
 }
 
 }

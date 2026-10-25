@@ -11,6 +11,7 @@
 #include <editor/tabs/world/panels/outliner_panel.h>
 #include <editor/tabs/world/panels/details_panel.h>
 #include <editor/tabs/world/panels/world_settings_panel.h>
+#include <editor/tabs/world/panels/version_control_panel.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 
@@ -23,6 +24,7 @@ Error WorldTab::initialize()
     layout.add_panel<OutlinerPanel>();
     layout.add_panel<DetailsPanel>();
     layout.add_panel<WorldSettingsPanel>();
+    layout.add_panel<VersionControlPanel>();
     return OK;
 }
 

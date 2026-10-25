@@ -12,7 +12,7 @@ struct Project;
 struct World;
 struct ProjectManager;
 struct WorldTab;
-struct Drawer;
+struct SharedPanels;
 struct TabManager;
 struct EditorSelection;
 struct EditorRenderPath;
@@ -37,7 +37,7 @@ struct EditorContext
     
     ProjectManager* project_manager = nullptr;
     WorldTab* world_tab = nullptr;
-    Drawer* drawer = nullptr;
+    SharedPanels* shared_panels = nullptr;
     TabManager* tabs = nullptr;
     EditorSelection* selection = nullptr;
     

@@ -4,6 +4,7 @@
 #include <editor/project_manager/project_manager.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/world/world_tab.h>
+#include <editor/panels/shared_panels.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/render_path/project_manager_render_path.h>
@@ -26,20 +27,18 @@ namespace lumen {
 
 struct EditorApplication : Application
 {
-    struct SavedTab
-    {
+    struct SavedTab {
         TabKind kind = TabKind::WORLD;
         Guid guid;
     };
 
-    struct SavedTabs
-    {
+    struct SavedTabs {
         std::vector<SavedTab> tabs;
         uint32_t active = 0;
     };
 
     ProjectManager project_manager;
-    Drawer drawer;
+    SharedPanels shared_panels;
     WorldTab world_tab;
     TabManager tabs;
 

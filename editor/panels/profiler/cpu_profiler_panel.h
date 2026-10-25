@@ -1,12 +1,12 @@
 #pragma once
-#include <editor/drawer/profiler_base.h>
+#include <editor/panels/profiler/profiler_panel_base.h>
 #include <cstdint>
 #include <vector>
 
 namespace lumen {
 
 // One CPU frame of real time, 0 ms = its start: one lane per thread, zones clipped to the frame.
-struct CpuProfilerDrawerTab : ProfilerTabBase
+struct CpuProfilerPanel : ProfilerPanelBase
 {
     struct Capture {
         struct Zone { const char* name; float begin_ms; float end_ms; uint16_t lane; uint8_t depth; uint8_t flags; };

@@ -1,4 +1,4 @@
-#include <editor/drawer/cpu_profiler_tab.h>
+#include <editor/panels/profiler/cpu_profiler_panel.h>
 #include <drivers/imgui/ui_style.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/base/cpu_profiler.h>
@@ -12,7 +12,7 @@ namespace lumen {
 /**** CAPTURE ****/
 /*****************/
 
-void CpuProfilerDrawerTab::_capture_update()
+void CpuProfilerPanel::_capture_update()
 {
     if (frozen) return;
     const CpuProfiler& cpu = cpu_profiler();
@@ -53,7 +53,7 @@ void CpuProfilerDrawerTab::_capture_update()
 /**** GRAPH ****/
 /***************/
 
-void CpuProfilerDrawerTab::_draw_graph(EditorContext& ctx)
+void CpuProfilerPanel::_draw_graph(EditorContext& ctx)
 {
     (void)ctx;
     const UiStyle& ui = ui_style();

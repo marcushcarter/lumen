@@ -1,8 +1,9 @@
 #include <editor/assets/asset_field.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
-#include <editor/drawer/drawer.h>
-#include <editor/drawer/content_browser_tab.h>
+// #include <editor/drawer/drawer.h>
+#include <editor/panels/shared_panels.h>
+#include <editor/panels/content_browser_panel.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
@@ -76,7 +77,8 @@ bool asset_thumbnail_field(EditorContext& ctx, const char* p_id, Guid& r_guid, A
     const bool hovered = ImGui::IsItemHovered();
 
     VkImageView view = VK_NULL_HANDLE;
-    if (asset && ctx.drawer && ctx.drawer->content_browser) view = ctx.drawer->content_browser->thumbnail(ctx, r_guid, p_type);
+    // if (asset && ctx.drawer && ctx.drawer->content_browser) view = ctx.drawer->content_browser->thumbnail(ctx, r_guid, p_type);
+    if (asset && ctx.shared_panels && ctx.shared_panels->content_browser) view = ctx.shared_panels->content_browser->thumbnail(ctx, r_guid, p_type);
     const VkDescriptorSet set = view && ctx.imgui ? ctx.imgui->texture_cache.get(view) : VK_NULL_HANDLE;
 
     ImDrawList* dl = ImGui::GetWindowDrawList();

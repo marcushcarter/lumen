@@ -1,4 +1,4 @@
-#include <editor/drawer/memory_tab.h>
+#include <editor/panels/memory_panel.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <drivers/imgui/ui_style.h>
 #include <core/rendering/renderer.h>
@@ -9,7 +9,7 @@
 
 namespace lumen {
 
-void MemoryDrawerTab::_draw_transients(EditorContext& ctx)
+void MemoryPanel::_draw_transients(EditorContext& ctx)
 {
     RenderGraph* graph = &ctx.renderer->main_view.graph;
 
@@ -120,7 +120,7 @@ void MemoryDrawerTab::_draw_transients(EditorContext& ctx)
     }
 }
 
-void MemoryDrawerTab::draw(EditorContext& ctx)
+void MemoryPanel::draw_contents(EditorContext& ctx)
 {
     drivers::DeviceDriverVulkan* dd = ctx.renderer->dd;
 

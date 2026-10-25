@@ -311,6 +311,13 @@ void Viewport::_draw_image(EditorContext& ctx)
         right_overlay.end();
     }
 
+    const float corner_h = ImGui::GetFrameHeight();
+    const float corner_margin = ui_style().overlay.margin;
+    corner_overlay.begin(ImVec2(pos.x, pos.y + size.y - corner_h - corner_margin * 2.0f), size, OverlayBar::Align::RIGHT);
+    if (corner_overlay.button(fullscreen ? ICON_FA_COMPRESS "###fullscreen" : ICON_FA_EXPAND "###fullscreen", ImVec2(corner_h, corner_h))) fullscreen = !fullscreen;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(fullscreen ? "Exit fullscreen" : "Fullscreen");
+    corner_overlay.end();
+
     if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
         ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
     }
@@ -353,4 +360,4 @@ void Viewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::EndChild();
 }
 
-}
+}

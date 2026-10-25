@@ -6,14 +6,20 @@
 
 namespace lumen {
 
+struct SharedPanels;
+struct DetailsPanel;
+
 struct WorldTab : EditorTab
 {
     static constexpr TabKind KIND = TabKind::WORLD;
-    static constexpr int VERSION = 1;
+    static constexpr int VERSION = 2;
 
     EditorLayout layout;
+    DetailsPanel* details = nullptr;
+    uint64_t selection_version = 0;
 
-    Error initialize();
+    // Error initialize();
+    Error initialize(SharedPanels& r_shared);
     void shutdown();
 
     const char* title() const override { return "World"; }
@@ -27,4 +33,4 @@ struct WorldTab : EditorTab
     void _draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max);
 };
 
-}
+}

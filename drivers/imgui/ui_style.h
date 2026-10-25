@@ -179,6 +179,10 @@ struct UiStyle
         float panel_scrollbar;
         ImVec2 drawer_padding;
         float drop_outline;
+        float edge_target_size;
+        float edge_target_margin;
+        float edge_target_inset;
+        float edge_target_rounding;
     };
 
     struct TabStrip {

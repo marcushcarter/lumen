@@ -7,21 +7,21 @@ namespace lumen {
 
 bool DockWell::has_open() const
 {
-    for (const Panel* p : panels) if (p->open) return true;
+    for (const DockSlot* s : slots) if (s->open) return true;
     return false;
 }
 
-Panel* DockWell::_resolve_active()
+DockSlot* DockWell::_resolve_active()
 {
-    Panel* active = nullptr;
-    Panel* first_open = nullptr;
-    for (Panel* p : panels) {
-        if (!p->open) continue;
-        if (!first_open) first_open = p;
-        if (active_name == p->name()) active = p;
+    DockSlot* active = nullptr;
+    DockSlot* first_open = nullptr;
+    for (DockSlot* s : slots) {
+        if (!s->open) continue;
+        if (!first_open) first_open = s;
+        if (active_name == s->panel->name()) active = s;
     }
     if (!active) active = first_open;
-    if (active) active_name = active->name();
+    if (active) active_name = active->panel->name();
     return active;
 }
 
@@ -30,25 +30,24 @@ void DockWell::_drop_target(ImVec2 p_min, ImVec2 p_max)
     const ImGuiPayload* peek = ImGui::GetDragDropPayload();
     if (!peek || !peek->IsDataType(PAYLOAD)) return;
     Panel* dragged = *reinterpret_cast<Panel* const*>(peek->Data);
-    if (dragged->zone == zone) return;
+    for (const DockSlot* s : slots) if (s->panel == dragged && s->open) return;
 
     if (!ImGui::BeginDragDropTargetCustom(ImRect(p_min, p_max), ImGui::GetID("##drop"))) return;
     if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-        const UiStyle& ui = ui_style();
-        ImDrawList* fg = ImGui::GetForegroundDrawList(ImGui::GetWindowViewport());
-        fg->AddRectFilled(p_min, p_max, ui.color.drop_fill);
-        fg->AddRect(p_min, p_max, ui.color.drop_line, 0.0f, 0, ui.dock.drop_outline);
-        if (pl->IsDelivery()) {
-            dragged->zone = zone;
-            active_name = dragged->name();
+        if (pl->IsPreview()) {
+            const UiStyle& ui = ui_style();
+            ImDrawList* fg = ImGui::GetForegroundDrawList(ImGui::GetWindowViewport());
+            fg->AddRectFilled(p_min, p_max, ui.color.drop_fill);
+            fg->AddRect(p_min, p_max, ui.color.drop_line, 0.0f, 0, ui.dock.drop_outline);
         }
+        if (pl->IsDelivery()) dropped = dragged;
     }
     ImGui::EndDragDropTarget();
 }
 
 void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
-    Panel* active = _resolve_active();
+    DockSlot* active = _resolve_active();
     const UiStyle& ui = ui_style();
     const float tab_h = TabStrip::dock_height();
     const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
@@ -56,25 +55,29 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PushID(to_string(zone));
 
     float natural = 0.0f;
-    for (Panel* p : panels) if (p->open) natural += TabStrip::dock_natural_width(p->name(), p->closable());
+    for (DockSlot* s : slots) if (s->open) natural += TabStrip::dock_natural_width(s->panel->name(), s->panel->closable() && !s->panel->pinned());
 
-    Panel* closed = nullptr;
+    DockSlot* closed = nullptr;
     TabStrip strip;
     strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, ui.dock_tab.inset_x);
     strip.cursor_x += ui.dock_tab.inset_x;
-    for (Panel* p : panels) {
-        if (!p->open) continue;
+    strip.scrollable(tab_scroll, active_name != revealed_name, ui.dock_tab.inset_x);
+    revealed_name = active_name;
+    for (DockSlot* s : slots) {
+        if (!s->open) continue;
+        Panel* p = s->panel;
         bool close = false;
-        if (strip.dock_tab(p->name(), p == active, p->closable() ? &close : nullptr)) {
-            active = p;
+        const bool can_close = p->closable() && !p->pinned();
+        if (strip.dock_tab(p->name(), s == active, can_close ? &close : nullptr)) {
+            active = s;
             active_name = p->name();
         }
-        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers)) {
+        if (!p->pinned() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers)) {
             ImGui::SetDragDropPayload(PAYLOAD, &p, sizeof(Panel*));
             ImGui::TextUnformatted(p->name());
             ImGui::EndDragDropSource();
         }
-        if (close) closed = p;
+        if (close) closed = s;
     }
     strip.end();
 
@@ -85,16 +88,16 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     const float content_h = ImMax(1.0f, size.y - tab_h);
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + tab_h));
-    ImGui::PushID(active ? active->name() : "##empty");
+    ImGui::PushID(active ? active->panel->name() : "##empty");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->window_padding() : ui.dock.panel_padding);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->panel->window_padding() : ui.dock.panel_padding);
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, ui.dock.panel_scrollbar);
-    const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, active ? active->window_flags() : ImGuiWindowFlags_NoScrollbar);
+    const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, active ? active->panel->window_flags() : ImGuiWindowFlags_NoScrollbar);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
     if (visible) {
         if (active) {
-            active->draw_contents(ctx);
+            active->panel->draw_contents(ctx);
         } else {
             const char* hint = "Drop a panel here";
             const ImVec2 ts = ImGui::CalcTextSize(hint);

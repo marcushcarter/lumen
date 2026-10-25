@@ -1,4 +1,4 @@
-#include <editor/drawer/gpu_profiler_tab.h>
+#include <editor/panels/profiler/gpu_profiler_panel.h>
 #include <drivers/imgui/ui_style.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <core/rendering/renderer.h>
@@ -39,7 +39,7 @@ static const char* _kind_name(GpuProfiler::MarkKind p_kind)
     return "?";
 }
 
-void GpuProfilerDrawerTab::_copy_report(EditorContext& ctx)
+void GpuProfilerPanel::_copy_report(EditorContext& ctx)
 {
     const Renderer& r = *ctx.renderer;
     const RenderView& v = r.main_view;
@@ -154,7 +154,7 @@ void GpuProfilerDrawerTab::_copy_report(EditorContext& ctx)
 /**** TOOLBAR ****/
 /*****************/
 
-void GpuProfilerDrawerTab::_draw_toolbar(EditorContext& ctx)
+void GpuProfilerPanel::_draw_toolbar(EditorContext& ctx)
 {
     const GpuProfiler& prof = ctx.renderer->main_view.graph.gpu_profiler;
     ProfilingSettings& settings = *ctx.profiling;
@@ -174,7 +174,7 @@ void GpuProfilerDrawerTab::_draw_toolbar(EditorContext& ctx)
 /**** GRAPH ****/
 /***************/
 
-void GpuProfilerDrawerTab::_draw_graph(EditorContext& ctx)
+void GpuProfilerPanel::_draw_graph(EditorContext& ctx)
 {
     GpuProfiler& prof = ctx.renderer->main_view.graph.gpu_profiler;
     const UiStyle& ui = ui_style();

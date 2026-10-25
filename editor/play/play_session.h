@@ -27,6 +27,8 @@ struct PlaySession
     Error initialize();
     void shutdown();
 
+    void _close_handles();
+    void _on_exit();
     Error launch(const std::filesystem::path& p_project_root);
     void relaunch(const std::filesystem::path& p_project_root);
     void stop();
@@ -34,11 +36,7 @@ struct PlaySession
 
     bool is_running() const { return running; }
     bool is_running_for(const std::filesystem::path& p_project_root) const;
-
     static std::filesystem::path _normalize_root(const std::filesystem::path& p_project_root);
-
-    void _close_handles();
-    void _on_exit();
 };
 
 }

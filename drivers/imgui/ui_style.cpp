@@ -55,6 +55,10 @@ void UiStyle::_build_components()
     dock.panel_scrollbar = space.xl;
     dock.drawer_padding = ImVec2(space.lg, space.lg);
     dock.drop_outline = stroke.thick;
+    dock.edge_target_size = 40.0f;
+    dock.edge_target_margin = space.xxxl;
+    dock.edge_target_inset = space.md;
+    dock.edge_target_rounding = radius.md;
 
     tab_strip.height_pad = space.xl;
     tab_strip.pad_x = space.xxl;

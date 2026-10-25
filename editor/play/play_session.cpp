@@ -37,6 +37,43 @@ void PlaySession::shutdown()
     }
 }
 
+void PlaySession::_close_handles()
+{
+    if (process) {
+        CloseHandle((HANDLE)process);
+        process = nullptr;
+    }
+    process_id = 0;
+}
+
+void PlaySession::_on_exit()
+{
+    DWORD code = 0;
+    GetExitCodeProcess((HANDLE)process, &code);
+
+    last_exit_code = code;
+    last_crashed = !terminated && code != 0;
+
+    if (terminated) log_write("Play: game terminated.");
+    else if (code == 0) log_write("Play: game exited.");
+    else if (code >= 0xC0000000u) log_write("Play: game crashed (exception 0x%08lX). Editor unaffected.", code);
+    else log_write("Play: game exited with error code %lu (see its crash log). Editor unaffected.", code);
+
+    _close_handles();
+    root.clear();
+    running = false;
+    stopping = false;
+    terminated = false;
+}
+
+static BOOL CALLBACK _close_process_windows(HWND p_hwnd, LPARAM p_pid)
+{
+    DWORD pid = 0;
+    GetWindowThreadProcessId(p_hwnd, &pid);
+    if (pid == (DWORD)p_pid) PostMessageW(p_hwnd, WM_CLOSE, 0, 0);
+    return TRUE;
+}
+
 Error PlaySession::launch(const std::filesystem::path& p_project_root)
 {
     using enum Error;
@@ -93,26 +130,6 @@ void PlaySession::relaunch(const std::filesystem::path& p_project_root)
     stop();
 }
 
-bool PlaySession::is_running_for(const std::filesystem::path& p_project_root) const
-{
-    return running && root == _normalize_root(p_project_root);
-}
-
-std::filesystem::path PlaySession::_normalize_root(const std::filesystem::path& p_project_root)
-{
-    std::filesystem::path r = p_project_root.lexically_normal();
-    if (!r.has_filename()) r = r.parent_path();
-    return r;
-}
-
-static BOOL CALLBACK _close_process_windows(HWND p_hwnd, LPARAM p_pid)
-{
-    DWORD pid = 0;
-    GetWindowThreadProcessId(p_hwnd, &pid);
-    if (pid == (DWORD)p_pid) PostMessageW(p_hwnd, WM_CLOSE, 0, 0);
-    return TRUE;
-}
-
 void PlaySession::stop()
 {
     if (!running) return;
@@ -151,33 +168,16 @@ void PlaySession::poll()
     }
 }
 
-void PlaySession::_on_exit()
+bool PlaySession::is_running_for(const std::filesystem::path& p_project_root) const
 {
-    DWORD code = 0;
-    GetExitCodeProcess((HANDLE)process, &code);
-
-    last_exit_code = code;
-    last_crashed = !terminated && code != 0;
-
-    if (terminated) log_write("Play: game terminated.");
-    else if (code == 0) log_write("Play: game exited.");
-    else if (code >= 0xC0000000u) log_write("Play: game crashed (exception 0x%08lX). Editor unaffected.", code);
-    else log_write("Play: game exited with error code %lu (see its crash log). Editor unaffected.", code);
-
-    _close_handles();
-    root.clear();
-    running = false;
-    stopping = false;
-    terminated = false;
+    return running && root == _normalize_root(p_project_root);
 }
 
-void PlaySession::_close_handles()
+std::filesystem::path PlaySession::_normalize_root(const std::filesystem::path& p_project_root)
 {
-    if (process) {
-        CloseHandle((HANDLE)process);
-        process = nullptr;
-    }
-    process_id = 0;
+    std::filesystem::path r = p_project_root.lexically_normal();
+    if (!r.has_filename()) r = r.parent_path();
+    return r;
 }
 
 }

@@ -26,6 +26,7 @@ struct Viewport
 
     OverlayBar left_overlay;
     OverlayBar right_overlay;
+    OverlayBar corner_overlay;
     TransformGizmo gizmo;
     drivers::CursorLockWin32 cursor_lock;
 
@@ -40,6 +41,7 @@ struct Viewport
     bool allow_gizmo = true;
     bool allow_look = false;
     float* time_of_day = nullptr;
+    bool fullscreen = false;
 
     bool looking = false;
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
@@ -56,4 +58,4 @@ struct Viewport
     void _update_look(bool p_start, ImVec2 p_center);
 };
 
-}
+}

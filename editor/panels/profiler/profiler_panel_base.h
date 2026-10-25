@@ -1,5 +1,5 @@
 #pragma once
-#include <editor/drawer/drawer_tab.h>
+#include <editor/layout/panel.h>
 #include <imgui.h>
 #include <cstdint>
 
@@ -7,7 +7,7 @@ namespace lumen {
 
 // Shared base for the CPU and GPU profiler tabs: toolbar row (freeze, tab items, controls help) above a zoom/pan/select
 // timeline canvas. Time is in ms from 0 to total_ms. Per draw: _canvas_begin() -> _bar()/_label()/_marker() -> _canvas_end().
-struct ProfilerTabBase : DrawerTab
+struct ProfilerPanelBase : Panel
 {
     static constexpr float MIN_RANGE_MS = 0.01f;
 
@@ -30,7 +30,11 @@ struct ProfilerTabBase : DrawerTab
     bool hovered = false;
     bool dragging = false;
 
-    void draw(EditorContext& ctx) override;
+    DockZone default_zone() const override { return DockZone::BOTTOM; }
+    bool default_open() const override { return false; }
+    ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar; }
+    ImVec2 window_padding() const override { return ui_style().dock.drawer_padding; }
+    void draw_contents(EditorContext& ctx) override;
 
     virtual void _draw_toolbar(EditorContext& ctx) { (void)ctx; }
     virtual void _draw_graph(EditorContext& ctx) = 0;

@@ -1,5 +1,5 @@
 #pragma once
-#include <editor/drawer/profiler_base.h>
+#include <editor/panels/profiler/profiler_panel_base.h>
 #include <core/rendering/gpu_profiler.h>
 #include <cstdint>
 #include <vector>
@@ -7,7 +7,7 @@
 namespace lumen {
 
 // One GPU frame, 0 ms = its first timestamp: categories, passes, barriers, draws/dispatches.
-struct GpuProfilerDrawerTab : ProfilerTabBase
+struct GpuProfilerPanel : ProfilerPanelBase
 {
     std::vector<float> start;
 

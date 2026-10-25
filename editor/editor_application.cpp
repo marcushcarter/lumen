@@ -56,9 +56,9 @@ Error EditorApplication::on_init()
 
     err = project_manager.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    drawer.initialize();
+    shared_panels.initialize();
     git.log_callback = [](const std::string& p_line) { log_write("[Git] %s", p_line.c_str()); };
-    err = world_tab.initialize();
+    err = world_tab.initialize(shared_panels);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = play.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -95,7 +95,7 @@ void EditorApplication::on_shutdown()
 
     project_manager.shutdown();
     world_tab.shutdown();
-    drawer.shutdown();
+    shared_panels.shutdown();
 }
 
 void EditorApplication::on_update(float p_dt)
@@ -327,27 +327,45 @@ void EditorApplication::_load_state()
     const toml::table& tbl = parsed;
 
     auto lv = tbl.at_path("layout");
-    if ((int)lv["version"].value_or((int64_t)-1) == WorldTab::VERSION) {
-        world_tab.layout.split_x = (float)lv["split_x"].value_or((double)world_tab.layout.split_x);
-        world_tab.layout.split_y = (float)lv["split_y"].value_or((double)world_tab.layout.split_y);
-        world_tab.layout.center_split = (float)lv["center_split"].value_or((double)world_tab.layout.center_split);
-        world_tab.layout.right_collapsed = lv["right_collapsed"].value_or(world_tab.layout.right_collapsed);
-        world_tab.layout.drawer.open_tabs.clear();
-        if (const toml::array* names = lv["drawer_open"].as_array()) {
-            for (const toml::node& n : *names) {
-                if (DrawerTab* t = drawer.find(n.value_or(std::string{}).c_str())) world_tab.layout.drawer.open(t);
+    const int layout_version = (int)lv["version"].value_or((int64_t)-1);
+    if (layout_version == 1 || layout_version == WorldTab::VERSION) {
+        EditorLayout& L = world_tab.layout;
+        const bool legacy = layout_version == 1;
+        L.split_right = (float)lv[legacy ? "split_x" : "split_right"].value_or((double)L.split_right);
+        L.right.split_y = (float)lv[legacy ? "split_y" : "right_split_y"].value_or((double)L.right.split_y);
+        L.center_split = (float)lv["center_split"].value_or((double)L.center_split);
+        L.right.collapsed = lv["right_collapsed"].value_or(L.right.collapsed);
+        if (!legacy) {
+            L.split_left = (float)lv["split_left"].value_or((double)L.split_left);
+            L.left.split_y = (float)lv["left_split_y"].value_or((double)L.left.split_y);
+            L.left.collapsed = lv["left_collapsed"].value_or(L.left.collapsed);
+            for (DockWell* w : { &L.bottom, &L.left.top, &L.left.bottom, &L.right.top, &L.right.bottom }) {
+                std::string key = std::string("active_") + to_string(w->zone);
+                if (auto name = lv[key].value<std::string>()) w->active_name = *name;
             }
+        } else {
+            L.right.top.active_name = lv["active_top"].value_or(std::string{});
+            L.right.bottom.active_name = lv["active_bottom"].value_or(std::string{});
         }
-        if (DrawerTab* t = drawer.find(lv["drawer_active"].value_or(std::string{}).c_str()); world_tab.layout.drawer.is_open(t)) world_tab.layout.drawer.active = t;
-        world_tab.layout.right_top.active_name = lv["active_top"].value_or(std::string{});
-        world_tab.layout.right_bottom.active_name = lv["active_bottom"].value_or(std::string{});
 
         if (const toml::table* pans = tbl.at_path("panels").as_table()) {
-            for (auto& p : world_tab.layout.panels) {
-                auto pv = (*pans)[p->name()];
-                p->open = pv["open"].value_or(p->open);
-                p->zone = dock_zone_from_string(pv["zone"].value_or(std::string(to_string(p->zone))), p->zone);
+            for (DockSlot& s : L.slots) {
+                if (!pans->contains(s.panel->name())) continue;
+                auto pv = (*pans)[s.panel->name()];
+                s.open = pv["open"].value_or(s.open);
+                s.zone = dock_zone_from_string(pv["zone"].value_or(std::string(to_string(s.zone))), s.zone);
             }
+        }
+        if (legacy) {
+            if (const toml::array* names = lv["drawer_open"].as_array()) {
+                for (const toml::node& n : *names) {
+                    if (DockSlot* s = L.find(n.value_or(std::string{}).c_str())) {
+                        s->open = true;
+                        s->zone = DockZone::BOTTOM;
+                    }
+                }
+            }
+            L.bottom.active_name = lv["drawer_active"].value_or(std::string{});
         }
     }
 
@@ -408,23 +426,24 @@ void EditorApplication::_save_state()
     
     toml::table layout;
     layout.insert_or_assign("version", (int64_t)WorldTab::VERSION);
-    layout.insert_or_assign("split_x", (double)world_tab.layout.split_x);
-    layout.insert_or_assign("split_y", (double)world_tab.layout.split_y);
-    layout.insert_or_assign("center_split", (double)world_tab.layout.center_split);
-    layout.insert_or_assign("right_collapsed", (bool)world_tab.layout.right_collapsed);
-    toml::array drawer_open;
-    for (DrawerTab* t : world_tab.layout.drawer.open_tabs) drawer_open.push_back(std::string(t->name()));
-    layout.insert_or_assign("drawer_open", std::move(drawer_open));
-    layout.insert_or_assign("drawer_active", std::string(world_tab.layout.drawer.active ? world_tab.layout.drawer.active->name() : ""));
-    layout.insert_or_assign("active_top", world_tab.layout.right_top.active_name);
-    layout.insert_or_assign("active_bottom", world_tab.layout.right_bottom.active_name);
+    EditorLayout& L = world_tab.layout;
+    layout.insert_or_assign("split_left", (double)L.split_left);
+    layout.insert_or_assign("split_right", (double)L.split_right);
+    layout.insert_or_assign("left_split_y", (double)L.left.split_y);
+    layout.insert_or_assign("right_split_y", (double)L.right.split_y);
+    layout.insert_or_assign("center_split", (double)L.center_split);
+    layout.insert_or_assign("left_collapsed", (bool)L.left.collapsed);
+    layout.insert_or_assign("right_collapsed", (bool)L.right.collapsed);
+    for (DockWell* w : { &L.bottom, &L.left.top, &L.left.bottom, &L.right.top, &L.right.bottom }) {
+        layout.insert_or_assign(std::string("active_") + to_string(w->zone), w->active_name);
+    }
 
     toml::table panels;
-    for (auto& p : world_tab.layout.panels) {
+    for (const DockSlot& s : L.slots) {
         toml::table pt;
-        pt.insert_or_assign("open", (bool)p->open);
-        pt.insert_or_assign("zone", to_string(p->zone));
-        panels.insert_or_assign(p->name(), std::move(pt));
+        pt.insert_or_assign("open", (bool)s.open);
+        pt.insert_or_assign("zone", to_string(s.zone));
+        panels.insert_or_assign(s.panel->name(), std::move(pt));
     }
 
     if (!tabs.tabs.empty()) _capture_tabs();
@@ -818,7 +837,7 @@ EditorContext EditorApplication::_make_context()
     
     ctx.project_manager = &project_manager;
     ctx.world_tab = &world_tab;
-    ctx.drawer = &drawer;
+    ctx.shared_panels = &shared_panels;
     ctx.tabs = &tabs;
     ctx.selection = &selection;
     

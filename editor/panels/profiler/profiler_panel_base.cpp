@@ -1,4 +1,4 @@
-#include <editor/drawer/profiler_base.h>
+#include <editor/panels/profiler/profiler_panel_base.h>
 #include <drivers/imgui/ui_style.h>
 #include <drivers/imgui/imgui_helpers.h>
 #include <IconsFontAwesome6.h>
@@ -12,7 +12,7 @@ namespace lumen {
 /**** TOOLBAR ****/
 /*****************/
 
-void ProfilerTabBase::draw(EditorContext& ctx)
+void ProfilerPanelBase::draw_contents(EditorContext& ctx)
 {
     const UiStyle& ui = ui_style();
 
@@ -52,7 +52,7 @@ void ProfilerTabBase::draw(EditorContext& ctx)
     ImGui::PopStyleColor(2);
 }
 
-void ProfilerTabBase::_draw_empty(const char* p_text)
+void ProfilerPanelBase::_draw_empty(const char* p_text)
 {
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const ImVec2 size = ImGui::CalcTextSize(p_text);
@@ -65,7 +65,7 @@ void ProfilerTabBase::_draw_empty(const char* p_text)
 /**** CANVAS ****/
 /****************/
 
-void ProfilerTabBase::_canvas_begin(const char* p_id, float p_total_ms, float p_content_h)
+void ProfilerPanelBase::_canvas_begin(const char* p_id, float p_total_ms, float p_content_h)
 {
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float ruler_h = ImGui::GetTextLineHeight();
@@ -97,7 +97,7 @@ void ProfilerTabBase::_canvas_begin(const char* p_id, float p_total_ms, float p_
     _canvas_grid();
 }
 
-void ProfilerTabBase::_canvas_input(float p_range_ms)
+void ProfilerPanelBase::_canvas_input(float p_range_ms)
 {
     const ImGuiIO& io = ImGui::GetIO();
     const UiStyle& ui = ui_style();
@@ -148,7 +148,7 @@ void ProfilerTabBase::_canvas_input(float p_range_ms)
     }
 }
 
-void ProfilerTabBase::_canvas_grid()
+void ProfilerPanelBase::_canvas_grid()
 {
     const UiStyle& ui = ui_style();
     const float visible_ms = canvas_w / px;
@@ -171,7 +171,7 @@ void ProfilerTabBase::_canvas_grid()
     }
 }
 
-void ProfilerTabBase::_canvas_end(const char* p_status)
+void ProfilerPanelBase::_canvas_end(const char* p_status)
 {
     const UiStyle& ui = ui_style();
     const ImGuiIO& io = ImGui::GetIO();
@@ -200,7 +200,7 @@ void ProfilerTabBase::_canvas_end(const char* p_status)
 /**** VIEW ****/
 /**************/
 
-void ProfilerTabBase::_view_reset()
+void ProfilerPanelBase::_view_reset()
 {
     visible_range = -1.0f;
     visible_start = 0.0f;
@@ -208,7 +208,7 @@ void ProfilerTabBase::_view_reset()
     panning = false;
 }
 
-float ProfilerTabBase::_visible_end() const
+float ProfilerPanelBase::_visible_end() const
 {
     return visible_start + std::clamp(visible_range > 0.0f ? visible_range : total_ms, MIN_RANGE_MS, total_ms);
 }
@@ -217,7 +217,7 @@ float ProfilerTabBase::_visible_end() const
 /**** BARS ****/
 /**************/
 
-ImVec2 ProfilerTabBase::_bar(float p_ms, float p_len_ms, float p_y0, float p_y1, ImU32 p_fill, bool* r_hovered)
+ImVec2 ProfilerPanelBase::_bar(float p_ms, float p_len_ms, float p_y0, float p_y1, ImU32 p_fill, bool* r_hovered)
 {
     const UiStyle& ui = ui_style();
     const ImGuiIO& io = ImGui::GetIO();
@@ -230,7 +230,7 @@ ImVec2 ProfilerTabBase::_bar(float p_ms, float p_len_ms, float p_y0, float p_y1,
     return ImVec2(a.x, b.x);
 }
 
-void ProfilerTabBase::_label(ImVec2 p_a, ImVec2 p_b, const char* p_text, ImU32 p_color)
+void ProfilerPanelBase::_label(ImVec2 p_a, ImVec2 p_b, const char* p_text, ImU32 p_color)
 {
     if (!p_text || !p_text[0]) return;
     const UiStyle& ui = ui_style();
@@ -245,7 +245,7 @@ void ProfilerTabBase::_label(ImVec2 p_a, ImVec2 p_b, const char* p_text, ImU32 p
     dl->PopClipRect();
 }
 
-void ProfilerTabBase::_marker(float p_ms, float p_y0, float p_y1, ImU32 p_color)
+void ProfilerPanelBase::_marker(float p_ms, float p_y0, float p_y1, ImU32 p_color)
 {
     const float x = _x_of(p_ms);
     if (x < origin.x || x > origin.x + canvas_w) return;

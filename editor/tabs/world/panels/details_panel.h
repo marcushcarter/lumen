@@ -13,6 +13,7 @@ struct DetailsPanel : Panel
 
     const char* name() const override { return ICON_FA_IMAGE "  Details"; }
     DockZone default_zone() const override { return DockZone::RIGHT_BOTTOM; }
+    bool pinned() const override { return true; }
     void draw_contents(EditorContext& ctx) override;
 
     bool _component_begin(const char* p_title, bool* r_remove = nullptr);

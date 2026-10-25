@@ -96,8 +96,11 @@ void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, 
     cursor_x = min.x;
     trailing_x = max.x;
 
-    const float avail = ImMax(1.0f, (max.x - min.x) - p_reserved_right);
+    natural_total = p_natural_total;
+    avail = ImMax(1.0f, (max.x - min.x) - p_reserved_right);
     scale = (p_natural_total > avail) ? avail / p_natural_total : 1.0f;
+    scroll = nullptr;
+    reveal = false;
 
     const float line = ui.stroke.hairline;
     draw_list->AddRectFilled(min, max, background);
@@ -189,6 +192,12 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     const ImVec2 a(cursor_x, min.y + ui.dock_tab.inset_top);
     const ImVec2 b(cursor_x + w, max.y);
     cursor_x += w + ui.dock_tab.gap;
+    if (scroll && reveal && p_selected) {
+        const float left = min.x + ui.dock_tab.inset_x;
+        const float right = min.x + avail;
+        if (a.x < left) *scroll -= left - a.x;
+        else if (b.x > right) *scroll += b.x - right;
+    }
 
     const ImVec2 ca(ImFloor(b.x - ui.dock_tab.close_pad * 0.5f - cs), ImFloor(a.y + (b.y - a.y - cs) * 0.5f));
     const ImVec2 cb(ca.x + cs, ca.y + cs);
@@ -287,6 +296,22 @@ bool TabStrip::console_field(const char* p_id, const char* p_label, const char* 
 
     cursor_x = x + p_field_width + ui.console_bar.pad;
     return submitted;
+}
+
+// Keeps tabs at their natural width; the wheel scrolls them sideways when they overflow.
+void TabStrip::scrollable(float& r_scroll, bool p_reveal, float p_lead)
+{
+    scale = 1.0f;
+    scroll = &r_scroll;
+    reveal = p_reveal;
+    const float overflow = ImMax(0.0f, natural_total + p_lead - avail);
+    if (overflow > 0.0f && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(min, max)) {
+        const ImGuiIO& io = ImGui::GetIO();
+        const float wheel = io.MouseWheelH != 0.0f ? -io.MouseWheelH : io.MouseWheel;
+        r_scroll -= wheel * ImGui::GetFontSize() * 3.0f;
+    }
+    r_scroll = ImClamp(r_scroll, 0.0f, overflow);
+    cursor_x -= r_scroll;
 }
 
 void TabStrip::end()

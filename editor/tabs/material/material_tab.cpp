@@ -1,7 +1,8 @@
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/material/panels/material_details_panel.h>
-#include <editor/drawer/drawer.h>
-#include <editor/drawer/content_browser_tab.h>
+// #include <editor/drawer/drawer.h>
+#include <editor/panels/shared_panels.h>
+#include <editor/panels/content_browser_panel.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/builtin_meshes.h>
@@ -34,8 +35,9 @@ Error MaterialTab::create(EditorContext& ctx)
     layout.viewport.allow_outline = false;
     layout.viewport.allow_gizmo = false;
     layout.viewport.allow_look = true;
-    layout.keep_right_dock = true;
-    layout.drawer.allowed = { ctx.drawer->content_browser };
+    // layout.keep_right_dock = true;
+    // layout.drawer.allowed = { ctx.drawer->content_browser };
+    layout.add_shared(ctx.shared_panels->content_browser);
     layout.add_panel<MaterialDetailsPanel>()->tab = this;
 
     preview.initialize();
@@ -117,4 +119,4 @@ void MaterialTab::_refresh_title()
     _title += path.stem().string();
 }
 
-}
+}

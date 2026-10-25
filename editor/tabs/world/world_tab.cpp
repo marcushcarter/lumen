@@ -14,17 +14,20 @@
 #include <editor/tabs/world/panels/version_control_panel.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
+#include <editor/panels/shared_panels.h>
+#include <editor/tabs/world/scene/editor_selection.h>
 
 namespace lumen {
 
-Error WorldTab::initialize()
+Error WorldTab::initialize(SharedPanels& r_shared)
 {
     using enum Error;
     layout.initialize("##EditorHost");
     layout.add_panel<OutlinerPanel>();
-    layout.add_panel<DetailsPanel>();
+    details = layout.add_panel<DetailsPanel>();
     layout.add_panel<WorldSettingsPanel>();
     layout.add_panel<VersionControlPanel>();
+    for (auto& p : r_shared.panels) layout.add_shared(p.get());
     return OK;
 }
 
@@ -170,6 +173,10 @@ void WorldTab::_draw_toolbar(EditorContext& ctx)
 void WorldTab::on_update(EditorContext& ctx, float p_dt)
 {
     (void)p_dt;
+    if (ctx.selection && ctx.selection->version != selection_version) {
+        selection_version = ctx.selection->version;
+        if (!ctx.selection->empty() || ctx.selection->atmosphere) layout.well(details->default_zone()).active_name = details->name();
+    }
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
 }
 
@@ -183,4 +190,4 @@ void WorldTab::take_screenshot(EditorContext& ctx)
     ctx.render_path->screenshot.requested = true;
 }
 
-}
+}

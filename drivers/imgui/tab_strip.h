@@ -22,6 +22,10 @@ struct TabStrip
     float scale = 1.0f;
     float cursor_x = 0.0f;
     float trailing_x = 0.0f;
+    float natural_total = 0.0f;
+    float avail = 0.0f;
+    float* scroll = nullptr;
+    bool reveal = false;
 
     static float height();
     static float natural_width(const char* p_label);
@@ -35,6 +39,7 @@ struct TabStrip
     bool dock_tab(const char* p_label, bool p_selected, bool* p_close, bool p_dirty = false);
     bool trailing_button(const char* p_icon);
     bool console_field(const char* p_id, const char* p_label, const char* p_hint, char* p_buf, size_t p_size, float p_field_width);
+    void scrollable(float& r_scroll, bool p_reveal, float p_lead);
     void end();
 
     void _draw_label(ImVec2 p_a, ImVec2 p_b, const char* p_label, bool p_bright);

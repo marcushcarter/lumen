@@ -185,8 +185,8 @@ void Viewport::_draw_image(EditorContext& ctx)
     if (allow_pick && ctx.render_path && ctx.world && ctx.selection && ctx.render_path->pick.take_result(picked)) {
         World& world = *ctx.world;
         ctx.selection->clear();
-        if (picked != PickFeature::NONE && picked < world.generations.size()) {
-            const Entity e{ picked, world.generations[picked] };
+        if (picked != PickFeature::NONE) {
+            const Entity e = world.entity_at(picked);
             if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
         }
     }

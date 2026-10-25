@@ -16,4 +16,5 @@ PUBLIC
     lumen_compiler_options
     lumen_drivers
     stb
+    entt
 )

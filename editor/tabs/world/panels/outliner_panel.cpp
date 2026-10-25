@@ -95,25 +95,22 @@ void OutlinerPanel::_rebuild(const World& world, const EditorFolders& folders, b
 
     if (p_full) {
         items.clear();
-        if (const std::vector<Entity>* entities = world.entities_with<EntityIdComponent>()) {
-            items.reserve(entities->size());
-            char label[96];
-            for (const Entity e : *entities) {
-                const NameComponent* n = world.try_get<NameComponent>(e);
-                const char* icon;
-                Item it;
-                it.slot = _slot(folders, folders.entity_folder(world, e));
-                it.entity = e;
-                it.name = n && n->name[0] ? n->name : nullptr;
-                it.type = _entity_type(world, e, &icon);
-                it.match = true;
-                if (filtering) {
-                    _entity_label(it.name, e, label);
-                    it.match = ImStristr(label, nullptr, filter, nullptr) != nullptr;
-                }
-                items.push_back(it);
+        char label[96];
+        world.view<EntityIdComponent>([&](Entity e, const EntityIdComponent&) {
+            const NameComponent* n = world.try_get<NameComponent>(e);
+            const char* icon;
+            Item it;
+            it.slot = _slot(folders, folders.entity_folder(world, e));
+            it.entity = e;
+            it.name = n && n->name[0] ? n->name : nullptr;
+            it.type = _entity_type(world, e, &icon);
+            it.match = true;
+            if (filtering) {
+                _entity_label(it.name, e, label);
+                it.match = ImStristr(label, nullptr, filter, nullptr) != nullptr;
             }
-        }
+            items.push_back(it);
+        });
         std::sort(items.begin(), items.end(), [&](const Item& a, const Item& b) {
             if (a.slot != b.slot) return a.slot < b.slot;
             int c = sort_column == SortColumn::TYPE ? std::strcmp(a.type, b.type) : 0;

@@ -226,11 +226,11 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     dock_menu_push_style();
     if (ImGui::BeginPopup("##add_component")) {
         bool any = false;
-        for (uint32_t id = 0; id < (uint32_t)world.pools.size(); id++) {
-            const PoolSlot& slot = world.pools[id];
-            if (!slot.set || !slot.addable || world.masks[e.index].test(id)) continue;
+        for (uint32_t i = 0; i < (uint32_t)world.components.size(); i++) {
+            const ComponentInfo& info = world.components[i];
+            if (!info.addable || info.has(world, e)) continue;
             any = true;
-            if (ImGui::MenuItem(slot.name)) world.deferred_add_id(e, id);
+            if (ImGui::MenuItem(info.name)) world.deferred_add_component(e, i);
         }
         if (!any) ImGui::TextDisabled("Nothing to add");
         ImGui::EndPopup();

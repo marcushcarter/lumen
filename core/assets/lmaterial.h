@@ -65,4 +65,71 @@ struct LMaterial
     bool operator==(const LMaterial&) const = default;
 };
 
+// struct LMaterial
+// {
+//     struct ImportRecord {
+//         std::string source;
+//         std::string name;
+
+//         bool operator==(const ImportRecord&) const = default;
+//     };
+
+//     Guid guid;
+
+//     ShadingModel shading_model = ShadingModel::DEFAULT_LIT;
+//     AlphaMode alpha_mode = AlphaMode::NONE;
+//     bool two_sided = false;
+
+//     // SHARED.
+    
+//     Guid alpha_texture;
+//     float alpha_cutoff = 0.5f;
+
+//     vec4 base_color = vec4(1.0f);
+//     Guid base_color_texture;
+
+//     Guid normal_texture;
+//     float normal_scale = 1.0f;
+
+//     vec3 emissive_color = vec3(1.0f);
+//     Guid emissive_texture;
+//     float emissive_nits = 0.0f;
+
+//     Guid ao_texture;
+//     float ao_strength = 1.0f;
+
+//     Guid displacement_texture;
+//     float displacement_scale = 1.0f;
+
+//     // LIT.
+
+//     float roughness = 1.0f;
+//     Guid roughness_texture;
+
+//     float metallic = 0.0f;
+//     Guid metallic_texture;
+
+//     // UNLIT.
+
+//     // SUBSURFACE.
+
+//     vec3 subsurface_color = vec3(1.0f);
+//     Guid subsurface_texture;
+//     float subsurface_strength = 1.0f;
+
+
+
+//     // OTHER.
+
+//     vec2 uv_scale = vec2(1.0f);
+//     vec2 uv_offset = vec2(0.0f);
+
+//     ImportRecord import;
+
+//     Error load(const std::filesystem::path& p_path);
+//     Error save(const std::filesystem::path& p_path) const;
+
+//     bool operator==(const LMaterial&) const = default;
+// };
+
 }

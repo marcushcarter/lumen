@@ -17,6 +17,7 @@
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/play/play_session.h>
+#include <drivers/git/git_driver.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -56,6 +57,9 @@ struct EditorApplication : Application
     PlaySession play;
     PlaySession run;
 
+    drivers::GitDriver git;
+    std::filesystem::path reopen_root;
+
     Error on_init() override;
     void on_shutdown() override;
     void on_update(float p_dt) override;
@@ -64,6 +68,8 @@ struct EditorApplication : Application
 
     Error open_project(const std::filesystem::path& p_root);
     void close_project();
+    void save_all();
+    void reload_project(std::function<void()> p_while_closed);
 
     void _load_state();
     void _save_state();

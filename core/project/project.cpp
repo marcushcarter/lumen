@@ -145,6 +145,13 @@ Error Project::destroy(const std::filesystem::path& p_root)
         return FAILED;
     }
 
+    // git stores its objects read-only, which remove_all can't delete on Windows
+    for (auto it = std::filesystem::recursive_directory_iterator(target, std::filesystem::directory_options::skip_permission_denied, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        std::error_code perm_ec;
+        std::filesystem::permissions(it->path(), std::filesystem::perms::owner_write, std::filesystem::perm_options::add, perm_ec);
+    }
+    ec.clear();
+
     uintmax_t removed = std::filesystem::remove_all(target, ec);
     if (ec || removed == static_cast<uintmax_t>(-1)) {
         log_write("Project: failed to remove '%s' (%s)", target.string().c_str(), ec.message().c_str());

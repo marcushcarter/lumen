@@ -124,9 +124,7 @@ void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (_drawer_h >= 1.0f) ctx.drawer->draw(ctx, ImVec2(p_min.x, drawer_y), ImVec2(p_max.x, drawer_y + _drawer_h), drawer);
     }
 
-    // const bool was_empty = drawer.open_tabs.empty();
     ctx.drawer->draw_bar(ImVec2(p_min.x, p_max.y - strip_h), p_max, drawer);
-    // if (was_empty && !drawer.open_tabs.empty() && center_split >= 1.0f - MIN_DRAWER) center_split = 1.0f - MAX_DRAWER / 3.0f;
 }
 
 void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar)
@@ -141,7 +139,10 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
         switch (p->zone) {
             case DockZone::RIGHT_TOP: right_top.panels.push_back(p.get()); break;
             case DockZone::RIGHT_BOTTOM: right_bottom.panels.push_back(p.get()); break;
-            case DockZone::LEFT: break;
+            case DockZone::LEFT:
+                p->zone = DockZone::RIGHT_BOTTOM;
+                right_bottom.panels.push_back(p.get());
+                break;
         }
     }
 

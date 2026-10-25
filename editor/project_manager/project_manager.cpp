@@ -7,6 +7,7 @@
 #include <core/base/error.h>
 #include <core/base/utils.h>
 #include <drivers/imgui/tab_strip.h>
+#include <drivers/git/git_driver.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
@@ -539,9 +540,24 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
         selected = -1;
     }
     ImGui::SameLine(0.0f, pm.action_gap);
-    ImGui::BeginDisabled(missing);
-    ImGui::Button("Delete", ImVec2(full - half - pm.action_gap, pm.action_height));
+    ImGui::BeginDisabled(missing || playing);
+    // ImGui::Button("Delete", ImVec2(full - half - pm.action_gap, pm.action_height));
+    if (ImGui::Button("Delete", ImVec2(full - half - pm.action_gap, pm.action_height))) {
+        const std::wstring name = std::filesystem::path(reinterpret_cast<const char8_t*>(e.name.c_str())).wstring();
+        const std::wstring heading = L"Delete \"" + name + L"\"?";
+        const std::wstring body = L"The project folder and everything in it are permanently deleted, including its version history:\n\n" + e.path.wstring() + L"\n\nA copy uploaded to GitHub isn't affected. This can't be undone.";
+        if (drivers::Win32Dialogs::confirm(L"Delete Project", heading.c_str(), body.c_str())) {
+            if (Project::destroy(e.path) == Error::OK) {
+                recent.erase(recent.begin() + selected);
+                save_recents();
+                selected = -1;
+            } else {
+                drivers::Win32Dialogs::warning(L"Delete Project", L"The project couldn't be fully deleted.", L"Some files may be in use by another program. Close anything using the project folder and try again. Details are in the Output Log.", false);
+            }
+        }
+    }
     ImGui::EndDisabled();
+    if (playing && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Stop the running project first");
     ImGui::PopStyleColor(4);
 
     ImGui::EndChild();
@@ -633,6 +649,7 @@ void ProjectManager::on_update(EditorContext& ctx)
         ImGui::Spacing();
         ImGui::BeginDisabled(!has_name || !has_location || taken);
         if (ImGui::Button("Create", ImVec2(ui.project_manager.button_width, 0)) && Project::create(root, new_project_name) == Error::OK) {
+            if (ctx.git) ctx.git->repo_init_now(root, new_project_name);
             add_recent(root, new_project_name);
             ImGui::CloseCurrentPopup();
             ctx.open_project_callback(root);

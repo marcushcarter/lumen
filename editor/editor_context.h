@@ -6,6 +6,7 @@ namespace lumen {
 
 namespace drivers { struct WindowDriverWin32; }
 namespace drivers { struct ImGuiDriver; }
+namespace drivers { struct GitDriver; }
 struct Renderer;
 struct Project;
 struct World;
@@ -28,6 +29,7 @@ struct EditorContext
 {
     drivers::WindowDriverWin32* win32 = nullptr;
     drivers::ImGuiDriver* imgui = nullptr;
+    drivers::GitDriver* git = nullptr;
 
     Renderer* renderer = nullptr;
     Project* project = nullptr;
@@ -51,6 +53,8 @@ struct EditorContext
         
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;
+    std::function<void()> save_all_callback;
+    std::function<void(std::function<void()>)> reload_project_callback;
 
     std::function<bool(const std::filesystem::path&)> run_is_running;
     std::function<void(const std::filesystem::path&)> run_toggle;

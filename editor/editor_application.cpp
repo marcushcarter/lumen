@@ -57,6 +57,7 @@ Error EditorApplication::on_init()
     err = project_manager.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     drawer.initialize();
+    git.log_callback = [](const std::string& p_line) { log_write("[Git] %s", p_line.c_str()); };
     err = world_tab.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = play.initialize();
@@ -86,6 +87,7 @@ void EditorApplication::on_shutdown()
 
     play.shutdown();
     run.shutdown();
+    git.shutdown();
     resources.shutdown();
     
     _save_state();
@@ -147,6 +149,10 @@ void EditorApplication::on_update(float p_dt)
             _tabs_signature = signature;
             settings.dirty = true;
         }
+    } else if (!reopen_root.empty() && !pending_render_path) {
+        const std::filesystem::path root = std::move(reopen_root);
+        reopen_root.clear();
+        open_project(root);
     } else {
         project_manager.on_update(ctx);
     }
@@ -198,6 +204,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     tabs.focus(&world_tab);
     _restore_tabs();
     _tabs_signature = _tabs_hash();
+    git.initialize(project.root);
 
     return OK;
 }
@@ -218,6 +225,27 @@ void EditorApplication::close_project()
         project_unload();
     };
     render_path_request(new ProjectManagerRenderPath());
+}
+
+void EditorApplication::save_all()
+{
+    EditorContext ctx = _make_context();
+    for (EditorTab* t : tabs.tabs) {
+        if (t->dirty()) t->save(ctx);
+    }
+    project.save();
+}
+
+void EditorApplication::reload_project(std::function<void()> p_while_closed)
+{
+    if (!project.loaded() || !reopen_root.empty()) return;
+    reopen_root = project.root;
+    close_project();
+    std::function<void()> close = std::move(pending_transition);
+    pending_transition = [close = std::move(close), op = std::move(p_while_closed)] {
+        close();
+        if (op) op();
+    };
 }
 
 static const char* _tab_kind_name(TabKind p_kind)
@@ -782,6 +810,7 @@ EditorContext EditorApplication::_make_context()
     EditorContext ctx{};
     ctx.win32 = &win32;
     ctx.imgui = &imgui;
+    ctx.git = &git;
     
     ctx.renderer = &renderer;
     ctx.project = &project;
@@ -805,6 +834,8 @@ EditorContext EditorApplication::_make_context()
 
     ctx.open_project_callback = [this](const auto& path){this->open_project(path);};
     ctx.close_project_callback = [this](){this->close_project();};
+    ctx.save_all_callback = [this]{ save_all(); };
+    ctx.reload_project_callback = [this](std::function<void()> p_op){ reload_project(std::move(p_op)); };
     
     ctx.pie_is_playing = [this]{ return play.is_running(); };
     ctx.pie_toggle_play = [this]{ if (play.is_running()) play.stop(); else play.launch(project.root); };

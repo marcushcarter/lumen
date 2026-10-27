@@ -13,6 +13,7 @@
 #include <IconsFontAwesome6.h>
 #include <cfloat>
 #include <cstdio>
+#include <cstring>
 
 #include <fstream>
 #include <algorithm>
@@ -563,6 +564,204 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     ImGui::EndChild();
 }
 
+static std::filesystem::path _u8_path(const char* p_utf8)
+{
+    return std::filesystem::path(reinterpret_cast<const char8_t*>(p_utf8));
+}
+
+static std::string _u8_string(const std::filesystem::path& p_path)
+{
+    const std::u8string s = p_path.u8string();
+    return std::string(reinterpret_cast<const char*>(s.data()), s.size());
+}
+
+static bool _folder_name_valid(std::string_view p_name)
+{
+    if (p_name.empty() || p_name.back() == '.' || p_name.back() == ' ') return false;
+    for (char c : p_name) {
+        if ((unsigned char)c < 32 || std::strchr("<>:\"/\\|?*", c)) return false;
+    }
+
+    std::string stem(p_name.substr(0, p_name.find('.')));
+    std::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char c) { return (char)std::toupper(c); });
+    for (const char* reserved : { "CON", "PRN", "AUX", "NUL" }) {
+        if (stem == reserved) return false;
+    }
+    if (stem.size() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem[3] >= '1' && stem[3] <= '9') return false;
+    return true;
+}
+
+void ProjectManager::_new_project_open()
+{
+    std::snprintf(new_project_name, sizeof(new_project_name), "%s", "New Game Project");
+    if (new_project_location[0] == '\0' && !recent.empty()) {
+        std::snprintf(new_project_location, sizeof(new_project_location), "%s", _u8_string(recent.front().path.parent_path()).c_str());
+    }
+    new_project_create_folder = true;
+    new_project_git = true;
+    _new_project_validate();
+}
+
+void ProjectManager::_new_project_validate()
+{
+    using enum NewProjectStatus;
+    std::error_code ec;
+    const std::string_view name = new_project_name;
+    const std::filesystem::path base = _u8_path(new_project_location);
+
+    new_project_root = new_project_create_folder ? base / _u8_path(new_project_name) : base;
+    new_project_status = INVALID;
+
+    if (name.empty()) { new_project_message = "Project name can't be empty."; return; }
+    if (new_project_create_folder && !_folder_name_valid(name)) { new_project_message = "Project name can't be used as a folder name."; return; }
+    if (base.empty() || !base.is_absolute()) { new_project_message = "Choose a full project path."; return; }
+    if (!std::filesystem::is_directory(base, ec)) { new_project_message = "The project path doesn't exist."; return; }
+    if (std::filesystem::exists(new_project_root / Project::FILE_NAME, ec)) { new_project_message = "That folder already contains a Lumen project."; return; }
+
+    if (std::filesystem::exists(new_project_root, ec)) {
+        if (!std::filesystem::is_directory(new_project_root, ec)) { new_project_message = "A file with that name already exists at the project path."; return; }
+        if (!std::filesystem::is_empty(new_project_root, ec)) {
+            new_project_status = WARNING;
+            new_project_message = "The selected path is not empty. Choosing an empty folder is highly recommended.";
+            return;
+        }
+    }
+
+    new_project_status = VALID;
+    new_project_message = new_project_create_folder ? "The project folder will be created automatically." : "The project will be created in this folder.";
+}
+
+void ProjectManager::_new_project_create(EditorContext& ctx, bool p_edit)
+{
+    _new_project_validate();
+    if (new_project_status == NewProjectStatus::INVALID) return;
+
+    const std::filesystem::path root = new_project_root;
+    const std::string name = new_project_name;
+    if (Project::create(root, name) != Error::OK) {
+        new_project_status = NewProjectStatus::INVALID;
+        new_project_message = "The project couldn't be created. Details are in the Output Log.";
+        return;
+    }
+
+    if (new_project_git && ctx.git) ctx.git->repo_init_now(root, name);
+    add_recent(root, name);
+    selected = 0;
+
+    ImGui::CloseCurrentPopup();
+    if (p_edit) ctx.open_project_callback(root);
+}
+
+void ProjectManager::_draw_new_project(EditorContext& ctx)
+{
+    using enum NewProjectStatus;
+    const UiStyle& ui = ui_style();
+    const UiStyle::ProjectManager& pm = ui.project_manager;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+
+    if (new_project_request) {
+        _new_project_open();
+        ImGui::OpenPopup("Create New Project");
+        new_project_request = false;
+    }
+
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(pm.modal_width, 0.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Create New Project", nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize)) return;
+
+    const float full = ImGui::GetContentRegionAvail().x;
+    const float start_x = ImGui::GetCursorPosX();
+    const float frame_h = ImGui::GetFrameHeight();
+
+    // template thumbnail row goes here (layout A)
+
+    ImGui::TextUnformatted("Project Name:");
+    ImGui::SetNextItemWidth(full);
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    if (ImGui::InputText("##name", new_project_name, sizeof(new_project_name), ImGuiInputTextFlags_AutoSelectAll)) _new_project_validate();
+
+    ImGui::Dummy(ImVec2(0.0f, ui.space.lg));
+    const char* folder_label = "Create Folder";
+    const float check_w = frame_h + style.ItemInnerSpacing.x + ImGui::CalcTextSize(folder_label).x;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Project Path:");
+    ImGui::SameLine(start_x + full - check_w);
+    if (ImGui::Checkbox(folder_label, &new_project_create_folder)) _new_project_validate();
+
+    ImGui::SetNextItemWidth(full - frame_h - pm.browse_width - style.ItemSpacing.x * 2.0f);
+    if (ImGui::InputText("##path", new_project_location, sizeof(new_project_location))) _new_project_validate();
+    ImGui::SameLine();
+
+    const char* icon = new_project_status == VALID ? ICON_FA_CIRCLE_CHECK : (new_project_status == WARNING ? ICON_FA_TRIANGLE_EXCLAMATION : ICON_FA_CIRCLE_EXCLAMATION);
+    const ImU32 status_col = new_project_status == VALID ? ui.color.success : (new_project_status == WARNING ? ui.color.warning : ui.color.danger);
+    const ImVec2 icon_pos = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(frame_h, frame_h));
+    const ImVec2 icon_size = ImGui::CalcTextSize(icon);
+    ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(icon_pos.x + (frame_h - icon_size.x) * 0.5f), ImFloor(icon_pos.y + (frame_h - icon_size.y) * 0.5f)), status_col, icon);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", new_project_message.c_str());
+
+    ImGui::SameLine();
+    _push_neutral_button();
+    if (ImGui::Button("Browse", ImVec2(pm.browse_width, 0.0f))) {
+        const std::wstring picked = drivers::Win32Dialogs::open_folder(L"Choose project path");
+        if (!picked.empty()) {
+            std::snprintf(new_project_location, sizeof(new_project_location), "%s", _u8_string(std::filesystem::path(picked)).c_str());
+            _new_project_validate();
+        }
+    }
+    ImGui::PopStyleColor(4);
+
+    if (new_project_location[0] != '\0') ImGui::TextDisabled(ICON_FA_ARROW_RIGHT "  %s", _u8_string(new_project_root).c_str());
+
+    // fixed two-line slot so the popup doesn't jump as the message changes
+    const float message_y = ImGui::GetCursorPosY();
+    const float message_h = ImGui::GetTextLineHeight() * 2.0f + style.ItemSpacing.y;
+    ImGui::PushStyleColor(ImGuiCol_Text, new_project_status == VALID ? ui.color.text_dim : status_col);
+    ImGui::PushTextWrapPos(start_x + full);
+    ImGui::TextUnformatted(new_project_message.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), message_y + message_h + style.ItemSpacing.y));
+
+    ImGui::BeginDisabled(!ctx.git);
+    ImGui::Checkbox("Initialize Git Repository", &new_project_git);
+    ImGui::EndDisabled();
+    if (!ctx.git && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Git isn't available");
+
+    ImGui::Dummy(ImVec2(0.0f, ui.space.lg));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0.0f, ui.space.sm));
+
+    const char* edit_label = "Create & Edit";
+    const float edit_w = ImMax(pm.button_width, _button_width(edit_label));
+    ImGui::SetCursorPosX(start_x + full - edit_w - pm.button_width * 2.0f - style.ItemSpacing.x * 2.0f);
+
+    const bool can_create = new_project_status != INVALID;
+    bool create = false;
+    bool edit = false;
+    ImGui::BeginDisabled(!can_create);
+    _push_primary_button();
+    if (ImGui::Button(edit_label, ImVec2(edit_w, 0.0f))) create = edit = true;
+    ImGui::PopStyleColor(4);
+    ImGui::SameLine();
+    _push_neutral_button();
+    if (ImGui::Button("Create", ImVec2(pm.button_width, 0.0f))) create = true;
+    ImGui::PopStyleColor(4);
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    _push_neutral_button();
+    const bool cancel = ImGui::Button("Cancel", ImVec2(pm.button_width, 0.0f));
+    ImGui::PopStyleColor(4);
+
+    if (can_create && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) create = edit = true;
+    if (cancel || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    else if (create) _new_project_create(ctx, edit);
+
+    ImGui::EndPopup();
+}
+
 void ProjectManager::on_update(EditorContext& ctx)
 {
     const UiStyle& ui = ui_style();
@@ -614,52 +813,7 @@ void ProjectManager::on_update(EditorContext& ctx)
 
     ImGui::End();
 
-    if (new_project_request) {
-        ImGui::OpenPopup("New Project");
-        new_project_request = false;
-    }
-    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(ui.project_manager.modal_width, 0.0f), ImGuiCond_Appearing);
-    if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) {
-        const float browse_w = ui.project_manager.browse_width;
-
-        ImGui::InputText("Name", new_project_name, sizeof(new_project_name));
-
-        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - browse_w - ImGui::GetStyle().ItemSpacing.x);
-        ImGui::InputText("##location", new_project_location, sizeof(new_project_location));
-        ImGui::SameLine();
-        if (ImGui::Button("Browse", ImVec2(browse_w, 0))) {
-            const std::wstring picked = drivers::Win32Dialogs::open_folder(L"Choose project location");
-            if (!picked.empty()) std::snprintf(new_project_location, sizeof(new_project_location), "%s", std::filesystem::path(picked).string().c_str());
-        }
-        ImGui::SameLine();
-        ImGui::TextUnformatted("Location");
-
-        const std::filesystem::path root = std::filesystem::path(new_project_location) / new_project_name;
-        std::error_code ec;
-        const bool has_name = new_project_name[0] != '\0';
-        const bool has_location = std::filesystem::is_directory(new_project_location, ec);
-        const bool taken = has_name && has_location && std::filesystem::exists(root / Project::FILE_NAME, ec);
-
-        if (!has_name) ImGui::TextDisabled("Enter a project name");
-        else if (!has_location) ImGui::TextDisabled("Choose a location that exists");
-        else if (taken) ImGui::TextColored(ui_vec4(ui.color.danger), "That folder already contains a project");
-        else ImGui::TextDisabled("%s", root.string().c_str());
-
-        ImGui::Spacing();
-        ImGui::BeginDisabled(!has_name || !has_location || taken);
-        if (ImGui::Button("Create", ImVec2(ui.project_manager.button_width, 0)) && Project::create(root, new_project_name) == Error::OK) {
-            if (ctx.git) ctx.git->repo_init_now(root, new_project_name);
-            add_recent(root, new_project_name);
-            ImGui::CloseCurrentPopup();
-            ctx.open_project_callback(root);
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(ui.project_manager.button_width, 0))) ImGui::CloseCurrentPopup();
-
-        ImGui::EndPopup();
-    }
+    _draw_new_project(ctx);
 }
 
 }

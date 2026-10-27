@@ -30,6 +30,7 @@ struct ProjectManager
     };
 
     enum class Filter { ALL, FAVORITES, MISSING };
+    enum class NewProjectStatus { VALID, WARNING, INVALID };
 
     struct StatsJob {
         JobCounter counter;
@@ -49,6 +50,11 @@ struct ProjectManager
     bool new_project_request = false;
     char new_project_name[128] = {};
     char new_project_location[512] = {};
+    bool new_project_create_folder = true;
+    bool new_project_git = true;
+    NewProjectStatus new_project_status = NewProjectStatus::INVALID;
+    std::string new_project_message;
+    std::filesystem::path new_project_root;
 
     Error initialize();
     void shutdown();
@@ -63,6 +69,10 @@ struct ProjectManager
     void _draw_toolbar();
     void _draw_list(EditorContext& ctx);
     void _draw_inspector(EditorContext& ctx);
+    void _new_project_open();
+    void _new_project_validate();
+    void _new_project_create(EditorContext& ctx, bool p_edit);
+    void _draw_new_project(EditorContext& ctx);
 
     void on_update(EditorContext& ctx);
 };

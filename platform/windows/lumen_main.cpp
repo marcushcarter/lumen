@@ -6,8 +6,6 @@
 
 #if defined(LUMEN_EDITOR)
     #include <editor/editor_application.h>
-    #include <core/io/path.h>
-    #include <filesystem>
 #elif !defined(LUMEN_GAME)
     #error "lumen_main.cpp requires LUMEN_EDITOR or LUMEN_GAME"
 #endif
@@ -27,12 +25,10 @@ static void attach_console_or_null() {
 }
 #endif
 
-static std::unique_ptr<lumen::Application> create_application(const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info, [[maybe_unused]] std::string& ini_storage) {
+static std::unique_ptr<lumen::Application> create_application(const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info) {
 #if defined(LUMEN_EDITOR)
     if (!p_args.game) {
         info.window_title = "Lumen Editor";
-        ini_storage = (lumen::Paths::roaming_data() / "editor_layout.cfg").string();
-        info.ini_path = ini_storage.c_str();
         return std::make_unique<lumen::EditorApplication>();
     }
 #endif
@@ -55,8 +51,7 @@ static int run_app() {
 
     const lumen::LaunchArgs args = lumen::LaunchArgs::parse_command_line();
 
-    std::string ini_storage;
-    auto app = create_application(args, info, ini_storage);
+    auto app = create_application(args, info);
     
     lumen::Error err = app->initialize(info);
     if (err == lumen::Error::OK) err = app->run();

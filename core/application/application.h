@@ -25,7 +25,6 @@ struct ApplicationCreateInfo
     std::string window_title;
     int width = 1280;
     int height = 720;
-    const char* ini_path = nullptr;
 };
 
 struct BackgroundPolicy
@@ -50,6 +49,7 @@ struct Application
     ProfilingSettings profiling;
 
     bool paused = false;
+    bool screenshot_reveal = true;
     World world;
 
     Project project;
@@ -71,6 +71,7 @@ struct Application
     void _update_window_state();
     bool _should_render(const BackgroundPolicy& p_policy) const { return window_visible && (window_focused || p_policy.render_unfocused); }
     void report_fatal_error(Error p_error);
+    void screenshot_request();
 
     Error project_load(const std::filesystem::path &p_root);
     void project_unload();
@@ -102,4 +103,4 @@ struct Application
     virtual ~Application() = default;
 };
 
-}
+}

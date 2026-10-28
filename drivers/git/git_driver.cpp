@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
+#include <string_view>
 #include <system_error>
 
 namespace lumen::drivers {
@@ -64,6 +66,36 @@ static void _write_if_missing(const std::filesystem::path& p_path, const std::st
     f << p_text;
 }
 
+void GitDriver::_ignore_ensure()
+{
+    if (ignore_lines.empty() || repo_root.empty()) return;
+    const std::filesystem::path path = repo_root / ".gitignore";
+    std::string text;
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (in) text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+
+    std::string append;
+    for (const std::string& line : ignore_lines) {
+        bool found = false;
+        size_t start = 0;
+        while (!found && start < text.size()) {
+            size_t end = text.find('\n', start);
+            if (end == std::string::npos) end = text.size();
+            std::string_view l(text.data() + start, end - start);
+            while (!l.empty() && (l.back() == '\r' || l.back() == ' ' || l.back() == '\t')) l.remove_suffix(1);
+            found = l == line;
+            start = end + 1;
+        }
+        if (!found) append += line + "\n";
+    }
+    if (append.empty()) return;
+    if (!text.empty() && text.back() != '\n') append.insert(0, "\n");
+    std::ofstream out(path, std::ios::binary | std::ios::app);
+    out << append;
+}
+
 static std::vector<std::string> _split(const std::string& p_s, char p_sep)
 {
     std::vector<std::string> out;
@@ -90,6 +122,8 @@ void GitDriver::initialize(const std::filesystem::path& p_root)
         status = {};
         ref_signature.clear();
     }
+    // existing repos pick up new ignore patterns too, so editor-only files never show up as changes
+    if (_git_dir_exists()) _ignore_ensure();
     refresh();
 }
 
@@ -136,6 +170,7 @@ bool GitDriver::repo_create(const std::string& p_project_name)
     }
     _write_if_missing(repo_root / "README.md", "# " + p_project_name + "\n");
     _write_if_missing(repo_root / ".gitignore", "");
+    _ignore_ensure();
     return _start({
         { { "init", "-b", "main" }, {} },
         { { "config", "core.fsmonitor", "true" }, {} },
@@ -478,6 +513,7 @@ bool GitDriver::repo_init_now(const std::filesystem::path& p_root, const std::st
     } else {
         _write_if_missing(repo_root / "README.md", "# " + p_project_name + "\n");
         _write_if_missing(repo_root / ".gitignore", "");
+        _ignore_ensure();
         std::vector<Step> steps = {
             { { "init", "-b", "main" }, {} },
             { { "config", "core.fsmonitor", "true" }, {} },
@@ -934,4 +970,4 @@ void GitDriver::_join()
     if (poll_worker.joinable()) poll_worker.join();
 }
 
-}
+}

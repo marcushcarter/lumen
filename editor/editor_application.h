@@ -19,6 +19,7 @@
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/play/play_session.h>
 #include <drivers/git/git_driver.h>
+#include <drivers/toml/toml_helpers.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -73,11 +74,17 @@ struct EditorApplication : Application
     void _load_state();
     void _save_state();
 
-    std::unordered_map<std::string, SavedTabs> _project_tabs;
+    SavedTabs _saved_tabs;
     uint64_t _tabs_signature = 0;
+    toml::table _project_state_default;
+    toml::table _project_state_legacy;
+
+    void _load_project_state();
+    void _save_project_state();
+    toml::table _project_state_write();
+    void _project_state_read(const toml::table& p_tbl);
 
     uint64_t _tabs_hash() const;
-    void _capture_tabs();
     void _restore_tabs();
 
     struct TitlebarLayout {

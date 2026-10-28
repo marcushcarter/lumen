@@ -147,4 +147,4 @@ struct ContentBrowserPanel : Panel
     void shutdown() override;
 };
 
-}
+}

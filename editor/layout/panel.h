@@ -2,6 +2,7 @@
 #include <editor/editor_context.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
+#include <cstdint>
 #include <string_view>
 
 namespace lumen {
@@ -30,6 +31,12 @@ inline DockZone dock_zone_from_string(std::string_view s, DockZone fallback) {
 
 struct Panel
 {
+    // std::string title;
+    // name() as shown in tabs and menus, icon included
+    const char* title = nullptr;
+    // title without the leading icon: the key layouts are saved under, so swapping an icon never resets them
+    const char* layout_id = nullptr;
+
     virtual ~Panel() = default;
     virtual const char* name() const = 0;
     virtual DockZone default_zone() const { return DockZone::RIGHT_BOTTOM; }
@@ -44,6 +51,14 @@ struct Panel
     virtual int push_style() { return 0; }
     virtual void before_begin() {}
     virtual void shutdown() {}
+
+    void _resolve_names() {
+        title = name();
+        layout_id = title;
+        // Font Awesome glyphs live in the private use area, U+E000..U+F8FF, which is 3 bytes of UTF-8 led by 0xEE/0xEF
+        while ((uint8_t)layout_id[0] == 0xEE || (uint8_t)layout_id[0] == 0xEF) layout_id += 3;
+        while (*layout_id == ' ') layout_id++;
+    }
 };
 
-}
+}

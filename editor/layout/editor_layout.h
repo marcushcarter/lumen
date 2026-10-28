@@ -77,6 +77,20 @@ struct EditorLayout
     void add_shared(Panel* p_panel);
     DockSlot* find(const char* p_name);
     DockSlot* find(const Panel* p_panel);
+
+    template <class T>
+    DockSlot* find() {
+        for (DockSlot& s : slots) if (dynamic_cast<T*>(s.panel)) return &s;
+        return nullptr;
+    }
+
+    template <class T>
+    T* open() {
+        DockSlot* s = find<T>();
+        if (!s) return nullptr;
+        open_panel(*s);
+        return static_cast<T*>(s->panel);
+    }
     DockWell& well(DockZone p_zone);
     void open_panel(DockSlot& r_slot);
 
@@ -100,4 +114,4 @@ struct EditorLayout
     void _apply_drop();
 };
 
-}
+}

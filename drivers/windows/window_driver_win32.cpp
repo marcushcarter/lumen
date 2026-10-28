@@ -63,7 +63,6 @@ void WindowDriverWin32::poll_events()
     }
 }
 
-// Blocks with zero CPU until a message (input, focus, size, sent message) arrives or the timeout elapses, then drains the queue.
 bool WindowDriverWin32::wait_events(uint32_t p_timeout_ms)
 {
     const DWORD r = MsgWaitForMultipleObjectsEx(0, nullptr, p_timeout_ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
@@ -114,8 +113,6 @@ void WindowDriverWin32::window_bind()
         window.ctrl_close = { c.right - BW*1, 0, c.right, MH };
         window.has_ctrls = true;
     }
-
-    // ShowWindow(window.hwnd, SW_SHOW);
 }
 
 void WindowDriverWin32::window_free()
@@ -125,6 +122,7 @@ void WindowDriverWin32::window_free()
         DestroyWindow(window.hwnd);
         window.hwnd = nullptr;
     }
+    _window_free_owned_icons();
 }
 
 void WindowDriverWin32::window_show()
@@ -149,6 +147,14 @@ void WindowDriverWin32::window_request_close()
     window.close_requested = true;
 }
 
+void WindowDriverWin32::_window_free_owned_icons()
+{
+    if (window.owned_icon_big) DestroyIcon(window.owned_icon_big);
+    if (window.owned_icon_small) DestroyIcon(window.owned_icon_small);
+    window.owned_icon_big = nullptr;
+    window.owned_icon_small = nullptr;
+}
+
 Error WindowDriverWin32::window_set_icon(HICON p_icon)
 {
     using enum Error;
@@ -156,6 +162,26 @@ Error WindowDriverWin32::window_set_icon(HICON p_icon)
     LUMEN_ERR_FAIL_COND_V(!window.hwnd, FAILED);
     SendMessageW(window.hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(p_icon));
     SendMessageW(window.hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(p_icon));
+    _window_free_owned_icons();
+    return OK;
+}
+
+Error WindowDriverWin32::window_set_icon_file(const std::wstring& p_path)
+{
+    using enum Error;
+    LUMEN_ERR_FAIL_COND_V(!window.hwnd, FAILED);
+    HICON big = (HICON)LoadImageW(nullptr, p_path.c_str(), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_LOADFROMFILE);
+    HICON mini = (HICON)LoadImageW(nullptr, p_path.c_str(), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
+    if (!big || !mini) {
+        if (big) DestroyIcon(big);
+        if (mini) DestroyIcon(mini);
+        return FAILED;
+    }
+    SendMessageW(window.hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(big));
+    SendMessageW(window.hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(mini));
+    _window_free_owned_icons();
+    window.owned_icon_big = big;
+    window.owned_icon_small = mini;
     return OK;
 }
 
@@ -220,7 +246,6 @@ bool WindowDriverWin32::window_is_focused()
     return window.hwnd && GetForegroundWindow() == window.hwnd;
 }
 
-// Visible = something can actually be presented: not hidden, not minimized, not cloaked (e.g. on another virtual desktop).
 bool WindowDriverWin32::window_is_visible()
 {
     if (!window.hwnd || !IsWindowVisible(window.hwnd) || IsIconic(window.hwnd)) return false;

@@ -13,6 +13,7 @@ void Project::_resolve_dirs(const std::filesystem::path& p_root)
     data_dir = p_root / DIR_DATA;
     assets_dir = p_root / DIR_ASSETS;
     content_dir = p_root / DIR_CONTENT;
+    editor_dir = p_root / DIR_EDITOR;
 }
 
 Error Project::_ensure_layout(const std::filesystem::path& p_root)
@@ -66,6 +67,8 @@ Error Project::load(const std::filesystem::path& p_root)
 
     settings.width  = tbl.at_path("window.width").value_or(settings.width);
     settings.height = tbl.at_path("window.height").value_or(settings.height);
+    settings.window_icon = Guid::from_string(tbl.at_path("window.icon").value_or(std::string{}));
+    settings.window_title = tbl.at_path("window.title").value_or(std::string{});
 
     if (Error e = _ensure_layout(p_root); e != OK) return e;
 
@@ -98,6 +101,8 @@ Error Project::save() const
     toml::table window;
     window.insert_or_assign("width", settings.width);
     window.insert_or_assign("height", settings.height);
+    window.insert_or_assign("title", settings.window_title);
+    window.insert_or_assign("icon", settings.window_icon == Guid{} ? std::string{} : settings.window_icon.to_string());
 
     toml::table out_tbl;
     out_tbl.insert_or_assign("project", std::move(project));
@@ -145,7 +150,6 @@ Error Project::destroy(const std::filesystem::path& p_root)
         return FAILED;
     }
 
-    // git stores its objects read-only, which remove_all can't delete on Windows
     for (auto it = std::filesystem::recursive_directory_iterator(target, std::filesystem::directory_options::skip_permission_denied, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         std::error_code perm_ec;
         std::filesystem::permissions(it->path(), std::filesystem::perms::owner_write, std::filesystem::perm_options::add, perm_ec);

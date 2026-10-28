@@ -13,10 +13,12 @@ struct Project
     
     static constexpr const char* FILE_NAME = "Data/project.config";
     static constexpr const char* FILE_ASSETDB = "Data/assetdb.bin";
+    static constexpr const char* FILE_WINDOW_ICON = "Data/Content/window_icon.ico";
 
     static constexpr const char* DIR_DATA = "Data";
     static constexpr const char* DIR_ASSETS = "Data/Assets";
     static constexpr const char* DIR_CONTENT = "Data/Content";
+    static constexpr const char* DIR_EDITOR = "Data/Editor";
 
     static constexpr const char* ASSET_PATH_ROOT = "Assets";
 
@@ -24,6 +26,7 @@ struct Project
     std::filesystem::path data_dir;
     std::filesystem::path assets_dir;
     std::filesystem::path content_dir;
+    std::filesystem::path editor_dir;
 
     std::string name;
 
@@ -42,6 +45,8 @@ struct Project
     static std::string peek_name(const std::filesystem::path& p_root);
 
     std::filesystem::path content_path(Guid p_guid) const;
+    std::filesystem::path window_icon_path() const { return root / FILE_WINDOW_ICON; }
+    const std::string& window_title() const { return settings.window_title.empty() ? name : settings.window_title; }
 
     static std::string asset_path_from(const std::filesystem::path& p_assets_dir, const std::filesystem::path& p_path);
     static std::filesystem::path asset_path_resolve_from(const std::filesystem::path& p_assets_dir, std::string_view p_asset_path);

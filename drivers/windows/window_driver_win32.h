@@ -40,6 +40,9 @@ struct WindowDriverWin32
 
         bool focus_gained = false;
         bool resized = false;
+
+        HICON owned_icon_big = nullptr;
+        HICON owned_icon_small = nullptr;
     };
 
     Window window;
@@ -50,11 +53,12 @@ struct WindowDriverWin32
 
     void window_show();
     void window_hide();
-
     bool window_should_close();
     void window_request_close();
 
+    void _window_free_owned_icons();
     Error window_set_icon(HICON p_icon);
+    Error window_set_icon_file(const std::wstring& p_path);
     Error window_set_title(std::string_view p_title);
     Error window_set_titlebar_color(COLORREF p_color);
 

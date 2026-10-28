@@ -5,8 +5,6 @@
 
 namespace lumen {
 
-// Shared base for the CPU and GPU profiler tabs: toolbar row (freeze, tab items, controls help) above a zoom/pan/select
-// timeline canvas. Time is in ms from 0 to total_ms. Per draw: _canvas_begin() -> _bar()/_label()/_marker() -> _canvas_end().
 struct ProfilerPanelBase : Panel
 {
     static constexpr float MIN_RANGE_MS = 0.01f;

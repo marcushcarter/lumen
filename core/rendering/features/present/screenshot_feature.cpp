@@ -35,6 +35,9 @@ void ScreenshotFeature::_writeback()
     std::strftime(name, sizeof(name), "screenshot_%Y%m%d_%H%M%S.png", &lt);
 
     encode_path = Paths::screenshots() / name;
+    encode_reveal = reveal;
+    std::error_code ec;
+    std::filesystem::create_directories(encode_path.parent_path(), ec);
     encode_job = std::async(std::launch::async, [path = encode_path, pixels = std::move(rgba), w = (int)capture_width, h = (int)capture_height]() mutable -> bool {
         ImageData<uint8_t, 4> img{};
         img.pixels = pixels.data();
@@ -74,7 +77,8 @@ void ScreenshotFeature::build(RenderGraph& g)
 
     if (encode_job.valid() && encode_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         if (encode_job.get()) {
-            Paths::reveal_in_explorer(encode_path);
+            log_write("Screenshot: saved %s", encode_path.string().c_str());
+            if (encode_reveal) Paths::reveal_in_explorer(encode_path);
         } else {
             log_write("Screenshot: failed to write %s", encode_path.string().c_str());
         }

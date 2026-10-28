@@ -22,12 +22,7 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     }
 
-    if (p_create_info.ini_path) {
-        ini_path_storage = p_create_info.ini_path;
-        io.IniFilename = ini_path_storage.c_str();
-    } else {
-        io.IniFilename = nullptr;
-    }
+    io.IniFilename = nullptr;
     
     ImGui::StyleColorsDark();
     ui_style().build();
@@ -125,4 +120,4 @@ void ImGuiDriver::record_commands(VkCommandBuffer p_cmd)
     }
 }
 
-}
+}

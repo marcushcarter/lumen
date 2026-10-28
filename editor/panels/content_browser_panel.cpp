@@ -943,4 +943,4 @@ void ContentBrowserPanel::draw_contents(EditorContext& ctx)
     _draw_delete_confirm(ctx);
 }
 
-}
+}

@@ -3,7 +3,6 @@
 #include <core/base/error.h>
 #include <vulkan/vulkan.h>
 #include <windows.h>
-#include <string>
 
 namespace lumen::drivers {
 
@@ -19,7 +18,6 @@ struct ImGuiDriverCreateInfo
     VkRenderPass render_pass = VK_NULL_HANDLE;
     uint32_t subpass = 0;
     VkSampler sampler = VK_NULL_HANDLE;
-    const char* ini_path = nullptr;
     bool enable_docking = false;
 };
 
@@ -27,8 +25,6 @@ struct ImGuiDriver
 {
     VkDevice device = VK_NULL_HANDLE;
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
-    
-    std::string ini_path_storage;
 
     ImGuiTextureCache texture_cache;
 
@@ -41,4 +37,4 @@ struct ImGuiDriver
     void record_commands(VkCommandBuffer p_cmd);
 };
 
-}
+}

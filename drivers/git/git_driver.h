@@ -65,6 +65,8 @@ struct GitDriver
     std::atomic<bool> busy = false;
     std::atomic<bool> polling = false;
     std::function<void(const std::string&)> log_callback;
+    // patterns the repo's .gitignore must contain, appended when missing (set before initialize)
+    std::vector<std::string> ignore_lines;
 
     std::mutex mutex;
     Status status;
@@ -101,6 +103,7 @@ struct GitDriver
     static bool has_repo(State p_state) { return p_state == State::NO_REMOTE || p_state == State::READY; }
     static const char* operation_name(Operation p_operation);
 
+    void _ignore_ensure();
     std::vector<Step> _commit_steps(const std::string& p_message);
     std::string _main_branch() const;
     bool _git_dir_exists() const;
@@ -124,4 +127,4 @@ struct GitDriver
     static std::string _message(Problem p_problem, const std::string& p_output);
 };
 
-}
+}

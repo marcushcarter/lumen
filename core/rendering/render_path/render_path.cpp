@@ -16,6 +16,11 @@ Error RenderPath::create_resources()
         }
         created_count = static_cast<uint32_t>(i + 1);
     }
+    screenshot.ctx = &ctx;
+    if (Error e = screenshot.create_resources(); e != OK) {
+        destroy_resources();
+        return e;
+    }
 
     ctx.graph->begin(0);
     for (Feature* f : features) f->build(*ctx.graph);
@@ -38,6 +43,7 @@ Error RenderPath::create_resources()
 
 void RenderPath::destroy_resources()
 {
+    screenshot.destroy_resources();
     for (uint32_t i = created_count; i-- > 0; ) features[i]->destroy_resources();
     created_count = 0;
 }
@@ -47,6 +53,7 @@ void RenderPath::build(RenderGraph& g)
     for (Feature* f : features) {
         if (f->enabled) f->build(g);
     }
+    screenshot.build(g);
 }
 
-}
+}

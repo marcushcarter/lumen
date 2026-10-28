@@ -8,12 +8,16 @@
 #include <drivers/imgui/tab_strip.h>
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/material/material_tab.h>
+#include <editor/tabs/world/panels/project_settings_panel.h>
+#include <editor/assets/import/icon_cooker.h>
+#include <editor/assets/write_atomic.h>
 #include <drivers/imgui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
 #include <fstream>
+#include <sstream>
 #include <cstdlib>
 #include <cstdint>
 #include <windows.h>
@@ -69,6 +73,8 @@ Error EditorApplication::on_init()
     err = thumbnails.initialize(dd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    git.ignore_lines = { std::string("/") + Project::DIR_EDITOR + "/" };
+    _project_state_default = _project_state_write();
     _load_state();
     settings.theme.apply();
     
@@ -80,7 +86,8 @@ Error EditorApplication::on_init()
 void EditorApplication::on_shutdown()
 {
     EditorContext ctx = _make_context();
-    _capture_tabs();
+    // _capture_tabs();
+    _save_project_state();
     tabs.clear(ctx);
     texture_viewer.shutdown();
     thumbnails.shutdown(ctx);
@@ -125,6 +132,8 @@ void EditorApplication::on_update(float p_dt)
                     if (const LTexture* old = renderer.textures.get(c.guid)) imgui.texture_cache.retire(old->image.image_view, renderer.frame_number, renderer.frame_count);
                     renderer.textures.unload(c.guid);
                     renderer.textures.load(c.guid, c.content_bin);
+                    // if (c.guid == project.settings.window_icon) ProjectSettingsTab::bake_window_icon(project);
+                    if (c.guid == project.settings.window_icon) IconCooker::cook_window_icon(project);
                     break;
                 case AssetType::MESH:
                     renderer.geometry.unload(c.guid);
@@ -159,6 +168,7 @@ void EditorApplication::on_update(float p_dt)
 
     if (settings.dirty && !ImGui::IsAnyItemActive()) {
         _save_state();
+        _save_project_state();
         settings.dirty = false;
     }
 }
@@ -202,9 +212,16 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     tabs.clear(ctx);
     tabs.add(&world_tab, WorldTab::KIND);
     tabs.focus(&world_tab);
+    _load_project_state();
     _restore_tabs();
     _tabs_signature = _tabs_hash();
     git.initialize(project.root);
+
+    // the icon texture may have been reimported or the .ico deleted since the last session
+    if (!(project.settings.window_icon == Guid{}) && IconCooker::stale(project.content_path(project.settings.window_icon), project.window_icon_path())) {
+        // ProjectSettingsTab::bake_window_icon(project);
+        IconCooker::cook_window_icon(project);
+    }
 
     return OK;
 }
@@ -214,7 +231,8 @@ void EditorApplication::close_project()
     play.stop();
     pending_transition = [this]{
         EditorContext ctx = _make_context();
-        _capture_tabs();
+        // _capture_tabs();
+        _save_project_state();
         _save_state();
         texture_viewer.close(ctx);
         tabs.clear(ctx);
@@ -255,6 +273,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::EDITOR_SETTINGS: return "editor_settings";
         case TabKind::MODEL: return "model";
         case TabKind::MATERIAL: return "material";
+        // case TabKind::PROJECT_SETTINGS: return "project_settings";
     }
     return "world";
 }
@@ -265,6 +284,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "editor_settings") r_kind = TabKind::EDITOR_SETTINGS;
     else if (p_name == "model") r_kind = TabKind::MODEL;
     else if (p_name == "material") r_kind = TabKind::MATERIAL;
+    // else if (p_name == "project_settings") r_kind = TabKind::PROJECT_SETTINGS;
     else return false;
     return true;
 }
@@ -281,22 +301,23 @@ uint64_t EditorApplication::_tabs_hash() const
     return h;
 }
 
-void EditorApplication::_capture_tabs()
-{
-    if (!project.loaded()) return;
-    SavedTabs saved;
-    for (const EditorTab* t : tabs.tabs) {
-        if (t == tabs.active) saved.active = (uint32_t)saved.tabs.size();
-        saved.tabs.push_back({ t->kind, t->guid });
-    }
-    _project_tabs[project.root.generic_string()] = std::move(saved);
-}
+// void EditorApplication::_capture_tabs()
+// {
+//     if (!project.loaded()) return;
+//     SavedTabs saved;
+//     for (const EditorTab* t : tabs.tabs) {
+//         if (t == tabs.active) saved.active = (uint32_t)saved.tabs.size();
+//         saved.tabs.push_back({ t->kind, t->guid });
+//     }
+//     _project_tabs[project.root.generic_string()] = std::move(saved);
+// }
 
 void EditorApplication::_restore_tabs()
 {
-    auto it = _project_tabs.find(project.root.generic_string());
-    if (it == _project_tabs.end()) return;
-    const SavedTabs& saved = it->second;
+    // auto it = _project_tabs.find(project.root.generic_string());
+    // if (it == _project_tabs.end()) return;
+    // const SavedTabs& saved = it->second;
+    const SavedTabs& saved = _saved_tabs;
 
     EditorTab* active = &world_tab;
     for (uint32_t i = 0; i < (uint32_t)saved.tabs.size(); i++) {
@@ -307,6 +328,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
             case TabKind::MODEL: if (!(t.guid == Guid{})) opened = tabs.open<ModelTab>(t.guid); break;
             case TabKind::MATERIAL: if (!(t.guid == Guid{})) opened = tabs.open<MaterialTab>(t.guid); break;
+            // case TabKind::PROJECT_SETTINGS: opened = tabs.open<ProjectSettingsTab>(); break;
         }
         if (opened && i == saved.active) active = opened;
     }
@@ -325,6 +347,166 @@ void EditorApplication::_load_state()
         return;
     }
     const toml::table& tbl = parsed;
+
+    settings.theme.preset = Theme::theme_preset_index(from_toml(tbl.at_path("theme.preset"), "Custom"));
+    settings.theme.base = from_toml(tbl.at_path("theme.base"), settings.theme.base);
+    settings.theme.accent = from_toml(tbl.at_path("theme.accent"), settings.theme.accent);
+    settings.theme.text = from_toml(tbl.at_path("theme.text"), settings.theme.text);
+    settings.theme.use_system_accent = tbl.at_path("theme.use_system_accent").value_or(settings.theme.use_system_accent);
+
+    settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
+    settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
+
+    if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
+
+    // older builds kept the layout and every project's tabs here; hold on to them so each project
+    // picks its state up the first time it's opened, the next save drops them from this file
+    _project_state_legacy.clear();
+    if (tbl.contains("layout")) {
+        if (const toml::table* t = tbl["layout"].as_table()) _project_state_legacy.insert_or_assign("layout", *t);
+        if (const toml::table* t = tbl["panels"].as_table()) _project_state_legacy.insert_or_assign("panels", *t);
+        if (auto sp = tbl.at_path("display.screen_percentage").value<double>()) {
+            toml::table viewport;
+            viewport.insert_or_assign("screen_percentage", *sp);
+            _project_state_legacy.insert_or_assign("viewport", std::move(viewport));
+        }
+        if (const toml::table* t = tbl["project_tabs"].as_table()) _project_state_legacy.insert_or_assign("project_tabs", *t);
+    }
+
+    settings.theme.apply();
+}
+
+void EditorApplication::_save_state()
+{
+    const char* preset_name = Theme::theme_preset_name(settings.theme.preset);
+
+    toml::table theme;
+    theme.insert_or_assign("preset", preset_name ? preset_name : "");
+    theme.insert_or_assign("base", to_toml(settings.theme.base));
+    theme.insert_or_assign("accent", to_toml(settings.theme.accent));
+    theme.insert_or_assign("text", to_toml(settings.theme.text));
+    theme.insert_or_assign("use_system_accent", settings.theme.use_system_accent);
+
+    toml::table window;
+    window.insert_or_assign("custom_titlebar", static_cast<bool>(win32.window.custom_titlebar));
+
+    toml::table display;
+    display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
+    display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
+
+    toml::table root;
+    root.insert_or_assign("theme", std::move(theme));
+    root.insert_or_assign("window", std::move(window));
+    root.insert_or_assign("display", std::move(display));
+
+    std::ofstream out(Paths::roaming_data() / "editor_state.cfg", std::ios::binary);
+    if (!out) return;
+    out << root << '\n';
+}
+
+void EditorApplication::_load_project_state()
+{
+    toml::table parsed;
+    bool found = false;
+    std::ifstream in(project.editor_dir / FILE_PROJECT_STATE, std::ios::binary);
+    if (in) {
+        try {
+            parsed = toml::parse(in);
+            found = true;
+        } catch (const toml::parse_error& e) {
+            log_write("Editor: ignoring unreadable '%s' (%s)", (project.editor_dir / FILE_PROJECT_STATE).string().c_str(), std::string(e.description()).c_str());
+        }
+    }
+
+    if (!found && !_project_state_legacy.empty()) {
+        parsed = _project_state_legacy;
+        parsed.erase("project_tabs");
+        if (const toml::table* pt = _project_state_legacy.at_path("project_tabs").as_table()) {
+            if (const toml::table* mine = (*pt)[project.root.generic_string()].as_table()) {
+                toml::table tabs_tbl;
+                tabs_tbl.insert_or_assign("active", (*mine)["active"].value_or((int64_t)0));
+                if (const toml::array* list = (*mine)["tabs"].as_array()) tabs_tbl.insert_or_assign("open", *list);
+                parsed.insert_or_assign("tabs", std::move(tabs_tbl));
+            }
+        }
+        found = true;
+    }
+
+    // always start from the defaults so a project never inherits the previous one's layout,
+    // then let whatever the file has override them
+    _project_state_read(_project_state_default);
+    if (found) _project_state_read(parsed);
+}
+
+void EditorApplication::_save_project_state()
+{
+    if (!project.loaded()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(project.editor_dir, ec);
+    if (ec) {
+        log_write("Editor: failed to create '%s' (%s)", project.editor_dir.string().c_str(), ec.message().c_str());
+        return;
+    }
+    std::ostringstream ss;
+    ss << _project_state_write() << '\n';
+    const std::string text = ss.str();
+    if (!write_file_atomic(project.editor_dir / FILE_PROJECT_STATE, text.data(), text.size())) {
+        log_write("Editor: failed to write '%s'", (project.editor_dir / FILE_PROJECT_STATE).string().c_str());
+    }
+}
+
+toml::table EditorApplication::_project_state_write()
+{
+    EditorLayout& L = world_tab.layout;
+
+    toml::table layout;
+    layout.insert_or_assign("version", (int64_t)WorldTab::VERSION);
+    layout.insert_or_assign("split_left", (double)L.split_left);
+    layout.insert_or_assign("split_right", (double)L.split_right);
+    layout.insert_or_assign("left_split_y", (double)L.left.split_y);
+    layout.insert_or_assign("right_split_y", (double)L.right.split_y);
+    layout.insert_or_assign("center_split", (double)L.center_split);
+    layout.insert_or_assign("left_collapsed", (bool)L.left.collapsed);
+    layout.insert_or_assign("right_collapsed", (bool)L.right.collapsed);
+    for (DockWell* w : { &L.bottom, &L.left.top, &L.left.bottom, &L.right.top, &L.right.bottom }) {
+        layout.insert_or_assign(std::string("active_") + to_string(w->zone), w->active_name);
+    }
+
+    toml::table panels;
+    for (const DockSlot& s : L.slots) {
+        toml::table pt;
+        pt.insert_or_assign("open", (bool)s.open);
+        pt.insert_or_assign("zone", to_string(s.zone));
+        panels.insert_or_assign(s.panel->layout_id, std::move(pt));
+    }
+
+    toml::table viewport;
+    viewport.insert_or_assign("screen_percentage", (double)L.viewport.screen_percentage);
+
+    toml::array open;
+    int64_t active = 0;
+    for (const EditorTab* t : tabs.tabs) {
+        if (t == tabs.active) active = (int64_t)open.size();
+        toml::table tt;
+        tt.insert_or_assign("kind", std::string(_tab_kind_name(t->kind)));
+        tt.insert_or_assign("guid", t->guid.to_string());
+        open.push_back(std::move(tt));
+    }
+    toml::table tabs_tbl;
+    tabs_tbl.insert_or_assign("active", active);
+    tabs_tbl.insert_or_assign("open", std::move(open));
+
+    toml::table root;
+    root.insert_or_assign("layout", std::move(layout));
+    root.insert_or_assign("panels", std::move(panels));
+    root.insert_or_assign("viewport", std::move(viewport));
+    root.insert_or_assign("tabs", std::move(tabs_tbl));
+    return root;
+}
+
+void EditorApplication::_project_state_read(const toml::table& p_tbl)
+{
+    const toml::table& tbl = p_tbl;
 
     auto lv = tbl.at_path("layout");
     const int layout_version = (int)lv["version"].value_or((int64_t)-1);
@@ -350,8 +532,10 @@ void EditorApplication::_load_state()
 
         if (const toml::table* pans = tbl.at_path("panels").as_table()) {
             for (DockSlot& s : L.slots) {
-                if (!pans->contains(s.panel->name())) continue;
-                auto pv = (*pans)[s.panel->name()];
+                // older files keyed panels by their full title, icon included
+                const char* key = pans->contains(s.panel->layout_id) ? s.panel->layout_id : s.panel->title;
+                if (!pans->contains(key)) continue;
+                auto pv = (*pans)[key];
                 s.open = pv["open"].value_or(s.open);
                 s.zone = dock_zone_from_string(pv["zone"].value_or(std::string(to_string(s.zone))), s.zone);
             }
@@ -367,112 +551,28 @@ void EditorApplication::_load_state()
             }
             L.bottom.active_name = lv["drawer_active"].value_or(std::string{});
         }
+        for (DockWell* w : { &L.bottom, &L.left.top, &L.left.bottom, &L.right.top, &L.right.bottom }) {
+            if (DockSlot* s = L.find(w->active_name.c_str())) w->active_name = s->panel->layout_id;
+        }
     }
 
-    settings.theme.preset = Theme::theme_preset_index(from_toml(tbl.at_path("theme.preset"), "Custom"));
-    settings.theme.base = from_toml(tbl.at_path("theme.base"), settings.theme.base);
-    settings.theme.accent = from_toml(tbl.at_path("theme.accent"), settings.theme.accent);
-    settings.theme.text = from_toml(tbl.at_path("theme.text"), settings.theme.text);
-    settings.theme.use_system_accent = tbl.at_path("theme.use_system_accent").value_or(settings.theme.use_system_accent);
+    float& sp = world_tab.layout.viewport.screen_percentage;
+    sp = (float)tbl.at_path("viewport.screen_percentage").value_or((double)sp);
+    sp = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
 
-    settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
-    settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
-    float sp = (float)tbl.at_path("display.screen_percentage").value_or((double)world_tab.layout.viewport.screen_percentage);
-    world_tab.layout.viewport.screen_percentage = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
-
-    if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
-
-    _project_tabs.clear();
-    if (const toml::table* projects = tbl.at_path("project_tabs").as_table()) {
-        for (const auto& [key, node] : *projects) {
-            const toml::table* pt = node.as_table();
-            if (!pt) continue;
-            SavedTabs saved;
-            saved.active = (uint32_t)(*pt)["active"].value_or((int64_t)0);
-            if (const toml::array* list = (*pt)["tabs"].as_array()) {
-                for (const toml::node& n : *list) {
-                    const toml::table* t = n.as_table();
-                    if (!t) continue;
-                    TabKind kind;
-                    if (!_tab_kind_from_string((*t)["kind"].value_or(std::string{}), kind)) continue;
-                    saved.tabs.push_back({ kind, Guid::from_string((*t)["guid"].value_or(std::string{})) });
-                }
+    _saved_tabs = {};
+    if (const toml::table* tt = tbl.at_path("tabs").as_table()) {
+        _saved_tabs.active = (uint32_t)(*tt)["active"].value_or((int64_t)0);
+        if (const toml::array* list = (*tt)["open"].as_array()) {
+            for (const toml::node& n : *list) {
+                const toml::table* t = n.as_table();
+                if (!t) continue;
+                TabKind kind;
+                if (!_tab_kind_from_string((*t)["kind"].value_or(std::string{}), kind)) continue;
+                _saved_tabs.tabs.push_back({ kind, Guid::from_string((*t)["guid"].value_or(std::string{})) });
             }
-            _project_tabs[std::string(key.str())] = std::move(saved);
         }
     }
-
-    settings.theme.apply();
-}
-
-void EditorApplication::_save_state()
-{
-    const char* preset_name = Theme::theme_preset_name(settings.theme.preset);
-
-    toml::table theme;
-    theme.insert_or_assign("preset", preset_name ? preset_name : "");
-    theme.insert_or_assign("base", to_toml(settings.theme.base));
-    theme.insert_or_assign("accent", to_toml(settings.theme.accent));
-    theme.insert_or_assign("text", to_toml(settings.theme.text));
-    theme.insert_or_assign("use_system_accent", settings.theme.use_system_accent);
-
-    toml::table window;
-    window.insert_or_assign("custom_titlebar", static_cast<bool>(win32.window.custom_titlebar));
-
-    toml::table display;
-    display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
-    display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
-    display.insert_or_assign("screen_percentage", (double)world_tab.layout.viewport.screen_percentage);
-    
-    toml::table layout;
-    layout.insert_or_assign("version", (int64_t)WorldTab::VERSION);
-    EditorLayout& L = world_tab.layout;
-    layout.insert_or_assign("split_left", (double)L.split_left);
-    layout.insert_or_assign("split_right", (double)L.split_right);
-    layout.insert_or_assign("left_split_y", (double)L.left.split_y);
-    layout.insert_or_assign("right_split_y", (double)L.right.split_y);
-    layout.insert_or_assign("center_split", (double)L.center_split);
-    layout.insert_or_assign("left_collapsed", (bool)L.left.collapsed);
-    layout.insert_or_assign("right_collapsed", (bool)L.right.collapsed);
-    for (DockWell* w : { &L.bottom, &L.left.top, &L.left.bottom, &L.right.top, &L.right.bottom }) {
-        layout.insert_or_assign(std::string("active_") + to_string(w->zone), w->active_name);
-    }
-
-    toml::table panels;
-    for (const DockSlot& s : L.slots) {
-        toml::table pt;
-        pt.insert_or_assign("open", (bool)s.open);
-        pt.insert_or_assign("zone", to_string(s.zone));
-        panels.insert_or_assign(s.panel->name(), std::move(pt));
-    }
-
-    if (!tabs.tabs.empty()) _capture_tabs();
-    toml::table project_tabs;
-    for (const auto& [key, saved] : _project_tabs) {
-        toml::array list;
-        for (const SavedTab& t : saved.tabs) {
-            toml::table tt;
-            tt.insert_or_assign("kind", std::string(_tab_kind_name(t.kind)));
-            tt.insert_or_assign("guid", t.guid.to_string());
-            list.push_back(std::move(tt));
-        }
-        toml::table pt;
-        pt.insert_or_assign("active", (int64_t)saved.active);
-        pt.insert_or_assign("tabs", std::move(list));
-        project_tabs.insert_or_assign(key, std::move(pt));
-    }
-
-    toml::table root;
-    root.insert_or_assign("theme", std::move(theme));
-    root.insert_or_assign("window", std::move(window));
-    root.insert_or_assign("display", std::move(display));
-    root.insert_or_assign("layout", std::move(layout));
-    root.insert_or_assign("panels", std::move(panels));
-    root.insert_or_assign("project_tabs", std::move(project_tabs));
-
-    std::ofstream out(Paths::roaming_data() / "editor_state.cfg", std::ios::binary);
-    if (!out) return;
-    out << root << '\n';
 }
 
 void EditorApplication::_titlebar_block(const TitlebarLayout& L, ImVec2 min, ImVec2 max)
@@ -686,42 +786,25 @@ void EditorApplication::_titlebar_help_menu()
 void EditorApplication::_titlebar_editor_menu()
 {
     if (ImGui::BeginMenu("File")) {
-        // search bar
-        ImGui::Separator();
-
-        // if (ImGui::MenuItem("New")) {}
-        // if (ImGui::MenuItem("Open")) {}
-        // if (ImGui::MenuItem("Export Scene")) {}
-
-        ImGui::Separator();
-        
-        // if (ImGui::MenuItem("Open Asset")) {}
-
-        ImGui::Separator();
 
         // if (ImGui::MenuItem("Save Current Scene")) {}
         // if (ImGui::MenuItem("Save Current Scene As")) {}
-        if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) {
-            EditorContext ctx = _make_context();
-            tabs.active->save(ctx);
-        }
-        if (ImGui::MenuItem("Save All")) project.save();
+        // if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) {
+            // EditorContext ctx = _make_context();
+            // tabs.active->save(ctx);
+        // }
+        // if (ImGui::MenuItem("Save All")) project.save();
         // if (ImGui::MenuItem("Choose Files to Save")) {}
 
-        ImGui::Separator();
-        
-        // if (ImGui::MenuItem("Import Into Scene")) {}
-        // if (ImGui::MenuItem("Export All")) {}
-
-        ImGui::Separator();
-        
+        // ImGui::Separator();
+        // 
         // if (ImGui::MenuItem("New")) {}
         // if (ImGui::MenuItem("Open")) {}
         // if (ImGui::MenuItem("Zip Project")) {}
-        if (ImGui::MenuItem("Open Current Project Directory")) Paths::reveal_in_explorer(project.root);
+        // if (ImGui::MenuItem("Open Current Project Directory")) Paths::reveal_in_explorer(project.root);
         // if (ImGui::MenuItem("Recent Projects")) {}
 
-        ImGui::Separator();        
+        // ImGui::Separator();
 
         if (ImGui::MenuItem("Exit")) close_project();
         if (ImGui::MenuItem("Quit", "Alt+F4")) win32.window_request_close();
@@ -729,9 +812,7 @@ void EditorApplication::_titlebar_editor_menu()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Edit")) {        
-        // search bar
-        ImGui::Separator();
+    if (ImGui::BeginMenu("Edit")) {
         
         // if (ImGui::MenuItem("Undo")) {}
         // if (ImGui::MenuItem("Redo")) {}
@@ -749,12 +830,12 @@ void EditorApplication::_titlebar_editor_menu()
         
         ImGui::Separator();
 
-        // if (ImGui::MenuItem("Editor Settings")) popups.open("Editor Settings");
-        // if (ImGui::MenuItem("Editor Settings")) editor.settings_popup.open();
         if (ImGui::MenuItem("Editor Settings")) tabs.open<EditorSettingsTab>();
-        // if (ImGui::MenuItem("World Settings")) popups.open("World Settings");
-        // if (ImGui::MenuItem("Keyboard Shortcuts")) {}
-        // if (ImGui::MenuItem("Plugins")) {}
+        if (ImGui::MenuItem("Project Settings")) {
+            // if (DockSlot* slot = world_tab.layout.find(ICON_FA_SLIDERS "  Project Settings")) world_tab.layout.open_panel(*slot);
+            world_tab.layout.open<ProjectSettingsPanel>();
+            tabs.focus(&world_tab);
+        }
 
         if (ImGui::MenuItem("Open Editor Data Folder")) Paths::reveal_in_explorer(Paths::roaming_data());
         
@@ -762,8 +843,6 @@ void EditorApplication::_titlebar_editor_menu()
     }
 
     if (ImGui::BeginMenu("Window")) {
-        // search bar
-        ImGui::Separator();
 
         world_tab.draw_menu();
         if (ImGui::BeginMenu("Display")) {
@@ -774,54 +853,18 @@ void EditorApplication::_titlebar_editor_menu()
         }
         
         ImGui::Separator();
-        
-        // if (ImGui::MenuItem("Device Output")) {}
-        // if (ImGui::MenuItem("Message")) {}
-        // if (ImGui::MenuItem("Output Log")) {}
-        
-        ImGui::Separator();
 
         // if (ImGui::MenuItem("Enable Fullscreen", "Alt+F11")) {}
         
-        if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) {
-            if (EditorRenderPath* path = dynamic_cast<EditorRenderPath*>(render_path)) path->screenshot.requested = true;
-        }
-        
-        ImGui::Separator();
+        // if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) if (EditorRenderPath* path = dynamic_cast<EditorRenderPath*>(render_path)) path->screenshot.requested = true;
+        if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) screenshot_request();
         
         ImGui::EndMenu();
     }
     
     if (ImGui::BeginMenu("Tools")) {
-        // search bar
-        ImGui::Separator();
-        
-        // if (ImGui::MenuItem("Render Resource Viewer")) {}
-        
-        ImGui::Separator();
-
-        // if (ImGui::BeginMenu("Debug")) {
-
-        //     ImGui::EndMenu();
-        // }
-        
-        // if (ImGui::BeginMenu("Profiler")) {
-
-        //     ImGui::EndMenu();
-        // }
-        
         ImGui::EndMenu();
     }
-
-    // if (ImGui::BeginMenu("Export")) {
-    //     // search bar
-    //     ImGui::Separator();
-    //     
-    //     // if (ImGui::MenuItem("Play In Editor Current Scene")) {}
-    //     if (ImGui::MenuItem("Export")) popups.open("Export");
-    //     
-    //     ImGui::EndMenu();
-    // }
 }
 
 EditorContext EditorApplication::_make_context()

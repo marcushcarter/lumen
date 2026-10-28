@@ -26,11 +26,9 @@ struct WorldTab : EditorTab
     bool closable() const override { return false; }
     void on_update(EditorContext& ctx, float p_dt) override;
 
-    void draw_menu();
-    void take_screenshot(EditorContext& ctx);
-
     void _draw_toolbar(EditorContext& ctx);
     void _draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max);
+    void draw_menu();
 };
 
-}
+}

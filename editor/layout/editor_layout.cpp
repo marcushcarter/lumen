@@ -29,12 +29,14 @@ void EditorLayout::shutdown()
 
 void EditorLayout::add_shared(Panel* p_panel)
 {
+    p_panel->_resolve_names();
     slots.push_back({ p_panel, p_panel->default_zone(), p_panel->default_open() });
 }
 
 DockSlot* EditorLayout::find(const char* p_name)
 {
-    for (DockSlot& s : slots) if (std::strcmp(s.panel->name(), p_name) == 0) return &s;
+    // for (DockSlot& s : slots) if (std::strcmp(s.panel->name(), p_name) == 0) return &s;
+    for (DockSlot& s : slots) if (std::strcmp(s.panel->layout_id, p_name) == 0 || std::strcmp(s.panel->title, p_name) == 0) return &s;
     return nullptr;
 }
 
@@ -71,7 +73,7 @@ void EditorLayout::_uncollapse(DockZone p_zone)
 void EditorLayout::open_panel(DockSlot& r_slot)
 {
     r_slot.open = true;
-    well(r_slot.zone).active_name = r_slot.panel->name();
+    well(r_slot.zone).active_name = r_slot.panel->layout_id;
     _uncollapse(r_slot.zone);
 }
 
@@ -271,7 +273,7 @@ void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
     const UiStyle& ui = ui_style();
     const char* console_label = ICON_FA_TERMINAL "  Cmd";
     float natural = 0.0f;
-    for (const DockSlot& s : slots) if (s.panel->in_footer()) natural += TabStrip::natural_width(s.panel->name());
+    for (const DockSlot& s : slots) if (s.panel->in_footer()) natural += TabStrip::natural_width(s.panel->title);
 
     const float console_chrome = ImGui::CalcTextSize(console_label).x + ui.console_bar.pad * 3.0f;
     const float free_w = (p_max.x - p_min.x) - natural - console_chrome;
@@ -280,7 +282,7 @@ void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
     TabStrip strip;
     strip.begin("##footer", p_min, p_max, TabStrip::Edge::BOTTOM, natural, console_chrome + field_w);
     for (DockSlot& s : slots) {
-        if (!s.panel->in_footer() || !strip.button(s.panel->name(), s.open)) continue;
+        if (!s.panel->in_footer() || !strip.button(s.panel->title, s.open)) continue;
         if (s.open) s.open = false;
         else open_panel(s);
     }
@@ -469,11 +471,11 @@ void EditorLayout::draw_menu()
     if (ImGui::BeginMenu("Panels")) {
         for (DockSlot& s : slots) {
             const bool was_open = s.open;
-            ImGui::MenuItem(s.panel->name(), nullptr, &s.open, s.panel->closable() && !s.panel->pinned());
+            ImGui::MenuItem(s.panel->title, nullptr, &s.open, s.panel->closable() && !s.panel->pinned());
             if (s.open && !was_open) open_panel(s);
         }
         ImGui::EndMenu();
     }
 }
 
-}
+}

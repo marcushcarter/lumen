@@ -18,10 +18,10 @@ DockSlot* DockWell::_resolve_active()
     for (DockSlot* s : slots) {
         if (!s->open) continue;
         if (!first_open) first_open = s;
-        if (active_name == s->panel->name()) active = s;
+        if (active_name == s->panel->layout_id) active = s;
     }
     if (!active) active = first_open;
-    if (active) active_name = active->panel->name();
+    if (active) active_name = active->panel->layout_id;
     return active;
 }
 
@@ -55,7 +55,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PushID(to_string(zone));
 
     float natural = 0.0f;
-    for (DockSlot* s : slots) if (s->open) natural += TabStrip::dock_natural_width(s->panel->name(), s->panel->closable() && !s->panel->pinned());
+    for (DockSlot* s : slots) if (s->open) natural += TabStrip::dock_natural_width(s->panel->title, s->panel->closable() && !s->panel->pinned());
 
     DockSlot* closed = nullptr;
     TabStrip strip;
@@ -68,13 +68,13 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         Panel* p = s->panel;
         bool close = false;
         const bool can_close = p->closable() && !p->pinned();
-        if (strip.dock_tab(p->name(), s == active, can_close ? &close : nullptr)) {
+        if (strip.dock_tab(p->title, s == active, can_close ? &close : nullptr)) {
             active = s;
-            active_name = p->name();
+            active_name = p->layout_id;
         }
         if (!p->pinned() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers)) {
             ImGui::SetDragDropPayload(PAYLOAD, &p, sizeof(Panel*));
-            ImGui::TextUnformatted(p->name());
+            ImGui::TextUnformatted(p->title);
             ImGui::EndDragDropSource();
         }
         if (close) closed = s;
@@ -88,7 +88,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     const float content_h = ImMax(1.0f, size.y - tab_h);
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + tab_h));
-    ImGui::PushID(active ? active->panel->name() : "##empty");
+    ImGui::PushID(active ? active->panel->layout_id : "##empty");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->panel->window_padding() : ui.dock.panel_padding);
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, ui.dock.panel_scrollbar);
@@ -114,4 +114,4 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PopID();
 }
 
-}
+}

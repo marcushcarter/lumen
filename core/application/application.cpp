@@ -47,7 +47,6 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     imgui_ci.image_count = renderer.frame_count;
     imgui_ci.render_pass = dd.swapchain.render_pass;
     imgui_ci.sampler = dd.default_sampler.sampler;
-    imgui_ci.ini_path = p_create_info.ini_path;
     imgui_ci.enable_docking = wants_docking();
     err = imgui.initialize(imgui_ci);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -168,6 +167,7 @@ Error Application::_frame()
 
     cpu.zone_begin("Update");
     on_update((float)delta);
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F12, ImGuiInputFlags_RouteGlobal)) screenshot_request();
     world.deferred_flush();
     cpu.zone_end();
 
@@ -282,6 +282,13 @@ void Application::report_fatal_error(Error p_error)
     out.close();
 
     Paths::reveal_in_explorer(file);
+}
+
+void Application::screenshot_request()
+{
+    if (!render_path) return;
+    render_path->screenshot.reveal = screenshot_reveal;
+    render_path->screenshot.requested = true;
 }
 
 Error Application::project_load(const std::filesystem::path &p_root)

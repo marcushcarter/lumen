@@ -6,7 +6,6 @@
 
 namespace lumen {
 
-// One GPU frame, 0 ms = its first timestamp: categories, passes, barriers, draws/dispatches.
 struct GpuProfilerPanel : ProfilerPanelBase
 {
     std::vector<float> start;

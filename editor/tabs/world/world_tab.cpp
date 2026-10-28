@@ -12,6 +12,7 @@
 #include <editor/tabs/world/panels/details_panel.h>
 #include <editor/tabs/world/panels/world_settings_panel.h>
 #include <editor/tabs/world/panels/version_control_panel.h>
+#include <editor/tabs/world/panels/project_settings_panel.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <editor/panels/shared_panels.h>
@@ -27,6 +28,7 @@ Error WorldTab::initialize(SharedPanels& r_shared)
     details = layout.add_panel<DetailsPanel>();
     layout.add_panel<WorldSettingsPanel>();
     layout.add_panel<VersionControlPanel>();
+    layout.add_panel<ProjectSettingsPanel>();
     for (auto& p : r_shared.panels) layout.add_shared(p.get());
     return OK;
 }
@@ -175,7 +177,7 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
     (void)p_dt;
     if (ctx.selection && ctx.selection->version != selection_version) {
         selection_version = ctx.selection->version;
-        if (!ctx.selection->empty() || ctx.selection->atmosphere) layout.well(details->default_zone()).active_name = details->name();
+        if (!ctx.selection->empty() || ctx.selection->atmosphere) layout.well(details->default_zone()).active_name = details->layout_id;
     }
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
 }
@@ -185,9 +187,4 @@ void WorldTab::draw_menu()
     layout.draw_menu();
 }
 
-void WorldTab::take_screenshot(EditorContext& ctx)
-{
-    ctx.render_path->screenshot.requested = true;
 }
-
-}

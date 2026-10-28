@@ -106,7 +106,7 @@ struct OutlinerPanel : Panel
     void _rename_end();
     bool _renaming(const Row& p_row) const;
 
-    const char* name() const override { return ICON_FA_IMAGE "  Outliner"; }
+    const char* name() const override { return ICON_FA_TABLE_LIST "  Outliner"; }
     DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
     bool pinned() const override { return true; }
     ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; }

@@ -84,7 +84,7 @@ struct ThumbnailCache
     uint64_t ticket_serial = 0;
     std::vector<uint8_t> pixels;
 
-    RenderView view;
+    RenderView render_view;
     ThumbnailRenderPath* path = nullptr;
     World world;
     Entity entity = ENTITY_NULL;

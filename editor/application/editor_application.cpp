@@ -653,14 +653,13 @@ void EditorApplication::_titlebar_menus(const TitlebarLayout& p_layout)
         return;
     }
 
-    ImGui::SetCursorPosX(p_layout.logo + ui_style().titlebar.menu_offset_x);
-    float menu_x0 = ImGui::GetCursorScreenPos().x;
-
-    if (project.loaded()) _titlebar_editor_menu();
-    _titlebar_help_menu();
-
-    float menu_x1 = ImGui::GetCursorScreenPos().x;
-    if (menu_x1 > menu_x0) _titlebar_block(p_layout, ImVec2(menu_x0, p_layout.origin.y), ImVec2(menu_x1, p_layout.origin.y + p_layout.menu_h));
+    if (project.loaded()) {
+        ImGui::SetCursorPosX(p_layout.logo + ui_style().titlebar.menu_offset_x);
+        float menu_x0 = ImGui::GetCursorScreenPos().x;
+        _titlebar_editor_menu();
+        float menu_x1 = ImGui::GetCursorScreenPos().x;
+        if (menu_x1 > menu_x0) _titlebar_block(p_layout, ImVec2(menu_x0, p_layout.origin.y), ImVec2(menu_x1, p_layout.origin.y + p_layout.menu_h));
+    }
 
     const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
     ImVec2 ts = ImGui::CalcTextSize(title.c_str());
@@ -751,50 +750,6 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
     dl->PopClipRect();
 }
 
-void EditorApplication::_titlebar_help_menu()
-{
-    static constexpr const char* URL_WEBSITE = "https://lumengames.ca";
-    if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("Online Documentation")) ui_open_url(URL_WEBSITE);
-        if (ImGui::MenuItem("Forum")) ui_open_url(URL_WEBSITE);
-        if (ImGui::MenuItem("Community")) ui_open_url(URL_WEBSITE);
-        ImGui::Separator();
-        if (ImGui::MenuItem("Copy System Info")) {
-            const auto sys = win32.get_system_info();
-            const auto gpu = dd.gpu_describe();
-            char buf[1024];
-            std::snprintf(buf, sizeof(buf),
-                "Lumen v%d.%d.%d\n"
-                "OS:       %s (build %u)\n"
-                "Renderer: Vulkan %s (Deferred+)\n"
-                "GPU:      %s [%s]\n"
-                "          %s (%s)\n"
-                "          %.2f GiB VRAM\n"
-                "CPU:      %s\n"
-                "          %u cores / %u threads @ %u MHz\n"
-                "RAM:      %.2f GiB\n"
-                "Display:  %d monitor%s\n"
-                "Audio:    nah\n"
-                "Physics:  nah\n",
-                LUMEN_VERSION_MAJOR, LUMEN_VERSION_MINOR, LUMEN_VERSION_PATCH,
-                sys.os_name.c_str(), sys.os_build,
-                gpu.api_version.c_str(),
-                gpu.name.c_str(), gpu.type.c_str(),
-                gpu.driver_name.c_str(), gpu.driver_id.c_str(),
-                static_cast<double>(gpu.vram_bytes) / (1024.0 * 1024.0 * 1024.0),
-                sys.cpu_brand.c_str(),
-                sys.cpu_cores, sys.cpu_threads, sys.cpu_mhz,
-                static_cast<double>(sys.ram_total_bytes) / (1024.0 * 1024.0 * 1024.0),
-                sys.monitor_count, sys.monitor_count == 1 ? "" : "s"
-            );
-            ImGui::SetClipboardText(buf);
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Support Development")) ui_open_url(URL_WEBSITE);
-        ImGui::EndMenu();
-    }
-}
-
 void EditorApplication::_titlebar_editor_menu()
 {
     if (ImGui::BeginMenu("File")) {
@@ -824,7 +779,7 @@ void EditorApplication::_titlebar_editor_menu()
         // if (ImGui::MenuItem("Undo")) {}
         // if (ImGui::MenuItem("Redo")) {}
         // if (ImGui::MenuItem("Undo History")) {}
-        ImGui::Separator();
+        // ImGui::Separator();
         // ImGui::BeginDisabled(true);
         // if (ImGui::MenuItem("Cut")) {}
         // if (ImGui::MenuItem("Copy")) {}
@@ -832,7 +787,7 @@ void EditorApplication::_titlebar_editor_menu()
         // if (ImGui::MenuItem("Duplicate")) {}
         // if (ImGui::MenuItem("Delete")) {}
         // ImGui::EndDisabled();
-        ImGui::Separator();
+        // ImGui::Separator();
         if (ImGui::MenuItem("Editor Settings")) tabs.open<EditorSettingsTab>();
         if (ImGui::MenuItem("Project Settings")) {
             world_tab.layout.open<ProjectSettingsPanel>();
@@ -859,9 +814,9 @@ void EditorApplication::_titlebar_editor_menu()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Tools")) {
-        ImGui::EndMenu();
-    }
+    // if (ImGui::BeginMenu("Tools")) {
+    //     ImGui::EndMenu();
+    // }
 }
 
 EditorContext& EditorApplication::_context()

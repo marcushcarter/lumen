@@ -146,7 +146,6 @@ struct EditorApplication : Application
     void _titlebar_tabs(const TitlebarLayout& p_layout);
     void _titlebar_logo(const TitlebarLayout& p_layout);
     void _titlebar_editor_menu();
-    void _titlebar_help_menu();
 
     void _draw_titlebar();
 };

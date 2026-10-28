@@ -4,7 +4,7 @@
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/layout/panel.h>
-#include <imgui.h>
+#include <IconsFontAwesome6.h>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -110,7 +110,7 @@ struct ContentBrowserPanel : Panel
     void _draw_toolbar(EditorContext& ctx);
     void _draw_footer();
 
-    const char* name() const override { return "Content Browser"; }
+    const char* name() const override { return ICON_FA_BOOK "  Content Browser"; }
     bool in_footer() const override { return true; }
     DockZone default_zone() const override { return DockZone::BOTTOM; }
     bool default_open() const override { return false; }

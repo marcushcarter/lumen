@@ -58,17 +58,16 @@ struct DebugView
     DebugViewInputs inputs;
 };
 
-static constexpr DebugViewCategory DV_CAT_CLUSTERS = { ICON_FA_IMAGE, "Cluster Visualization" };
-static constexpr DebugViewCategory DV_CAT_GEOMETRY = { ICON_FA_IMAGE, "Geometry Inspection" };
-static constexpr DebugViewCategory DV_CAT_BUFFERS = { ICON_FA_IMAGE, "Buffer Visualization" };
-static constexpr DebugViewCategory DV_CAT_LIGHTING = { ICON_FA_IMAGE, "Lighting" };
-static constexpr DebugViewCategory DV_CAT_GI = { ICON_FA_IMAGE, "Radiance GI" };
+static constexpr DebugViewCategory DV_CAT_CLUSTERS = { ICON_FA_CUBES, "Cluster Visualization" };
+static constexpr DebugViewCategory DV_CAT_GEOMETRY = { ICON_FA_SHAPES, "Geometry Inspection" };
+static constexpr DebugViewCategory DV_CAT_BUFFERS = { ICON_FA_LAYER_GROUP, "Buffer Visualization" };
+static constexpr DebugViewCategory DV_CAT_LIGHTING = { ICON_FA_LIGHTBULB, "Lighting" };
+static constexpr DebugViewCategory DV_CAT_GI = { ICON_FA_SUN, "Radiance GI" };
 
 static constexpr DebugView DEBUG_VIEWS[] = {
-    { ICON_FA_IMAGE, "Lit", nullptr, "DisplayColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
-    { ICON_FA_IMAGE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
-    { ICON_FA_IMAGE, "Wireframe", nullptr, nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
-    { ICON_FA_IMAGE, "Clay", nullptr, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
+    { ICON_FA_EYE, "Lit", nullptr, "DisplayColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
+    { ICON_FA_CIRCLE_HALF_STROKE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
+    { ICON_FA_DRAW_POLYGON, "Wireframe", nullptr, nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
 
     { nullptr, "Triangles", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF },
     { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
@@ -82,6 +81,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     // hiz mip
 
     { nullptr, "Depth Normal", &DV_CAT_GEOMETRY, "G_Depth", DebugViewOp::DEPTH_NORMAL, DebugViewInputs::SOURCE },
+    { nullptr, "Clay", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
     // random color
     // zebra
     // mip level

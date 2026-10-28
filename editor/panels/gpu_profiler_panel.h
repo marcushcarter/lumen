@@ -1,7 +1,7 @@
 #pragma once
 #include <core/rendering/gpu_profiler.h>
 #include <editor/layout/panel.h>
-#include <imgui.h>
+#include <IconsFontAwesome6.h>
 #include <cstdint>
 #include <vector>
 
@@ -45,7 +45,7 @@ struct GpuProfilerPanel : Panel
     void _draw_toolbar(EditorContext& ctx);
     void _draw_timeline(EditorContext& ctx);
 
-    const char* name() const override { return "GPU Profiler"; }
+    const char* name() const override { return ICON_FA_CHART_AREA "  GPU Profiler"; }
     DockZone default_zone() const override { return DockZone::BOTTOM; }
     bool default_open() const override { return false; }
     ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar; }

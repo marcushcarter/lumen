@@ -93,8 +93,8 @@ void ThumbnailCache::close(EditorContext& ctx)
         path->destroy_resources();
         delete path;
         path = nullptr;
-        view.path = nullptr;
-        if (ctx.renderer) ctx.renderer->view_destroy(view);
+        render_view.path = nullptr;
+        if (ctx.renderer) ctx.renderer->view_destroy(render_view);
         world.shutdown();
         entity = ENTITY_NULL;
     }
@@ -106,20 +106,20 @@ Error ThumbnailCache::_ensure_view(EditorContext& ctx)
     if (path) return OK;
     Renderer& r = *ctx.renderer;
 
-    Error err = r.view_create(view, RENDER_SIZE, RENDER_SIZE);
+    Error err = r.view_create(render_view, RENDER_SIZE, RENDER_SIZE);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     path = new ThumbnailRenderPath();
-    path->ctx = r.make_context(view);
+    path->ctx = r.make_context(render_view);
     err = path->create_resources();
     if (err != OK) {
         delete path;
         path = nullptr;
-        r.view_destroy(view);
+        r.view_destroy(render_view);
         log_write("ThumbnailCache: render path creation failed.");
         return err;
     }
-    view.path = path;
+    render_view.path = path;
 
     world.initialize();
     world.load();
@@ -526,11 +526,11 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
 void ThumbnailCache::_render(EditorContext& ctx)
 {
     Renderer& r = *ctx.renderer;
-    view.camera = job.camera;
-    view.camera_cut_pending = true;
+    render_view.camera = job.camera;
+    render_view.camera_cut_pending = true;
     job.ticket = ++ticket_serial;
     path->capture.request = job.ticket;
-    if (r.view_render(view, world) != Error::OK) {
+    if (r.view_render(render_view, world) != Error::OK) {
         path->capture.request = 0;
         job = {};
         return;

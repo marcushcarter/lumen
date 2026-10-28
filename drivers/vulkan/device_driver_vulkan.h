@@ -1,14 +1,11 @@
 #pragma once
-
 #include <drivers/vulkan/context_driver_vulkan.h>
-
+#include <drivers/vulkan/lumen_vulkan.h>
 #include <shaderc/shaderc.hpp>
 #include <vma/vk_mem_alloc.h>
-
-#include <drivers/vulkan/lumen_vulkan.h>
-
-#include <string>
 #include <initializer_list>
+#include <memory>
+#include <string>
 
 namespace shaderc { class Compiler; }
 
@@ -19,10 +16,10 @@ struct DeviceDriverVulkan
     /***************/
     /**** SETUP ****/
     /***************/
-	
+
     struct Queue {
-		VkQueue queue = VK_NULL_HANDLE;
-	};
+        VkQueue queue = VK_NULL_HANDLE;
+    };
 
     struct Capabilities {
         struct Subgroup {
@@ -51,7 +48,7 @@ struct DeviceDriverVulkan
         Subgroup subgroup;
         MeshShading mesh;
     };
-    
+
     struct Functions {
         PFN_vkCmdDrawMeshTasksEXT CmdDrawMeshTasksEXT = nullptr;
         PFN_vkCmdDrawMeshTasksIndirectEXT CmdDrawMeshTasksIndirectEXT = nullptr;
@@ -65,18 +62,17 @@ struct DeviceDriverVulkan
     DriverDevice driver_device;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     uint32_t frame_count = 1;
-	VkPhysicalDeviceProperties physical_device_properties = {};
-	VkPhysicalDeviceFeatures physical_device_features = {};
-	VkPhysicalDeviceFeatures requested_device_features = {};
+    VkPhysicalDeviceProperties physical_device_properties = {};
+    VkPhysicalDeviceFeatures physical_device_features = {};
+    VkPhysicalDeviceFeatures requested_device_features = {};
     std::unordered_map<std::string, bool> requested_device_extensions;
     std::unordered_set<std::string> enabled_device_extension_names;
     std::vector<std::vector<Queue>> queue_families;
     Capabilities capabilities;
     Functions functions;
+    bool device_fault_enabled = false;
 
-    bool memory_budget_enabled() const;
-
-	void _register_requested_device_extension(const std::string& p_extension_name, bool p_required);
+    void _register_requested_device_extension(const std::string& p_extension_name, bool p_required);
     Error _initialize_device_extensions();
     void _get_device_properties();
     Error _check_device_features();
@@ -87,21 +83,18 @@ struct DeviceDriverVulkan
 
     void _check_subgroup_capabilities();
     void _check_mesh_shading_capabilities();
-
     Error initialize(ContextDriverVulkan& r_cd, uint32_t p_device_index, uint32_t p_frame_count);
     void shutdown();
-
     Error device_wait_idle();
-
-    bool device_fault_enabled = false;
     void device_fault_report();
+    bool memory_budget_enabled() const;
 
     /****************/
     /**** MEMORY ****/
     /****************/
 
     VmaAllocator allocator = nullptr;
-    
+
     VmaPool image_transient_pool = nullptr;
     VmaPool image_persistent_pool = nullptr;
     VmaPool image_texture_pool = nullptr;
@@ -118,20 +111,18 @@ struct DeviceDriverVulkan
     uint32_t readback_type_index = UINT32_MAX;
     bool bar_available = false;
 
-    VmaPool bar_pool() const { return buffer_bar_pool ? buffer_bar_pool : upload_pool; }
-
     uint32_t _pool_memory_type(VmaPool p_pool) const;
     uint32_t _find_memory_type(VkMemoryPropertyFlags p_properties);
     VkDeviceSize _heap_size_for_type(uint32_t p_type_index) const;
     Error _allocator_pools_create();
     void _allocator_pools_free();
-
     Error allocator_create();
     void allocator_free();
-    
-	/****************/
-	/**** IMAGES ****/
-	/****************/
+    VmaPool bar_pool() const { return buffer_bar_pool ? buffer_bar_pool : upload_pool; }
+
+    /****************/
+    /**** IMAGES ****/
+    /****************/
 
     struct ImageBarrierState {
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -177,18 +168,16 @@ struct DeviceDriverVulkan
     Error _image_bind(Image& r_image, VmaAllocation p_allocation);
     Error _image_create_view(Image& r_image);
     VkImageView _image_create_mip_view(const Image& p_image, uint32_t p_mip);
-
     Image image_create_dedicated(const ImageCreateInfo& p_ci, VkExtent2D p_extent);
     void image_free(Image& r_image);
     void image_clear(Image& r_image, const VkClearColorValue& p_color);
-
     Image image_create_texture(const void* p_rgba, uint32_t p_width, uint32_t p_height, const char* p_name);
     Image image_create_texture_compressed(VkFormat p_format, uint32_t p_width, uint32_t p_height, uint32_t p_mip_count, const void* p_blocks, VkDeviceSize p_blocks_size, const char* p_name);
 
-	/*****************/
-	/**** BUFFERS ****/
-	/*****************/
-    
+    /*****************/
+    /**** BUFFERS ****/
+    /*****************/
+
     // ----- BUFFER -----
 
     struct BufferBarrierState {
@@ -226,14 +215,12 @@ struct DeviceDriverVulkan
     };
 
     VkDeviceSize _next_power_of_2(VkDeviceSize v);
-
     Buffer buffer_create(const BufferCreateInfo& p_ci);
     void buffer_free(Buffer& r_buffer);
     Error buffer_ensure_capacity(Buffer& r_buffer, VkDeviceSize p_size);
     Error buffer_update(Buffer& r_buffer, const void* p_data, VkDeviceSize p_size, VkDeviceSize p_offset = 0);
     Error buffer_flush(Buffer& r_buffer, VkDeviceSize p_offset = 0, VkDeviceSize p_size = VK_WHOLE_SIZE);
     Error buffer_invalidate(Buffer& r_buffer, VkDeviceSize p_offset = 0, VkDeviceSize p_size = VK_WHOLE_SIZE);
-    
     void command_bind_index_buffer(VkCommandBuffer p_cmd, VkBuffer p_buffer, VkDeviceSize p_offset, VkIndexType p_index_type);
 
     // ----- STAGED UPLOAD -----
@@ -261,7 +248,6 @@ struct DeviceDriverVulkan
     };
 
     Error buffer_copy_batch(const BufferCopy* p_copies, uint32_t p_count);
-
     void command_copy_image_to_buffer(VkCommandBuffer p_cmd, const Image& p_image, const Buffer& p_buffer, VkExtent2D p_extent);
 
     // ----- RING -----
@@ -324,18 +310,15 @@ struct DeviceDriverVulkan
         uint32_t capacity = 0;
     };
 
-    // GPU timestamps <-> QueryPerformanceCounter, so GPU work can be placed on the CPU profiler's clock.
     bool timestamp_calibration = false;
 
     uint32_t timestamp_valid_bits(uint32_t p_queue_family_index);
     bool timestamps_calibrate(uint64_t& r_gpu_ticks, int64_t& r_cpu_ticks, uint64_t& r_max_deviation);
-
     QueryPool query_pool_create_timestamp(uint32_t p_query_count);
     QueryPool query_pool_create_occlusion(uint32_t p_query_count);
     QueryPool query_pool_create_pipeline_statistics(uint32_t p_query_count, VkQueryPipelineStatisticFlags p_stats);
     void query_pool_free(QueryPool& r_query_pool);
     Error query_pool_get_results(const QueryPool& p_query_pool, uint32_t p_first, uint32_t p_count, uint64_t* r_results, uint32_t p_stride_u64 = 1);
-
     void command_reset_query_pool(VkCommandBuffer p_cmd, const QueryPool& p_query_pool, uint32_t p_first, uint32_t p_count);
     void command_write_timestamp(VkCommandBuffer p_cmd, const QueryPool& p_query_pool, VkPipelineStageFlags2 p_stage, uint32_t p_index);
     void command_begin_query(VkCommandBuffer p_cmd, const QueryPool& p_query_pool, uint32_t p_index, VkQueryControlFlags p_flags = 0);
@@ -353,25 +336,22 @@ struct DeviceDriverVulkan
     CommandPool command_pool_create(uint32_t p_queue_family_index, VkCommandBufferLevel p_buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     void command_pool_free(CommandPool& r_cmd_pool);
     Error command_pool_reset(CommandPool& r_cmd_pool);
-
+    void _command_render_set_viewport(VkCommandBuffer p_cmd, const VkRect2D* p_rects, uint32_t p_count);
     VkCommandBuffer command_buffer_create(CommandPool& p_cmd_pool);
     Error command_buffer_begin(VkCommandBuffer p_cmd_buffer, VkCommandBufferUsageFlags p_flags = 0);
     Error command_buffer_end(VkCommandBuffer p_cmd_buffer);
-    Error swapchain_update();
-
     void command_render_set_viewport(VkCommandBuffer p_cmd, const std::vector<VkRect2D>& p_viewports);
     void command_render_set_scissor(VkCommandBuffer p_cmd, const std::vector<VkRect2D>& p_scissors);
     void command_render_set_viewport(VkCommandBuffer p_cmd, std::initializer_list<VkRect2D> p_viewports);
     void command_render_set_scissor(VkCommandBuffer p_cmd, std::initializer_list<VkRect2D> p_scissors);
-    void _command_render_set_viewport(VkCommandBuffer p_cmd, const VkRect2D* p_rects, uint32_t p_count);
     void command_bind_push_constants(const VkCommandBuffer& p_cmd, uint32_t p_size, void* r_data, uint32_t p_offset = 0);
 
     void command_render_draw(VkCommandBuffer p_cmd, uint32_t p_vertex_count, uint32_t p_instance_count = 1, uint32_t p_base_vertex = 0, uint32_t p_first_instance = 0);
     void command_render_draw_indexed(VkCommandBuffer p_cmd, uint32_t p_index_count, uint32_t p_instance_count = 1, uint32_t p_first_index = 0, int32_t p_vertex_offset = 0, uint32_t p_first_instance = 0);
-	void command_render_draw_indexed_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
-	void command_render_draw_indexed_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
-	void command_render_draw_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
-	void command_render_draw_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
+    void command_render_draw_indexed_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
+    void command_render_draw_indexed_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
+    void command_render_draw_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
+    void command_render_draw_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
     void command_render_draw_mesh_tasks(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups);
     void command_render_draw_mesh_tasks_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride);
     void command_render_draw_mesh_tasks_indirect_count(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset, const Buffer& p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride);
@@ -397,11 +377,11 @@ struct DeviceDriverVulkan
 
     bool _determine_swapchain_format(ContextDriverVulkan::Surface* r_surface, VkSurfaceFormatKHR &r_surface_format);
     void _swapchain_release();
-    
     Error swapchain_create(ContextDriverVulkan::Surface* r_surface);
     Error swapchain_resize(uint32_t p_desired_framebuffer_count);
     void swapchain_free();
     Error swapchain_acquire_next_image(VkSemaphore p_signal_semaphore);
+    Error swapchain_update();
 
     /***********************/
     /**** BINDLESS HEAP ****/
@@ -421,19 +401,19 @@ struct DeviceDriverVulkan
     };
 
     struct BindlessHeap {
-        VkDescriptorSet set = VK_NULL_HANDLE;
-        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-        VkDescriptorPool pool = VK_NULL_HANDLE;
-        VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-        
-        IndexAllocator sampled_alloc;
-        IndexAllocator storage_alloc;
-        IndexAllocator sampler_alloc;
-
         static constexpr uint32_t BINDING_SAMPLED = 0;
         static constexpr uint32_t BINDING_STORAGE = 1;
         static constexpr uint32_t BINDING_SAMPLER = 2;
         static constexpr uint32_t PUSH_CONSTANT_SIZE = 128;
+
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+
+        IndexAllocator sampled_alloc;
+        IndexAllocator storage_alloc;
+        IndexAllocator sampler_alloc;
     };
 
     BindlessHeap bindless_heap;
@@ -447,33 +427,31 @@ struct DeviceDriverVulkan
     void bindless_heap_free_storage(uint32_t p_index);
     void bindless_heap_free_sampler(uint32_t p_index);
 
-	/*********************/
-	/**** FRAMEBUFFER ****/
-	/*********************/
+    /*********************/
+    /**** FRAMEBUFFER ****/
+    /*********************/
 
     VkFramebuffer framebuffer_create(VkRenderPass p_render_pass, std::vector<VkImageView>& p_image_views, VkExtent2D extent);
     void framebuffer_free(VkFramebuffer& r_framebuffer);
 
-	/******************/
-	/**** PIPELINE ****/
-	/******************/
-    
+    /******************/
+    /**** PIPELINE ****/
+    /******************/
+
     // ----- CACHE -----
-    
+
     VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
     std::string pipeline_cache_file;
-    
+
     bool _pipeline_cache_header_valid(const std::vector<uint8_t>& p_data) const;
-    void _save_pipeline_cache();
-    
     Error pipeline_cache_create();
     void pipeline_cache_free();
-    void pipeline_cache_save() { _save_pipeline_cache(); }
-    
+    void pipeline_cache_save();
+
     // ----- SHADER -----
-    
+
     enum class ShaderStage : uint8_t { VERTEX, FRAGMENT, COMPUTE };
-    
+
     struct ShaderCreateInfo {
         ShaderStage stage = ShaderStage::VERTEX;
         const char* glsl = nullptr;
@@ -482,13 +460,12 @@ struct DeviceDriverVulkan
         size_t spirv_size = 0;
         const char* name = nullptr;
     };
-    
+
     std::string shader_cache_dir;
     std::unique_ptr<shaderc::Compiler> shader_compiler;
-    
+
     shaderc_shader_kind _shaderc_kind(ShaderStage p_stage);
     uint64_t _shader_cache_key(const void* p_source, size_t p_len, ShaderStage p_stage);
-
     VkShaderModule shader_create(const ShaderCreateInfo& p_ci);
     void shader_free(VkShaderModule& r_shader);
 
@@ -521,7 +498,6 @@ struct DeviceDriverVulkan
 
     struct ComputePipelineCreateInfo {
         VkShaderModule compute_shader = VK_NULL_HANDLE;
-        
         const char* name = nullptr;
         const VkSpecializationInfo* specialization = nullptr;
     };
@@ -534,22 +510,19 @@ struct DeviceDriverVulkan
     uint32_t pipeline_failures = 0;
 
     VkPipelineColorBlendAttachmentState _blend_state(BlendMode p_mode);
-
     Pipeline _graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci);
     Pipeline _compute_pipeline_create(const ComputePipelineCreateInfo& p_ci);
+    void _command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const VkDescriptorSet* p_sets, uint32_t p_count, uint32_t p_first_set_index, uint32_t p_dynamic_offset);
     Pipeline graphics_pipeline_create(const GraphicsPipelineCreateInfo& p_ci);
     Pipeline compute_pipeline_create(const ComputePipelineCreateInfo& p_ci);
     void pipeline_free(Pipeline& r_pipeline);
-    
     void command_bind_pipeline(VkCommandBuffer p_cmd, const Pipeline& p_pipeline);
-    // void _command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset);
-    void _command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPipelineBindPoint p_bind_point, const VkDescriptorSet* p_sets, uint32_t p_count, uint32_t p_first_set_index, uint32_t p_dynamic_offset);
     void command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
     void command_bind_compute_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
     void command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, std::initializer_list<VkDescriptorSet> p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
     void command_bind_compute_uniform_sets(VkCommandBuffer p_cmd, std::initializer_list<VkDescriptorSet> p_sets, uint32_t p_first_set_index = 0, uint32_t p_dynamic_offset = UINT32_MAX);
-	void command_compute_dispatch(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups);
-	void command_compute_dispatch_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset);
+    void command_compute_dispatch(VkCommandBuffer p_cmd, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups);
+    void command_compute_dispatch_indirect(VkCommandBuffer p_cmd, const Buffer& p_indirect_buffer, uint64_t p_offset);
 
     /*********************/
     /**** RENDER PASS ****/
@@ -572,15 +545,12 @@ struct DeviceDriverVulkan
 
     VkRenderPass render_pass_create(const RenderPassCreateInfo& p_ci);
     void render_pass_free(VkRenderPass& r_render_pass);
-
     void command_begin_render_pass(VkCommandBuffer p_cmd, VkRenderPass p_render_pass, VkFramebuffer p_framebuffer, VkExtent2D p_extent, const std::vector<VkClearValue>& p_clear_values);
     void command_end_render_pass(VkCommandBuffer p_cmd);
 
-	/**************/
-	/**** MISC ****/
-	/**************/
-
-    void set_object_name(VkObjectType p_type, uint64_t p_handle, const char* p_name);
+    /**************/
+    /**** MISC ****/
+    /**************/
 
     struct GpuDescription {
         std::string name;
@@ -590,7 +560,8 @@ struct DeviceDriverVulkan
         std::string api_version;
         uint64_t vram_bytes = 0;
     };
-    
+
+    void set_object_name(VkObjectType p_type, uint64_t p_handle, const char* p_name);
     GpuDescription gpu_describe() const;
 };
 

@@ -17,16 +17,6 @@ struct MaterialCache
 {
     static constexpr uint32_t INITIAL_CAPACITY = 1024;
 
-    drivers::DeviceDriverVulkan* dd = nullptr;
-    uint32_t frame_count = 1;
-    uint64_t frame_number = 0;
-    uint64_t version = 0;
-    uint64_t layout_version = 0;
-    uint64_t content_version = 0;
-    uint64_t bin_version = 0;
-    uint64_t built_content = UINT64_MAX;
-    uint64_t built_textures = UINT64_MAX;
-
     struct Entry {
         LMaterial material;
         uint32_t index = MATERIAL_DEFAULT;
@@ -37,16 +27,25 @@ struct MaterialCache
         drivers::DeviceDriverVulkan::Buffer buffer;
     };
 
+    drivers::DeviceDriverVulkan* dd = nullptr;
+    uint32_t frame_count = 1;
+    uint64_t frame_number = 0;
+    uint64_t version = 0;
+    uint64_t layout_version = 0;
+    uint64_t content_version = 0;
+    uint64_t bin_version = 0;
+    uint64_t _built_content = UINT64_MAX;
+    uint64_t _built_textures = UINT64_MAX;
+
     uint32_t capacity = 0;
     std::vector<drivers::DeviceDriverVulkan::Buffer> slot_buffers;
-    std::vector<uint64_t> uploaded_version;
-    
+    std::vector<uint64_t> _uploaded_version;
     std::vector<GPUMaterial> materials;
     std::vector<uint8_t> bins;
     std::vector<uint32_t> free_slots;
-    std::vector<Retired> retired;
-    std::unordered_map<Guid, Entry, GuidHash, GuidEq> by_guid;
-    
+    std::vector<Retired> _retired;
+    std::unordered_map<Guid, Entry> by_guid;
+
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
     void begin_frame(uint64_t p_frame_number);
@@ -62,7 +61,6 @@ struct MaterialCache
     Error _grow(uint32_t p_capacity);
     void resolve(const TextureCache& p_textures);
     void upload(uint32_t p_frame);
-
     static GPUMaterial default_material();
 
     uint32_t bin_of(uint32_t p_index) const { return p_index < bins.size() ? bins[p_index] : RASTER_BIN_OPAQUE; }

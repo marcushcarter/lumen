@@ -1,8 +1,8 @@
 #include <editor/layout/editor_layout.h>
 #include <editor/panels/output_panel.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/imgui_helpers.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_widgets.h>
+#include <editor/ui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <cstring>
@@ -21,7 +21,7 @@ void EditorLayout::initialize(const char* p_host_id)
 
 void EditorLayout::shutdown()
 {
-    for (DockWell* w : { &bottom, &left.top, &left.bottom, &right.top, &right.bottom }) w->slots.clear();
+    for (DockWell* w : wells()) w->slots.clear();
     for (auto& p : owned) p->shutdown();
     slots.clear();
     owned.clear();
@@ -35,7 +35,6 @@ void EditorLayout::add_shared(Panel* p_panel)
 
 DockSlot* EditorLayout::find(const char* p_name)
 {
-    // for (DockSlot& s : slots) if (std::strcmp(s.panel->name(), p_name) == 0) return &s;
     for (DockSlot& s : slots) if (std::strcmp(s.panel->layout_id, p_name) == 0 || std::strcmp(s.panel->title, p_name) == 0) return &s;
     return nullptr;
 }
@@ -186,7 +185,7 @@ void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     if (!bottom.has_open()) return;
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h));
-    SplitterState s = imgui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
+    SplitterState s = ui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
     if (s.active) _apply_center_delta(s.delta, s.activated);
 
     const float by = p_min.y + scene_h + gap;
@@ -222,7 +221,7 @@ void EditorLayout::_draw_column(EditorContext& ctx, Column& r_column, bool p_dra
     r_column.top.draw(ctx, p_min, ImVec2(p_max.x, p_min.y + top_h));
     ImGui::PushID(to_string(r_column.top.zone));
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + top_h));
-    SplitterState sy = imgui_splitter("##split_tb", SplitAxis::Y, ImVec2(w, gap), 0.0f);
+    SplitterState sy = ui_splitter("##split_tb", SplitAxis::Y, ImVec2(w, gap), 0.0f);
     if (sy.active) r_column.split_y += sy.delta / col_h;
     ImGui::PopID();
     r_column.bottom.draw(ctx, ImVec2(p_min.x, p_min.y + top_h + gap), p_max);
@@ -299,7 +298,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     const float gap = ui.dock.gap;
     const float bar_h = p_toolbar ? ui.toolbar.height : 0.0f;
 
-    for (DockWell* w : { &bottom, &left.top, &left.bottom, &right.top, &right.bottom }) {
+    for (DockWell* w : wells()) {
         w->slots.clear();
         w->dropped = nullptr;
     }
@@ -409,12 +408,12 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 
     if (left_live) {
         ImGui::SetCursorScreenPos(ImVec2(lx1, body_y));
-        SplitterState s = imgui_splitter("##split_left", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
+        SplitterState s = ui_splitter("##split_left", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
         if (s.active) _apply_split_left(s.delta, s.activated, body_w);
     }
     if (right_live) {
         ImGui::SetCursorScreenPos(ImVec2(cx1, body_y));
-        SplitterState s = imgui_splitter("##split_lr", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
+        SplitterState s = ui_splitter("##split_lr", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
         if (s.active) _apply_split_right(s.delta, s.activated, body_w);
     }
 
@@ -458,7 +457,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 
     _draw_footer(ImVec2(origin.x, footer_y), end);
 
-    for (DockWell* w : { &bottom, &left.top, &left.bottom, &right.top, &right.bottom }) {
+    for (DockWell* w : wells()) {
         if (w->dropped) pending_drop = { w->dropped, w->zone };
     }
     _apply_drop();
@@ -478,4 +477,4 @@ void EditorLayout::draw_menu()
     }
 }
 
-}
+}

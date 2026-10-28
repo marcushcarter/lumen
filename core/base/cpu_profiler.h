@@ -63,6 +63,7 @@ struct CpuProfiler
     void initialize();
     void shutdown();
 
+    Lane* _lane();
     void begin_frame(uint64_t p_number);
     void zone_begin(const char* p_name, uint8_t p_flags = 0);
     void zone_end();
@@ -73,8 +74,6 @@ struct CpuProfiler
     const Frame* frame(uint64_t p_number) const;
     const Frame* last_complete_frame() const;
     const char* lane_name(uint32_t p_lane) const;
-
-    Lane* _lane();
     static int64_t now();
 };
 

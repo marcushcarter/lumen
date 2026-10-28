@@ -1,7 +1,7 @@
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmesh.h>
-#include <core/base/utils.h>
+#include <core/base/strings.h>
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -16,20 +16,20 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     dd = &r_dd;
     frame_count = p_frame_count ? p_frame_count : 1;
 
-    _arena_setup(ARENA_VERTICES, sizeof(VertexPosition), 1u << 20, MAX_VERTS, 0, "geo_vertex_positions");
-    _arena_setup(ARENA_VERTEX_ATTRIBUTES, sizeof(VertexAttributes), 1u << 20, MAX_VERTS, 0, "geo_vertex_attributes");
-    _arena_setup(ARENA_INDICES, 3 * sizeof(uint32_t), 1u << 20, MAX_TRIS, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "geo_indices");
-    _arena_setup(ARENA_TRI_SLOTS, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_tri_slots");
-    _arena_setup(ARENA_CLUSTERS, sizeof(Cluster), 64u << 10, MAX_CLUSTERS, 0, "geo_clusters");
-    _arena_setup(ARENA_GROUPS, sizeof(ClusterGroup), 16u << 10, MAX_GROUPS, 0, "geo_groups");
-    _arena_setup(ARENA_SKIN, sizeof(SkinVertex), 64u << 10, MAX_SKIN_VERTS, 0, "geo_skin");
-    _arena_setup(ARENA_BVH_NODES, sizeof(BVHNode), 64u << 10, MAX_BVH_NODES, 0, "geo_bvh_nodes");
-    _arena_setup(ARENA_MESHES, sizeof(LMesh), 1u << 10, MAX_MESHES, 0, "geo_meshes");
-    _arena_setup(ARENA_MESHLET_VERTICES, sizeof(uint32_t), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_meshlet_vertices");
-    _arena_setup(ARENA_CLUSTER_VERTEX_BASE, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_vertex_base");
-    _arena_setup(ARENA_LOCAL_TRIANGLES, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_local_triangles");
-    _arena_setup(ARENA_CLUSTER_VERTICES, sizeof(VertexPosition) + sizeof(VertexAttributes), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_cluster_vertices");
-    _arena_setup(ARENA_CLUSTER_SLOTS, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_slots");
+    _arena_setup(ArenaKind::VERTICES, sizeof(VertexPosition), 1u << 20, MAX_VERTS, 0, "geo_vertex_positions");
+    _arena_setup(ArenaKind::VERTEX_ATTRIBUTES, sizeof(VertexAttributes), 1u << 20, MAX_VERTS, 0, "geo_vertex_attributes");
+    _arena_setup(ArenaKind::INDICES, 3 * sizeof(uint32_t), 1u << 20, MAX_TRIS, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "geo_indices");
+    _arena_setup(ArenaKind::TRI_SLOTS, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_tri_slots");
+    _arena_setup(ArenaKind::CLUSTERS, sizeof(Cluster), 64u << 10, MAX_CLUSTERS, 0, "geo_clusters");
+    _arena_setup(ArenaKind::GROUPS, sizeof(ClusterGroup), 16u << 10, MAX_GROUPS, 0, "geo_groups");
+    _arena_setup(ArenaKind::SKIN, sizeof(SkinVertex), 64u << 10, MAX_SKIN_VERTS, 0, "geo_skin");
+    _arena_setup(ArenaKind::BVH_NODES, sizeof(BVHNode), 64u << 10, MAX_BVH_NODES, 0, "geo_bvh_nodes");
+    _arena_setup(ArenaKind::MESHES, sizeof(LMesh), 1u << 10, MAX_MESHES, 0, "geo_meshes");
+    _arena_setup(ArenaKind::MESHLET_VERTICES, sizeof(uint32_t), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_meshlet_vertices");
+    _arena_setup(ArenaKind::CLUSTER_VERTEX_BASE, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_vertex_base");
+    _arena_setup(ArenaKind::LOCAL_TRIANGLES, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_local_triangles");
+    _arena_setup(ArenaKind::CLUSTER_VERTICES, sizeof(VertexPosition) + sizeof(VertexAttributes), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_cluster_vertices");
+    _arena_setup(ArenaKind::CLUSTER_SLOTS, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_slots");
 
     address_buffers.resize(frame_count);
     for (Buffer& b : address_buffers) {
@@ -55,22 +55,22 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDevic
     _collect(p_frame_number);
 
     GeometryAddresses a{};
-    a.vertices = arenas[ARENA_VERTICES].buffer.device_address;
-    a.attributes = arenas[ARENA_VERTEX_ATTRIBUTES].buffer.device_address;
-    a.indices = arenas[ARENA_INDICES].buffer.device_address;
-    a.tri_slots = arenas[ARENA_TRI_SLOTS].buffer.device_address;
+    a.vertices = _arena(ArenaKind::VERTICES).buffer.device_address;
+    a.attributes = _arena(ArenaKind::VERTEX_ATTRIBUTES).buffer.device_address;
+    a.indices = _arena(ArenaKind::INDICES).buffer.device_address;
+    a.tri_slots = _arena(ArenaKind::TRI_SLOTS).buffer.device_address;
     a.slot_table = p_slot_table;
-    a.clusters = arenas[ARENA_CLUSTERS].buffer.device_address;
-    a.groups = arenas[ARENA_GROUPS].buffer.device_address;
-    a.skin_vertices = arenas[ARENA_SKIN].buffer.device_address;
-    a.bvh_nodes = arenas[ARENA_BVH_NODES].buffer.device_address;
-    a.meshes = arenas[ARENA_MESHES].buffer.device_address;
-    a.meshlet_vertices = arenas[ARENA_MESHLET_VERTICES].buffer.device_address;
-    a.cluster_vertex_base = arenas[ARENA_CLUSTER_VERTEX_BASE].buffer.device_address;
-    a.local_triangles = arenas[ARENA_LOCAL_TRIANGLES].buffer.device_address;
-    a.cluster_vertices = arenas[ARENA_CLUSTER_VERTICES].buffer.device_address;
+    a.clusters = _arena(ArenaKind::CLUSTERS).buffer.device_address;
+    a.groups = _arena(ArenaKind::GROUPS).buffer.device_address;
+    a.skin_vertices = _arena(ArenaKind::SKIN).buffer.device_address;
+    a.bvh_nodes = _arena(ArenaKind::BVH_NODES).buffer.device_address;
+    a.meshes = _arena(ArenaKind::MESHES).buffer.device_address;
+    a.meshlet_vertices = _arena(ArenaKind::MESHLET_VERTICES).buffer.device_address;
+    a.cluster_vertex_base = _arena(ArenaKind::CLUSTER_VERTEX_BASE).buffer.device_address;
+    a.local_triangles = _arena(ArenaKind::LOCAL_TRIANGLES).buffer.device_address;
+    a.cluster_vertices = _arena(ArenaKind::CLUSTER_VERTICES).buffer.device_address;
     a.materials = p_materials;
-    a.cluster_slots = arenas[ARENA_CLUSTER_SLOTS].buffer.device_address;
+    a.cluster_slots = _arena(ArenaKind::CLUSTER_SLOTS).buffer.device_address;
 
     Buffer& b = address_buffers[p_slot];
     dd->buffer_update(b, &a, sizeof(a));
@@ -81,7 +81,7 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDevic
 
 void GeometryPool::_arena_setup(ArenaKind p_kind, uint32_t p_stride, uint32_t p_initial, uint32_t p_max, VkBufferUsageFlags p_usage, const char* p_name)
 {
-    Arena& a = arenas[p_kind];
+    Arena& a = _arena(p_kind);
     a.stride = p_stride;
     a.initial = std::min(p_initial, p_max);
     a.max = p_max;
@@ -100,7 +100,7 @@ Error GeometryPool::_arena_create(Arena& r_arena, uint32_t p_capacity)
 
 uint32_t GeometryPool::_grow_target(ArenaKind p_kind, uint64_t p_min) const
 {
-    const Arena& a = arenas[p_kind];
+    const Arena& a = _arena(p_kind);
     if (p_min > a.max) return 0;
     const uint64_t doubled = a.capacity ? (uint64_t)a.capacity * 2 : a.initial;
     return (uint32_t)std::min<uint64_t>(std::max(doubled, p_min), a.max);
@@ -109,7 +109,7 @@ uint32_t GeometryPool::_grow_target(ArenaKind p_kind, uint64_t p_min) const
 Error GeometryPool::_arena_grow(ArenaKind p_kind, uint32_t p_capacity, uint32_t p_live)
 {
     using enum Error;
-    Arena& a = arenas[p_kind];
+    Arena& a = _arena(p_kind);
     if (p_capacity <= a.capacity) return OK;
 
     Buffer old = a.buffer;
@@ -145,12 +145,12 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
     if (capacity == 0) return RangeAllocator::INVALID;
 
     const uint32_t live = r_alloc.extent();
-    if (p_kind == ARENA_INDICES && _arena_grow(ARENA_TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ARENA_VERTICES && _arena_grow(ARENA_VERTEX_ATTRIBUTES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ARENA_INDICES && _arena_grow(ARENA_LOCAL_TRIANGLES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ARENA_CLUSTERS && _arena_grow(ARENA_CLUSTER_VERTEX_BASE, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ARENA_CLUSTERS && _arena_grow(ARENA_CLUSTER_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ARENA_MESHLET_VERTICES && _arena_grow(ARENA_CLUSTER_VERTICES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::INDICES && _arena_grow(ArenaKind::TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::VERTICES && _arena_grow(ArenaKind::VERTEX_ATTRIBUTES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::INDICES && _arena_grow(ArenaKind::LOCAL_TRIANGLES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_VERTEX_BASE, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::MESHLET_VERTICES && _arena_grow(ArenaKind::CLUSTER_VERTICES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (_arena_grow(p_kind, capacity, live) != Error::OK) return RangeAllocator::INVALID;
 
     r_alloc.grow(capacity);
@@ -171,24 +171,24 @@ void GeometryPool::_release(const MeshRanges& p_r)
 void GeometryPool::_retire_buffer(Buffer& r_buffer)
 {
     if (!r_buffer.buffer) return;
-    retired_buffers.push_back({ frame_number, r_buffer });
+    _retired_buffers.push_back({ frame_number, r_buffer });
     r_buffer = {};
 }
 
 void GeometryPool::_collect(uint64_t p_frame_number)
 {
-    for (size_t i = 0; i < retired_meshes.size();) {
-        if (retired_meshes[i].frame + frame_count > p_frame_number) { i++; continue; }
-        _release(retired_meshes[i].ranges);
-        free_meshes.push_back(retired_meshes[i].id);
-        retired_meshes[i] = retired_meshes.back();
-        retired_meshes.pop_back();
+    for (size_t i = 0; i < _retired_meshes.size();) {
+        if (_retired_meshes[i].frame + frame_count > p_frame_number) { i++; continue; }
+        _release(_retired_meshes[i].ranges);
+        free_meshes.push_back(_retired_meshes[i].id);
+        _retired_meshes[i] = _retired_meshes.back();
+        _retired_meshes.pop_back();
     }
-    for (size_t i = 0; i < retired_buffers.size();) {
-        if (retired_buffers[i].frame + frame_count > p_frame_number) { i++; continue; }
-        dd->buffer_free(retired_buffers[i].buffer);
-        retired_buffers[i] = retired_buffers.back();
-        retired_buffers.pop_back();
+    for (size_t i = 0; i < _retired_buffers.size();) {
+        if (_retired_buffers[i].frame + frame_count > p_frame_number) { i++; continue; }
+        dd->buffer_free(_retired_buffers[i].buffer);
+        _retired_buffers[i] = _retired_buffers.back();
+        _retired_buffers.pop_back();
     }
 }
 
@@ -196,7 +196,7 @@ VkDeviceSize GeometryPool::_resident_bytes() const
 {
     VkDeviceSize total = 0;
     for (const Arena& a : arenas) total += a.buffer.capacity;
-    for (const RetiredBuffer& r : retired_buffers) total += r.buffer.capacity;
+    for (const RetiredBuffer& r : _retired_buffers) total += r.buffer.capacity;
     return total;
 }
 
@@ -207,8 +207,8 @@ void GeometryPool::free()
         a.buffer = {};
         a.capacity = 0;
     }
-    for (RetiredBuffer& r : retired_buffers) dd->buffer_free(r.buffer);
-    retired_buffers.clear();
+    for (RetiredBuffer& r : _retired_buffers) dd->buffer_free(r.buffer);
+    _retired_buffers.clear();
     clear();
 }
 
@@ -220,15 +220,15 @@ void GeometryPool::clear()
     mesh_guids.clear();
     free_meshes.clear();
     by_guid.clear();
-    retired_meshes.clear();
+    _retired_meshes.clear();
 
-    vertex_alloc.reset(arenas[ARENA_VERTICES].capacity);
-    tri_alloc.reset(arenas[ARENA_INDICES].capacity);
-    cluster_alloc.reset(arenas[ARENA_CLUSTERS].capacity);
-    group_alloc.reset(arenas[ARENA_GROUPS].capacity);
-    skin_alloc.reset(arenas[ARENA_SKIN].capacity);
-    bvh_alloc.reset(arenas[ARENA_BVH_NODES].capacity);
-    meshlet_vertex_alloc.reset(arenas[ARENA_MESHLET_VERTICES].capacity);
+    vertex_alloc.reset(_arena(ArenaKind::VERTICES).capacity);
+    tri_alloc.reset(_arena(ArenaKind::INDICES).capacity);
+    cluster_alloc.reset(_arena(ArenaKind::CLUSTERS).capacity);
+    group_alloc.reset(_arena(ArenaKind::GROUPS).capacity);
+    skin_alloc.reset(_arena(ArenaKind::SKIN).capacity);
+    bvh_alloc.reset(_arena(ArenaKind::BVH_NODES).capacity);
+    meshlet_vertex_alloc.reset(_arena(ArenaKind::MESHLET_VERTICES).capacity);
     cluster_extent = 0;
     max_cluster_tris = 0;
 }
@@ -261,7 +261,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
     if (ah.payload_size < sizeof(ph)) return fail("payload_size underflow");
 
-    const bool skinned = (ph.flags & MESH_FLAG_SKINNED) != 0;
+    const bool skinned = has_flag((MeshFlags)ph.flags, MeshFlags::SKINNED);
     const size_t vtx_bytes = (size_t)ph.vertex_count * (interleaved ? sizeof(Vertex) : sizeof(VertexPosition) + sizeof(VertexAttributes));
     const size_t idx_bytes = (size_t)ph.index_count * sizeof(uint32_t);
     const size_t tri_bytes = (size_t)ph.tri_count * sizeof(uint32_t);
@@ -281,9 +281,9 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     if (!free_meshes.empty()) id = free_meshes.back();
     else if (meshes.size() < MAX_MESHES) id = (uint32_t)meshes.size();
     if (id == INVALID_MESH) return fail("mesh table full");
-    if (id >= arenas[ARENA_MESHES].capacity) {
-        const uint32_t capacity = _grow_target(ARENA_MESHES, (uint64_t)id + 1);
-        if (capacity == 0 || _arena_grow(ARENA_MESHES, capacity, (uint32_t)meshes.size()) != Error::OK) return fail("mesh table growth failed");
+    if (id >= _arena(ArenaKind::MESHES).capacity) {
+        const uint32_t capacity = _grow_target(ArenaKind::MESHES, (uint64_t)id + 1);
+        if (capacity == 0 || _arena_grow(ArenaKind::MESHES, capacity, (uint32_t)meshes.size()) != Error::OK) return fail("mesh table growth failed");
     }
 
     MeshRanges r;
@@ -300,12 +300,12 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         return r_offset != RangeAllocator::INVALID;
     };
     const bool reserved =
-        reserve(r.vertex, vertex_alloc, ARENA_VERTICES, r.vertex_count) &&
-        reserve(r.tri, tri_alloc, ARENA_INDICES, r.tri_count) &&
-        reserve(r.cluster, cluster_alloc, ARENA_CLUSTERS, r.cluster_count) &&
-        reserve(r.group, group_alloc, ARENA_GROUPS, r.group_count) &&
-        reserve(r.skin, skin_alloc, ARENA_SKIN, r.skin_count) &&
-        reserve(r.bvh, bvh_alloc, ARENA_BVH_NODES, r.bvh_count);
+        reserve(r.vertex, vertex_alloc, ArenaKind::VERTICES, r.vertex_count) &&
+        reserve(r.tri, tri_alloc, ArenaKind::INDICES, r.tri_count) &&
+        reserve(r.cluster, cluster_alloc, ArenaKind::CLUSTERS, r.cluster_count) &&
+        reserve(r.group, group_alloc, ArenaKind::GROUPS, r.group_count) &&
+        reserve(r.skin, skin_alloc, ArenaKind::SKIN, r.skin_count) &&
+        reserve(r.bvh, bvh_alloc, ArenaKind::BVH_NODES, r.bvh_count);
     if (!reserved) {
         _release(r);
         return fail("geometry arenas exhausted");
@@ -430,7 +430,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     }
     if (!bad) {
         r.meshlet_vertex_count = (uint32_t)meshlet_verts.size();
-        if (!reserve(r.meshlet_vertex, meshlet_vertex_alloc, ARENA_MESHLET_VERTICES, r.meshlet_vertex_count)) bad = "meshlet vertex arena exhausted";
+        if (!reserve(r.meshlet_vertex, meshlet_vertex_alloc, ArenaKind::MESHLET_VERTICES, r.meshlet_vertex_count)) bad = "meshlet vertex arena exhausted";
         else for (uint32_t& b : cluster_vbase) b += r.meshlet_vertex;
     }
 
@@ -457,22 +457,22 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     drivers::DeviceDriverVulkan::BufferUpload uploads[ARENA_COUNT];
     uint32_t upload_count = 0;
     auto add = [&](ArenaKind p_kind, uint32_t p_offset, const void* p_data, size_t p_bytes) {
-        if (p_bytes) uploads[upload_count++] = { &arenas[p_kind].buffer, p_data, (VkDeviceSize)p_bytes, (VkDeviceSize)p_offset * arenas[p_kind].stride };
+        if (p_bytes) uploads[upload_count++] = { &_arena(p_kind).buffer, p_data, (VkDeviceSize)p_bytes, (VkDeviceSize)p_offset * _arena(p_kind).stride };
     };
-    add(ARENA_VERTICES, r.vertex, p_pos, pos_bytes);
-    add(ARENA_VERTEX_ATTRIBUTES, r.vertex, p_attr, attr_bytes);
-    add(ARENA_INDICES, r.tri, p_idx, idx_bytes);
-    add(ARENA_TRI_SLOTS, r.tri, p_tri, tri_bytes);
-    add(ARENA_CLUSTERS, r.cluster, p_clus, clus_bytes);
-    add(ARENA_GROUPS, r.group, p_group, group_bytes);
-    add(ARENA_SKIN, r.skin, p_skin, skin_bytes);
-    add(ARENA_BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
-    add(ARENA_MESHES, id, &m, sizeof(LMesh));
-    add(ARENA_MESHLET_VERTICES, r.meshlet_vertex, meshlet_verts.data(), meshlet_verts.size() * sizeof(uint32_t));
-    add(ARENA_CLUSTER_VERTEX_BASE, r.cluster, cluster_vbase.data(), cluster_vbase.size() * sizeof(uint32_t));
-    add(ARENA_CLUSTER_SLOTS, r.cluster, cluster_slots.data(), cluster_slots.size() * sizeof(uint32_t));
-    add(ARENA_LOCAL_TRIANGLES, r.tri, local_tris.data(), local_tris.size() * sizeof(uint32_t));
-    add(ARENA_CLUSTER_VERTICES, r.meshlet_vertex, cluster_vertices.data(), cluster_vertices.size());
+    add(ArenaKind::VERTICES, r.vertex, p_pos, pos_bytes);
+    add(ArenaKind::VERTEX_ATTRIBUTES, r.vertex, p_attr, attr_bytes);
+    add(ArenaKind::INDICES, r.tri, p_idx, idx_bytes);
+    add(ArenaKind::TRI_SLOTS, r.tri, p_tri, tri_bytes);
+    add(ArenaKind::CLUSTERS, r.cluster, p_clus, clus_bytes);
+    add(ArenaKind::GROUPS, r.group, p_group, group_bytes);
+    add(ArenaKind::SKIN, r.skin, p_skin, skin_bytes);
+    add(ArenaKind::BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
+    add(ArenaKind::MESHES, id, &m, sizeof(LMesh));
+    add(ArenaKind::MESHLET_VERTICES, r.meshlet_vertex, meshlet_verts.data(), meshlet_verts.size() * sizeof(uint32_t));
+    add(ArenaKind::CLUSTER_VERTEX_BASE, r.cluster, cluster_vbase.data(), cluster_vbase.size() * sizeof(uint32_t));
+    add(ArenaKind::CLUSTER_SLOTS, r.cluster, cluster_slots.data(), cluster_slots.size() * sizeof(uint32_t));
+    add(ArenaKind::LOCAL_TRIANGLES, r.tri, local_tris.data(), local_tris.size() * sizeof(uint32_t));
+    add(ArenaKind::CLUSTER_VERTICES, r.meshlet_vertex, cluster_vertices.data(), cluster_vertices.size());
 
     if (dd->buffer_upload_batch(uploads, upload_count) != Error::OK) {
         _release(r);
@@ -505,7 +505,7 @@ void GeometryPool::unload(Guid p_guid)
     by_guid.erase(it);
     version++;
 
-    retired_meshes.push_back({ frame_number, id, mesh_ranges[id] });
+    _retired_meshes.push_back({ frame_number, id, mesh_ranges[id] });
     meshes[id] = LMesh{};
     mesh_ranges[id] = MeshRanges{};
     mesh_guids[id] = Guid{};

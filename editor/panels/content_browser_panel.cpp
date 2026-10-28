@@ -1,25 +1,24 @@
 #include <editor/panels/content_browser_panel.h>
+#include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
-#include <editor/assets/write_atomic.h>
-#include <toml++/toml.hpp>
-#include <sstream>
-#include <drivers/imgui/ui_style.h>
+#include <core/base/error.h>
+#include <core/base/strings.h>
+#include <core/io/file_io.h>
+#include <core/io/path.h>
+#include <core/project/project.h>
+#include <core/rendering/renderer.h>
+#include <drivers/imgui/imgui_driver.h>
+#include <drivers/windows/dialogs_win32.h>
 #include <editor/assets/import/asset_import_any.h>
 #include <editor/assets/import/asset_import_tracker.h>
-#include <editor/editor_resources.h>
-#include <core/rendering/renderer.h>
-#include <core/project/project.h>
-#include <core/io/path.h>
-#include <core/base/error.h>
-#include <drivers/imgui/imgui_driver.h>
-#include <drivers/imgui/imgui_helpers.h>
-#include <drivers/imgui/tab_strip.h>
-#include <editor/tabs/tab_manager.h>
-#include <editor/tabs/model/model_tab.h>
-#include <editor/tabs/material/material_tab.h>
 #include <editor/assets/texture_viewer.h>
 #include <editor/assets/thumbnail_cache.h>
-#include <drivers/windows/dialogs_win32.h>
+#include <editor/tabs/material/material_tab.h>
+#include <editor/tabs/model/model_tab.h>
+#include <editor/tabs/tab_manager.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
+#include <toml++/toml.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
@@ -27,6 +26,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <sstream>
 
 namespace lumen {
 
@@ -36,7 +36,7 @@ namespace lumen {
 
 static std::string _type_name(std::string p_ext)
 {
-    for (char& c : p_ext) c = (char)std::tolower((unsigned char)c);
+    str_lower(p_ext);
     if (p_ext == ".lmesh") return "Mesh";
     if (p_ext == ".ltexture") return "Texture";
     if (p_ext == ".lmodel") return "Model";
@@ -76,8 +76,7 @@ void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r
         e.is_dir = it->is_directory(ec);
         e.name = e.path.stem().string();
         e.type = _type_name(e.path.extension().string());
-        e.lower_name = e.path.filename().string();
-        for (char& c : e.lower_name) c = (char)std::tolower((unsigned char)c);
+        e.lower_name = str_lowered(e.path.filename().string());
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
         e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : ICON_FA_FILE;
@@ -96,14 +95,14 @@ void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r
 /**** TREE ****/
 /**************/
 
-void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& dir, int depth)
+void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& p_dir, int p_depth)
 {
-    Dir& node = _cache_get(dir);
+    Dir& node = _cache_get(p_dir);
     ImGui::PushID(node.path_str.c_str());
 
-    ImGuiStorage* storage  = ImGui::GetStateStorage();
+    ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_key = ImGui::GetID("open");
-    bool open = storage->GetBool(open_key, depth == 0);
+    bool open = storage->GetBool(open_key, p_depth == 0);
 
     const bool has_children = !node.subdirs.empty();
     if (!has_children) open = false;
@@ -114,11 +113,11 @@ void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& dir, in
     const float full_w = ImGui::GetContentRegionAvail().x;
     const ImVec2 row_min = ImGui::GetCursorScreenPos();
     const ImVec2 row_max = ImVec2(row_min.x + full_w, row_min.y + row_h);
-    const float indent = depth * indent_w;
+    const float indent = p_depth * indent_w;
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    const bool selected_here = (selected_folder == dir);
+    const bool selected_here = selected_folder == p_dir;
     const bool hovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(row_min, row_max);
     if (selected_here) dl->AddRectFilled(row_min, row_max, ImGui::GetColorU32(ImGuiCol_Header));
     else if (hovered) dl->AddRectFilled(row_min, row_max, ImGui::GetColorU32(ImGuiCol_HeaderHovered));
@@ -128,7 +127,8 @@ void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& dir, in
     if (has_children) {
         ImGui::SetCursorScreenPos(chev_min);
         if (ImGui::InvisibleButton("chevron", ImVec2(chevron_w, row_h))) {
-            open = !open; storage->SetBool(open_key, open);
+            open = !open;
+            storage->SetBool(open_key, open);
         }
         const bool chev_hover = ImGui::IsItemHovered();
         const ImU32 tri_col = ImGui::GetColorU32(chev_hover ? ImGuiCol_Text : ImGuiCol_TextDisabled);
@@ -141,11 +141,12 @@ void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& dir, in
     float body_w = row_max.x - body_x;
     if (body_w < 1.0f) body_w = 1.0f;
     ImGui::SetCursorScreenPos(ImVec2(body_x, row_min.y));
-    if (ImGui::InvisibleButton("row", ImVec2(body_w, row_h))) selected_folder = dir;
+    if (ImGui::InvisibleButton("row", ImVec2(body_w, row_h))) selected_folder = p_dir;
     if (has_children && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        open = !open; storage->SetBool(open_key, open);
+        open = !open;
+        storage->SetBool(open_key, open);
     }
-    _drop_target(dir);
+    _drop_target(p_dir);
 
     const char* icon = open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
     const ImVec2 is = ImGui::CalcTextSize(icon);
@@ -158,7 +159,7 @@ void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& dir, in
     dl->PopClipRect();
 
     ImGui::SetCursorScreenPos(ImVec2(row_min.x, row_max.y));
-    if (open) for (const auto& sub : node.subdirs) _draw_folder_node(sub, depth + 1);
+    if (open) for (const std::filesystem::path& sub : node.subdirs) _draw_folder_node(sub, p_depth + 1);
 
     ImGui::PopID();
 }
@@ -198,7 +199,7 @@ void ContentBrowserPanel::_delete_folder(EditorContext& ctx, const std::filesyst
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh") _delete_content(ctx, it->path());
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial") _delete_content(ctx, it->path());
     }
     Paths::remove_to_recycle(p_folder);
 }
@@ -216,6 +217,27 @@ float ContentBrowserPanel::_row_height() const
 {
     const UiStyle& ui = ui_style();
     return ImFloor(ImGui::GetTextLineHeight() * 2.0f + ui.asset_browser.item_subtitle_gap + ui.asset_browser.row_pad_y * 2.0f);
+}
+
+std::filesystem::path ContentBrowserPanel::_target_folder(const EditorContext& ctx) const
+{
+    return selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
+}
+
+bool ContentBrowserPanel::_nested_in_selection(const std::filesystem::path& p_path) const
+{
+    for (const std::filesystem::path& o : selection) {
+        if (o != p_path && Paths::is_under(p_path, o)) return true;
+    }
+    return false;
+}
+
+void ContentBrowserPanel::_begin_new(const std::filesystem::path& p_path)
+{
+    _select_only(p_path);
+    _rename_begin(p_path);
+    _scroll_to_rename = true;
+    request_refresh();
 }
 
 static std::filesystem::path _unique_path(const std::filesystem::path& p_parent, const char* p_stem, const char* p_ext)
@@ -264,26 +286,22 @@ void ContentBrowserPanel::_duplicate_selection(EditorContext& ctx)
         created.push_back(dst);
     }
     if (created.empty()) return;
+    if (created.size() == 1) {
+        _begin_new(created.front());
+        return;
+    }
     selection = created;
     anchor = created.back();
-    if (created.size() == 1) {
-        _rename_begin(created.front());
-        _scroll_to_rename = true;
-    }
     request_refresh();
 }
 
 void ContentBrowserPanel::_new_folder(EditorContext& ctx)
 {
-    const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
     std::error_code ec;
-    const std::filesystem::path path = _unique_path(parent, "New Folder", "");
+    const std::filesystem::path path = _unique_path(_target_folder(ctx), "New Folder", "");
     if (!std::filesystem::create_directory(path, ec)) return;
     if (!selection.empty()) _move_selection(path);
-    _select_only(path);
-    _rename_begin(path);
-    _scroll_to_rename = true;
-    request_refresh();
+    _begin_new(path);
 }
 
 void ContentBrowserPanel::_import(EditorContext& ctx)
@@ -305,9 +323,7 @@ void ContentBrowserPanel::_import(EditorContext& ctx)
 void ContentBrowserPanel::_move_selection(const std::filesystem::path& p_dst)
 {
     for (const std::filesystem::path& p : selection) {
-        bool nested = false;
-        for (const std::filesystem::path& o : selection) nested = nested || (o != p && Paths::is_under(p, o));
-        if (nested || p == p_dst || Paths::is_under(p_dst, p)) continue;
+        if (_nested_in_selection(p) || p == p_dst || Paths::is_under(p_dst, p)) continue;
         Paths::move(p, p_dst);
     }
     _clear_selection();
@@ -315,7 +331,7 @@ void ContentBrowserPanel::_move_selection(const std::filesystem::path& p_dst)
     request_refresh();
 }
 
-void ContentBrowserPanel::_delete_folders_only(EditorContext& ctx)
+void ContentBrowserPanel::_delete_folders_only()
 {
     std::error_code ec;
     for (const std::filesystem::path& p : selection) {
@@ -326,7 +342,6 @@ void ContentBrowserPanel::_delete_folders_only(EditorContext& ctx)
         if (std::filesystem::is_empty(p, ec)) Paths::remove_to_recycle(p);
         else log_write("Content Browser: '%s' kept, some items already exist in the parent folder.", p.string().c_str());
     }
-    (void)ctx;
     _clear_selection();
     _thumb_infos.clear();
     request_refresh();
@@ -358,13 +373,12 @@ void ContentBrowserPanel::_context_menu(EditorContext& ctx, const std::filesyste
     if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin(*p_row);
     if (_duplicable(*p_row) && ImGui::MenuItem(ICON_FA_COPY "  Duplicate")) _duplicate_selection(ctx);
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
-    
     ImGui::Separator();
     char del[48];
-    snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
+    std::snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
     if (ImGui::MenuItem(del, "Del")) _delete_selection();
     if (any_folder) {
-        if (ImGui::MenuItem(ICON_FA_FOLDER_MINUS "  Delete Folder Only")) _delete_folders_only(ctx);
+        if (ImGui::MenuItem(ICON_FA_FOLDER_MINUS "  Delete Folder Only")) _delete_folders_only();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the folder and moves its contents to the parent folder");
     }
 }
@@ -453,10 +467,7 @@ void ContentBrowserPanel::_delete_selection()
     const std::filesystem::path* first = nullptr;
     std::error_code ec;
     for (const std::filesystem::path& p : selection) {
-        if (!std::filesystem::is_directory(p, ec)) continue;
-        bool nested = false;
-        for (const std::filesystem::path& o : selection) nested = nested || (o != p && Paths::is_under(p, o));
-        if (nested) continue;
+        if (!std::filesystem::is_directory(p, ec) || _nested_in_selection(p)) continue;
         uint32_t count = 0;
         for (auto it = std::filesystem::recursive_directory_iterator(p, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) count++;
         if (count == 0) continue;
@@ -468,8 +479,8 @@ void ContentBrowserPanel::_delete_selection()
         delete_requested = true;
         return;
     }
-    if (folders == 1) snprintf(delete_message, sizeof(delete_message), "Delete '%s' with %u items?", first->filename().string().c_str(), contents);
-    else snprintf(delete_message, sizeof(delete_message), "Delete %u folders with %u items?", folders, contents);
+    if (folders == 1) std::snprintf(delete_message, sizeof(delete_message), "Delete '%s' with %u items?", first->filename().string().c_str(), contents);
+    else std::snprintf(delete_message, sizeof(delete_message), "Delete %u folders with %u items?", folders, contents);
     delete_confirm_open = true;
 }
 
@@ -477,9 +488,7 @@ void ContentBrowserPanel::_delete_now(EditorContext& ctx)
 {
     std::error_code ec;
     for (const std::filesystem::path& p : selection) {
-        bool nested = false;
-        for (const std::filesystem::path& o : selection) nested = nested || (o != p && Paths::is_under(p, o));
-        if (nested || !std::filesystem::exists(p, ec)) continue;
+        if (_nested_in_selection(p) || !std::filesystem::exists(p, ec)) continue;
         if (std::filesystem::is_directory(p, ec)) _delete_folder(ctx, p);
         else _delete_asset(ctx, p);
     }
@@ -488,35 +497,7 @@ void ContentBrowserPanel::_delete_now(EditorContext& ctx)
     request_refresh();
 }
 
-void ContentBrowserPanel::_draw_delete_confirm(EditorContext& ctx)
-{
-    static constexpr const char* POPUP = "Delete Folder###content_browser_delete";
-    if (delete_confirm_open) {
-        ImGui::OpenPopup(POPUP);
-        delete_confirm_open = false;
-    }
-    const UiStyle& ui = ui_style();
-    dock_menu_push_style();
-    if (ImGui::BeginPopupModal(POPUP, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
-        ImGui::TextUnformatted(delete_message);
-        ImGui::TextDisabled("Deleted files go to the Recycle Bin.");
-        ImGui::Spacing();
-        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.danger_soft);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft_active);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_strong);
-        if (ImGui::Button("Delete", ImVec2(ui.project_manager.button_width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-            _delete_now(ctx);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::PopStyleColor(3);
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(ui.project_manager.button_width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-    dock_menu_pop_style();
-}
-
-ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
+ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(EditorContext& ctx, ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
 {
     const UiStyle& ui = ui_style();
     const float row_h = _row_height();
@@ -536,18 +517,16 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(ImTextureID p_te
     result.activated = !renaming && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     if (result.context && !selected && !p_importing) _select_only(p_path);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, ui.outliner.row_pad_y * 2.0f));
-    dock_menu_push_style();
+    ui_context_menu_push_style();
     if (!renaming && ImGui::BeginPopupContextItem("##row_menu")) {
         if (p_importing) {
             if (ImGui::MenuItem("Cancel Import")) cancel_request = p_path;
-        } else if (_ctx) {
-            _context_menu(*_ctx, &p_path);
+        } else {
+            _context_menu(ctx, &p_path);
         }
         ImGui::EndPopup();
     }
-    dock_menu_pop_style();
-    ImGui::PopStyleVar();
+    ui_context_menu_pop_style();
 
     if (!renaming && !p_importing && ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
         if (!_is_selected(p_path)) _select_only(p_path);
@@ -574,17 +553,9 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(ImTextureID p_te
     const float sub_y = name_y + line_h + ui.asset_browser.item_subtitle_gap;
 
     if (renaming) {
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui.outliner.rename_pad_x, 0.0f));
-        ImGui::SetCursorScreenPos(ImVec2(text_x - ui.outliner.rename_pad_x, name_y));
-        ImGui::SetNextItemWidth(ImMax(1.0f, text_max_x - text_x));
-        if (rename_focus) {
-            ImGui::SetKeyboardFocusHere();
-            rename_focus = false;
-        }
-        const bool enter = ImGui::InputText("##rename", rename_buf, sizeof(rename_buf), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-        ImGui::PopStyleVar();
-        if (enter || ImGui::IsItemDeactivated()) {
-            if (!ImGui::IsKeyPressed(ImGuiKey_Escape, false)) _rename_commit();
+        const UiRename rename = ui_inline_rename(ImVec2(text_x, name_y), ImMax(1.0f, text_max_x - text_x), rename_buf, sizeof(rename_buf), rename_focus);
+        if (rename != UiRename::NONE) {
+            if (rename == UiRename::COMMIT) _rename_commit();
             rename_target.clear();
         }
         ImGui::SetCursorScreenPos(ImVec2(p0.x, p1.y));
@@ -620,8 +591,7 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
 
     Dir* dir = selected_folder.empty() ? nullptr : &_cache_get(selected_folder);
     if (dir && dir->exists) {
-        std::string query = search_buf;
-        std::transform(query.begin(), query.end(), query.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+        const std::string query = str_lowered(search_buf);
 
         _visible.clear();
         for (uint32_t k = 0; k < (uint32_t)dir->entries.size(); ++k) {
@@ -653,25 +623,19 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
 
                 VkDescriptorSet set = VK_NULL_HANDLE;
                 if (!e.is_dir) {
-                    VkImageView view = VK_NULL_HANDLE;
                     if (!e.guid_checked) {
                         const AssetInfo info = _resolve_asset(e.path);
                         e.guid = info.guid;
                         e.asset_type = info.type;
                         e.guid_checked = true;
                     }
-                    if (e.is_texture && ctx.renderer) {
-                        if (e.asset_type == AssetType::TEXTURE) {
-                            if (const LTexture* bt = ctx.renderer->textures.get(e.guid)) view = _thumb_view(ctx, e.guid, bt->image);
-                        }
-                    } else if (ctx.thumbnails) {
-                        view = ctx.thumbnails->get(ctx, e.guid, e.asset_type);
-                    }
+                    const bool shown = !e.is_texture || e.asset_type == AssetType::TEXTURE;
+                    const VkImageView view = shown ? ctx.thumbnails->get(ctx, e.guid, e.asset_type) : VK_NULL_HANDLE;
                     if (view) set = ctx.imgui->texture_cache.get(view);
                 }
 
                 const ImU32 icon_col = e.is_dir ? ui.color.folder : ImGui::GetColorU32(ImGuiCol_TextDisabled);
-                const ItemResult r = _list_item((ImTextureID)set, e.icon, icon_col, e.name.c_str(), e.type.c_str(), e.path, progress);
+                const ItemResult r = _list_item(ctx, (ImTextureID)set, e.icon, icon_col, e.name.c_str(), e.type.c_str(), e.path, progress);
                 if (r.clicked) {
                     const ImGuiIO& io = ImGui::GetIO();
                     _click(*dir, (uint32_t)row, io.KeyCtrl, io.KeyShift);
@@ -688,7 +652,7 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
                     const AssetInfo info = read_asset_info(e.path);
                     if (info.valid() && info.type == AssetType::MATERIAL) ctx.tabs->open<MaterialTab>(info.guid)->path = e.path;
                 }
-                if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer && e.asset_type == AssetType::TEXTURE && !(e.guid == Guid{})) ctx.texture_viewer->open(e.guid);
+                if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer && e.asset_type == AssetType::TEXTURE && e.guid.valid()) ctx.texture_viewer->open(e.guid);
                 ImGui::PopID();
             }
         }
@@ -698,12 +662,10 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
             int i = (int)_visible.size();
             std::vector<std::filesystem::path> pending = ctx.imports->pending_out(selected_folder);
             for (const auto& ppath : pending) {
-                std::string lower = ppath.filename().string();
-                std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-                if (!query.empty() && lower.find(query) == std::string::npos) continue;
+                if (!query.empty() && str_lowered(ppath.filename().string()).find(query) == std::string::npos) continue;
 
                 ImGui::PushID(i);
-                _list_item(0, ICON_FA_FILE_IMPORT, ImGui::GetColorU32(ImGuiCol_TextDisabled), ppath.stem().string().c_str(), "Importing", ppath, ctx.imports->progress(ppath), true);
+                _list_item(ctx, 0, ICON_FA_FILE_IMPORT, ImGui::GetColorU32(ImGuiCol_TextDisabled), ppath.stem().string().c_str(), "Importing", ppath, ctx.imports->progress(ppath), true);
                 ImGui::PopID();
                 ++i;
             }
@@ -711,14 +673,12 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
 
         if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered() && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift) _clear_selection();
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, ui.outliner.row_pad_y * 2.0f));
-        dock_menu_push_style();
+        ui_context_menu_push_style();
         if (ImGui::BeginPopupContextWindow("##browser_empty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             _context_menu(ctx, nullptr);
             ImGui::EndPopup();
         }
-        dock_menu_pop_style();
-        ImGui::PopStyleVar();
+        ui_context_menu_pop_style();
 
         if (ImGui::IsWindowFocused() && !ImGui::GetIO().WantTextInput && rename_target.empty()) {
             if (!selection.empty() && ImGui::IsKeyPressed(ImGuiKey_F2, false)) _rename_begin(selection.back());
@@ -731,13 +691,11 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
         }
 
         if (!cancel_request.empty()) {
-            // ctx.imports->cancel(cancel_request);
             cancel_request.clear();
         }
 
         if (!open_request.empty()) selected_folder = open_request;
     }
-    
     ImGui::PopStyleVar();
 }
 
@@ -760,187 +718,111 @@ void ContentBrowserPanel::_reset_root(const std::filesystem::path& p_root)
     last_refresh = -1.0e9;
 }
 
-VkImageView ContentBrowserPanel::thumbnail(EditorContext& ctx, Guid p_guid, AssetType p_type)
+void ContentBrowserPanel::_add_asset_menu(EditorContext& ctx)
 {
-    if (p_guid == Guid{}) return VK_NULL_HANDLE;
-    if (p_type == AssetType::TEXTURE) {
-        if (!ctx.renderer) return VK_NULL_HANDLE;
-        const LTexture* tex = ctx.renderer->textures.get(p_guid);
-        return tex ? _thumb_view(ctx, p_guid, tex->image) : VK_NULL_HANDLE;
-    }
-    return ctx.thumbnails ? ctx.thumbnails->get(ctx, p_guid, p_type) : VK_NULL_HANDLE;
-}
-
-VkImageView ContentBrowserPanel::_thumb_view(EditorContext& ctx, Guid p_guid, const drivers::DeviceDriverVulkan::Image& p_image)
-{
-    const uint32_t channels = TextureViewer::channel_count(p_image.format);
-    if (channels > 2) return p_image.image_view;
-
-    auto it = _thumb_views.find(p_guid);
-    if (it != _thumb_views.end()) {
-        if (it->second.image == p_image.image) return it->second.view;
-        ctx.imgui->texture_cache.retire(it->second.view, ctx.renderer->frame_number, ctx.renderer->frame_count);
-        _thumb_retired.push_back({ it->second.view, ctx.renderer->frame_number });
-        _thumb_views.erase(it);
-    }
-
-    VkImageViewCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    ci.image = p_image.image;
-    ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    ci.format = p_image.format;
-    ci.components = TextureViewer::swizzle(TextureViewer::Channel::RGB, channels);
-    ci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, p_image.mip_levels, 0, 1 };
-    _thumb_device = ctx.renderer->dd->device;
-    VkImageView view = VK_NULL_HANDLE;
-    if (vkCreateImageView(_thumb_device, &ci, nullptr, &view) != VK_SUCCESS) return p_image.image_view;
-    _thumb_views[p_guid] = ThumbView{ p_image.image, view };
-    return view;
-}
-
-void ContentBrowserPanel::_thumb_collect(EditorContext& ctx)
-{
-    if (!ctx.renderer || !ctx.imgui) return;
-    const uint64_t frame = ctx.renderer->frame_number;
-    const uint32_t frames = ctx.renderer->frame_count;
-
-    for (auto it = _thumb_views.begin(); it != _thumb_views.end();) {
-        const LTexture* tex = ctx.renderer->textures.get(it->first);
-        if (tex && tex->image.image == it->second.image) {
-            ++it;
-            continue;
-        }
-        ctx.imgui->texture_cache.retire(it->second.view, frame, frames);
-        _thumb_retired.push_back({ it->second.view, frame });
-        it = _thumb_views.erase(it);
-    }
-
-    for (size_t i = 0; i < _thumb_retired.size();) {
-        if (frame >= _thumb_retired[i].frame + frames) {
-            vkDestroyImageView(_thumb_device, _thumb_retired[i].view, nullptr);
-            _thumb_retired[i] = _thumb_retired.back();
-            _thumb_retired.pop_back();
+    if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) {
+        const std::filesystem::path path = _unique_path(_target_folder(ctx), "New Model", ".lmodel");
+        LModel model;
+        model.guid = Guid::generate();
+        if (model.save(path) == Error::OK) {
+            if (ctx.renderer) ctx.renderer->models.load(path);
+            _begin_new(path);
         } else {
-            ++i;
+            log_write("Content Browser: failed to create '%s'.", path.string().c_str());
+        }
+    }
+    if (ImGui::MenuItem(ICON_FA_PALETTE "  Material")) {
+        const std::filesystem::path path = _unique_path(_target_folder(ctx), "New Material", ".lmaterial");
+        LMaterial material;
+        material.guid = Guid::generate();
+        if (material.save(path) == Error::OK) {
+            if (ctx.renderer) ctx.renderer->materials.load(path);
+            _begin_new(path);
+        } else {
+            log_write("Content Browser: failed to create '%s'.", path.string().c_str());
         }
     }
 }
 
-void ContentBrowserPanel::shutdown()
+void ContentBrowserPanel::_draw_tree(const std::filesystem::path& p_root, ImVec2 p_origin, float p_width, float p_height)
 {
-    if (_thumb_device == VK_NULL_HANDLE) return;
-    for (auto& [guid, t] : _thumb_views) vkDestroyImageView(_thumb_device, t.view, nullptr);
-    for (const ThumbRetired& r : _thumb_retired) vkDestroyImageView(_thumb_device, r.view, nullptr);
-    _thumb_views.clear();
-    _thumb_retired.clear();
+    const UiStyle& ui = ui_style();
+    ImGui::BeginChild("##left", ImVec2(p_width, p_height), ImGuiChildFlags_AlwaysUseWindowPadding);
+    if (_cache_get(p_root).exists) _draw_folder_node(p_root, 0);
+    const float divider_x = p_origin.x + p_width;
+    const float shadow_w = ui.asset_browser.divider_shadow;
+    const ImU32 edge = ui.color.shadow;
+    const ImU32 fade = ui.color.transparent;
+    ImGui::GetWindowDrawList()->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, p_origin.y), ImVec2(divider_x, p_origin.y + p_height), fade, edge, edge, fade);
+    ImGui::EndChild();
+}
+
+void ContentBrowserPanel::_draw_toolbar(EditorContext& ctx)
+{
+    const UiStyle& ui = ui_style();
+    const float pad_x = ui.outliner.pad_x;
+    const float bw = ImGui::GetFrameHeight();
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetStyle().WindowPadding.y);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
+    ui_search_bar("##search", search_buf, sizeof(search_buf), -(bw * 3.0f + spacing * 3.0f + pad_x));
+
+    ui_push_buttons(UiButton::GHOST);
+    ImGui::SameLine();
+    if (ui_icon_button(ICON_FA_FILE_IMPORT, bw, "Import asset")) _import(ctx);
+    ImGui::SameLine();
+    if (ui_icon_button(ICON_FA_SQUARE_PLUS, bw, "Add asset")) ImGui::OpenPopup("##add_asset");
+    ImGui::SameLine();
+    if (ui_icon_button(ICON_FA_FOLDER_PLUS, bw, "Create folder (moves the selection into it)")) _new_folder(ctx);
+    ui_pop_buttons();
+
+    ui_context_menu_push_style();
+    if (ImGui::BeginPopup("##add_asset")) {
+        _add_asset_menu(ctx);
+        ImGui::EndPopup();
+    }
+    ui_context_menu_pop_style();
+}
+
+void ContentBrowserPanel::_draw_footer()
+{
+    const uint32_t count = selected_folder.empty() ? 0u : (uint32_t)_cache_get(selected_folder).entries.size();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
+    ImGui::TextDisabled("%u items (%u selected)", count, (uint32_t)selection.size());
 }
 
 void ContentBrowserPanel::draw_contents(EditorContext& ctx)
 {
-    registry = ctx.assets;
-    _ctx = &ctx;
-    if (_root != ctx.project->assets_dir) _reset_root(ctx.project->assets_dir);
-    if (selected_folder.empty()) selected_folder = ctx.project->assets_dir;
-    const std::filesystem::path& root = ctx.project->assets_dir;
-    _cache_tick(ImGui::GetTime());
-    _thumb_collect(ctx);
-    
-    const ImVec2 region_p0 = ImGui::GetCursorScreenPos();
     const UiStyle& ui = ui_style();
+    const std::filesystem::path& root = ctx.project->assets_dir;
+    registry = ctx.assets;
+    if (_root != root) _reset_root(root);
+    if (selected_folder.empty()) selected_folder = root;
+    _cache_tick(ImGui::GetTime());
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float thick = ui.asset_browser.splitter;
-    ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float body_w = ImMax(1.0f, avail.x - thick);
+    const float min_side = ImMin(ui.asset_browser.min_side, body_w * 0.5f);
+    const float left_w = ImFloor(ImClamp(body_w * split_x, min_side, body_w - min_side));
+    const float right_w = body_w - left_w;
 
-    float body_w = avail.x - thick;
-    if (body_w < 1.0f) body_w = 1.0f;
-    const float min_side = ui.asset_browser.min_side;
-    float left_w = ImFloor(ImClamp(body_w * 0.18f, ImMin(min_side, body_w * 0.5f), body_w - ImMin(min_side, body_w * 0.5f)));
-    float right_w = body_w - left_w;
-
-    ImGui::BeginChild("##left", ImVec2(left_w, avail.y), ImGuiChildFlags_AlwaysUseWindowPadding);
-    if (_cache_get(root).exists) _draw_folder_node(root, 0);
-    {
-        const float divider_x = region_p0.x + left_w;
-        const float shadow_w = ui.asset_browser.divider_shadow;
-        const ImU32 c_edge = ui.color.shadow;
-        const ImU32 c_fade = ui.color.transparent;
-        ImGui::GetWindowDrawList()->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, region_p0.y), ImVec2(divider_x, region_p0.y + avail.y), c_fade, c_edge, c_edge, c_fade);
-    }
-    ImGui::EndChild();
-
+    _draw_tree(root, origin, left_w, avail.y);
     ImGui::SameLine(0, thick);
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
     ImGui::BeginChild("##right", ImVec2(right_w, avail.y), ImGuiChildFlags_None);
     ImGui::PopStyleColor();
-    const float pad_y = ImGui::GetStyle().WindowPadding.y;
-    {
-        const float pad_x = ui.outliner.pad_x;
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + pad_y);
-        const float bw = ImGui::GetFrameHeight();
-        const float spacing = ImGui::GetStyle().ItemSpacing.x;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-        dock_search_bar("##search", search_buf, sizeof(search_buf), -(bw * 3.0f + spacing * 3.0f + pad_x));
-
-        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.transparent);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.transparent);
-        ImGui::SameLine();
-        if (ImGui::Button(ICON_FA_FILE_IMPORT, ImVec2(bw, bw))) _import(ctx);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Import asset");
-        ImGui::SameLine();
-        if (ImGui::Button(ICON_FA_SQUARE_PLUS, ImVec2(bw, bw))) ImGui::OpenPopup("##add_asset");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Add asset");
-        ImGui::SameLine();
-        if (ImGui::Button(ICON_FA_FOLDER_PLUS, ImVec2(bw, bw))) _new_folder(ctx);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create folder (moves the selection into it)");
-        ImGui::PopStyleColor(3);
-
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, ui.outliner.row_pad_y * 2.0f));
-        dock_menu_push_style();
-        if (ImGui::BeginPopup("##add_asset")) {
-            if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) {
-                const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
-                const std::filesystem::path path = _unique_path(parent, "New Model", ".lmodel");
-                LModel model;
-                model.guid = Guid::generate();
-                if (model.save(path) != Error::OK) {
-                    log_write("Content Browser: failed to create '%s'.", path.string().c_str());
-                    return;
-                }
-                if (ctx.renderer) ctx.renderer->models.load(path);
-                _select_only(path);
-                _rename_begin(path);
-                _scroll_to_rename = true;
-                request_refresh();
-            }
-            if (ImGui::MenuItem(ICON_FA_PALETTE "  Material")) {
-                const std::filesystem::path parent = selected_folder.empty() ? ctx.project->assets_dir : selected_folder;
-                const std::filesystem::path path = _unique_path(parent, "New Material", ".lmaterial");
-                LMaterial material;
-                material.guid = Guid::generate();
-                if (material.save(path) != Error::OK) {
-                    log_write("Content Browser: failed to create '%s'.", path.string().c_str());
-                    return;
-                }
-                if (ctx.renderer) ctx.renderer->materials.load(path);
-                _select_only(path);
-                _rename_begin(path);
-                _scroll_to_rename = true;
-                request_refresh();
-            }
-            ImGui::EndPopup();
-        }
-        dock_menu_pop_style();
-        ImGui::PopStyleVar();
-    }
-    const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + pad_y;
+    _draw_toolbar(ctx);
+    const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("##bottom_right", ImVec2(0, -footer_h), ImGuiChildFlags_None);
     _list_draw(ctx);
     ImGui::EndChild();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
-    ImGui::TextDisabled("%u items (%u selected)", selected_folder.empty() ? 0u : (uint32_t)_cache_get(selected_folder).entries.size(), (uint32_t)selection.size());
+    _draw_footer();
     ImGui::EndChild();
 
-    _draw_delete_confirm(ctx);
+    if (ui_confirm_delete("Delete Folder###content_browser_delete", delete_confirm_open, delete_message, "Deleted files go to the Recycle Bin.")) _delete_now(ctx);
 }
 
 }

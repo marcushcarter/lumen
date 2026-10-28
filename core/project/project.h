@@ -4,13 +4,18 @@
 #include <core/assets/guid.h>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace lumen {
 
 struct Project
 {
+    /***************/
+    /**** FILES ****/
+    /***************/
+
     static constexpr uint32_t FORMAT_VERSION = 1;
-    
+
     static constexpr const char* FILE_NAME = "Data/project.config";
     static constexpr const char* FILE_ASSETDB = "Data/assetdb.bin";
     static constexpr const char* FILE_WINDOW_ICON = "Data/Content/window_icon.ico";
@@ -20,42 +25,44 @@ struct Project
     static constexpr const char* DIR_CONTENT = "Data/Content";
     static constexpr const char* DIR_EDITOR = "Data/Editor";
 
-    static constexpr const char* ASSET_PATH_ROOT = "Assets";
-
     std::filesystem::path root;
     std::filesystem::path data_dir;
     std::filesystem::path assets_dir;
     std::filesystem::path content_dir;
     std::filesystem::path editor_dir;
 
-    std::string name;
-
-    ProjectSettings settings;
-
     void _resolve_dirs(const std::filesystem::path& p_root);
     static Error _ensure_layout(const std::filesystem::path& p_root);
+    std::filesystem::path content_path(Guid p_guid) const;
+    std::filesystem::path window_icon_path() const { return root / FILE_WINDOW_ICON; }
+
+    /***************/
+    /**** STATE ****/
+    /***************/
+
+    std::string name;
+    ProjectSettings settings;
 
     Error load(const std::filesystem::path& p_root);
     Error save() const;
     void unload();
+    bool loaded() const { return !root.empty(); }
+    const std::string& window_title() const { return settings.window_title.empty() ? name : settings.window_title; }
 
     static Error create(const std::filesystem::path& p_root, std::string_view p_name);
     static Error destroy(const std::filesystem::path& p_root);
-
     static std::string peek_name(const std::filesystem::path& p_root);
 
-    std::filesystem::path content_path(Guid p_guid) const;
-    std::filesystem::path window_icon_path() const { return root / FILE_WINDOW_ICON; }
-    const std::string& window_title() const { return settings.window_title.empty() ? name : settings.window_title; }
+    /*********************/
+    /**** ASSET PATHS ****/
+    /*********************/
+
+    static constexpr const char* ASSET_PATH_ROOT = "Assets";
 
     static std::string asset_path_from(const std::filesystem::path& p_assets_dir, const std::filesystem::path& p_path);
     static std::filesystem::path asset_path_resolve_from(const std::filesystem::path& p_assets_dir, std::string_view p_asset_path);
-
     std::string asset_path(const std::filesystem::path& p_path) const { return asset_path_from(assets_dir, p_path); }
     std::filesystem::path asset_path_resolve(std::string_view p_asset_path) const { return asset_path_resolve_from(assets_dir, p_asset_path); }
-
-
-    bool loaded() const { return !root.empty(); }
 };
 
 }

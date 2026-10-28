@@ -1,13 +1,13 @@
 #include <editor/assets/import/texture_cooker.h>
-#include <core/project/project.h>
 #include <core/assets/asset_common.h>
-#include <editor/assets/import/asset_import_tracker.h>
-#include <editor/assets/write_atomic.h>
-#include <editor/editor_context.h>
-#include <core/project/project.h>
 #include <core/assets/ltexture.h>
-#include <core/io/image_io.h>
+#include <core/base/color.h>
 #include <core/base/jobs.h>
+#include <core/io/file_io.h>
+#include <core/io/image_io.h>
+#include <core/project/project.h>
+#include <editor/application/editor_context.h>
+#include <editor/assets/import/asset_import_tracker.h>
 #include <drivers/toml/toml_helpers.h>
 #include <vulkan/vulkan.h>
 #include <rdo_bc_encoder.h>
@@ -24,20 +24,17 @@
 
 namespace lumen {
 
-static float srgb_u8_to_linear(uint8_t p_c)
+static float _srgb_u8_to_linear(uint8_t p_c)
 {
-    float cs = p_c / 255.0f;
-    return (cs <= 0.04045f) ? (cs / 12.92f) : std::pow((cs + 0.055f) / 1.055f, 2.4f);
+    return color_srgb_to_linear(p_c / 255.0f);
 }
 
-static uint8_t linear_to_srgb_u8(float p_l)
+static uint8_t _linear_to_srgb_u8(float p_l)
 {
-    p_l = p_l < 0.0f ? 0.0f : (p_l > 1.0f ? 1.0f : p_l);
-    float cs = (p_l <= 0.0031308f) ? (p_l * 12.92f) : (1.055f * std::pow(p_l, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(cs * 255.0f + 0.5f);
+    return static_cast<uint8_t>(color_linear_to_srgb(p_l < 0.0f ? 0.0f : (p_l > 1.0f ? 1.0f : p_l)) * 255.0f + 0.5f);
 }
 
-static std::vector<uint8_t> downsample_rgba8(const std::vector<uint8_t>& p_src, uint32_t p_w, uint32_t p_h, uint32_t& r_nw, uint32_t& r_nh, bool p_srgb)
+static std::vector<uint8_t> _downsample_rgba8(const std::vector<uint8_t>& p_src, uint32_t p_w, uint32_t p_h, uint32_t& r_nw, uint32_t& r_nh, bool p_srgb)
 {
     r_nw = p_w > 1 ? p_w / 2 : 1;
     r_nh = p_h > 1 ? p_h / 2 : 1;
@@ -53,8 +50,8 @@ static std::vector<uint8_t> downsample_rgba8(const std::vector<uint8_t>& p_src, 
         uint8_t* o = &dst[(static_cast<size_t>(ny) * r_nw + nx) * 4];
         for (int ch = 0; ch < 3; ++ch) {
             if (p_srgb) {
-                float lin = 0.25f * (srgb_u8_to_linear(a[ch]) + srgb_u8_to_linear(b[ch]) + srgb_u8_to_linear(c[ch]) + srgb_u8_to_linear(d[ch]));
-                o[ch] = linear_to_srgb_u8(lin);
+                float lin = 0.25f * (_srgb_u8_to_linear(a[ch]) + _srgb_u8_to_linear(b[ch]) + _srgb_u8_to_linear(c[ch]) + _srgb_u8_to_linear(d[ch]));
+                o[ch] = _linear_to_srgb_u8(lin);
             }
             else o[ch] = static_cast<uint8_t>((a[ch] + b[ch] + c[ch] + d[ch] + 2) / 4);
         }
@@ -63,7 +60,7 @@ static std::vector<uint8_t> downsample_rgba8(const std::vector<uint8_t>& p_src, 
     return dst;
 }
 
-static std::vector<uint8_t> downsample_normal_rgba8(const std::vector<uint8_t>& p_src, uint32_t p_w, uint32_t p_h, uint32_t& r_nw, uint32_t& r_nh)
+static std::vector<uint8_t> _downsample_normal_rgba8(const std::vector<uint8_t>& p_src, uint32_t p_w, uint32_t p_h, uint32_t& r_nw, uint32_t& r_nh)
 {
     r_nw = p_w > 1 ? p_w / 2 : 1;
     r_nh = p_h > 1 ? p_h / 2 : 1;
@@ -94,7 +91,7 @@ static std::vector<uint8_t> downsample_normal_rgba8(const std::vector<uint8_t>& 
     return dst;
 }
 
-static float alpha_coverage(const std::vector<uint8_t>& p_px, float p_cutoff, float p_scale)
+static float _alpha_coverage(const std::vector<uint8_t>& p_px, float p_cutoff, float p_scale)
 {
     const size_t count = p_px.size() / 4;
     if (count == 0) return 0.0f;
@@ -103,12 +100,12 @@ static float alpha_coverage(const std::vector<uint8_t>& p_px, float p_cutoff, fl
     return (float)covered / (float)count;
 }
 
-static void alpha_coverage_preserve(std::vector<uint8_t>& r_px, float p_cutoff, float p_target)
+static void _alpha_coverage_preserve(std::vector<uint8_t>& r_px, float p_cutoff, float p_target)
 {
     float lo = 0.0f, hi = 4.0f, best = 1.0f;
     for (int i = 0; i < 12; ++i) {
         const float mid = 0.5f * (lo + hi);
-        const float c = alpha_coverage(r_px, p_cutoff, mid);
+        const float c = _alpha_coverage(r_px, p_cutoff, mid);
         best = mid;
         if (c < p_target) lo = mid; else hi = mid;
     }
@@ -117,7 +114,7 @@ static void alpha_coverage_preserve(std::vector<uint8_t>& r_px, float p_cutoff, 
 
 struct FormatMap { DXGI_FORMAT dxgi; uint32_t vk; bool bc45; bool srgb; };
 
-static FormatMap map_format(TextureUsage p_usage, uint8_t p_channels)
+static FormatMap _map_format(TextureUsage p_usage, uint8_t p_channels)
 {
     switch (p_usage) {
         case TextureUsage::COLOR: return { DXGI_FORMAT_BC7_UNORM, VK_FORMAT_BC7_SRGB_BLOCK, false, true };
@@ -131,7 +128,7 @@ static FormatMap map_format(TextureUsage p_usage, uint8_t p_channels)
     return { DXGI_FORMAT_BC7_UNORM, VK_FORMAT_BC7_SRGB_BLOCK, false, true };
 }
 
-static void apply_quality(rdo_bc::rdo_bc_params& r_p, TextureQuality p_quality)
+static void _apply_quality(rdo_bc::rdo_bc_params& r_p, TextureQuality p_quality)
 {
     switch (p_quality) {
         case TextureQuality::FAST:
@@ -211,10 +208,10 @@ Error TextureCooker::_cook(const Job& p_job)
         }
         channels = 2;
     }
-    const FormatMap fmt = map_format(cs.usage, channels);
+    const FormatMap fmt = _map_format(cs.usage, channels);
 
     auto downsample = [&](const std::vector<uint8_t>& p_src, uint32_t p_w, uint32_t p_h, uint32_t& r_nw, uint32_t& r_nh) {
-        return normal ? downsample_normal_rgba8(p_src, p_w, p_h, r_nw, r_nh) : downsample_rgba8(p_src, p_w, p_h, r_nw, r_nh, fmt.srgb);
+        return normal ? _downsample_normal_rgba8(p_src, p_w, p_h, r_nw, r_nh) : _downsample_rgba8(p_src, p_w, p_h, r_nw, r_nh, fmt.srgb);
     };
 
     uint32_t base_w = width, base_h = height;
@@ -227,7 +224,7 @@ Error TextureCooker::_cook(const Job& p_job)
     }
 
     const bool keep_coverage = cs.usage == TextureUsage::COLOR && cs.alpha_cutoff > 0.0f;
-    const float target_coverage = keep_coverage ? alpha_coverage(mip0, cs.alpha_cutoff, 1.0f) : 0.0f;
+    const float target_coverage = keep_coverage ? _alpha_coverage(mip0, cs.alpha_cutoff, 1.0f) : 0.0f;
 
     std::vector<std::vector<uint8_t>> mips{ std::move(mip0) };
     std::vector<std::pair<uint32_t, uint32_t>> dims{ { base_w, base_h } };
@@ -236,12 +233,12 @@ Error TextureCooker::_cook(const Job& p_job)
         while (w > 1 || h > 1) {
             uint32_t nw, nh;
             mips.push_back(downsample(mips.back(), w, h, nw, nh));
-            if (keep_coverage) alpha_coverage_preserve(mips.back(), cs.alpha_cutoff, target_coverage);
+            if (keep_coverage) _alpha_coverage_preserve(mips.back(), cs.alpha_cutoff, target_coverage);
             dims.push_back({ nw, nh }); w = nw; h = nh;
         }
     }
     const uint32_t mip_count = static_cast<uint32_t>(mips.size());
-    
+
     report(0.1f);
 
     std::vector<uint8_t> blocks;
@@ -255,7 +252,7 @@ Error TextureCooker::_cook(const Job& p_job)
         }
         rdo_bc::rdo_bc_params p;
         p.m_dxgi_format = fmt.dxgi;
-        apply_quality(p, cs.quality);
+        _apply_quality(p, cs.quality);
         p.m_perceptual = fmt.srgb;
         p.m_rdo_lambda = cs.rdo_lambda;
         p.m_rdo_multithreading = true;
@@ -276,7 +273,7 @@ Error TextureCooker::_cook(const Job& p_job)
     ph.width = base_w;
     ph.height = base_h;
     ph.mip_count = mip_count;
-    ph.flags = (fmt.srgb ? TEXTURE_FLAG_SRGB : 0u) | (normal ? TEXTURE_FLAG_NORMAL_MAP : 0u);
+    ph.flags = (uint32_t)((fmt.srgb ? TextureFlags::SRGB : TextureFlags::NONE) | (normal ? TextureFlags::NORMAL_MAP : TextureFlags::NONE));
 
     LAssetHeader ah{};
     ah.magic = BCON_MAGIC;

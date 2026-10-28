@@ -12,7 +12,8 @@ EmbeddedResource::Blob EmbeddedResource::load(const wchar_t* p_resource_name)
     return { LockResource(mem), SizeofResource(mod, res) };
 }
 
-HICON EmbeddedResource::load_icon(const wchar_t* p_resource_name) {
+HICON EmbeddedResource::load_icon(const wchar_t* p_resource_name)
+{
     return LoadIconW(GetModuleHandleW(nullptr), p_resource_name);
 }
 

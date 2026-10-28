@@ -6,7 +6,7 @@
 namespace lumen {
 
 Error PresentFeature::create_resources()
-{   
+{
     present_pass.name = "Blit";
     present_pass.category = PASS_CATEGORY_PRESENT;
     present_pass.setup = [](RenderGraph::Builder& b) {

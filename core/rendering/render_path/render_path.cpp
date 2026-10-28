@@ -5,6 +5,10 @@ namespace lumen {
 Error RenderPath::create_resources()
 {
     using enum Error;
+    if (!_registered) {
+        _register_features();
+        _registered = true;
+    }
     if (features.empty()) log_write("RenderPath: no features registered.");
 
     created_count = 0;
@@ -56,4 +60,4 @@ void RenderPath::build(RenderGraph& g)
     screenshot.build(g);
 }
 
-}
+}

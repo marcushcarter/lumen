@@ -15,10 +15,6 @@ void SpinLock::lock()
     }
 }
 
-/**************/
-/**** JOBS ****/
-/**************/
-
 static thread_local JobSystem::Worker* t_worker = nullptr;
 
 static void _thread_name(const char* p_name)
@@ -69,7 +65,7 @@ Error JobSystem::initialize(const JobSystemCreateInfo& p_info)
 
     Worker& main = *workers[MAIN_THREAD];
     main_fiber.handle = ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
-    main_converted = main_fiber.handle != nullptr;
+    _main_converted = main_fiber.handle != nullptr;
     if (!main_fiber.handle) main_fiber.handle = GetCurrentFiber();
     LUMEN_ERR_FAIL_COND_V_MSG(!main_fiber.handle || main_fiber.handle == (void*)(uintptr_t)0x1E00, FAILED, "JobSystem: could not convert the main thread to a fiber.");
     main_fiber.pinned_thread = MAIN_THREAD;
@@ -121,17 +117,17 @@ void JobSystem::shutdown()
     }
     _discard_queued();
 
-    const uint32_t parked = (uint32_t)(fiber_all.size() - fiber_free.size());
+    const uint32_t parked = (uint32_t)(_fiber_all.size() - _fiber_free.size());
     if (parked) log_write("JobSystem: %u fiber(s) were still waiting on counters at shutdown.", parked);
-    for (JobFiber* f : fiber_all) {
+    for (JobFiber* f : _fiber_all) {
         DeleteFiber(f->handle);
         delete f;
     }
-    fiber_all.clear();
-    fiber_free.clear();
+    _fiber_all.clear();
+    _fiber_free.clear();
 
-    if (main_converted) ConvertFiberToThread();
-    main_converted = false;
+    if (_main_converted) ConvertFiberToThread();
+    _main_converted = false;
     main_fiber = {};
     t_worker = nullptr;
     workers.clear();
@@ -405,7 +401,7 @@ void JobSystem::_wake(Worker& r_worker)
 bool JobSystem::_wake_one(uint32_t p_priority)
 {
     const uint32_t n = (uint32_t)workers.size();
-    const uint32_t start = wake_cursor.fetch_add(1, std::memory_order_relaxed);
+    const uint32_t start = _wake_cursor.fetch_add(1, std::memory_order_relaxed);
     for (uint32_t i = 0; i < n; i++) {
         Worker& w = *workers[(start + i) % n];
         if (!_accepts(w, p_priority)) continue;
@@ -437,14 +433,14 @@ void __stdcall JobSystem::_fiber_entry(void* p_param)
 
 JobFiber* JobSystem::_fiber_acquire()
 {
-    fiber_lock.lock();
-    if (!fiber_free.empty()) {
-        JobFiber* f = fiber_free.back();
-        fiber_free.pop_back();
-        fiber_lock.unlock();
+    _fiber_lock.lock();
+    if (!_fiber_free.empty()) {
+        JobFiber* f = _fiber_free.back();
+        _fiber_free.pop_back();
+        _fiber_lock.unlock();
         return f;
     }
-    fiber_lock.unlock();
+    _fiber_lock.unlock();
 
     JobFiber* f = new JobFiber();
     f->handle = CreateFiberEx(info.fiber_stack_commit, info.fiber_stack_reserve, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)&JobSystem::_fiber_entry, this);
@@ -452,9 +448,9 @@ JobFiber* JobSystem::_fiber_acquire()
         log_write("JobSystem: CreateFiberEx failed (%lu).", GetLastError());
         std::abort();
     }
-    fiber_lock.lock();
-    fiber_all.push_back(f);
-    fiber_lock.unlock();
+    _fiber_lock.lock();
+    _fiber_all.push_back(f);
+    _fiber_lock.unlock();
     return f;
 }
 
@@ -489,9 +485,9 @@ void JobSystem::_fiber_release(JobFiber* p_fiber)
 {
     p_fiber->zones.depth = 0;
     p_fiber->priority = JobPriority::NORMAL;
-    fiber_lock.lock();
-    fiber_free.push_back(p_fiber);
-    fiber_lock.unlock();
+    _fiber_lock.lock();
+    _fiber_free.push_back(p_fiber);
+    _fiber_lock.unlock();
 }
 
 __declspec(noinline) void JobSystem::_switch(JobFiber* p_from, JobFiber* p_to, SwitchAction p_action, SpinLock* p_lock)

@@ -10,7 +10,6 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/packing.hpp>
 #include <algorithm>
-#include <iostream>
 #include <cmath>
 
 namespace lumen {
@@ -30,7 +29,7 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
     r_view.camera_buffers.resize(frame_count);
     r_view.light_buffers.resize(frame_count);
     r_view.atmosphere_buffers.resize(frame_count);
-    
+
     for (uint32_t i = 0; i < frame_count; i++) {
         r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
@@ -116,7 +115,7 @@ void Renderer::shutdown()
     textures.shutdown();
 
     while (!views.empty()) view_destroy(*views.back());
-    
+
     main_view.graph.shutdown();
     _view_collect_hiz(main_view, true);
 
@@ -137,7 +136,7 @@ void Renderer::shutdown()
 Error Renderer::load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir)
 {
     using enum Error;
-    
+
     geometry.clear();
     main_view.hiz_reset_pending = true;
     for (RenderView* v : views) v->hiz_reset_pending = true;
@@ -262,7 +261,7 @@ Error Renderer::_view_set_size(RenderView& r_view, uint32_t p_width, uint32_t p_
 
     Error err = r_view.graph.set_size(w, h);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+
     if (r_view.hiz_pyramid.image) r_view.hiz_retired.emplace_back(frame_number, std::move(r_view.hiz_pyramid));
     r_view.hiz_pyramid = {};
     _view_create_hiz(r_view);
@@ -291,22 +290,22 @@ Error Renderer::apply_pending_size()
     if (pending_width == main_view.output_width && pending_height == main_view.output_height) return set_size(pending_width, pending_height);
 
     if (main_view.output_width > 1 && main_view.output_height > 1) {
-        if (pending_width != settle_width || pending_height != settle_height) {
-            settle_width = pending_width;
-            settle_height = pending_height;
-            settle_frames = 0;
+        if (pending_width != _settle_width || pending_height != _settle_height) {
+            _settle_width = pending_width;
+            _settle_height = pending_height;
+            _settle_frames = 0;
             return Error::OK;
         }
-        if (++settle_frames < RESIZE_SETTLE_FRAMES) return Error::OK;
+        if (++_settle_frames < RESIZE_SETTLE_FRAMES) return Error::OK;
     }
     return set_size(pending_width, pending_height);
 }
 
-/****************/
+/***************/
 /**** FRAME ****/
-/****************/
+/***************/
 
-static void extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
+static void _extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
 {
     auto row = [&](int i) { return glm::vec4(vp[0][i], vp[1][i], vp[2][i], vp[3][i]); };
     const glm::vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
@@ -314,24 +313,9 @@ static void extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
     out[1] = r3 - r0;
     out[2] = r3 + r1;
     out[3] = r3 - r1;
-    out[4] = r2; // far (reverse-Z, [0,1] depth: z_ndc >= 0)
-    out[5] = r3 - r2; // near (z_ndc <= 1)
+    out[4] = r2;
+    out[5] = r3 - r2;
     for (int i = 0; i < 6; i++) out[i] /= glm::length(glm::vec3(out[i]));
-}
-
-glm::mat4 grid_transform(uint32_t iterator, float spacing = 1.0f)
-{
-    constexpr uint32_t width = 10;
-    constexpr uint32_t height = 10;
-
-    uint32_t x = iterator % width;
-    uint32_t y = (iterator / width) % height;
-    uint32_t z = iterator / (width * height);
-
-    return glm::translate(
-        glm::mat4(1.0f),
-        glm::vec3(x, y, z) * spacing
-    );
 }
 
 template <typename Fn> static void _mesh_grid_for_each(const ModelGridComponent& p_grid, const LMesh& p_mesh, uint32_t p_budget, Fn&& p_fn)
@@ -390,7 +374,7 @@ static float _cycle_ev100(float p_sun_altitude_deg)
     static constexpr float KEYS[][2] = { {-90.0f, 1.0f}, {-18.0f, 1.0f}, {-12.0f, 2.0f}, {-9.0f, 3.6f}, {-6.0f, 6.3f}, {-3.0f, 9.3f}, {0.0f, 11.8f}, {2.0f, 12.3f}, {8.0f, 13.3f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
     constexpr int COUNT = (int)(sizeof(KEYS) / sizeof(KEYS[0]));
     const float e = std::clamp(p_sun_altitude_deg, -90.0f, 90.0f);
-    
+
     auto slope = [](int p_k) { return (KEYS[p_k + 1][1] - KEYS[p_k][1]) / (KEYS[p_k + 1][0] - KEYS[p_k][0]); };
     auto tangent = [&](int p_k) {
         if (p_k == 0) return slope(0);
@@ -575,7 +559,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.texture_grad_scale = r_view.jitter ? ratio * 0.70710678f : 1.0f;
         frame.taa_reset = r_view.camera_cut_pending;
         frame.camera.position = vec4(camera.position, 1.0f);
-        extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
+        _extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
         frame.camera.near_z = camera.near_z;
         frame.camera.far_z = camera.far_z;
         frame.camera.tan_half_fov_y = std::tan(camera.fov_y * 0.5f);
@@ -673,7 +657,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         const float sun_altitude_deg = (float)(std::asin(clamp(sun.y, -1.0, 1.0)) / DEG);
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(_cycle_ev100(sun_altitude_deg)));
     }
-    
+
     r_view.camera_cut_pending = false;
     r_view.hiz_reset_pending = false;
 }
@@ -696,7 +680,7 @@ void Renderer::_frame_upload(RenderView& r_view)
         }
         static_insts.uploaded_version[current_frame] = static_insts.version;
     }
-    
+
     const uint32_t dynamic_count = frame.instance_count - base;
     if (dynamic_count != 0) {
         const VkDeviceSize i_off = (VkDeviceSize)base * sizeof(Instance);
@@ -730,7 +714,7 @@ void Renderer::_frame_upload(RenderView& r_view)
         dd->buffer_update(lb, frame.lights_scratch.data(), (VkDeviceSize)dynamic_lights * sizeof(GpuLight), l_off);
         dd->buffer_flush(lb, l_off, (VkDeviceSize)dynamic_lights * sizeof(GpuLight));
     }
-    
+
     drivers::DeviceDriverVulkan::Buffer& cb = r_view.camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));
     dd->buffer_flush(cb, 0, sizeof(CameraUniform));
@@ -743,7 +727,7 @@ void Renderer::_frame_upload(RenderView& r_view)
 Error Renderer::acquire_frame()
 {
     using enum Error;
-    
+
     auto& sc = dd->swapchain;
     CpuProfiler& cpu = cpu_profiler();
 
@@ -780,7 +764,7 @@ Error Renderer::acquire_frame()
 Error Renderer::begin_frame(const World& p_world)
 {
     using enum Error;
-    
+
     auto& sc = dd->swapchain;
 
     if (!frame_acquired) {
@@ -909,7 +893,7 @@ Error Renderer::record()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = dd->command_buffer_begin(command_buffers[current_frame], VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+
     VkCommandBuffer cmd = command_buffers[current_frame];
 
     dd->command_bind_graphics_uniform_sets(cmd, { dd->bindless_heap.set });
@@ -921,7 +905,7 @@ Error Renderer::record()
     main_view.graph.execute(cmd);
     _queued_views.clear();
     cpu_profiler().zone_end();
-    
+
     err = dd->command_buffer_end(command_buffers[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
@@ -931,7 +915,7 @@ Error Renderer::record()
 Error Renderer::end_frame()
 {
     using enum Error;
-    
+
     auto& sc = dd->swapchain;
     CpuProfiler& cpu = cpu_profiler();
 
@@ -952,8 +936,9 @@ Error Renderer::end_frame()
     const int64_t submit_ticks = CpuProfiler::now();
     VkResult result = vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]);
     cpu.zone_end();
-    if (result == VK_SUCCESS) main_view.graph.gpu_profiler.frame_submitted(submit_ticks);
-    if (result != VK_SUCCESS) {
+    if (result == VK_SUCCESS) {
+        main_view.graph.gpu_profiler.frame_submitted(submit_ticks);
+    } else {
         log_write("Renderer: vkQueueSubmit returned %d", (int)result);
         main_view.graph.breadcrumb_report();
     }

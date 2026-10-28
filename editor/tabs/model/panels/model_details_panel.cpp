@@ -2,7 +2,7 @@
 #include <editor/tabs/model/model_tab.h>
 #include <editor/assets/asset_field.h>
 #include <editor/assets/asset_registry.h>
-#include <drivers/imgui/imgui_helpers.h>
+#include <editor/ui/ui_widgets.h>
 #include <imgui.h>
 #include <algorithm>
 #include <cstdio>
@@ -27,10 +27,10 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (!tab) return;
 
-    if (imgui_category("Mesh")) {
+    if (ui_category("Mesh")) {
         const AssetRegistry::Entry* mesh = ctx.assets ? ctx.assets->find(tab->model.mesh) : nullptr;
         asset_thumbnail_field(ctx, "###model_mesh", tab->model.mesh, AssetType::MESH, "Drop a mesh asset here");
-        
+
         const LMeshStats& s = tab->mesh_stats;
         char buf[32];
         ImGui::Text("Name: %s", mesh ? mesh->name.c_str() : "None");
@@ -47,11 +47,11 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::Text("Approx Size: %.2fm x %.2fm x %.2fm", s.size.x, s.size.y, s.size.z);
     }
 
-    if (imgui_category("Skeleton")) {
-        
+    if (ui_category("Skeleton")) {
+
     }
 
-    if (imgui_category("Materials")) {
+    if (ui_category("Materials")) {
         std::vector<Guid>& mats = tab->model.materials;
         const uint32_t count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());
         if (count == 0) ImGui::TextDisabled("No material slots");
@@ -67,7 +67,7 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
                 changed = true;
             }
         }
-        while (changed && !mats.empty() && mats.back() == Guid{}) mats.pop_back();
+        while (changed && !mats.empty() && !mats.back().valid()) mats.pop_back();
     }
 }
 

@@ -1,8 +1,8 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
+#include <core/base/hash.h>
 #include <core/io/embedded_resource.h>
 #include <core/io/path.h>
 #include <vulkan/vulkan.hpp>
-#include <iostream>
 #include <algorithm>
 #include <mutex>
 #include <fstream>
@@ -17,11 +17,13 @@ namespace lumen::drivers {
 /**** SETUP ****/
 /***************/
 
-bool DeviceDriverVulkan::memory_budget_enabled() const {
+bool DeviceDriverVulkan::memory_budget_enabled() const
+{
     return enabled_device_extension_names.contains(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 }
 
-void DeviceDriverVulkan::_register_requested_device_extension(const std::string& p_extension_name, bool p_required) {
+void DeviceDriverVulkan::_register_requested_device_extension(const std::string& p_extension_name, bool p_required)
+{
     requested_device_extensions[p_extension_name] = p_required;
 }
 
@@ -70,11 +72,11 @@ Error DeviceDriverVulkan::_initialize_device_extensions()
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "vkEnumerateDeviceExtensionProperties (count query) failed.");
     LUMEN_ERR_FAIL_COND_V_MSG(device_extension_count == 0, FAILED, "Couldn't find any Vulkan device extensions. Do you have a compatible Vulkan installable client driver (ICD) installed?");
 
-	std::vector<VkExtensionProperties> device_extensions;
+    std::vector<VkExtensionProperties> device_extensions;
     device_extensions.resize(device_extension_count);
     err = vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &device_extension_count, device_extensions.data());
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get Vulkan device extension properties.");
-    
+
     for (uint32_t i = 0; i < device_extension_count; i++) {
         std::string extension_name(device_extensions[i].extensionName);
         if (requested_device_extensions.contains(extension_name)) {
@@ -128,7 +130,7 @@ Error DeviceDriverVulkan::_check_device_features()
         requested_device_features.x = physical_device_features.x; \
     } else \
         ((void)0)
-        
+
     requested_device_features = {};
     VK_DEVICEFEATURE_ENABLE_IF(fullDrawIndexUint32);
     VK_DEVICEFEATURE_ENABLE_IF(imageCubeArray);
@@ -298,13 +300,12 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     supported_features2.pNext = &supported_1_2;
     supported_1_2.pNext = &supported_1_1;
     vkGetPhysicalDeviceFeatures2(physical_device, &supported_features2);
-    
+
     LUMEN_ERR_FAIL_COND_V_MSG(!physical_device_features.shaderStorageImageExtendedFormats, FAILED, "GPU lacks shaderStorageImageExtendedFormats, required for r16f Hi-Z and rg16 G-buffer storage.");
 
     VkFormatProperties rgb10a2_props{};
     vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_A2B10G10R10_UNORM_PACK32, &rgb10a2_props);
     LUMEN_ERR_FAIL_COND_V_MSG(!(rgb10a2_props.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT), FAILED, "GPU lacks A2B10G10R10_UNORM storage support, required for G_Albedo.");
-
 
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_1.storageBuffer16BitAccess, FAILED, "GPU lacks storageBuffer16BitAccess, required for 16-bit vertex data.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_1.shaderDrawParameters, FAILED, "GPU lacks shaderDrawParameters, required for gl_DrawID in indirect draws.");
@@ -330,7 +331,7 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     LUMEN_ERR_FAIL_COND_V_MSG(!physical_device_features.multiDrawIndirect, FAILED, "GPU lacks multiDrawIndirect, required for GPU-driven draws.");
     LUMEN_ERR_FAIL_COND_V_MSG(!physical_device_features.geometryShader, FAILED, "GPU lacks geometryShader, required for gl_PrimitiveID in the visibility buffer.");
     LUMEN_ERR_FAIL_COND_V_MSG(!physical_device_features.fullDrawIndexUint32, FAILED, "GPU lacks fullDrawIndexUint32, required for 32-bit pooled indices.");
-    
+
     void* create_info_next = nullptr;
 
     VkPhysicalDeviceFaultFeaturesEXT fault_features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT };
@@ -391,149 +392,149 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     create_info_next = &features_1_1;
 
     // VkPhysicalDeviceShaderFloat16Int8FeaturesKHR shader_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR };
-	// shader_features.shaderFloat16 = shader_capabilities.shader_float16_is_supported;
-	// shader_features.shaderInt8 = shader_capabilities.shader_int8_is_supported;
-	// shader_features.pNext = create_info_next;
-	// create_info_next = &shader_features;
+    // shader_features.shaderFloat16 = shader_capabilities.shader_float16_is_supported;
+    // shader_features.shaderInt8 = shader_capabilities.shader_int8_is_supported;
+    // shader_features.pNext = create_info_next;
+    // create_info_next = &shader_features;
 
-    // 	VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {};
-    // 	if (buffer_device_address_support) {
-    // 		buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
-    // 		buffer_device_address_features.pNext = create_info_next;
-    // 		buffer_device_address_features.bufferDeviceAddress = buffer_device_address_support;
-    // 		create_info_next = &buffer_device_address_features;
-    // 	}
+    //  VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {};
+    //  if (buffer_device_address_support) {
+    //      buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+    //      buffer_device_address_features.pNext = create_info_next;
+    //      buffer_device_address_features.bufferDeviceAddress = buffer_device_address_support;
+    //      create_info_next = &buffer_device_address_features;
+    //  }
 
-    // 	VkPhysicalDeviceVulkanMemoryModelFeaturesKHR vulkan_memory_model_features = {};
-    // 	if (vulkan_memory_model_support && vulkan_memory_model_device_scope_support) {
-    // 		vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES_KHR;
-    // 		vulkan_memory_model_features.pNext = create_info_next;
-    // 		vulkan_memory_model_features.vulkanMemoryModel = vulkan_memory_model_support;
-    // 		vulkan_memory_model_features.vulkanMemoryModelDeviceScope = vulkan_memory_model_device_scope_support;
-    // 		create_info_next = &vulkan_memory_model_features;
-    // 	}
+    //  VkPhysicalDeviceVulkanMemoryModelFeaturesKHR vulkan_memory_model_features = {};
+    //  if (vulkan_memory_model_support && vulkan_memory_model_device_scope_support) {
+    //      vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES_KHR;
+    //      vulkan_memory_model_features.pNext = create_info_next;
+    //      vulkan_memory_model_features.vulkanMemoryModel = vulkan_memory_model_support;
+    //      vulkan_memory_model_features.vulkanMemoryModelDeviceScope = vulkan_memory_model_device_scope_support;
+    //      create_info_next = &vulkan_memory_model_features;
+    //  }
 
-    // 	VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsr_features = {};
-    // 	if (fsr_capabilities.pipeline_supported || fsr_capabilities.primitive_supported || fsr_capabilities.attachment_supported) {
-    // 		fsr_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
-    // 		fsr_features.pNext = create_info_next;
-    // 		fsr_features.pipelineFragmentShadingRate = fsr_capabilities.pipeline_supported;
-    // 		fsr_features.primitiveFragmentShadingRate = fsr_capabilities.primitive_supported;
-    // 		fsr_features.attachmentFragmentShadingRate = fsr_capabilities.attachment_supported;
-    // 		create_info_next = &fsr_features;
-    // 	}
+    //  VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsr_features = {};
+    //  if (fsr_capabilities.pipeline_supported || fsr_capabilities.primitive_supported || fsr_capabilities.attachment_supported) {
+    //      fsr_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+    //      fsr_features.pNext = create_info_next;
+    //      fsr_features.pipelineFragmentShadingRate = fsr_capabilities.pipeline_supported;
+    //      fsr_features.primitiveFragmentShadingRate = fsr_capabilities.primitive_supported;
+    //      fsr_features.attachmentFragmentShadingRate = fsr_capabilities.attachment_supported;
+    //      create_info_next = &fsr_features;
+    //  }
 
-    // 	VkPhysicalDeviceFragmentDensityMapFeaturesEXT fdm_features = {};
-    // 	if (fdm_capabilities.attachment_supported || fdm_capabilities.dynamic_attachment_supported || fdm_capabilities.non_subsampled_images_supported) {
-    // 		fdm_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT;
-    // 		fdm_features.pNext = create_info_next;
-    // 		fdm_features.fragmentDensityMap = fdm_capabilities.attachment_supported;
-    // 		fdm_features.fragmentDensityMapDynamic = fdm_capabilities.dynamic_attachment_supported;
-    // 		fdm_features.fragmentDensityMapNonSubsampledImages = fdm_capabilities.non_subsampled_images_supported;
-    // 		create_info_next = &fdm_features;
-    // 	}
+    //  VkPhysicalDeviceFragmentDensityMapFeaturesEXT fdm_features = {};
+    //  if (fdm_capabilities.attachment_supported || fdm_capabilities.dynamic_attachment_supported || fdm_capabilities.non_subsampled_images_supported) {
+    //      fdm_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT;
+    //      fdm_features.pNext = create_info_next;
+    //      fdm_features.fragmentDensityMap = fdm_capabilities.attachment_supported;
+    //      fdm_features.fragmentDensityMapDynamic = fdm_capabilities.dynamic_attachment_supported;
+    //      fdm_features.fragmentDensityMapNonSubsampledImages = fdm_capabilities.non_subsampled_images_supported;
+    //      create_info_next = &fdm_features;
+    //  }
 
-    // 	VkPhysicalDeviceFragmentDensityMapOffsetFeaturesQCOM fdm_offset_features = {};
-    // 	if (fdm_capabilities.offset_supported) {
-    // 		fdm_offset_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM;
-    // 		fdm_offset_features.pNext = create_info_next;
-    // 		fdm_offset_features.fragmentDensityMapOffset = VK_TRUE;
-    // 		create_info_next = &fdm_offset_features;
-    // 	}
+    //  VkPhysicalDeviceFragmentDensityMapOffsetFeaturesQCOM fdm_offset_features = {};
+    //  if (fdm_capabilities.offset_supported) {
+    //      fdm_offset_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM;
+    //      fdm_offset_features.pNext = create_info_next;
+    //      fdm_offset_features.fragmentDensityMapOffset = VK_TRUE;
+    //      create_info_next = &fdm_offset_features;
+    //  }
 
-    // 	VkPhysicalDevicePipelineCreationCacheControlFeatures pipeline_cache_control_features = {};
-    // 	if (pipeline_cache_control_support) {
-    // 		pipeline_cache_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES;
-    // 		pipeline_cache_control_features.pNext = create_info_next;
-    // 		pipeline_cache_control_features.pipelineCreationCacheControl = pipeline_cache_control_support;
-    // 		create_info_next = &pipeline_cache_control_features;
-    // 	}
+    //  VkPhysicalDevicePipelineCreationCacheControlFeatures pipeline_cache_control_features = {};
+    //  if (pipeline_cache_control_support) {
+    //      pipeline_cache_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES;
+    //      pipeline_cache_control_features.pNext = create_info_next;
+    //      pipeline_cache_control_features.pipelineCreationCacheControl = pipeline_cache_control_support;
+    //      create_info_next = &pipeline_cache_control_features;
+    //  }
 
-    // 	VkPhysicalDeviceFaultFeaturesEXT device_fault_features = {};
-    // 	if (device_fault_support) {
-    // 		device_fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
-    // 		device_fault_features.pNext = create_info_next;
-    // 		create_info_next = &device_fault_features;
-    // 	}
+    //  VkPhysicalDeviceFaultFeaturesEXT device_fault_features = {};
+    //  if (device_fault_support) {
+    //      device_fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+    //      device_fault_features.pNext = create_info_next;
+    //      create_info_next = &device_fault_features;
+    //  }
 
     // #if defined(VK_TRACK_DEVICE_MEMORY)
-    // 	VkDeviceDeviceMemoryReportCreateInfoEXT memory_report_info = {};
-    // 	if (device_memory_report_support) {
-    // 		memory_report_info.sType = VK_STRUCTURE_TYPE_DEVICE_DEVICE_MEMORY_REPORT_CREATE_INFO_EXT;
-    // 		memory_report_info.pfnUserCallback = ContextDriverVulkan::memory_report_callback;
-    // 		memory_report_info.pNext = create_info_next;
-    // 		memory_report_info.flags = 0;
-    // 		memory_report_info.pUserData = this;
+    //  VkDeviceDeviceMemoryReportCreateInfoEXT memory_report_info = {};
+    //  if (device_memory_report_support) {
+    //      memory_report_info.sType = VK_STRUCTURE_TYPE_DEVICE_DEVICE_MEMORY_REPORT_CREATE_INFO_EXT;
+    //      memory_report_info.pfnUserCallback = ContextDriverVulkan::memory_report_callback;
+    //      memory_report_info.pNext = create_info_next;
+    //      memory_report_info.flags = 0;
+    //      memory_report_info.pUserData = this;
 
-    // 		create_info_next = &memory_report_info;
-    // 	}
+    //      create_info_next = &memory_report_info;
+    //  }
     // #endif
 
-    // 	VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {};
-    // 	if (acceleration_structure_capabilities.acceleration_structure_support) {
-    // 		acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-    // 		acceleration_structure_features.pNext = create_info_next;
-    // 		acceleration_structure_features.accelerationStructure = acceleration_structure_capabilities.acceleration_structure_support;
-    // 		create_info_next = &acceleration_structure_features;
-    // 	}
+    //  VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {};
+    //  if (acceleration_structure_capabilities.acceleration_structure_support) {
+    //      acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    //      acceleration_structure_features.pNext = create_info_next;
+    //      acceleration_structure_features.accelerationStructure = acceleration_structure_capabilities.acceleration_structure_support;
+    //      create_info_next = &acceleration_structure_features;
+    //  }
 
-    // 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_pipeline_features = {};
-    // 	if (raytracing_capabilities.raytracing_pipeline_support) {
-    // 		raytracing_pipeline_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-    // 		raytracing_pipeline_features.pNext = create_info_next;
-    // 		raytracing_pipeline_features.rayTracingPipeline = raytracing_capabilities.raytracing_pipeline_support;
-    // 		create_info_next = &raytracing_pipeline_features;
-    // 	}
+    //  VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_pipeline_features = {};
+    //  if (raytracing_capabilities.raytracing_pipeline_support) {
+    //      raytracing_pipeline_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+    //      raytracing_pipeline_features.pNext = create_info_next;
+    //      raytracing_pipeline_features.rayTracingPipeline = raytracing_capabilities.raytracing_pipeline_support;
+    //      create_info_next = &raytracing_pipeline_features;
+    //  }
 
-    // 	VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features = {};
-    // 	if (raytracing_capabilities.validation) {
-    // 		raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
-    // 		raytracing_validation_features.pNext = create_info_next;
-    // 		raytracing_validation_features.rayTracingValidation = raytracing_capabilities.validation;
-    // 		create_info_next = &raytracing_validation_features;
-    // 	}
+    //  VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features = {};
+    //  if (raytracing_capabilities.validation) {
+    //      raytracing_validation_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV;
+    //      raytracing_validation_features.pNext = create_info_next;
+    //      raytracing_validation_features.rayTracingValidation = raytracing_capabilities.validation;
+    //      create_info_next = &raytracing_validation_features;
+    //  }
 
-    // 	VkPhysicalDeviceVulkan11Features vulkan_1_1_features = {};
-    // 	VkPhysicalDevice16BitStorageFeaturesKHR storage_features = {};
-    // 	VkPhysicalDeviceMultiviewFeatures multiview_features = {};
-    // 	const bool enable_1_2_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_2;
-    // 	if (enable_1_2_features) {
-    // 		// In Vulkan 1.2 and newer we use a newer struct to enable various features.
-    // 		vulkan_1_1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-    // 		vulkan_1_1_features.pNext = create_info_next;
-    // 		vulkan_1_1_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
-    // 		vulkan_1_1_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
-    // 		vulkan_1_1_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
-    // 		vulkan_1_1_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
-    // 		vulkan_1_1_features.multiview = multiview_capabilities.is_supported;
-    // 		vulkan_1_1_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
-    // 		vulkan_1_1_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
-    // 		vulkan_1_1_features.variablePointersStorageBuffer = 0;
-    // 		vulkan_1_1_features.variablePointers = 0;
-    // 		vulkan_1_1_features.protectedMemory = 0;
-    // 		vulkan_1_1_features.samplerYcbcrConversion = 0;
-    // 		vulkan_1_1_features.shaderDrawParameters = 0;
-    // 		create_info_next = &vulkan_1_1_features;
-    // 	} else {
-    // 		// On Vulkan 1.0 and 1.1 we use our older structs to initialize these features.
-    // 		storage_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR;
-    // 		storage_features.pNext = create_info_next;
-    // 		storage_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
-    // 		storage_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
-    // 		storage_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
-    // 		storage_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
-    // 		create_info_next = &storage_features;
+    //  VkPhysicalDeviceVulkan11Features vulkan_1_1_features = {};
+    //  VkPhysicalDevice16BitStorageFeaturesKHR storage_features = {};
+    //  VkPhysicalDeviceMultiviewFeatures multiview_features = {};
+    //  const bool enable_1_2_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_2;
+    //  if (enable_1_2_features) {
+    //      // In Vulkan 1.2 and newer we use a newer struct to enable various features.
+    //      vulkan_1_1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    //      vulkan_1_1_features.pNext = create_info_next;
+    //      vulkan_1_1_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
+    //      vulkan_1_1_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
+    //      vulkan_1_1_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
+    //      vulkan_1_1_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
+    //      vulkan_1_1_features.multiview = multiview_capabilities.is_supported;
+    //      vulkan_1_1_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
+    //      vulkan_1_1_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
+    //      vulkan_1_1_features.variablePointersStorageBuffer = 0;
+    //      vulkan_1_1_features.variablePointers = 0;
+    //      vulkan_1_1_features.protectedMemory = 0;
+    //      vulkan_1_1_features.samplerYcbcrConversion = 0;
+    //      vulkan_1_1_features.shaderDrawParameters = 0;
+    //      create_info_next = &vulkan_1_1_features;
+    //  } else {
+    //      // On Vulkan 1.0 and 1.1 we use our older structs to initialize these features.
+    //      storage_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR;
+    //      storage_features.pNext = create_info_next;
+    //      storage_features.storageBuffer16BitAccess = storage_buffer_capabilities.storage_buffer_16_bit_access_is_supported;
+    //      storage_features.uniformAndStorageBuffer16BitAccess = storage_buffer_capabilities.uniform_and_storage_buffer_16_bit_access_is_supported;
+    //      storage_features.storagePushConstant16 = storage_buffer_capabilities.storage_push_constant_16_is_supported;
+    //      storage_features.storageInputOutput16 = storage_buffer_capabilities.storage_input_output_16;
+    //      create_info_next = &storage_features;
 
-    // 		const bool enable_1_1_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_1;
-    // 		if (enable_1_1_features) {
-    // 			multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
-    // 			multiview_features.pNext = create_info_next;
-    // 			multiview_features.multiview = multiview_capabilities.is_supported;
-    // 			multiview_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
-    // 			multiview_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
-    // 			create_info_next = &multiview_features;
-    // 		}
-    // 	}
+    //      const bool enable_1_1_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_1;
+    //      if (enable_1_1_features) {
+    //          multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
+    //          multiview_features.pNext = create_info_next;
+    //          multiview_features.multiview = multiview_capabilities.is_supported;
+    //          multiview_features.multiviewGeometryShader = multiview_capabilities.geometry_shader_is_supported;
+    //          multiview_features.multiviewTessellationShader = multiview_capabilities.tessellation_shader_is_supported;
+    //          create_info_next = &multiview_features;
+    //      }
+    //  }
 
     VkDeviceCreateInfo device_ci{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     device_ci.pNext = create_info_next;
@@ -542,16 +543,16 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     device_ci.enabledExtensionCount = static_cast<uint32_t>(enabled_extension_names.size());
     device_ci.ppEnabledExtensionNames = enabled_extension_names.data();
     device_ci.pEnabledFeatures = &requested_device_features;
-   
+
     VkResult err = vkCreateDevice(physical_device, &device_ci, nullptr, &device);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED,
         "vkCreateDevice failed. Do you have a compatible Vulkan driver installed?");
 
-	for (uint32_t i = 0; i < queue_families.size(); i++) {
-		for (uint32_t j = 0; j < queue_families[i].size(); j++) {
-			vkGetDeviceQueue(device, i, j, &queue_families[i][j].queue);
-		}
-	}
+    for (uint32_t i = 0; i < queue_families.size(); i++) {
+        for (uint32_t j = 0; j < queue_families[i].size(); j++) {
+            vkGetDeviceQueue(device, i, j, &queue_families[i][j].queue);
+        }
+    }
 
     functions = {};
     if (capabilities.mesh.mesh_shader) {
@@ -597,43 +598,43 @@ Error DeviceDriverVulkan::initialize(ContextDriverVulkan& r_cd, uint32_t p_devic
     device_index = p_device_index;
     driver_device = cd->device_get(device_index);
     physical_device = cd->physical_device_get(device_index);
-	frame_count = p_frame_count;
+    frame_count = p_frame_count;
 
     shader_cache_dir = Paths::shader_cache().string();
     shader_compiler = std::make_unique<shaderc::Compiler>();
-    
+
     Error err = _initialize_device_extensions();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
     _get_device_properties();
-    
+
     err = _check_device_features();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
     err = _check_device_capabilities();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
     std::vector<VkDeviceQueueCreateInfo> queue_create_info;
     err = _add_queue_create_info(queue_create_info);
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
     err = _initialize_device(queue_create_info);
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+
     err = allocator_create();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = pipeline_cache_create();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+
     err = swapchain_create(&cd->surface);
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = swapchain_resize(frame_count);
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = bindless_heap_create(16384, 4096, 256);
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     SamplerCreateInfo sampler_ci{};
     sampler_ci.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -649,7 +650,7 @@ void DeviceDriverVulkan::shutdown()
     device_wait_idle();
 
     sampler_free(default_sampler);
-    
+
     bindless_heap_free();
     swapchain_free();
     pipeline_cache_free();
@@ -663,7 +664,7 @@ void DeviceDriverVulkan::shutdown()
 }
 
 Error DeviceDriverVulkan::device_wait_idle()
-{    
+{
     using enum Error;
     VkResult err = vkDeviceWaitIdle(device);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't wait idle for Vulkan device.");
@@ -891,9 +892,9 @@ Error DeviceDriverVulkan::allocator_create()
     allocator_ci.device = device;
     allocator_ci.instance = cd->instance_get();
     allocator_ci.vulkanApiVersion = VK_API_VERSION_1_3;
-	if (/*buffer_device_address_support*/ true) {
-		allocator_ci.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-	}
+    if (/*buffer_device_address_support*/ true) {
+        allocator_ci.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    }
     if (enabled_device_extension_names.contains(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME)) {
         allocator_ci.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
     }
@@ -920,14 +921,14 @@ void DeviceDriverVulkan::allocator_free()
 DeviceDriverVulkan::Image DeviceDriverVulkan::_image_create(const ImageCreateInfo& p_ci, VkExtent2D p_extent)
 {
     using enum Error;
-    
+
     Image image;
     image.extent = p_extent;
     image.format = p_ci.format;
     image.aspect= p_ci.aspect;
     image.mip_levels = p_ci.mip_levels;
     image.layers = p_ci.layers;
-    
+
     VkImageCreateInfo image_ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     image_ci.flags = 0;
     image_ci.imageType = VK_IMAGE_TYPE_2D;
@@ -940,7 +941,7 @@ DeviceDriverVulkan::Image DeviceDriverVulkan::_image_create(const ImageCreateInf
     image_ci.usage = p_ci.usage;
     image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    
+
     VkResult err = vkCreateImage(device, &image_ci, nullptr, &image.image);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, {}, "Couldn't create Vulkan image.");
 
@@ -1212,8 +1213,6 @@ DeviceDriverVulkan::Image DeviceDriverVulkan::image_create_texture(const void* p
     submit.pCommandBufferInfos = &cmd_si;
 
     VkFence fence = fence_create(false);
-    // vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence);
-    // fence_wait(fence, UINT64_MAX);
     if (vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence) != VK_SUCCESS || fence_wait(fence, UINT64_MAX) != OK) {
         fence_free(fence);
         command_pool_free(pool);
@@ -1223,13 +1222,13 @@ DeviceDriverVulkan::Image DeviceDriverVulkan::image_create_texture(const void* p
     }
 
     image.state.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image.state.stage  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    image.state.stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     image.state.access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 
     fence_free(fence);
     command_pool_free(pool);
     buffer_free(staging);
-    
+
     return image;
 }
 
@@ -1349,7 +1348,7 @@ DeviceDriverVulkan::Image DeviceDriverVulkan::image_create_texture_compressed(Vk
     }
 
     image.state.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image.state.stage  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    image.state.stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     image.state.access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 
     fence_free(fence);
@@ -1446,7 +1445,7 @@ DeviceDriverVulkan::Buffer DeviceDriverVulkan::buffer_create(const BufferCreateI
     buffer.capacity = alloc_size;
     buffer.size = p_ci.size;
     buffer.mapped = alloc_info.pMappedData;
-    
+
     VkMemoryPropertyFlags mem_props = 0;
     vmaGetAllocationMemoryProperties(allocator, buffer.allocation, &mem_props);
     buffer.coherent = (mem_props & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
@@ -1604,8 +1603,6 @@ Error DeviceDriverVulkan::buffer_upload_batch(const BufferUpload* p_uploads, uin
     submit.pCommandBufferInfos = &cmd_si;
 
     VkFence fence = fence_create(false);
-    // vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence);
-    // fence_wait(fence, UINT64_MAX);
     const bool submitted = vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence) == VK_SUCCESS && fence_wait(fence, UINT64_MAX) == OK;
 
     fence_free(fence);
@@ -1651,8 +1648,6 @@ Error DeviceDriverVulkan::buffer_copy_batch(const BufferCopy* p_copies, uint32_t
     submit.pCommandBufferInfos = &cmd_si;
 
     VkFence fence = fence_create(false);
-    // vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence);
-    // fence_wait(fence, UINT64_MAX);
     const bool submitted = vkQueueSubmit2(queue_families[cd->graphics_queue_family][0].queue, 1, &submit, fence) == VK_SUCCESS && fence_wait(fence, UINT64_MAX) == OK;
 
     fence_free(fence);
@@ -1748,11 +1743,11 @@ VkFence DeviceDriverVulkan::fence_create(bool p_signaled)
 {
     VkFenceCreateInfo fence_ci{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fence_ci.flags = p_signaled ? VK_FENCE_CREATE_SIGNALED_BIT : 0;
-    
+
     VkFence fence;
     VkResult err = vkCreateFence(device, &fence_ci, nullptr, &fence);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, VK_NULL_HANDLE, "Couldn't create Vulkan fence.");
-    
+
     return fence;
 }
 
@@ -1789,11 +1784,11 @@ VkSemaphore DeviceDriverVulkan::semaphore_create()
     VkSemaphoreCreateInfo semaphore_ci{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     semaphore_ci.pNext = nullptr;
     semaphore_ci.flags = 0;
-    
+
     VkSemaphore semaphore;
     VkResult err = vkCreateSemaphore(device, &semaphore_ci, nullptr, &semaphore);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, VK_NULL_HANDLE, "Couldn't create Vulkan semaphore.");
-    
+
     return semaphore;
 }
 
@@ -1924,7 +1919,7 @@ DeviceDriverVulkan::CommandPool DeviceDriverVulkan::command_pool_create(uint32_t
     VkCommandPoolCreateInfo cmd_pool_ci{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     cmd_pool_ci.queueFamilyIndex = p_queue_family_index;
     cmd_pool_ci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    
+
     CommandPool cmd_pool;
     cmd_pool.buffer_level = p_buffer_level;
     VkResult err = vkCreateCommandPool(device, &cmd_pool_ci, nullptr, &cmd_pool.command_pool);
@@ -1959,7 +1954,7 @@ VkCommandBuffer DeviceDriverVulkan::command_buffer_create(CommandPool& p_cmd_poo
     VkCommandBuffer cmd_buffer;
     VkResult err = vkAllocateCommandBuffers(device, &cmd_buffer_ci, &cmd_buffer);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, VK_NULL_HANDLE, "Couldn't create Vulkan command buffer.");
-    
+
     return cmd_buffer;
 }
 
@@ -2070,15 +2065,15 @@ void DeviceDriverVulkan::command_render_draw_mesh_tasks_indirect_count(VkCommand
 /*******************/
 
 bool DeviceDriverVulkan::_determine_swapchain_format(ContextDriverVulkan::Surface* r_surface, VkSurfaceFormatKHR &r_surface_format)
-{    
+{
     std::vector<VkSurfaceFormatKHR> surface_formats;
     uint32_t format_count = 0;
     VkResult err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, r_surface->surface, &format_count, nullptr);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, false, "Couldn't get Vulkan surface present modes.");
 
-	surface_formats.resize(format_count);
-	err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, r_surface->surface, &format_count, surface_formats.data());
-	LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, false, "Couldn't get Vulkan surface present modes.");
+    surface_formats.resize(format_count);
+    err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, r_surface->surface, &format_count, surface_formats.data());
+    LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, false, "Couldn't get Vulkan surface present modes.");
 
     VkSurfaceFormatKHR surface_format = surface_formats[0];
     for (const auto& f : surface_formats) {
@@ -2151,7 +2146,7 @@ Error DeviceDriverVulkan::swapchain_create(ContextDriverVulkan::Surface* r_surfa
 Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
 {
     using enum Error;
-    
+
     VkSwapchainKHR old_swapchain = swapchain.swapchain;
     swapchain.swapchain = VK_NULL_HANDLE;
     _swapchain_release();
@@ -2163,34 +2158,34 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
 
     if (!swapchain.swapchain) {
         if (surface_capabilities.currentExtent.width == 0xFFFFFFFF) {
-			surface_capabilities.currentExtent.width = std::clamp(surface->width, surface_capabilities.minImageExtent.width, surface_capabilities.maxImageExtent.width);
-			surface_capabilities.currentExtent.height = std::clamp(surface->height, surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
-		}
+            surface_capabilities.currentExtent.width = std::clamp(surface->width, surface_capabilities.minImageExtent.width, surface_capabilities.maxImageExtent.width);
+            surface_capabilities.currentExtent.height = std::clamp(surface->height, surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
+        }
     }
 
     VkExtent2D extent;
     if (surface_capabilities.currentExtent.width == 0xFFFFFFFF) {
         extent.width = std::clamp(surface->width, surface_capabilities.minImageExtent.width, surface_capabilities.maxImageExtent.width);
-		extent.height = std::clamp(surface->height, surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
+        extent.height = std::clamp(surface->height, surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
     } else {
         extent = surface_capabilities.currentExtent;
         surface->width = extent.width;
         surface->height = extent.height;
     }
 
-	if (surface->width == 0 || surface->height == 0) {
+    if (surface->width == 0 || surface->height == 0) {
         if (old_swapchain) vkDestroySwapchainKHR(device, old_swapchain, nullptr);
-		return FAILED;
-	}
+        return FAILED;
+    }
 
     std::vector<VkPresentModeKHR> present_modes;
     uint32_t present_modes_count = 0;
     err = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface->surface, &present_modes_count, nullptr);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get Vulkan surface present modes.");
 
-	present_modes.resize(present_modes_count);
-	err = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface->surface, &present_modes_count, present_modes.data());
-	LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get Vulkan surface present modes.");
+    present_modes.resize(present_modes_count);
+    err = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface->surface, &present_modes_count, present_modes.data());
+    LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get Vulkan surface present modes.");
 
     auto mode_name = [](VkPresentModeKHR p_mode) -> const char* {
         switch (p_mode) {
@@ -2228,10 +2223,10 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
         len += (size_t)std::snprintf(supported_str + len, sizeof(supported_str) - len, "%s ", mode_name(m));
     }
 
-	uint32_t desired_swapchain_images = std::max(p_desired_framebuffer_count, surface_capabilities.minImageCount);
-	if (surface_capabilities.maxImageCount > 0) {
-		desired_swapchain_images = std::min(desired_swapchain_images, surface_capabilities.maxImageCount);
-	}
+    uint32_t desired_swapchain_images = std::max(p_desired_framebuffer_count, surface_capabilities.minImageCount);
+    if (surface_capabilities.maxImageCount > 0) {
+        desired_swapchain_images = std::min(desired_swapchain_images, surface_capabilities.maxImageCount);
+    }
 
     VkSurfaceFormatKHR surface_format{};
     if (!_determine_swapchain_format(surface, surface_format)) {
@@ -2259,11 +2254,11 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
     err = vkCreateSwapchainKHR(device, &swap_ci, nullptr, &swapchain.swapchain);
     if (old_swapchain) vkDestroySwapchainKHR(device, old_swapchain, nullptr);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't create Vulkan swapchain.");
-    
+
     uint32_t image_count = 0;
     err = vkGetSwapchainImagesKHR(device, swapchain.swapchain, &image_count, nullptr);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get Vulkan swapchain images.");
-    
+
     std::vector<VkImage> raw_images(image_count);
     err = vkGetSwapchainImagesKHR(device, swapchain.swapchain, &image_count, raw_images.data());
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get Vulkan swapchain images.");
@@ -2280,7 +2275,7 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
     view_ci.subresourceRange.layerCount = 1;
 
     swapchain.images.resize(image_count);
-	for (uint32_t i = 0; i < image_count; i++) {
+    for (uint32_t i = 0; i < image_count; i++) {
         Image& img = swapchain.images[i];
         img = {};
         img.image = raw_images[i];
@@ -2289,7 +2284,7 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
         img.extent = extent;
         img.allocation = nullptr;
         img.state.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        img.state.stage  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        img.state.stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         img.state.access = 0;
 
         view_ci.image = img.image;
@@ -2306,11 +2301,11 @@ Error DeviceDriverVulkan::swapchain_resize(uint32_t p_desired_framebuffer_count)
         LUMEN_ERR_FAIL_COND_V_MSG(!swapchain.framebuffers[i], FAILED, "Couldn't create swapchain framebuffer.");
     }
 
-	VkSemaphore semaphore = VK_NULL_HANDLE;
-	for (uint32_t i = 0; i < image_count; i++) {
+    VkSemaphore semaphore = VK_NULL_HANDLE;
+    for (uint32_t i = 0; i < image_count; i++) {
         semaphore = semaphore_create();
-		swapchain.present_semaphores.push_back(semaphore);
-	}
+        swapchain.present_semaphores.push_back(semaphore);
+    }
 
     swapchain.generation++;
     swapchain.surface->needs_resize = false;
@@ -2339,7 +2334,7 @@ Error DeviceDriverVulkan::swapchain_acquire_next_image(VkSemaphore p_signal_sema
     }
     if (err != VK_SUCCESS) swapchain.image_index = UINT32_MAX;
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Couldn't get next Vulkan swapchain image.");
-    
+
     return OK;
 }
 
@@ -2358,7 +2353,7 @@ Error DeviceDriverVulkan::swapchain_update()
 Error DeviceDriverVulkan::bindless_heap_create(uint32_t p_sampled_count, uint32_t p_storage_count, uint32_t p_samplers_count)
 {
     using enum Error;
-    
+
     VkPhysicalDeviceVulkan12Properties p12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES };
     VkPhysicalDeviceProperties2 p2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
     p2.pNext = &p12;
@@ -2385,7 +2380,6 @@ Error DeviceDriverVulkan::bindless_heap_create(uint32_t p_sampled_count, uint32_
     bindings[BindlessHeap::BINDING_STORAGE] = { BindlessHeap::BINDING_STORAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, storage, VK_SHADER_STAGE_ALL, nullptr };
     bindings[BindlessHeap::BINDING_SAMPLER] = { BindlessHeap::BINDING_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER, samplers, VK_SHADER_STAGE_ALL, nullptr };
 
-    // const VkDescriptorBindingFlags bf = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     const VkDescriptorBindingFlags bf = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT;
     VkDescriptorBindingFlags flags[3]{ bf, bf, bf};
 
@@ -2465,7 +2459,7 @@ uint32_t DeviceDriverVulkan::bindless_heap_alloc_sampled(VkImageView p_image_vie
 {
     uint32_t index = bindless_heap.sampled_alloc.acquire();
     if (index == UINT32_MAX) {
-        
+
         log_write("Bindless heap sampled image array exhausted.");
         return UINT32_MAX;
     }
@@ -2572,7 +2566,6 @@ VkFramebuffer DeviceDriverVulkan::framebuffer_create(VkRenderPass p_render_pass,
     VkResult err = vkCreateFramebuffer(device, &framebuffer_ci, nullptr, &framebuffer);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, VK_NULL_HANDLE, "Couldn't create Vulkan framebuffer.");
 
-    // set_object_name(VK_OBJECT_TYPE_FRAMEBUFFER, (uint64_t)framebuffer, p_ci.name);
     return framebuffer;
 }
 
@@ -2612,7 +2605,7 @@ bool DeviceDriverVulkan::_pipeline_cache_header_valid(const std::vector<uint8_t>
     return true;
 }
 
-void DeviceDriverVulkan::_save_pipeline_cache()
+void DeviceDriverVulkan::pipeline_cache_save()
 {
     if (!pipeline_cache || pipeline_cache_file.empty()) return;
 
@@ -2685,7 +2678,7 @@ Error DeviceDriverVulkan::pipeline_cache_create()
 
 void DeviceDriverVulkan::pipeline_cache_free()
 {
-    _save_pipeline_cache();
+    pipeline_cache_save();
     if (pipeline_cache) {
         vkDestroyPipelineCache(device, pipeline_cache, nullptr);
         pipeline_cache = VK_NULL_HANDLE;
@@ -2706,11 +2699,8 @@ uint64_t DeviceDriverVulkan::_shader_cache_key(const void* p_source, size_t p_le
 {
     constexpr uint32_t CACHE_FORMAT = 1;
 
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&](const void* p, size_t n) {
-        const uint8_t* b = static_cast<const uint8_t*>(p);
-        for (size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 1099511628211ull; }
-    };
+    uint64_t h = HASH_FNV_OFFSET;
+    auto mix = [&](const void* p, size_t n) { h = hash_fnv(std::string_view(static_cast<const char*>(p), n), h); };
     auto mix_u32 = [&](uint32_t v) { mix(&v, sizeof(v)); };
 
     mix(p_source, p_len);
@@ -2921,7 +2911,7 @@ DeviceDriverVulkan::Pipeline DeviceDriverVulkan::_graphics_pipeline_create(const
     // ---- shader stages ----
     VkPipelineShaderStageCreateInfo stages[2]{};
     uint32_t stage_count = 0;
-    
+
     stages[stage_count] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     stages[stage_count].stage = VK_SHADER_STAGE_VERTEX_BIT;
     stages[stage_count].module = p_ci.vertex_shader;
@@ -3067,7 +3057,7 @@ void DeviceDriverVulkan::pipeline_free(Pipeline& r_pipeline)
     if (r_pipeline.pipeline) {
         vkDestroyPipeline(device, r_pipeline.pipeline, nullptr);
         r_pipeline.pipeline = VK_NULL_HANDLE;
-    }    
+    }
 }
 
 void DeviceDriverVulkan::command_bind_pipeline(VkCommandBuffer p_cmd, const Pipeline& p_pipeline)
@@ -3084,7 +3074,7 @@ void DeviceDriverVulkan::_command_bind_uniform_sets(VkCommandBuffer p_cmd, VkPip
         offsets = &p_dynamic_offset;
         offset_count = 1;
     }
-	vkCmdBindDescriptorSets(p_cmd, p_bind_point, bindless_heap.pipeline_layout, p_first_set_index, p_count, p_sets, offset_count, offsets);
+    vkCmdBindDescriptorSets(p_cmd, p_bind_point, bindless_heap.pipeline_layout, p_first_set_index, p_count, p_sets, offset_count, offsets);
 }
 
 void DeviceDriverVulkan::command_bind_graphics_uniform_sets(VkCommandBuffer p_cmd, const std::vector<VkDescriptorSet>& p_sets, uint32_t p_first_set_index, uint32_t p_dynamic_offset)

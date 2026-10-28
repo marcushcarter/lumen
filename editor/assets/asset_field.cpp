@@ -1,11 +1,10 @@
 #include <editor/assets/asset_field.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
-// #include <editor/drawer/drawer.h>
-#include <editor/panels/shared_panels.h>
-#include <editor/panels/content_browser_panel.h>
+#include <editor/assets/thumbnail_cache.h>
+#include <editor/application/editor_context.h>
 #include <drivers/imgui/imgui_driver.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/ui_style.h>
 #include <imgui.h>
 #include <IconsFontAwesome6.h>
 #include <cfloat>
@@ -24,7 +23,7 @@ bool asset_field(EditorContext& ctx, const char* p_id, Guid& r_guid, AssetType p
     } else {
         char guid[Guid::BUFFER];
         r_guid.to_chars(guid);
-        snprintf(label, sizeof(label), "%s%s%s", guid, r_guid == Guid{} ? "" : " (missing)", p_id);
+        snprintf(label, sizeof(label), "%s%s%s", guid, !r_guid.valid() ? "" : " (missing)", p_id);
     }
     const float clear_w = ImGui::GetFrameHeight();
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -52,7 +51,7 @@ bool asset_field(EditorContext& ctx, const char* p_id, Guid& r_guid, AssetType p
 
     ImGui::SameLine(0.0f, spacing);
     ImGui::PushID(p_id);
-    ImGui::BeginDisabled(r_guid == Guid{});
+    ImGui::BeginDisabled(!r_guid.valid());
     if (ImGui::Button(ICON_FA_TRASH_CAN, ImVec2(clear_w, 0.0f))) {
         r_guid = Guid{};
         changed = true;
@@ -67,7 +66,7 @@ bool asset_thumbnail_field(EditorContext& ctx, const char* p_id, Guid& r_guid, A
 {
     const UiStyle& ui = ui_style();
     bool changed = false;
-    const bool empty = r_guid == Guid{};
+    const bool empty = !r_guid.valid();
     const AssetRegistry::Entry* asset = !empty && ctx.assets ? ctx.assets->find(r_guid) : nullptr;
 
     const ImVec2 size(ASSET_THUMBNAIL_FIELD_SIZE, ASSET_THUMBNAIL_FIELD_SIZE);
@@ -77,8 +76,7 @@ bool asset_thumbnail_field(EditorContext& ctx, const char* p_id, Guid& r_guid, A
     const bool hovered = ImGui::IsItemHovered();
 
     VkImageView view = VK_NULL_HANDLE;
-    // if (asset && ctx.drawer && ctx.drawer->content_browser) view = ctx.drawer->content_browser->thumbnail(ctx, r_guid, p_type);
-    if (asset && ctx.shared_panels && ctx.shared_panels->content_browser) view = ctx.shared_panels->content_browser->thumbnail(ctx, r_guid, p_type);
+    if (asset && ctx.thumbnails) view = ctx.thumbnails->get(ctx, r_guid, p_type);
     const VkDescriptorSet set = view && ctx.imgui ? ctx.imgui->texture_cache.get(view) : VK_NULL_HANDLE;
 
     ImDrawList* dl = ImGui::GetWindowDrawList();

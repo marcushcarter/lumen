@@ -8,7 +8,9 @@ namespace lumen {
 
 struct LightingFeature : Feature
 {
-    enum : uint32_t { LIGHT_MODE_NONE, LIGHT_MODE_ZBIN, LIGHT_MODE_TILED, LIGHT_MODE_COUNT };
+    enum class LightMode : uint32_t { NONE, ZBIN, TILED, COUNT };
+
+    static constexpr uint32_t LIGHT_MODE_COUNT = (uint32_t)LightMode::COUNT;
 
     const uint32_t* lut_sampler = nullptr;
     RenderGraph::Pass lighting_pass;

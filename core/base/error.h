@@ -1,9 +1,10 @@
 #pragma once
-#pragma once
-#include <vector>
-#include <string>
-#include <mutex>
+#include <sal.h>
 #include <cstdio>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <vector>
 
 namespace lumen {
 
@@ -15,21 +16,22 @@ enum class Error
     MAX
 };
 
-extern const char *error_names[];
+extern const char* error_names[];
 
 struct LogSink
 {
-    std::vector<std::string> lines;
-    size_t max_lines = 4096;
+    static constexpr size_t MAX_LINES = 4096;
+
+    std::deque<std::string> lines;
     std::mutex mutex;
 
-    void write(const char* s);
+    void write(const char* p_line);
     void clear();
     std::string to_string();
 };
 
 LogSink& log_sink();
-void log_write(const char* fmt, ...); 
+void log_write(_Printf_format_string_ const char* p_fmt, ...);
 
 }
 

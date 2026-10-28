@@ -1,7 +1,7 @@
 #pragma once
 #include <core/assets/asset_common.h>
 #include <core/assets/guid.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <functional>
 
 namespace lumen {

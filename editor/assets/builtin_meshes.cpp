@@ -81,7 +81,7 @@ bool BuiltinMeshes::ensure_sphere()
     job.dst_lmesh = std::filesystem::path(bin).replace_extension(".lmesh");
     job.content_bin = bin;
     job.guid = SPHERE;
-    if (MeshCooker::_cook_scene(job, scene) != Error::OK) {
+    if (MeshCooker::cook_scene(job, scene) != Error::OK) {
         log_write("BuiltinMeshes: sphere cook failed");
         return false;
     }

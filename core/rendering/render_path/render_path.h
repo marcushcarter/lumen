@@ -4,7 +4,6 @@
 #include <core/rendering/features/feature.h>
 #include <core/rendering/features/present/screenshot_feature.h>
 #include <core/base/error.h>
-#include <span>
 
 namespace lumen {
 
@@ -15,12 +14,14 @@ struct RenderPath
     std::vector<Feature*> features;
     uint32_t created_count = 0;
     ScreenshotFeature screenshot;
+    bool _registered = false;
 
+    virtual void _register_features() {}
     Error create_resources();
     void destroy_resources();
     void build(RenderGraph& g);
-    
+
     virtual ~RenderPath() = default;
 };
 
-}
+}

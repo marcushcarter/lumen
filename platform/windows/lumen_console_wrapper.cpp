@@ -38,7 +38,7 @@ int main()
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
     jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
-    
+
     std::wstring cmd_line = L"\"" + target + L"\"";
     const wchar_t* forwarded = skip_first_arg(GetCommandLineW());
     if (*forwarded) {
@@ -47,7 +47,7 @@ int main()
     }
     std::vector<wchar_t> cmd_buf(cmd_line.begin(), cmd_line.end());
     cmd_buf.push_back(L'\0');
-    
+
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};

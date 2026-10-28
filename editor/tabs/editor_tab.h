@@ -1,7 +1,7 @@
 #pragma once
 #include <core/base/error.h>
 #include <core/assets/guid.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <cstdint>
 
 namespace lumen {

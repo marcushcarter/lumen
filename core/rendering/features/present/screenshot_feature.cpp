@@ -11,7 +11,7 @@ namespace lumen {
 void ScreenshotFeature::_writeback()
 {
     ctx->dd->device_wait_idle();
-    
+
     if (!staging.mapped) { log_write("Screenshot: staging buffer not mapped."); return; }
 
     ctx->dd->buffer_invalidate(staging);

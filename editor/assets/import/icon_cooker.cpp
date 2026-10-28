@@ -1,5 +1,5 @@
 #include <editor/assets/import/icon_cooker.h>
-#include <editor/assets/write_atomic.h>
+#include <core/io/file_io.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/ltexture.h>
 #include <core/project/project.h>
@@ -7,6 +7,7 @@
 #include <bc7decomp.h>
 #include <rgbcx.h>
 #include <stb_image_write.h>
+#include <core/base/color.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -14,16 +15,6 @@
 #include <iterator>
 
 namespace lumen {
-
-static float _srgb_to_linear(float p_c)
-{
-    return p_c <= 0.04045f ? p_c / 12.92f : std::pow((p_c + 0.055f) / 1.055f, 2.4f);
-}
-
-static float _linear_to_srgb(float p_c)
-{
-    return p_c <= 0.0031308f ? p_c * 12.92f : 1.055f * std::pow(p_c, 1.0f / 2.4f) - 0.055f;
-}
 
 static size_t _mip_bytes(uint32_t p_w, uint32_t p_h, uint32_t p_block_bytes)
 {
@@ -101,7 +92,7 @@ bool IconCooker::_decode(const std::filesystem::path& p_texture_bin, Image& r_im
                     const float a = s[3] / 255.0f;
                     for (int c = 0; c < 3; c++) {
                         const float v = s[c] / 255.0f;
-                        d[c] = (srgb ? _srgb_to_linear(v) : v) * a;
+                        d[c] = (srgb ? color_srgb_to_linear(v) : v) * a;
                     }
                     d[3] = a;
                 }
@@ -170,7 +161,7 @@ bool IconCooker::_encode_png(const Image& p_image, std::vector<uint8_t>& r_png)
         const float a = std::clamp(s[3], 0.0f, 1.0f);
         for (int c = 0; c < 3; c++) {
             const float v = std::clamp(a > 0.0f ? s[c] / a : 0.0f, 0.0f, 1.0f);
-            px[i * 4 + c] = (uint8_t)std::lround(std::clamp(p_image.srgb ? _linear_to_srgb(v) : v, 0.0f, 1.0f) * 255.0f);
+            px[i * 4 + c] = (uint8_t)std::lround(std::clamp(p_image.srgb ? color_linear_to_srgb(v) : v, 0.0f, 1.0f) * 255.0f);
         }
         px[i * 4 + 3] = (uint8_t)std::lround(a * 255.0f);
     }
@@ -246,7 +237,7 @@ Error IconCooker::cook_window_icon(const Project& p_project)
     using enum Error;
     const std::filesystem::path dst = p_project.window_icon_path();
     std::error_code ec;
-    if (p_project.settings.window_icon == Guid{}) {
+    if (!p_project.settings.window_icon.valid()) {
         std::filesystem::remove(dst, ec);
         return OK;
     }

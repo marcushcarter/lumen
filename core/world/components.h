@@ -9,29 +9,34 @@ using namespace glm;
 
 struct EntityIdComponent { Guid guid; };
 
-struct NameComponent {
+struct NameComponent
+{
     static constexpr uint32_t MAX_LENGTH = 64;
     char name[MAX_LENGTH] = {};
 };
 
-struct TransformComponent {
+struct TransformComponent
+{
     vec3 position = vec3(0.0f);
     quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
     vec3 scale = vec3(1.0f);
 };
 
-struct ModelComponent {
+struct ModelComponent
+{
     Guid model;
 };
 
-struct ModelGridComponent {
+struct ModelGridComponent
+{
     Guid model;
     uvec3 count = uvec3(10, 1, 10);
     float spacing = 0.0f;
 };
 
 enum class LightType : uint8_t { POINT = 1, SPOT = 2 };
-struct LightComponent {
+struct LightComponent
+{
     static constexpr uint8_t FLAG_CAST_SHADOWS = 1 << 0;
     static constexpr uint8_t FLAG_AFFECTS_GI = 1 << 1;
 
@@ -101,7 +106,8 @@ struct AtmosphereComponent
 struct StaticTag {};
 struct EditorHiddenTag {};
 
-struct EditorFolderComponent {
+struct EditorFolderComponent
+{
     static constexpr uint32_t ROOT = 0xFFFFFFFF;
     uint32_t folder = ROOT;
 };

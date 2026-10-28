@@ -18,14 +18,6 @@ struct ModelCache
     static constexpr uint32_t MAX_SLOTS = 64u * 1024;
     static constexpr uint32_t DEFAULT_MATERIAL = 0;
 
-    drivers::DeviceDriverVulkan* dd = nullptr;
-    uint64_t version = 0;
-    uint64_t slot_version = 0;
-    uint64_t geometry_version = UINT64_MAX;
-    uint64_t material_layout = UINT64_MAX;
-    uint64_t material_bins = UINT64_MAX;
-    bool slots_dirty = false;
-
     struct Entry {
         Guid mesh;
         uint32_t mesh_index = INVALID_MESH;
@@ -34,12 +26,19 @@ struct ModelCache
         std::vector<Guid> materials;
     };
 
+    drivers::DeviceDriverVulkan* dd = nullptr;
+    uint64_t version = 0;
+    uint64_t slot_version = 0;
+    uint64_t _geometry_version = UINT64_MAX;
+    uint64_t _material_layout = UINT64_MAX;
+    uint64_t _material_bins = UINT64_MAX;
+    bool _slots_dirty = false;
+
     std::vector<drivers::DeviceDriverVulkan::Buffer> slot_buffers;
-    std::vector<uint64_t> uploaded_version;
-    
+    std::vector<uint64_t> _uploaded_version;
     std::vector<uint32_t> slot_table;
-    std::unordered_map<Guid, Entry, GuidHash, GuidEq> by_guid;
-    
+    std::unordered_map<Guid, Entry> by_guid;
+
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
 

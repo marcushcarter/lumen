@@ -1,7 +1,5 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/render_path.h>
-#include <core/world/components.h>
-#include <core/assets/lmodel.h>
 #include <core/io/path.h>
 #include <core/version.h>
 #include <imgui.h>
@@ -9,7 +7,6 @@
 #include <cfloat>
 #include <chrono>
 #include <fstream>
-#include <iostream>
 
 namespace lumen {
 
@@ -19,7 +16,7 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
 
     Error err = win32.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+
     err = win32.window_create(p_create_info.window_title, p_create_info.width, p_create_info.height, wants_custom_titlebar());
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     win32.window_bind();
@@ -50,7 +47,7 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     imgui_ci.enable_docking = wants_docking();
     err = imgui.initialize(imgui_ci);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+
     render_path = create_render_path();
     render_path->ctx = renderer.make_context();
     render_path->ctx.imgui = &imgui;
@@ -59,7 +56,7 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
 
     err = on_init();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    
+
     frame_stats.initialize(win32.window.hwnd);
     err = frame_limiter.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -92,18 +89,21 @@ void Application::shutdown()
 
     project_unload();
     world.shutdown();
-    
+
     if (render_path) {
         render_path->destroy_resources();
         delete render_path;
         render_path = nullptr;
     }
+    delete pending_render_path;
+    pending_render_path = nullptr;
+    pending_transition = nullptr;
 
     imgui.shutdown();
     renderer.shutdown();
     dd.shutdown();
     cd.shutdown();
-    
+
     win32.window_free();
     win32.shutdown();
 
@@ -317,7 +317,7 @@ void Application::project_unload()
 
 void Application::render_path_request(RenderPath* p_next)
 {
-    if (pending_render_path) delete pending_render_path;
+    delete pending_render_path;
     pending_render_path = p_next;
 }
 
@@ -326,18 +326,16 @@ Error Application::_apply_pending_render_path()
     using enum Error;
     if (!pending_render_path) return OK;
 
-    const auto t0 = std::chrono::steady_clock::now();
     dd.device_wait_idle();
 
     if (pending_transition) { pending_transition(); pending_transition = nullptr; }
-    
+
     renderer.resize_epoch++;
 
     if (render_path) {
         render_path->destroy_resources();
         delete render_path;
     }
-    const auto t1 = std::chrono::steady_clock::now();
 
     render_path = pending_render_path;
     pending_render_path = nullptr;
@@ -346,8 +344,6 @@ Error Application::_apply_pending_render_path()
     Error err = render_path->create_resources();
     LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Application: render path create_resources failed.");
     dd.pipeline_cache_save();
-
-    const auto t2 = std::chrono::steady_clock::now();
     return OK;
 }
 

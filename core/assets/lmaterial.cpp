@@ -1,7 +1,7 @@
 #include <core/assets/lmaterial.h>
 #include <core/assets/asset_common.h>
+#include <core/io/file_io.h>
 #include <toml++/toml.hpp>
-#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -53,7 +53,7 @@ AlphaMode alpha_mode_from_name(const std::string& p_name, AlphaMode p_fallback)
 
 static std::string _guid_text(Guid p_guid)
 {
-    return p_guid == Guid{} ? std::string{} : p_guid.to_string();
+    return !p_guid.valid() ? std::string{} : p_guid.to_string();
 }
 
 static Guid _read_guid(toml::node_view<const toml::node> p_node)
@@ -181,23 +181,7 @@ Error LMaterial::save(const std::filesystem::path& p_path) const
     }
     std::ostringstream ss;
     ss << tbl;
-    const std::string text = ss.str();
-
-    std::filesystem::path tmp = p_path;
-    tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return FAILED;
-        out.write(text.data(), (std::streamsize)text.size());
-        if (!out) return FAILED;
-    }
-    std::error_code ec;
-    std::filesystem::rename(tmp, p_path, ec);
-    if (ec) {
-        std::filesystem::remove(tmp, ec);
-        return FAILED;
-    }
-    return OK;
+    return write_file_atomic(p_path, ss.str()) ? OK : FAILED;
 }
 
 }

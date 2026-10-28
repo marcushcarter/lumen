@@ -4,7 +4,7 @@
 namespace lumen {
 
 struct PresentFeature : Feature
-{    
+{
     RenderGraph::Pass present_pass;
     drivers::DeviceDriverVulkan::Pipeline blit_pipe;
 

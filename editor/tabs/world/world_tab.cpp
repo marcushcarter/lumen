@@ -1,22 +1,20 @@
 #include <editor/tabs/world/world_tab.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/imgui_helpers.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_widgets.h>
+#include <editor/ui/ui_style.h>
 #include <core/rendering/render_path/editor_render_path.h>
+#include <editor/panels/shared_panels.h>
+#include <editor/tabs/settings/editor_settings_tab.h>
+#include <editor/tabs/tab_manager.h>
+#include <editor/tabs/world/panels/details_panel.h>
+#include <editor/tabs/world/panels/outliner_panel.h>
+#include <editor/tabs/world/panels/project_settings_panel.h>
+#include <editor/tabs/world/panels/version_control_panel.h>
+#include <editor/tabs/world/panels/world_settings_panel.h>
+#include <editor/tabs/world/scene/editor_selection.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <IconsFontAwesome6.h>
-
-#include <editor/tabs/world/panels/outliner_panel.h>
-#include <editor/tabs/world/panels/details_panel.h>
-#include <editor/tabs/world/panels/world_settings_panel.h>
-#include <editor/tabs/world/panels/version_control_panel.h>
-#include <editor/tabs/world/panels/project_settings_panel.h>
-#include <editor/tabs/tab_manager.h>
-#include <editor/tabs/settings/editor_settings_tab.h>
-#include <editor/panels/shared_panels.h>
-#include <editor/tabs/world/scene/editor_selection.h>
 
 namespace lumen {
 
@@ -52,9 +50,7 @@ static bool _toolbar_button(const char* p_label, ImVec2 p_min, ImVec2 p_size, bo
     else if (hovered) dl->AddRectFilled(p_min, max, ui.color.hover);
     if (p_active) dl->AddRectFilled(ImVec2(p_min.x, max.y - ui.tab_strip.accent_height), max, ui.color.accent);
 
-    const char* end = ImGui::FindRenderedTextEnd(p_label);
-    const ImVec2 ts = ImGui::CalcTextSize(p_label, end);
-    dl->AddText(ImVec2(ImFloor(p_min.x + (p_size.x - ts.x) * 0.5f), ImFloor(p_min.y + (p_size.y - ts.y) * 0.5f)), (p_active || hovered) ? ui.color.text : ui.color.text_dim, p_label, end);
+    ui_text_centered(dl, p_min, ImVec2(p_min.x + p_size.x, p_min.y + p_size.y), (p_active || hovered) ? ui.color.text : ui.color.text_dim, p_label, ImGui::FindRenderedTextEnd(p_label));
     return pressed;
 }
 
@@ -81,9 +77,7 @@ static bool _play_button(const PlayButton& p_button, ImVec2 p_min, ImVec2 p_size
     else if (hovered) dl->AddRectFilled(p_min, max, ui.color.panel, ui.play.rounding);
 
     const ImU32 col = p_button.enabled ? p_button.icon : ui_with_alpha(ui.color.text_dim, ui.alpha.disabled);
-    const char* end = ImGui::FindRenderedTextEnd(p_button.label);
-    const ImVec2 ts = ImGui::CalcTextSize(p_button.label, end);
-    dl->AddText(ImVec2(ImFloor(p_min.x + (p_size.x - ts.x) * 0.5f), ImFloor(p_min.y + (p_size.y - ts.y) * 0.5f)), col, p_button.label, end);
+    ui_text_centered(dl, p_min, max, col, p_button.label, ImGui::FindRenderedTextEnd(p_button.label));
     return clicked && p_button.enabled;
 }
 
@@ -134,13 +128,13 @@ void WorldTab::_draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 
     if (_play_button(options, kebab_min, ImVec2(ui.play.kebab_width, bh), options_open)) ImGui::OpenPopup("##options_menu");
 
     ImGui::SetNextWindowPos(ImVec2(kebab_min.x, box_max.y + ui.menu.popup_offset), ImGuiCond_Always);
-    dock_menu_push_style();
+    ui_menu_push_style();
     if (ImGui::BeginPopup("##options_menu", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         ImGui::TextDisabled("MODES");
         ImGui::MenuItem(ICON_FA_WINDOW_MAXIMIZE "  New Window", nullptr, true);
         ImGui::EndPopup();
     }
-    dock_menu_pop_style();
+    ui_menu_pop_style();
 
     ImGui::PopID();
 }
@@ -164,8 +158,6 @@ void WorldTab::_draw_toolbar(EditorContext& ctx)
     const char* cog = ICON_FA_GEAR "  Settings";
     const float cog_w = ImGui::CalcTextSize(cog).x + ui.tab_strip.pad_x * 2.0f;
     if (_toolbar_button(cog, ImVec2(wmax.x - cog_w, wp.y), ImVec2(cog_w, h), false)) {
-        // ctx.popups->open("Editor Settings");
-        // settings_popup.open();
         ctx.tabs->open<EditorSettingsTab>();
     }
 

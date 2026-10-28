@@ -1,6 +1,6 @@
 #pragma once
-#include <editor/editor_context.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/application/editor_context.h>
+#include <editor/ui/ui_style.h>
 #include <imgui.h>
 #include <cstdint>
 #include <string_view>
@@ -9,7 +9,8 @@ namespace lumen {
 
 enum class DockZone { BOTTOM, LEFT_TOP, LEFT_BOTTOM, RIGHT_TOP, RIGHT_BOTTOM };
 
-inline const char* to_string(DockZone z) {
+inline const char* to_string(DockZone z)
+{
     switch (z) {
         case DockZone::BOTTOM: return "Bottom";
         case DockZone::LEFT_TOP: return "LeftTop";
@@ -20,7 +21,8 @@ inline const char* to_string(DockZone z) {
     return "RightBottom";
 }
 
-inline DockZone dock_zone_from_string(std::string_view s, DockZone fallback) {
+inline DockZone dock_zone_from_string(std::string_view s, DockZone fallback)
+{
     if (s == "Bottom") return DockZone::BOTTOM;
     if (s == "LeftTop") return DockZone::LEFT_TOP;
     if (s == "LeftBottom") return DockZone::LEFT_BOTTOM;
@@ -31,10 +33,7 @@ inline DockZone dock_zone_from_string(std::string_view s, DockZone fallback) {
 
 struct Panel
 {
-    // std::string title;
-    // name() as shown in tabs and menus, icon included
     const char* title = nullptr;
-    // title without the leading icon: the key layouts are saved under, so swapping an icon never resets them
     const char* layout_id = nullptr;
 
     virtual ~Panel() = default;
@@ -61,4 +60,4 @@ struct Panel
     }
 };
 
-}
+}

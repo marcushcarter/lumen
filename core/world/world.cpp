@@ -47,9 +47,9 @@ Error World::load()
 
 void World::unload()
 {
-    LUMEN_ERR_FAIL_COND(iterating != 0);
-    deferred.clear();
-    by_guid.clear();
+    LUMEN_ERR_FAIL_COND(_iterating != 0);
+    _deferred.clear();
+    _by_guid.clear();
     atmosphere = {};
     static_version++;
     structure_version++;
@@ -66,19 +66,19 @@ Entity World::create()
 
 Entity World::create_persistent(Guid p_guid)
 {
-    LUMEN_ERR_FAIL_COND_V(p_guid == Guid{}, ENTITY_NULL);
-    LUMEN_ERR_FAIL_COND_V(by_guid.contains(p_guid.value), ENTITY_NULL);
+    LUMEN_ERR_FAIL_COND_V(!p_guid.valid(), ENTITY_NULL);
+    LUMEN_ERR_FAIL_COND_V(_by_guid.contains(p_guid.value), ENTITY_NULL);
     const Entity e = create();
     add<EntityIdComponent>(e, { p_guid });
-    by_guid.insert(p_guid.value, e.index);
+    _by_guid.insert(p_guid.value, e.index);
     return e;
 }
 
 void World::destroy(Entity p_entity)
 {
-    LUMEN_ERR_FAIL_COND(iterating != 0);
+    LUMEN_ERR_FAIL_COND(_iterating != 0);
     LUMEN_ERR_FAIL_COND(!valid(p_entity));
-    if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) by_guid.erase(id->guid.value);
+    if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) _by_guid.erase(id->guid.value);
     if (_is_static(p_entity)) static_version++;
     structure_version++;
     entity_version++;
@@ -87,7 +87,7 @@ void World::destroy(Entity p_entity)
 
 Entity World::find(Guid p_guid) const
 {
-    const uint32_t index = by_guid.get(p_guid.value);
+    const uint32_t index = _by_guid.get(p_guid.value);
     return index == IdMap::NONE ? ENTITY_NULL : entity_at(index);
 }
 
@@ -100,9 +100,9 @@ Entity World::entity_at(uint32_t p_index) const
 
 void World::deferred_flush()
 {
-    LUMEN_ERR_FAIL_COND(iterating != 0);
-    std::vector<std::function<void(World&)>> commands = std::move(deferred);
-    deferred.clear();
+    LUMEN_ERR_FAIL_COND(_iterating != 0);
+    std::vector<std::function<void(World&)>> commands = std::move(_deferred);
+    _deferred.clear();
     for (std::function<void(World&)>& c : commands) c(*this);
 }
 

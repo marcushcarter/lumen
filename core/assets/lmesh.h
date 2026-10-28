@@ -3,6 +3,7 @@
 #include <string>
 #include <filesystem>
 #include <type_traits>
+#include <core/base/enum_flags.h>
 #include <glm/glm.hpp>
 
 namespace lumen {
@@ -14,46 +15,53 @@ enum class MeshDagLevel : uint8_t { FLAT, CLUSTERED, CLUSTERED_DAG };
 const char* mesh_dag_level_name(MeshDagLevel p_level);
 MeshDagLevel mesh_dag_level_from_name(const std::string& p_name, MeshDagLevel p_fallback);
 
-enum MeshFlags : uint32_t { MESH_FLAG_SKINNED = 1u << 0 };
+enum class MeshFlags : uint32_t { NONE = 0, SKINNED = 1u << 0 };
+LUMEN_ENUM_FLAGS(MeshFlags)
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
 static constexpr uint32_t LMESH_VERSION_INTERLEAVED = 1;
 static constexpr uint32_t LMESH_VERSION_SLOT_TABLE = 2;
 static constexpr uint32_t LMESH_VERSION = 3;
 
-struct Vertex {
+struct Vertex
+{
     u16vec3 position;
     i16vec2 normal;
     u16vec2 uv;
 };
 
-struct VertexPosition {
+struct VertexPosition
+{
     u16vec3 position;
     uint16_t _pad;
 };
 
-struct VertexAttributes {
+struct VertexAttributes
+{
     i16vec2 normal;
     u16vec2 uv;
 };
 
 static_assert(sizeof(VertexPosition) == 8 && sizeof(VertexAttributes) == 8, "vertex streams must stay 8 B (one aligned 64-bit GPU load)");
 
-struct SkinVertex {
+struct SkinVertex
+{
     u8vec4 joints;
     u8vec4 weights;
 };
 
 static constexpr uint32_t BVH_LEAF_BIT = 0x80000000u;
 
-struct BVHNode {
+struct BVHNode
+{
     vec3 bounds_min;
     uint32_t left;
     vec3 bounds_max;
     uint32_t right;
 };
 
-struct Cluster {
+struct Cluster
+{
     uint32_t index_base;
     uint32_t index_count;
     vec4 cull_sphere;
@@ -61,13 +69,15 @@ struct Cluster {
     uint32_t parent_group;
 };
 
-struct ClusterGroup {
+struct ClusterGroup
+{
     vec4 sphere;
     float error;
     uint32_t level;
 };
 
-struct LMeshPayloadHeader {
+struct LMeshPayloadHeader
+{
     uint32_t vertex_count;
     uint32_t index_count;
     uint32_t tri_count;

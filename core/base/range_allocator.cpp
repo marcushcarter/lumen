@@ -26,7 +26,6 @@ uint32_t RangeAllocator::allocate(uint32_t p_size)
 {
     if (p_size == 0) return INVALID;
 
-    // Best fit: keeps large holes (and the tail) intact, which keeps extent() low.
     size_t best = SIZE_MAX;
     uint32_t best_size = UINT32_MAX;
     for (size_t i = 0; i < free_blocks.size(); i++) {

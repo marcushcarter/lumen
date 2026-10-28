@@ -23,8 +23,8 @@ struct SceneRenderPath : RenderPath
     BloomFeature bloom;
     LensFlareFeature lens_flare;
     PostProcessFeature post;
-    
-    SceneRenderPath() {
+
+    void _register_features() override {
         lighting.lut_sampler = &atmosphere.lut_sampler.bindless_sampler;
         lens_flare.lut_sampler = &atmosphere.lut_sampler.bindless_sampler;
         taa.post = &post;
@@ -41,5 +41,5 @@ struct SceneRenderPath : RenderPath
         features.push_back(&post);
     }
 };
-    
+
 }

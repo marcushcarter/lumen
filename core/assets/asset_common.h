@@ -16,7 +16,8 @@ enum class AssetType : uint32_t {
 
 inline constexpr uint32_t LASSET_VERSION = 1;
 
-inline AssetType asset_type_from_u32(uint32_t p_v) {
+inline AssetType asset_type_from_u32(uint32_t p_v)
+{
     switch (p_v) {
         case static_cast<uint32_t>(AssetType::TEXTURE): return AssetType::TEXTURE;
         case static_cast<uint32_t>(AssetType::MESH): return AssetType::MESH;
@@ -26,7 +27,8 @@ inline AssetType asset_type_from_u32(uint32_t p_v) {
     }
 }
 
-inline std::string_view asset_type_section(AssetType p_type) {
+inline std::string_view asset_type_section(AssetType p_type)
+{
     switch (p_type) {
         case AssetType::TEXTURE: return "texture";
         case AssetType::MESH: return "mesh";
@@ -36,7 +38,8 @@ inline std::string_view asset_type_section(AssetType p_type) {
     }
 }
 
-struct AssetInfo {
+struct AssetInfo
+{
     uint32_t version = 0;
     Guid guid{};
     AssetType type = AssetType::NONE;
@@ -45,7 +48,8 @@ struct AssetInfo {
 
 inline constexpr uint32_t BCON_MAGIC = uint32_t('B') | (uint32_t('C') << 8) | (uint32_t('O') << 16) | (uint32_t('N') << 24);
 
-struct LAssetHeader {
+struct LAssetHeader
+{
     uint32_t magic;
     uint32_t version;
     Guid guid;

@@ -10,13 +10,12 @@ struct PostProcessFeature;
 
 struct TAAFeature : Feature
 {
-    float sharpness = 1.0f;
-
     struct Retired {
         drivers::DeviceDriverVulkan::Image image;
         uint64_t serial = 0;
     };
 
+    float sharpness = 1.0f;
     const PostProcessFeature* post = nullptr;
 
     drivers::DeviceDriverVulkan::Image history[2];

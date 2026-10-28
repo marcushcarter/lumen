@@ -45,20 +45,13 @@ struct ComponentInfo
 
 struct World
 {
-    using Traits = entt::entt_traits<EntityId>;
-
-    Registry registry;
+    /****************/
+    /**** SCENE *****/
+    /****************/
 
     Camera default_camera;
     Camera* active_camera = &default_camera;
-
     AtmosphereComponent atmosphere;
-
-    std::vector<ComponentInfo> components;
-    std::vector<std::function<void(World&)>> deferred;
-    IdMap by_guid;
-
-    mutable uint32_t iterating = 0;
 
     uint64_t static_version = 0;
     uint64_t structure_version = 0;
@@ -66,31 +59,48 @@ struct World
 
     Error initialize();
     void shutdown();
-
     Error load();
     void unload();
 
-    const Camera& camera_active() const { return default_camera; }
+    /******************/
+    /**** ENTITIES ****/
+    /******************/
 
+    using Traits = entt::entt_traits<EntityId>;
+
+    Registry registry;
+    IdMap _by_guid;
+
+    static EntityId _to_id(Entity p_entity) { return Traits::construct(p_entity.index, p_entity.generation); }
+    static Entity _from_id(EntityId p_id) { return { (uint32_t)Traits::to_entity(p_id), (uint32_t)Traits::to_version(p_id) }; }
+    bool _is_static(Entity p_entity) const { return registry.all_of<StaticTag>(_to_id(p_entity)); }
     Entity create();
     Entity create_persistent(Guid p_guid);
     void destroy(Entity p_entity);
     Entity find(Guid p_guid) const;
     Entity entity_at(uint32_t p_index) const;
-
     bool valid(Entity p_entity) const { return p_entity.index != Entity::INVALID_INDEX && registry.valid(_to_id(p_entity)); }
     void touch(Entity p_entity) { if (valid(p_entity) && _is_static(p_entity)) static_version++; }
 
+    /********************/
+    /**** COMPONENTS ****/
+    /********************/
+
+    std::vector<ComponentInfo> components;
+
+    template <typename T>
+    static T& _tag() { static T instance{}; return instance; }
+
     template <typename T>
     void component_register(const char* p_name, bool p_addable = true) {
-        LUMEN_ERR_FAIL_COND(iterating != 0);
+        LUMEN_ERR_FAIL_COND(_iterating != 0);
         (void)registry.storage<T>();
-        components.push_back({ p_name, p_addable, [](const World& p_world, Entity p_entity) { return p_world.has<T>(p_entity); }, [](World& p_world, Entity p_entity) { p_world.add<T>(p_entity); },});
+        components.push_back({ p_name, p_addable, [](const World& p_world, Entity p_entity) { return p_world.has<T>(p_entity); }, [](World& p_world, Entity p_entity) { p_world.add<T>(p_entity); } });
     }
 
     template <typename T>
     T* add(Entity p_entity, const T& p_value = {}) {
-        LUMEN_ERR_FAIL_COND_V(iterating != 0, nullptr);
+        LUMEN_ERR_FAIL_COND_V(_iterating != 0, nullptr);
         LUMEN_ERR_FAIL_COND_V(!valid(p_entity), nullptr);
         const EntityId id = _to_id(p_entity);
         structure_version++;
@@ -107,7 +117,7 @@ struct World
 
     template <typename T>
     void remove(Entity p_entity) {
-        LUMEN_ERR_FAIL_COND(iterating != 0);
+        LUMEN_ERR_FAIL_COND(_iterating != 0);
         LUMEN_ERR_FAIL_COND(!valid(p_entity));
         if (!has<T>(p_entity)) return;
         if (_is_static(p_entity)) static_version++;
@@ -132,6 +142,27 @@ struct World
         else return &registry.get<T>(_to_id(p_entity));
     }
 
+    /***************/
+    /**** VIEWS ****/
+    /***************/
+
+    mutable uint32_t _iterating = 0;
+
+    template <typename T, typename V>
+    static decltype(auto) _get(V& p_view, EntityId p_id) {
+        if constexpr (std::is_empty_v<T>) return (_tag<T>());
+        else return p_view.template get<T>(p_id);
+    }
+
+    template <typename... Ts, typename... Xs, typename W, typename Fn>
+    static void _view(W& p_world, Exclude<Xs...>, Fn& p_fn) {
+        static_assert(sizeof...(Ts) > 0);
+        p_world._iterating++;
+        auto v = p_world.registry.template view<Ts...>(entt::exclude<Xs...>);
+        for (const EntityId id : v) p_fn(_from_id(id), _get<Ts>(v, id)...);
+        p_world._iterating--;
+    }
+
     template <typename... Ts, typename Fn>
     void view(Fn&& p_fn) { _view<Ts...>(*this, Exclude<>{}, p_fn); }
 
@@ -144,49 +175,32 @@ struct World
     template <typename... Ts, typename... Xs, typename Fn>
     void view(Exclude<Xs...> p_exclude, Fn&& p_fn) const { _view<Ts...>(*this, p_exclude, p_fn); }
 
+    /******************/
+    /**** DEFERRED ****/
+    /******************/
+
+    std::vector<std::function<void(World&)>> _deferred;
+
     void deferred_destroy(Entity p_entity) {
-        deferred.push_back([p_entity](World& p_world) { if (p_world.valid(p_entity)) p_world.destroy(p_entity); });
+        _deferred.push_back([p_entity](World& p_world) { if (p_world.valid(p_entity)) p_world.destroy(p_entity); });
     }
 
     template <typename T>
     void deferred_add(Entity p_entity, const T& p_value = {}) {
-        deferred.push_back([p_entity, p_value](World& p_world) { if (p_world.valid(p_entity)) p_world.add<T>(p_entity, p_value); });
+        _deferred.push_back([p_entity, p_value](World& p_world) { if (p_world.valid(p_entity)) p_world.add<T>(p_entity, p_value); });
     }
 
     template <typename T>
     void deferred_remove(Entity p_entity) {
-        deferred.push_back([p_entity](World& p_world) { if (p_world.valid(p_entity)) p_world.remove<T>(p_entity); });
+        _deferred.push_back([p_entity](World& p_world) { if (p_world.valid(p_entity)) p_world.remove<T>(p_entity); });
     }
 
     void deferred_add_component(Entity p_entity, uint32_t p_component) {
         LUMEN_ERR_FAIL_COND(p_component >= components.size());
-        deferred.push_back([p_entity, p_component](World& p_world) { if (p_world.valid(p_entity)) p_world.components[p_component].add_default(p_world, p_entity); });
+        _deferred.push_back([p_entity, p_component](World& p_world) { if (p_world.valid(p_entity)) p_world.components[p_component].add_default(p_world, p_entity); });
     }
 
     void deferred_flush();
-
-    bool _is_static(Entity p_entity) const { return registry.all_of<StaticTag>(_to_id(p_entity)); }
-
-    static EntityId _to_id(Entity p_entity) { return Traits::construct(p_entity.index, p_entity.generation); }
-    static Entity _from_id(EntityId p_id) { return { (uint32_t)Traits::to_entity(p_id), (uint32_t)Traits::to_version(p_id) }; }
-
-    template <typename T>
-    static T& _tag() { static T instance{}; return instance; }
-
-    template <typename T, typename V>
-    static decltype(auto) _get(V& p_view, EntityId p_id) {
-        if constexpr (std::is_empty_v<T>) return (_tag<T>());
-        else return p_view.template get<T>(p_id);
-    }
-
-    template <typename... Ts, typename... Xs, typename W, typename Fn>
-    static void _view(W& p_world, Exclude<Xs...>, Fn& p_fn) {
-        static_assert(sizeof...(Ts) > 0);
-        p_world.iterating++;
-        auto v = p_world.registry.template view<Ts...>(entt::exclude<Xs...>);
-        for (const EntityId id : v) p_fn(_from_id(id), _get<Ts>(v, id)...);
-        p_world.iterating--;
-    }
 };
 
 }

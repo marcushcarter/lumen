@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace lumen::drivers {
@@ -15,7 +16,6 @@ struct WindowDriverWin32
 
     Error initialize();
     void shutdown();
-
     void poll_events();
     bool wait_events(uint32_t p_timeout_ms);
 
@@ -32,7 +32,7 @@ struct WindowDriverWin32
         int min_height = 0;
 
         bool custom_titlebar = false;
-        int  titlebar_height = 0;
+        int titlebar_height = 0;
         std::vector<RECT> titlebar_interactive_rects;
 
         RECT ctrl_min{}, ctrl_max{}, ctrl_close{};
@@ -47,40 +47,36 @@ struct WindowDriverWin32
 
     Window window;
 
+    static LRESULT CALLBACK _wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_wparam, LPARAM p_lparam);
+    void _window_free_owned_icons();
     Error window_create(const std::string& p_title, int p_width, int p_height, bool p_custom_titlebar = false);
     void window_bind();
     void window_free();
-
     void window_show();
     void window_hide();
     bool window_should_close();
     void window_request_close();
 
-    void _window_free_owned_icons();
     Error window_set_icon(HICON p_icon);
     Error window_set_icon_file(const std::wstring& p_path);
     Error window_set_title(std::string_view p_title);
     Error window_set_titlebar_color(COLORREF p_color);
-
     void window_set_size(int w, int h);
     void window_set_minimum_size(int w, int h);
     void window_minimize();
     void window_toggle_maximize();
+
     bool window_is_maximized();
     bool window_is_minimized();
     bool window_is_focused();
     bool window_is_visible();
     bool window_consume_focus_gained();
     bool window_consume_resized();
-    
+
     void window_set_custom_titlebar(bool p_enabled);
     void window_titlebar_reset(int height);
     void window_titlebar_add_rect(long left, long top, long right, long bottom);
     void window_titlebar_set_controls(RECT min, RECT max, RECT close);
-
-    static bool system_accent_color(float& r_r, float& r_g, float& r_b);
-
-    static LRESULT CALLBACK _wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_wparam, LPARAM p_lparam);
 
     /****************/
     /**** NOTIFY ****/
@@ -88,12 +84,12 @@ struct WindowDriverWin32
 
     static constexpr UINT NOTIFY_ICON_ID = 1;
 
-    bool notify_icon_added = false;
+    bool _notify_icon_added = false;
 
+    void _notify_icon_remove();
     void notify(const std::string& p_title, const std::string& p_message);
     void window_flash();
-    void _notify_icon_remove();
-    
+
     /****************/
     /**** SYSTEM ****/
     /****************/
@@ -111,6 +107,7 @@ struct WindowDriverWin32
     };
 
     static SystemInfo get_system_info();
+    static bool system_accent_color(float& r_r, float& r_g, float& r_b);
 };
 
 }

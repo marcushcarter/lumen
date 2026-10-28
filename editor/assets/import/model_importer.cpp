@@ -1,5 +1,5 @@
 #include <editor/assets/import/model_importer.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/lmaterial.h>
@@ -23,14 +23,16 @@ static constexpr float EMISSIVE_IMPORT_NITS = 100.0f;
 
 enum class MapKind : uint8_t { BASE_COLOR, NORMAL, ROUGHNESS, METALLIC, AO, EMISSIVE, COUNT };
 
-struct MapRef {
+struct MapRef
+{
     std::filesystem::path source;
     TextureUsage usage = TextureUsage::COLOR;
     int32_t channel = -1;
     const char* suffix = "";
 };
 
-struct MaterialMaps {
+struct MaterialMaps
+{
     MapRef maps[(size_t)MapKind::COUNT];
 
     MapRef& operator[](MapKind p_kind) { return maps[(size_t)p_kind]; }
@@ -194,7 +196,7 @@ static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textur
     if (pbr) {
         m.base_color = vec4(c4.r, c4.g, c4.b, c4.a);
     } else if (p_mat->Get(AI_MATKEY_COLOR_DIFFUSE, c4) == AI_SUCCESS) {
-        m.base_color = m.base_color_texture == Guid{} ? vec4(c4.r, c4.g, c4.b, c4.a) : vec4(1.0f, 1.0f, 1.0f, c4.a);
+        m.base_color = !m.base_color_texture.valid() ? vec4(c4.r, c4.g, c4.b, c4.a) : vec4(1.0f, 1.0f, 1.0f, c4.a);
     }
 
     m.normal_texture = _texture_guid(p_textures, p_maps[MapKind::NORMAL]);
@@ -207,10 +209,10 @@ static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textur
 
     float f = 0.0f;
     if (p_mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, f) == AI_SUCCESS) m.roughness = f;
-    else if (rough != Guid{}) m.roughness = 1.0f;
+    else if (rough.valid()) m.roughness = 1.0f;
     else if (p_mat->Get(AI_MATKEY_SHININESS, f) == AI_SUCCESS && f > 0.0f) m.roughness = std::clamp(std::pow(2.0f / (f + 2.0f), 0.25f), 0.02f, 1.0f);
     if (p_mat->Get(AI_MATKEY_METALLIC_FACTOR, f) == AI_SUCCESS) m.metallic = f;
-    else if (metal != Guid{}) m.metallic = 1.0f;
+    else if (metal.valid()) m.metallic = 1.0f;
 
     aiColor3D e(0.0f, 0.0f, 0.0f);
     p_mat->Get(AI_MATKEY_COLOR_EMISSIVE, e);
@@ -220,7 +222,7 @@ static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textur
 #endif
     const Guid emissive = _texture_guid(p_textures, p_maps[MapKind::EMISSIVE]);
     const float e_max = std::max(e.r, std::max(e.g, e.b));
-    if (e_max > 0.0f || (!pbr && emissive != Guid{})) {
+    if (e_max > 0.0f || (!pbr && emissive.valid())) {
         m.emissive_color = e_max > 0.0f ? vec3(e.r, e.g, e.b) : vec3(1.0f);
         m.emissive_nits = EMISSIVE_IMPORT_NITS * strength;
         m.emissive_texture = emissive;
@@ -293,7 +295,8 @@ static std::vector<Guid> _import_materials(const ModelImporter::Job& p_job, cons
     return out;
 }
 
-struct ModelLocation {
+struct ModelLocation
+{
     std::filesystem::path folder;
     std::filesystem::path lmodel;
     std::filesystem::path lmesh;
@@ -362,7 +365,7 @@ Error ModelImporter::_import(const Job& p_job)
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
     mesh.progress = p_job.progress;
-    if (MeshCooker::_cook_scene(mesh, scene) != OK) return FAILED;
+    if (MeshCooker::cook_scene(mesh, scene) != OK) return FAILED;
     for (const TextureCooker::Job& tex : textures) {
         if (TextureCooker::_cook(tex) == OK) continue;
         log_write("ModelImporter: failed to cook texture '%s'.", tex.source.string().c_str());
@@ -377,7 +380,7 @@ Error ModelImporter::_import(const Job& p_job)
     const std::vector<Guid> imported = full ? _import_materials(p_job, scene, slots, maps, textures) : std::vector<Guid>(slots.size());
     model.materials.resize(std::max<size_t>(imported.size(), 1));
     for (size_t s = 0; s < imported.size(); ++s) {
-        if (model.materials[s] == Guid{}) model.materials[s] = imported[s];
+        if (!model.materials[s].valid()) model.materials[s] = imported[s];
     }
     model.import.source = p_job.source.generic_string();
     model.import.mode = p_job.settings.mode;

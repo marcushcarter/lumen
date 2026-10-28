@@ -42,12 +42,14 @@ enum class DebugViewInputs : uint32_t {
 constexpr DebugViewInputs operator|(DebugViewInputs a, DebugViewInputs b) { return (DebugViewInputs)((uint32_t)a | (uint32_t)b); }
 constexpr bool operator&(DebugViewInputs a, DebugViewInputs b) { return ((uint32_t)a & (uint32_t)b) != 0; }
 
-struct DebugViewCategory {
+struct DebugViewCategory
+{
     const char* icon;
     const char* name;
 };
 
-struct DebugView {
+struct DebugView
+{
     const char* icon;
     const char* name;
     const DebugViewCategory* category;
@@ -67,7 +69,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     { ICON_FA_IMAGE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { ICON_FA_IMAGE, "Wireframe", nullptr, nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { ICON_FA_IMAGE, "Clay", nullptr, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
-    
+
     { nullptr, "Triangles", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF },
     { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
     { nullptr, "Instances", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::INSTANCES, DebugViewInputs::VISBUF },

@@ -24,4 +24,4 @@ void SharedPanels::shutdown()
     panels.clear();
 }
 
-}
+}

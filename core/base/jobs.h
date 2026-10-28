@@ -75,10 +75,15 @@ struct JobSystemCreateInfo
 
 struct JobSystem
 {
+    /***************/
+    /**** SETUP ****/
+    /***************/
+
     static constexpr uint32_t ANY_THREAD = UINT32_MAX;
     static constexpr uint32_t MAIN_THREAD = 0;
-    static constexpr uint32_t PRIORITY_COUNT = (uint32_t)JobPriority::COUNT;
     static constexpr uint32_t SPIN_BEFORE_SLEEP = 512;
+
+    enum class SwitchAction : uint8_t { NONE, FREE, WAIT };
 
     template <typename T>
     struct Queue {
@@ -91,6 +96,16 @@ struct JobSystem
         std::atomic<uint32_t> approx_size{ 0 };
 
         bool empty() const { return approx_size.load(std::memory_order_seq_cst) == 0; }
+
+        void _grow(uint32_t p_min) {
+            uint32_t capacity = ring.empty() ? INITIAL_CAPACITY : (uint32_t)ring.size();
+            while (capacity < p_min) capacity *= 2;
+            std::vector<T> next(capacity);
+            const uint32_t mask = ring.empty() ? 0 : (uint32_t)ring.size() - 1;
+            for (uint32_t i = 0; i < count; i++) next[i] = ring[(head + i) & mask];
+            ring = std::move(next);
+            head = 0;
+        }
 
         void push(const T* p_items, uint32_t p_count, uint32_t p_stride = 1) {
             lock.lock();
@@ -116,29 +131,6 @@ struct JobSystem
             lock.unlock();
             return true;
         }
-
-        void _grow(uint32_t p_min) {
-            uint32_t capacity = ring.empty() ? INITIAL_CAPACITY : (uint32_t)ring.size();
-            while (capacity < p_min) capacity *= 2;
-            std::vector<T> next(capacity);
-            const uint32_t mask = ring.empty() ? 0 : (uint32_t)ring.size() - 1;
-            for (uint32_t i = 0; i < count; i++) next[i] = ring[(head + i) & mask];
-            ring = std::move(next);
-            head = 0;
-        }
-    };
-
-    enum class SwitchAction : uint8_t { NONE, FREE, WAIT };
-
-    struct Job {
-        JobDecl decl;
-        JobCounter* counter = nullptr;
-        JobPriority priority = JobPriority::NORMAL;
-    };
-
-    struct BackgroundJob {
-        JobDecl decl;
-        JobCounter* counter = nullptr;
     };
 
     struct Worker {
@@ -158,65 +150,34 @@ struct JobSystem
     JobSystemCreateInfo info;
     std::atomic<bool> running{ false };
     std::vector<std::unique_ptr<Worker>> workers;
-    Queue<Job> jobs[PRIORITY_COUNT];
-    Queue<JobFiber*> ready[PRIORITY_COUNT];
-    std::atomic<uint32_t> wake_cursor{ 0 };
-
     JobFiber main_fiber;
-    bool main_converted = false;
-
-    std::vector<std::thread> background;
-    std::mutex background_mutex;
-    std::condition_variable background_cv;
-    std::deque<BackgroundJob> background_queue;
-    bool background_running = false;
-
-    SpinLock fiber_lock;
-    std::vector<JobFiber*> fiber_free;
-    std::vector<JobFiber*> fiber_all;
-
-    void _discard_queued();
-    Error initialize(const JobSystemCreateInfo& p_info = {});
-    void shutdown();
+    bool _main_converted = false;
 
     Worker* _worker() const;
     void _worker_thread(uint32_t p_index);
-    void _background_thread(uint32_t p_index);
     void _pin_current_thread(uint32_t p_index);
+    Error initialize(const JobSystemCreateInfo& p_info = {});
+    void shutdown();
     uint32_t thread_count() const { return (uint32_t)workers.size(); }
     uint32_t thread_index() const;
     bool on_main_thread() const { return thread_index() == MAIN_THREAD; }
 
-    void _counter_add(JobCounter* r_counter, uint32_t p_count);
-    void _counter_decrement(JobCounter* r_counter, uint32_t p_count);
-    void _os_wait(JobCounter& r_counter, uint32_t p_target);
-    void run(const JobDecl* p_jobs, uint32_t p_count, JobPriority p_priority = JobPriority::NORMAL, JobCounter* r_counter = nullptr);
-    void run_background(const JobDecl& p_job, JobCounter* r_counter = nullptr);
-    void run_repeat(const JobDecl& p_job, uint32_t p_count, JobPriority p_priority = JobPriority::NORMAL, JobCounter* r_counter = nullptr);
-    void wait(JobCounter& r_counter, uint32_t p_target = 0);
-    
-    template <typename Fn>
-    void run_owned(Fn&& p_fn, JobPriority p_priority = JobPriority::NORMAL, JobCounter* r_counter = nullptr, const char* p_name = "Job") {
-        const JobDecl decl = _owned_decl(std::forward<Fn>(p_fn), p_name);
-        run(&decl, 1, p_priority, r_counter);
-    }
-    
-    template <typename Fn>
-    void run_background_owned(Fn&& p_fn, JobCounter* r_counter = nullptr, const char* p_name = "Background") {
-        run_background(_owned_decl(std::forward<Fn>(p_fn), p_name), r_counter);
-    }
+    /**************/
+    /**** JOBS ****/
+    /**************/
 
-    bool _has_work(const Worker& p_worker) const;
-    void _make_ready(JobFiber* p_fiber);
-    bool _next_ready(Worker& r_worker, JobFiber*& r_fiber);
-    bool _next_job(Worker& r_worker, Job& r_job);
-    bool _accepts(const Worker& p_worker, uint32_t p_priority) const { return p_worker.index != MAIN_THREAD || p_priority != (uint32_t)JobPriority::LOW; }
-    void _execute(Worker& r_worker, Job& r_job);
-    void _idle(Worker& r_worker);
-    void _wake(Worker& r_worker);
-    bool _wake_one(uint32_t p_priority);
-    void _wake_all();
-    
+    static constexpr uint32_t PRIORITY_COUNT = (uint32_t)JobPriority::COUNT;
+
+    struct Job {
+        JobDecl decl;
+        JobCounter* counter = nullptr;
+        JobPriority priority = JobPriority::NORMAL;
+    };
+
+    Queue<Job> jobs[PRIORITY_COUNT];
+    Queue<JobFiber*> ready[PRIORITY_COUNT];
+    std::atomic<uint32_t> _wake_cursor{ 0 };
+
     template <typename Fn>
     static JobDecl _owned_decl(Fn&& p_fn, const char* p_name) {
         using F = std::decay_t<Fn>;
@@ -232,12 +193,25 @@ struct JobSystem
         return decl;
     }
 
-    static void __stdcall _fiber_entry(void* p_param);
-    JobFiber* _fiber_acquire();
-    void _fiber_loop();
-    void _fiber_release(JobFiber* p_fiber);
-    void _switch(JobFiber* p_from, JobFiber* p_to, SwitchAction p_action, SpinLock* p_lock);
-    void _after_switch();
+    void _discard_queued();
+    bool _accepts(const Worker& p_worker, uint32_t p_priority) const { return p_worker.index != MAIN_THREAD || p_priority != (uint32_t)JobPriority::LOW; }
+    bool _has_work(const Worker& p_worker) const;
+    void _make_ready(JobFiber* p_fiber);
+    bool _next_ready(Worker& r_worker, JobFiber*& r_fiber);
+    bool _next_job(Worker& r_worker, Job& r_job);
+    void _execute(Worker& r_worker, Job& r_job);
+    void _idle(Worker& r_worker);
+    void _wake(Worker& r_worker);
+    bool _wake_one(uint32_t p_priority);
+    void _wake_all();
+    void run(const JobDecl* p_jobs, uint32_t p_count, JobPriority p_priority = JobPriority::NORMAL, JobCounter* r_counter = nullptr);
+    void run_repeat(const JobDecl& p_job, uint32_t p_count, JobPriority p_priority = JobPriority::NORMAL, JobCounter* r_counter = nullptr);
+
+    template <typename Fn>
+    void run_owned(Fn&& p_fn, JobPriority p_priority = JobPriority::NORMAL, JobCounter* r_counter = nullptr, const char* p_name = "Job") {
+        const JobDecl decl = _owned_decl(std::forward<Fn>(p_fn), p_name);
+        run(&decl, 1, p_priority, r_counter);
+    }
 
     template <typename Fn>
     void parallel_for(uint32_t p_count, uint32_t p_batch, Fn&& p_fn, JobPriority p_priority = JobPriority::HIGH, const char* p_name = "Parallel For") {
@@ -274,6 +248,53 @@ struct JobSystem
         body(&ctx);
         wait(counter);
     }
+
+    /******************/
+    /**** COUNTERS ****/
+    /******************/
+
+    void _counter_add(JobCounter* r_counter, uint32_t p_count);
+    void _counter_decrement(JobCounter* r_counter, uint32_t p_count);
+    void _os_wait(JobCounter& r_counter, uint32_t p_target);
+    void wait(JobCounter& r_counter, uint32_t p_target = 0);
+
+    /********************/
+    /**** BACKGROUND ****/
+    /********************/
+
+    struct BackgroundJob {
+        JobDecl decl;
+        JobCounter* counter = nullptr;
+    };
+
+    std::vector<std::thread> background;
+    std::mutex background_mutex;
+    std::condition_variable background_cv;
+    std::deque<BackgroundJob> background_queue;
+    bool background_running = false;
+
+    void _background_thread(uint32_t p_index);
+    void run_background(const JobDecl& p_job, JobCounter* r_counter = nullptr);
+
+    template <typename Fn>
+    void run_background_owned(Fn&& p_fn, JobCounter* r_counter = nullptr, const char* p_name = "Background") {
+        run_background(_owned_decl(std::forward<Fn>(p_fn), p_name), r_counter);
+    }
+
+    /****************/
+    /**** FIBERS ****/
+    /****************/
+
+    SpinLock _fiber_lock;
+    std::vector<JobFiber*> _fiber_free;
+    std::vector<JobFiber*> _fiber_all;
+
+    static void __stdcall _fiber_entry(void* p_param);
+    JobFiber* _fiber_acquire();
+    void _fiber_loop();
+    void _fiber_release(JobFiber* p_fiber);
+    void _switch(JobFiber* p_from, JobFiber* p_to, SwitchAction p_action, SpinLock* p_lock);
+    void _after_switch();
 };
 
 JobSystem& job_system();

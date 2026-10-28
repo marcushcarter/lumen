@@ -22,6 +22,42 @@ struct GeometryFeature : Feature
     static constexpr uint32_t COMPACT_SHRINK_FRAMES = 300;
     static constexpr uint64_t COMPACT_INDEX_LIMIT_TRIS = 0xFFFFFFFFull / 3ull;
 
+    struct CullStats {
+        uint32_t refs;
+        uint32_t phase1_visible;
+        uint32_t retest;
+        uint32_t phase2_visible;
+        uint32_t instances_visible;
+        uint32_t instances_occluded;
+        uint32_t instances_recovered;
+    };
+
+    struct CompactFeedback {
+        uint32_t tris[COMPACT_CMD_COUNT];
+        uint32_t done[2];
+        uint32_t spill[2];
+    };
+
+    struct CompactRetired {
+        uint64_t serial;
+        drivers::DeviceDriverVulkan::Buffer buffer;
+    };
+
+    struct CullPush {
+        VkDeviceAddress camera_addr;
+        VkDeviceAddress geometry_addr;
+        VkDeviceAddress instances_addr;
+        VkDeviceAddress transforms_addr;
+        VkDeviceAddress cluster_refs_addr;
+        VkDeviceAddress list_a_addr;
+        VkDeviceAddress list_b_addr;
+        uint32_t hiz_index;
+        uint32_t hiz_mips;
+        uint32_t hiz_enabled;
+        uint32_t _pad;
+        float screen_size[2];
+    };
+
     bool occlusion = true;
     bool occlusion_frame = true;
     bool contribution_culling = true;
@@ -36,31 +72,10 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Sampler material_sampler;
     drivers::DeviceDriverVulkan::Buffer hiz_tail_buffer;
     bool hiz_ok = false;
-    
-    struct CullStats {
-        uint32_t refs;
-        uint32_t phase1_visible;
-        uint32_t retest;
-        uint32_t phase2_visible;
-        uint32_t instances_visible;
-        uint32_t instances_occluded;
-        uint32_t instances_recovered;
-    };
 
     CullStats stats{};
     std::vector<drivers::DeviceDriverVulkan::Buffer> stats_readback;
     std::vector<uint8_t> stats_written;
-
-    struct CompactFeedback {
-        uint32_t tris[COMPACT_CMD_COUNT];
-        uint32_t done[2];
-        uint32_t spill[2];
-    };
-
-    struct CompactRetired {
-        uint64_t serial;
-        drivers::DeviceDriverVulkan::Buffer buffer;
-    };
 
     drivers::DeviceDriverVulkan::Buffer compact_indices;
     drivers::DeviceDriverVulkan::Buffer compact_prims;
@@ -78,21 +93,6 @@ struct GeometryFeature : Feature
     uint32_t compact_bin_demand[RASTER_BIN_COUNT] = {};
     uint32_t compact_low_frames[RASTER_BIN_COUNT] = {};
     uint64_t compact_failed_tris = 0;
-
-    struct CullPush {
-        VkDeviceAddress camera_addr;
-        VkDeviceAddress geometry_addr;
-        VkDeviceAddress instances_addr;
-        VkDeviceAddress transforms_addr;
-        VkDeviceAddress cluster_refs_addr;
-        VkDeviceAddress list_a_addr;
-        VkDeviceAddress list_b_addr;
-        uint32_t hiz_index;
-        uint32_t hiz_mips;
-        uint32_t hiz_enabled;
-        uint32_t _pad;
-        float screen_size[2];
-    };
 
     RenderGraph::Pass clear_visible_pass;
     RenderGraph::Pass instance_cull_pass;
@@ -127,7 +127,7 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline visbuffer_compact_pipes[RASTER_BIN_COUNT];
     drivers::DeviceDriverVulkan::Pipeline visbuffer_spill_pipes[RASTER_BIN_COUNT];
     drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
-    
+
     void _compact_update(bool p_feedback, const uint64_t* p_demand);
     bool _compact_reserve(const uint32_t* p_bin_tris);
     void _compact_retire(drivers::DeviceDriverVulkan::Buffer& r_buffer);

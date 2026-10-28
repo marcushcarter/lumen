@@ -1,7 +1,7 @@
 #include <core/assets/lmodel.h>
 #include <core/assets/asset_common.h>
+#include <core/io/file_io.h>
 #include <toml++/toml.hpp>
-#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -52,7 +52,7 @@ Error LModel::save(const std::filesystem::path& p_path) const
 {
     using enum Error;
     toml::array slots;
-    for (Guid m : materials) slots.push_back(m == Guid{} ? std::string{} : m.to_string());
+    for (Guid m : materials) slots.push_back(!m.valid() ? std::string{} : m.to_string());
     toml::table tbl {
         { "asset", toml::table{
             { "version", (int64_t)LASSET_VERSION },
@@ -69,23 +69,7 @@ Error LModel::save(const std::filesystem::path& p_path) const
     }
     std::ostringstream ss;
     ss << tbl;
-    const std::string text = ss.str();
-
-    std::filesystem::path tmp = p_path;
-    tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return FAILED;
-        out.write(text.data(), (std::streamsize)text.size());
-        if (!out) return FAILED;
-    }
-    std::error_code ec;
-    std::filesystem::rename(tmp, p_path, ec);
-    if (ec) {
-        std::filesystem::remove(tmp, ec);
-        return FAILED;
-    }
-    return OK;
+    return write_file_atomic(p_path, ss.str()) ? OK : FAILED;
 }
 
 }

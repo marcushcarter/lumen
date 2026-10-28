@@ -1,7 +1,9 @@
 #include <editor/assets/thumbnail_cache.h>
+#include <editor/assets/texture_viewer.h>
 #include <editor/assets/builtin_meshes.h>
 #include <editor/assets/asset_registry.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
+#include <core/base/hash.h>
 #include <core/rendering/renderer.h>
 #include <core/assets/lmesh.h>
 #include <core/world/components.h>
@@ -24,11 +26,7 @@ static constexpr uint64_t STAMP_MISSING = 0x6D697373696E6721ull;
 
 static uint64_t _mix(uint64_t p_h, uint64_t p_v)
 {
-    uint64_t z = p_v + 0x9E3779B97F4A7C15ull;
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-    z ^= z >> 31;
-    return p_h ^ (z + 0x9E3779B97F4A7C15ull + (p_h << 6) + (p_h >> 2));
+    return hash_combine(p_h, hash_splitmix(p_v));
 }
 
 static uint64_t _stamp(const std::filesystem::path& p_path)
@@ -44,7 +42,7 @@ static uint64_t _stamp(const std::filesystem::path& p_path)
 static void _texture_refs(const LMaterial& p_material, std::vector<Guid>& r_out)
 {
     for (Guid g : { p_material.base_color_texture, p_material.normal_texture, p_material.roughness_texture, p_material.metallic_texture, p_material.ao_texture, p_material.emissive_texture, p_material.custom_texture }) {
-        if (!(g == Guid{}) && std::find(r_out.begin(), r_out.end(), g) == r_out.end()) r_out.push_back(g);
+        if (g.valid() && std::find(r_out.begin(), r_out.end(), g) == r_out.end()) r_out.push_back(g);
     }
 }
 
@@ -76,6 +74,11 @@ void ThumbnailCache::close(EditorContext& ctx)
         dd->image_free(e.image);
     }
     entries.clear();
+    for (auto& [guid, t] : texture_views) {
+        if (ctx.imgui && ctx.renderer) ctx.imgui->texture_cache.retire(t.view, ctx.renderer->frame_number, ctx.renderer->frame_count);
+        vkDestroyImageView(dd->device, t.view, nullptr);
+    }
+    texture_views.clear();
     _collect(ctx, true);
     queue.clear();
     job = {};
@@ -144,7 +147,7 @@ void ThumbnailCache::_scan_disk()
         if (stem.size() != Guid::CHARS * 2 + 1 || stem[Guid::CHARS] != '_') continue;
         const Guid guid = Guid::from_string(std::string_view(stem).substr(0, Guid::CHARS));
         const uint64_t key = std::strtoull(stem.c_str() + Guid::CHARS + 1, nullptr, 16);
-        if (guid == Guid{}) continue;
+        if (!guid.valid()) continue;
         disk[guid] = key;
     }
 }
@@ -201,6 +204,26 @@ void ThumbnailCache::_collect(EditorContext& ctx, bool p_all)
             ++i;
         }
     }
+    if (ctx.renderer && !p_all) {
+        for (auto it = texture_views.begin(); it != texture_views.end();) {
+            const LTexture* tex = ctx.renderer->textures.get(it->first);
+            if (tex && tex->image.image == it->second.image) {
+                ++it;
+                continue;
+            }
+            _retire_view(ctx, it->second.view);
+            it = texture_views.erase(it);
+        }
+    }
+    for (size_t i = 0; i < retired_views.size();) {
+        if (p_all || frame >= retired_views[i].frame + frames) {
+            vkDestroyImageView(dd->device, retired_views[i].view, nullptr);
+            retired_views[i] = retired_views.back();
+            retired_views.pop_back();
+        } else {
+            ++i;
+        }
+    }
     for (size_t i = 0; i < writes.size();) {
         if (!writes[i]->counter.done()) {
             ++i;
@@ -215,6 +238,39 @@ void ThumbnailCache::_collect(EditorContext& ctx, bool p_all)
 /*************/
 /**** KEY ****/
 /*************/
+
+void ThumbnailCache::_retire_view(EditorContext& ctx, VkImageView p_view)
+{
+    ctx.imgui->texture_cache.retire(p_view, ctx.renderer->frame_number, ctx.renderer->frame_count);
+    retired_views.push_back({ p_view, ctx.renderer->frame_number });
+}
+
+VkImageView ThumbnailCache::_texture_view(EditorContext& ctx, Guid p_guid)
+{
+    const LTexture* tex = ctx.renderer->textures.get(p_guid);
+    if (!tex) return VK_NULL_HANDLE;
+    const drivers::DeviceDriverVulkan::Image& image = tex->image;
+    const uint32_t channels = TextureViewer::channel_count(image.format);
+    if (channels > 2) return image.image_view;
+
+    auto it = texture_views.find(p_guid);
+    if (it != texture_views.end()) {
+        if (it->second.image == image.image) return it->second.view;
+        _retire_view(ctx, it->second.view);
+        texture_views.erase(it);
+    }
+
+    VkImageViewCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    ci.image = image.image;
+    ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    ci.format = image.format;
+    ci.components = TextureViewer::swizzle(TextureViewer::Channel::RGB, channels);
+    ci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, image.mip_levels, 0, 1 };
+    VkImageView view = VK_NULL_HANDLE;
+    if (vkCreateImageView(dd->device, &ci, nullptr, &view) != VK_SUCCESS) return image.image_view;
+    texture_views[p_guid] = TextureView{ image.image, view };
+    return view;
+}
 
 std::filesystem::path ThumbnailCache::_asset_file(EditorContext& ctx, Guid p_guid) const
 {
@@ -294,14 +350,14 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
         case AssetType::MODEL: {
             uint64_t stamp = STAMP_MISSING;
             const LModel* m = _parsed_model(ctx, p_guid, stamp);
-            if (!m || m->mesh == Guid{}) return false;
+            if (!m || !m->mesh.valid()) return false;
             key = _mix(_mix(_mix(key, stamp), m->mesh.value), _stamp(_content_file(ctx, m->mesh)));
             r_job.model = p_guid;
             r_job.mesh = m->mesh;
             r_job.materials = m->materials;
             for (size_t i = 0; i < m->materials.size(); ++i) {
                 key = _mix(key, i);
-                if (!(m->materials[i] == Guid{})) add_material(m->materials[i]);
+                if (m->materials[i].valid()) add_material(m->materials[i]);
             }
         } break;
         default:
@@ -335,22 +391,22 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
     }
 
     for (Guid g : p_job.materials) {
-        if (g == Guid{}) continue;
+        if (!g.valid()) continue;
         auto parsed = materials.find(g);
-        if (parsed == materials.end() || !(parsed->second.material.guid == g)) continue;
+        if (parsed == materials.end() || parsed->second.material.guid != g) continue;
         auto cached = r.materials.by_guid.find(g);
         if (cached == r.materials.by_guid.end()) {
             r.materials.set(parsed->second.material);
             return WAIT;
         }
-        if (!(cached->second.material == parsed->second.material)) return WAIT;
+        if (cached->second.material != parsed->second.material) return WAIT;
     }
 
     if (p_job.type == AssetType::MODEL) {
         auto parsed = models.find(p_job.model);
-        if (parsed == models.end() || !(parsed->second.model.guid == p_job.model)) return FAIL;
+        if (parsed == models.end() || parsed->second.model.guid != p_job.model) return FAIL;
         const ModelCache::Entry* cached = r.models.get(p_job.model);
-        if (!cached || !(cached->mesh == parsed->second.model.mesh) || cached->materials != parsed->second.model.materials) {
+        if (!cached || cached->mesh != parsed->second.model.mesh || cached->materials != parsed->second.model.materials) {
             r.models.load(_asset_file(ctx, p_job.model));
             return WAIT;
         }
@@ -364,7 +420,8 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
 
 VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_type)
 {
-    if (p_guid == Guid{} || !ctx.renderer) return VK_NULL_HANDLE;
+    if (!p_guid.valid() || !ctx.renderer) return VK_NULL_HANDLE;
+    if (p_type == AssetType::TEXTURE) return _texture_view(ctx, p_guid);
     if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL) return VK_NULL_HANDLE;
     Entry& e = entries[p_guid];
     if (e.type != p_type) {
@@ -455,7 +512,7 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         next.camera.far_z = distance + radius * 2.0f;
 
         if (next.type != AssetType::MODEL) r.models.set(next.model, next.mesh, next.materials);
-        if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && !(mc->model == next.model)) {
+        if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && mc->model != next.model) {
             mc->model = next.model;
             world.touch(entity);
         }

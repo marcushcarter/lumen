@@ -1,4 +1,5 @@
 #include <core/assets/guid.h>
+#include <core/base/hash.h>
 #include <chrono>
 #include <random>
 #include <thread>
@@ -8,15 +9,14 @@ namespace lumen {
 
 static constexpr char HEX[] = "0123456789abcdef";
 
-static inline uint64_t splitmix64(uint64_t& r_state)
+static inline uint64_t _splitmix64(uint64_t& r_state)
 {
-    uint64_t z = (r_state += 0x9e3779b97f4a7c15ull);
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
-    return z ^ (z >> 31);
+    const uint64_t z = hash_splitmix(r_state);
+    r_state += HASH_GOLDEN;
+    return z;
 }
 
-static uint64_t& generator_state()
+static uint64_t& _generator_state()
 {
     thread_local uint64_t state = []() -> uint64_t {
         std::random_device rd;
@@ -28,7 +28,7 @@ static uint64_t& generator_state()
     return state;
 }
 
-static inline int hex_value(char p_c)
+static inline int _hex_value(char p_c)
 {
     if (p_c >= '0' && p_c <= '9') return p_c - '0';
     if (p_c >= 'a' && p_c <= 'f') return p_c - 'a' + 10;
@@ -36,7 +36,7 @@ static inline int hex_value(char p_c)
     return -1;
 }
 
-static inline void write_hex64(char* p_out, uint64_t p_value)
+static inline void _write_hex64(char* p_out, uint64_t p_value)
 {
     for (int i = 15; i >= 0; --i) {
         p_out[i] = HEX[p_value & 0xf];
@@ -46,9 +46,9 @@ static inline void write_hex64(char* p_out, uint64_t p_value)
 
 Guid Guid::generate()
 {
-    uint64_t& state = generator_state();
+    uint64_t& state = _generator_state();
     uint64_t v;
-    do { v = splitmix64(state); } while (v == INVALID);
+    do { v = _splitmix64(state); } while (v == INVALID);
     return Guid{ v };
 }
 
@@ -57,7 +57,7 @@ Guid Guid::from_string(std::string_view p_text)
     if (p_text.size() != CHARS) return Guid{};
     uint64_t v = 0;
     for (char c : p_text) {
-        int d = hex_value(c);
+        int d = _hex_value(c);
         if (d < 0) return Guid{};
         v = (v << 4) | (uint64_t)d;
     }
@@ -66,7 +66,7 @@ Guid Guid::from_string(std::string_view p_text)
 
 void Guid::to_chars(char* r_out) const
 {
-    write_hex64(r_out, value);
+    _write_hex64(r_out, value);
     r_out[CHARS] = '\0';
 }
 
@@ -75,7 +75,7 @@ void Guid::to_path_chars(char* r_out) const
     r_out[0] = HEX[(value >> 60) & 0xf];
     r_out[1] = HEX[(value >> 56) & 0xf];
     r_out[2] = '/';
-    write_hex64(r_out + 3, value);
+    _write_hex64(r_out + 3, value);
     r_out[PATH_CHARS] = '\0';
 }
 

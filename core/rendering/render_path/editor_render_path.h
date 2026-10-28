@@ -15,7 +15,8 @@ struct EditorRenderPath : SceneRenderPath
 
     ImGuiFeature ui;
 
-    EditorRenderPath() {
+    void _register_features() override {
+        SceneRenderPath::_register_features();
         ui.viewport = "Viewport";
         ui.viewport_fallback = "DisplayColor";
         features.push_back(&debug);
@@ -25,4 +26,4 @@ struct EditorRenderPath : SceneRenderPath
     }
 };
 
-}
+}

@@ -70,13 +70,6 @@ struct OutlinerPanel : Panel
     bool delete_confirm_open = false;
     char delete_message[160] = {};
 
-    const char* name() const override { return ICON_FA_IMAGE "  Outliner"; }
-    DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
-    bool pinned() const override { return true; }
-    ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; }
-    ImVec2 window_padding() const override { return ui_style().outliner.padding; }
-    void draw_contents(EditorContext& ctx) override;
-
     void _refresh(const World& world, const EditorFolders& folders);
     void _rebuild(const World& world, const EditorFolders& folders, bool p_full);
     void _emit(const EditorFolders& folders, uint32_t p_slot, uint16_t p_depth);
@@ -102,7 +95,6 @@ struct OutlinerPanel : Panel
     void _new_entity(EditorContext& ctx);
     void _delete_selection(EditorContext& ctx);
     void _delete_now(EditorContext& ctx, bool p_keep_contents);
-    void _draw_delete_confirm(EditorContext& ctx);
     bool _can_drop(const EditorContext& ctx, uint32_t p_target) const;
     void _drop(EditorContext& ctx, uint32_t p_target);
     void _set_hidden(World& world, const EditorFolders& folders, uint32_t p_slot, bool p_hidden);
@@ -113,6 +105,13 @@ struct OutlinerPanel : Panel
     void _rename_commit(EditorContext& ctx);
     void _rename_end();
     bool _renaming(const Row& p_row) const;
+
+    const char* name() const override { return ICON_FA_IMAGE "  Outliner"; }
+    DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
+    bool pinned() const override { return true; }
+    ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; }
+    ImVec2 window_padding() const override { return ui_style().outliner.padding; }
+    void draw_contents(EditorContext& ctx) override;
 };
 
 }

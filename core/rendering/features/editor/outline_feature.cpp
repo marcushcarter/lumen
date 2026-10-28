@@ -238,7 +238,7 @@ Error OutlineFeature::create_pipelines()
     ctx->dd->shader_free(vs);
     ctx->dd->shader_free(fs);
     }
-    
+
     return Error::OK;
 }
 

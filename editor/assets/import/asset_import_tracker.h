@@ -15,14 +15,16 @@ struct Project;
 
 struct ImportControl;
 
-struct ImportChild {
+struct ImportChild
+{
     std::filesystem::path dst;
     Guid guid;
     std::filesystem::path content_bin;
     std::shared_ptr<ImportControl> control;
 };
 
-struct ImportControl {
+struct ImportControl
+{
     std::atomic<float> progress{ 0.0f };
     std::atomic<bool> cancel{ false };
     std::mutex children_mutex;
@@ -61,5 +63,5 @@ struct AssetImportTracker
 
     static Error resolve_import(const Project& p_project, AssetType p_type, const std::filesystem::path& p_dest, Guid& r_guid, std::filesystem::path& r_content_bin);
 };
-    
+
 }

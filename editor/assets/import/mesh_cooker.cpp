@@ -1,7 +1,7 @@
 #include <editor/assets/import/mesh_cooker.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <editor/assets/import/asset_import_tracker.h>
-#include <editor/assets/write_atomic.h>
+#include <core/io/file_io.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmesh.h>
 #include <core/project/project.h>
@@ -26,7 +26,8 @@ namespace lumen {
 
 using namespace glm;
 
-struct MeshSource {
+struct MeshSource
+{
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     std::vector<uint32_t> tri_slots;
@@ -41,7 +42,8 @@ struct MeshSource {
     vec4 bounds_sphere;
 };
 
-struct SrcVert {
+struct SrcVert
+{
     vec3 p;
     vec3 n;
     vec2 uv;
@@ -115,7 +117,7 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
                 const float sum = wv.x + wv.y + wv.z + wv.w;
                 wv = sum > 0.0f ? wv / sum : vec4(1.0f, 0.0f, 0.0f, 0.0f);
                 SkinVertex sv{};
-                sv.joints  = u8vec4((uint8_t)glm::min(acc_j[vi].x, 255u), (uint8_t)glm::min(acc_j[vi].y, 255u), (uint8_t)glm::min(acc_j[vi].z, 255u), (uint8_t)glm::min(acc_j[vi].w, 255u));
+                sv.joints = u8vec4((uint8_t)glm::min(acc_j[vi].x, 255u), (uint8_t)glm::min(acc_j[vi].y, 255u), (uint8_t)glm::min(acc_j[vi].z, 255u), (uint8_t)glm::min(acc_j[vi].w, 255u));
                 int q[4], q_sum = 0, q_max = 0;
                 for (int k = 0; k < 4; k++) { q[k] = (int)glm::round(wv[k] * 255.0f); q_sum += q[k]; if (q[k] > q[q_max]) q_max = k; }
                 q[q_max] += 255 - q_sum;
@@ -191,7 +193,7 @@ std::pair<uint32_t, uint32_t> _build_meshlets(const std::vector<SrcVert>& p_vert
 {
     const float cone_weight = 0.0f;
     const uint32_t max_tris = std::min(p_settings.max_tris, 256u);
-    
+
     const size_t max_meshlets = meshopt_buildMeshletsBound(p_idx.size(), p_settings.max_verts, max_tris);
     std::vector<meshopt_Meshlet> meshlets(max_meshlets);
     std::vector<unsigned int> mv(max_meshlets * p_settings.max_verts);
@@ -410,10 +412,10 @@ Error MeshCooker::_cook(const Job& p_job)
         log_write("MeshCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return Error::FAILED;
     }
-    return _cook_scene(p_job, scene);
+    return cook_scene(p_job, scene);
 }
 
-Error MeshCooker::_cook_scene(const Job& p_job, const aiScene* p_scene)
+Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
 {
     using enum Error;
 
@@ -423,7 +425,7 @@ Error MeshCooker::_cook_scene(const Job& p_job, const aiScene* p_scene)
         log_write("MeshCooker: no usable scene in %s", p_job.source.string().c_str());
         return FAILED;
     }
-    
+
     report(0.3f);
 
     MeshSource src;
@@ -447,7 +449,7 @@ Error MeshCooker::_cook_scene(const Job& p_job, const aiScene* p_scene)
     ph.cluster_count = (uint32_t)src.clusters.size();
     ph.group_count = (uint32_t)src.groups.size();
     ph.bvh_node_count = (uint32_t)src.bvh_nodes.size();
-    ph.flags = skinned ? MESH_FLAG_SKINNED : 0u;
+    ph.flags = (uint32_t)(skinned ? MeshFlags::SKINNED : MeshFlags::NONE);
     ph.pos_min = src.pos_min;
     ph.pos_extent = src.pos_extent;
     ph.uv_min = src.uv_min;

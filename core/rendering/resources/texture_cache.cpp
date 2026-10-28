@@ -2,10 +2,11 @@
 #include <core/assets/asset_common.h>
 #include <core/assets/ltexture.h>
 #include <vulkan/vk_enum_string_helper.h>
+#include <cstring>
 #include <fstream>
 
 namespace lumen {
-    
+
 Error TextureCache::initialize(drivers::DeviceDriverVulkan& r_dd)
 {
     dd = &r_dd;
@@ -14,18 +15,18 @@ Error TextureCache::initialize(drivers::DeviceDriverVulkan& r_dd)
 
 void TextureCache::shutdown()
 {
-    
+    clear();
 }
 
 void TextureCache::begin_frame(uint64_t p_frame_number, uint32_t p_frame_count)
 {
     frame_number = p_frame_number;
     frame_count = p_frame_count;
-    for (size_t i = 0; i < retired.size();) {
-        if (frame_number >= retired[i].frame + frame_count) {
-            dd->image_free(retired[i].image);
-            retired[i] = std::move(retired.back());
-            retired.pop_back();
+    for (size_t i = 0; i < _retired.size();) {
+        if (frame_number >= _retired[i].frame + frame_count) {
+            dd->image_free(_retired[i].image);
+            _retired[i] = std::move(_retired.back());
+            _retired.pop_back();
         } else {
             ++i;
         }
@@ -98,7 +99,7 @@ void TextureCache::unload(Guid p_guid)
     auto it = by_guid.find(p_guid);
     if (it == by_guid.end()) return;
     const uint32_t slot = it->second;
-    retired.push_back({ frame_number, std::move(slots[slot].image) });
+    _retired.push_back({ frame_number, std::move(slots[slot].image) });
     slots[slot] = LTexture{};
     free_slots.push_back(slot);
     by_guid.erase(it);
@@ -108,8 +109,8 @@ void TextureCache::unload(Guid p_guid)
 void TextureCache::clear()
 {
     for (auto& kv : by_guid) dd->image_free(slots[kv.second].image);
-    for (Retired& r : retired) dd->image_free(r.image);
-    retired.clear();
+    for (Retired& r : _retired) dd->image_free(r.image);
+    _retired.clear();
     slots.clear();
     free_slots.clear();
     by_guid.clear();

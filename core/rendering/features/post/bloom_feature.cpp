@@ -6,18 +6,6 @@
 
 namespace lumen {
 
-static drivers::DeviceDriverVulkan::ImageCreateInfo _mip_info(const char* p_name, uint32_t p_width, uint32_t p_height)
-{
-    drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
-    ci.name = p_name;
-    ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
-    ci.fixed_width = p_width;
-    ci.fixed_height = p_height;
-    return ci;
-}
-
 const char* BloomFeature::_up_source(uint32_t p_mip) const
 {
     return p_mip + 2 == mip_count ? DOWN_NAMES[p_mip + 1] : UP_NAMES[p_mip + 1];
@@ -30,7 +18,7 @@ void BloomFeature::_create_down_pass(uint32_t p_mip)
     pass.category = PASS_CATEGORY_POST;
     pass.setup = [this, p_mip](RenderGraph::Builder& b) {
         const char* src = p_mip == 0 ? source : DOWN_NAMES[p_mip - 1];
-        b.create_image(DOWN_NAMES[p_mip], _mip_info(DOWN_NAMES[p_mip], mip_width[p_mip], mip_height[p_mip]));
+        b.create_image(DOWN_NAMES[p_mip], _storage_image_info(DOWN_NAMES[p_mip], mip_width[p_mip], mip_height[p_mip]));
         b.read_image(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image(DOWN_NAMES[p_mip], VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
@@ -70,7 +58,7 @@ void BloomFeature::_create_up_pass(uint32_t p_mip)
     pass.name = "BloomUp" + std::to_string(p_mip);
     pass.category = PASS_CATEGORY_POST;
     pass.setup = [this, p_mip](RenderGraph::Builder& b) {
-        b.create_image(UP_NAMES[p_mip], _mip_info(UP_NAMES[p_mip], mip_width[p_mip], mip_height[p_mip]));
+        b.create_image(UP_NAMES[p_mip], _storage_image_info(UP_NAMES[p_mip], mip_width[p_mip], mip_height[p_mip]));
         b.read_image(DOWN_NAMES[p_mip], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image(_up_source(p_mip), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image(UP_NAMES[p_mip], VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);

@@ -1,7 +1,8 @@
 #include <editor/tabs/world/panels/outliner_panel.h>
-#include <editor/editor_context.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/application/editor_context.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
@@ -211,7 +212,7 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) _delete_selection(ctx);
     }
-    _draw_delete_confirm(ctx);
+    if (ui_confirm_delete("Delete Folder###outliner_delete", delete_confirm_open, delete_message, "This can't be undone.")) _delete_now(ctx, false);
 }
 
 void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
@@ -221,18 +222,14 @@ void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
     const float bw = ImGui::GetFrameHeight();
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-    if (dock_search_bar("##outliner_search", filter, sizeof(filter), -(bw * 2.0f + spacing * 2.0f + pad_x))) dirty = true;
+    if (ui_search_bar("##outliner_search", filter, sizeof(filter), -(bw * 2.0f + spacing * 2.0f + pad_x))) dirty = true;
 
-    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.transparent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.transparent);
+    ui_push_buttons(UiButton::GHOST);
     ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_SQUARE_PLUS, ImVec2(bw, bw))) _new_entity(ctx);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create entity");
+    if (ui_icon_button(ICON_FA_SQUARE_PLUS, bw, "Create entity")) _new_entity(ctx);
     ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_FOLDER_PLUS, ImVec2(bw, bw))) _new_folder(ctx);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Create folder (moves the selection into it)");
-    ImGui::PopStyleColor(3);
+    if (ui_icon_button(ICON_FA_FOLDER_PLUS, bw, "Create folder (moves the selection into it)")) _new_folder(ctx);
+    ui_pop_buttons();
 }
 
 void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
@@ -258,10 +255,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::TableSetColumnIndex(0);
     ImGui::TableHeader("##visibility");
     {
-        const ImVec2 min = ImGui::GetItemRectMin();
-        const ImVec2 max = ImGui::GetItemRectMax();
-        const ImVec2 ts = ImGui::CalcTextSize(ICON_FA_EYE);
-        ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor((min.x + max.x - ts.x) * 0.5f), ImFloor((min.y + max.y - ts.y) * 0.5f)), ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_EYE);
+        ui_text_centered(ImGui::GetWindowDrawList(), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_EYE);
     }
     for (int c = 1; c < 3; c++) {
         ImGui::TableSetColumnIndex(c);
@@ -309,7 +303,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::PopClipRect();
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered() && !io.KeyCtrl && !io.KeyShift) _clear_selection(ctx);
-    dock_menu_push_style();
+    ui_menu_push_style();
     if (ImGui::BeginPopupContextWindow("##outliner_empty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         if (ImGui::BeginMenu(ICON_FA_PLUS "  Add Entity")) {
             editor_spawn_menu_items(ctx, EditorFolders::ROOT);
@@ -321,7 +315,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         }
         ImGui::EndPopup();
     }
-    dock_menu_pop_style();
+    ui_menu_pop_style();
 
     ImGui::EndTable();
     ImGui::PopStyleVar(2);
@@ -385,12 +379,12 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
         }
         ImGui::EndDragDropTarget();
     }
-    dock_menu_push_style();
+    ui_menu_push_style();
     if (ImGui::BeginPopupContextItem("##row_menu")) {
         _row_menu(ctx, p_row);
         ImGui::EndPopup();
     }
-    dock_menu_pop_style();
+    ui_menu_pop_style();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 text_col = ImGui::GetColorU32(hidden ? ImGuiCol_TextDisabled : ImGuiCol_Text);
@@ -412,17 +406,9 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     x += icon_w + ui.outliner.icon_gap;
 
     if (_renaming(p_row)) {
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui.outliner.rename_pad_x, 0.0f));
-        ImGui::SetCursorScreenPos(ImVec2(x - ui.outliner.rename_pad_x, text_y));
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        if (rename_focus) {
-            ImGui::SetKeyboardFocusHere();
-            rename_focus = false;
-        }
-        const bool enter = ImGui::InputText("##rename", rename_buffer, sizeof(rename_buffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-        ImGui::PopStyleVar();
-        if (enter || ImGui::IsItemDeactivated()) {
-            if (!ImGui::IsKeyPressed(ImGuiKey_Escape, false)) _rename_commit(ctx);
+        const UiRename rename = ui_inline_rename(ImVec2(x, text_y), -FLT_MIN, rename_buffer, sizeof(rename_buffer), rename_focus);
+        if (rename != UiRename::NONE) {
+            if (rename == UiRename::COMMIT) _rename_commit(ctx);
             _rename_end();
         }
     } else {
@@ -709,34 +695,6 @@ void OutlinerPanel::_delete_now(EditorContext& ctx, bool p_keep_contents)
     if (!selection.entities.empty() || !p_keep_contents) expect_world_change = true;
     _clear_selection(ctx);
     dirty = true;
-}
-
-void OutlinerPanel::_draw_delete_confirm(EditorContext& ctx)
-{
-    static constexpr const char* POPUP = "Delete Folder###outliner_delete";
-    if (delete_confirm_open) {
-        ImGui::OpenPopup(POPUP);
-        delete_confirm_open = false;
-    }
-    const UiStyle& ui = ui_style();
-    dock_menu_push_style();
-    if (ImGui::BeginPopupModal(POPUP, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
-        ImGui::TextUnformatted(delete_message);
-        ImGui::TextDisabled("This can't be undone.");
-        ImGui::Spacing();
-        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.danger_soft);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft_active);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_strong);
-        if (ImGui::Button("Delete", ImVec2(ui.project_manager.button_width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-            _delete_now(ctx, false);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::PopStyleColor(3);
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(ui.project_manager.button_width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-    dock_menu_pop_style();
 }
 
 bool OutlinerPanel::_can_drop(const EditorContext& ctx, uint32_t p_target) const

@@ -8,8 +8,7 @@ struct RangeAllocator
 {
     static constexpr uint32_t INVALID = UINT32_MAX;
 
-    struct Block
-    {
+    struct Block {
         uint32_t offset;
         uint32_t size;
     };

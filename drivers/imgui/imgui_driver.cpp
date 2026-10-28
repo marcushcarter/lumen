@@ -1,13 +1,13 @@
 #include <drivers/imgui/imgui_driver.h>
-#include <drivers/imgui/ui_style.h>
 #include <backends/imgui_impl_win32.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <implot.h>
 #include <vulkan/vulkan.h>
-#include <iostream>
+#include <cstdio>
+#include <iterator>
 
 namespace lumen::drivers {
-    
+
 Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
 {
     using enum Error;
@@ -18,15 +18,10 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
     ImGui::CreateContext();
     ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    if (p_create_info.enable_docking) {
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    }
+    if (p_create_info.enable_docking) io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     io.IniFilename = nullptr;
-    
     ImGui::StyleColorsDark();
-    ui_style().build();
-    ui_style().apply_to_imgui();
 
     VkDescriptorPoolSize pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_SAMPLER, 100 },
@@ -41,11 +36,8 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
     pool_ci.pPoolSizes = pool_sizes;
 
     VkResult err = vkCreateDescriptorPool(device, &pool_ci, nullptr, &descriptor_pool);
-    LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED,
-        "Failed to initialize ImGui descriptor pool.");
-
-    LUMEN_ERR_FAIL_COND_V_MSG(!ImGui_ImplWin32_Init(p_create_info.hwnd), FAILED,
-        "Failed to initialize ImGui Win32 backend.");
+    LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "Failed to initialize ImGui descriptor pool.");
+    LUMEN_ERR_FAIL_COND_V_MSG(!ImGui_ImplWin32_Init(p_create_info.hwnd), FAILED, "Failed to initialize ImGui Win32 backend.");
 
     ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
     platform_io.Platform_CreateVkSurface = [](ImGuiViewport* vp, ImU64 vk_instance, const void* vk_allocator, ImU64* out_vk_surface) -> int {
@@ -53,13 +45,9 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
         surface_ci.hinstance = GetModuleHandleW(nullptr);
         surface_ci.hwnd = static_cast<HWND>(vp->PlatformHandle);
 
-        return vkCreateWin32SurfaceKHR(
-            reinterpret_cast<VkInstance>(vk_instance), &surface_ci,
-            reinterpret_cast<const VkAllocationCallbacks*>(vk_allocator),
-            reinterpret_cast<VkSurfaceKHR*>(out_vk_surface)
-        );
+        return vkCreateWin32SurfaceKHR(reinterpret_cast<VkInstance>(vk_instance), &surface_ci, reinterpret_cast<const VkAllocationCallbacks*>(vk_allocator), reinterpret_cast<VkSurfaceKHR*>(out_vk_surface));
     };
-    
+
     ImGui_ImplVulkan_InitInfo init_info{};
     init_info.Instance = p_create_info.instance;
     init_info.PhysicalDevice = p_create_info.physical_device;
@@ -82,6 +70,7 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
 
 void ImGuiDriver::shutdown()
 {
+    texture_cache.shutdown();
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImPlot::DestroyContext();
@@ -93,18 +82,17 @@ void ImGuiDriver::shutdown()
     }
 }
 
-void ImGuiDriver::begin_frame(uint64_t fn, uint32_t fc, uint64_t epoch)
+void ImGuiDriver::begin_frame(uint64_t p_frame_number, uint32_t p_frame_count, uint64_t p_resize_epoch)
 {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
-
-    texture_cache.begin_frame(fn, fc, epoch);
+    texture_cache.begin_frame(p_frame_number, p_frame_count, p_resize_epoch);
 }
 
-void ImGuiDriver::end_frame(uint64_t fn)
+void ImGuiDriver::end_frame(uint64_t p_frame_number)
 {
-    texture_cache.collect(fn);
+    texture_cache.collect(p_frame_number);
 }
 
 void ImGuiDriver::render()
@@ -114,10 +102,7 @@ void ImGuiDriver::render()
 
 void ImGuiDriver::record_commands(VkCommandBuffer p_cmd)
 {
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    if (draw_data) {
-        ImGui_ImplVulkan_RenderDrawData(draw_data, p_cmd);
-    }
+    if (ImDrawData* draw_data = ImGui::GetDrawData()) ImGui_ImplVulkan_RenderDrawData(draw_data, p_cmd);
 }
 
-}
+}

@@ -337,14 +337,14 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         args_ci.device_local = true;
         b.create_buffer("ClusterCullArgs", args_ci);
-        
+
         drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
         visible_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
         visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         visible_ci.device_local = true;
         b.create_buffer("VisibleClusters", visible_ci);
         b.create_buffer("VisibleClusters2", visible_ci);
-        
+
         drivers::DeviceDriverVulkan::BufferCreateInfo retest_ci{};
         retest_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint32_t);
         retest_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -378,7 +378,7 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         auto vis_clus = cl.graph->buffer("VisibleClusters");
         auto vis_clus2 = cl.graph->buffer("VisibleClusters2");
         auto retest = cl.graph->buffer("ClusterRetest");
-        
+
         struct Push {
             VkDeviceAddress cluster_refs_addr;
             VkDeviceAddress cull_addr;
@@ -522,7 +522,7 @@ void GeometryFeature::_create_cluster_retest_args_pass()
         auto retest = cl.graph->buffer("ClusterRetest");
         auto args = cl.graph->buffer("ClusterRetestArgs");
         auto hiz_args = cl.graph->buffer("HiZArgs2");
-        
+
         struct Push {
             VkDeviceAddress retest_addr;
             VkDeviceAddress args_addr;
@@ -686,13 +686,13 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         if (!p_late) {
             drivers::DeviceDriverVulkan::ImageCreateInfo depth_ci{};
             depth_ci.format = VK_FORMAT_D32_SFLOAT;
-            depth_ci.usage  = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            depth_ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
             depth_ci.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
             b.create_image("G_Depth", depth_ci);
 
             drivers::DeviceDriverVulkan::ImageCreateInfo vis_ci{};
             vis_ci.format = VK_FORMAT_R32_UINT;
-            vis_ci.usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            vis_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
             vis_ci.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
             b.create_image("G_Visibility", vis_ci);
 
@@ -800,41 +800,41 @@ void GeometryFeature::_create_material_resolve_pass()
     material_resolve_pass.name = "MaterialResolve";
     material_resolve_pass.category = PASS_CATEGORY_MATERIAL;
     material_resolve_pass.setup = [this](RenderGraph::Builder& b) {
-        
+
         drivers::DeviceDriverVulkan::ImageCreateInfo normal_ci{};
         normal_ci.name = "G_Normal";
         normal_ci.format = VK_FORMAT_R16G16_UNORM;
-        normal_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        normal_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Normal", normal_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo albedo_ci{};
         albedo_ci.name = "G_Albedo";
         albedo_ci.format = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
-        albedo_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        albedo_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Albedo", albedo_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo material_ci{};
         material_ci.name = "G_Material";
         material_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
-        material_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        material_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Material", material_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo custom_ci{};
         custom_ci.name = "G_Custom";
         custom_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
-        custom_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        custom_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Custom", custom_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo emissive_ci{};
         emissive_ci.name = "G_Emissive";
         emissive_ci.format = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
-        emissive_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        emissive_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Emissive", emissive_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo motion_ci{};
         motion_ci.name = "G_Motion";
         motion_ci.format = VK_FORMAT_R16G16_SFLOAT;
-        motion_ci.usage  = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        motion_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Motion", motion_ci);
 
         drivers::DeviceDriverVulkan::BufferCreateInfo tiles_ci{};
@@ -873,7 +873,7 @@ void GeometryFeature::_create_material_resolve_pass()
         auto refs = cl.graph->buffer("ClusterRefs");
         auto tiles = cl.graph->buffer("ShadingTiles");
         if (!tiles) return;
-        
+
         uint32_t gx = (vis->extent.width + 7) / 8;
         uint32_t gy = (vis->extent.height + 7) / 8;
 

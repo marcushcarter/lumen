@@ -3,6 +3,8 @@
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <intrin.h>
+#include <thread>
 
 #ifndef DWMWA_CAPTION_COLOR
 #define DWMWA_CAPTION_COLOR 35
@@ -24,10 +26,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandlerEx(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, ImGuiIO& io);
 
 namespace lumen::drivers {
-    
+
 static const wchar_t* LUMEN_WINDOW_CLASS = L"LumenWindowClass";
 
-static std::wstring utf8_to_wstring(const std::string& str)
+static std::wstring _utf8_to_wstring(const std::string& str)
 {
     if (str.empty()) return {};
     int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
@@ -75,8 +77,8 @@ Error WindowDriverWin32::window_create(const std::string& p_title, int p_width, 
     using enum Error;
 
     window.custom_titlebar = p_custom_titlebar;
-    
-    std::wstring title = utf8_to_wstring(p_title);
+
+    std::wstring title = _utf8_to_wstring(p_title);
 
     window.hwnd = CreateWindowExW(
         0, LUMEN_WINDOW_CLASS, title.c_str(),
@@ -276,7 +278,7 @@ void WindowDriverWin32::notify(const std::string& p_title, const std::string& p_
     nid.hWnd = window.hwnd;
     nid.uID = NOTIFY_ICON_ID;
 
-    if (!notify_icon_added) {
+    if (!_notify_icon_added) {
         HICON icon = (HICON)SendMessageW(window.hwnd, WM_GETICON, ICON_SMALL, 0);
         if (!icon) icon = (HICON)GetClassLongPtrW(window.hwnd, GCLP_HICONSM);
         if (!icon) icon = LoadIconW(nullptr, IDI_APPLICATION);
@@ -286,13 +288,13 @@ void WindowDriverWin32::notify(const std::string& p_title, const std::string& p_
         if (!Shell_NotifyIconW(NIM_ADD, &nid)) return;
         nid.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, &nid);
-        notify_icon_added = true;
+        _notify_icon_added = true;
     }
 
     nid.uFlags = NIF_INFO;
     nid.dwInfoFlags = NIIF_INFO | NIIF_RESPECT_QUIET_TIME;
-    wcsncpy_s(nid.szInfoTitle, utf8_to_wstring(p_title).c_str(), _TRUNCATE);
-    wcsncpy_s(nid.szInfo, utf8_to_wstring(p_message).c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfoTitle, _utf8_to_wstring(p_title).c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfo, _utf8_to_wstring(p_message).c_str(), _TRUNCATE);
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
@@ -308,13 +310,13 @@ void WindowDriverWin32::window_flash()
 
 void WindowDriverWin32::_notify_icon_remove()
 {
-    if (!notify_icon_added || !window.hwnd) return;
+    if (!_notify_icon_added || !window.hwnd) return;
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(nid);
     nid.hWnd = window.hwnd;
     nid.uID = NOTIFY_ICON_ID;
     Shell_NotifyIconW(NIM_DELETE, &nid);
-    notify_icon_added = false;
+    _notify_icon_added = false;
 }
 
 void WindowDriverWin32::window_set_custom_titlebar(bool p_enabled)
@@ -425,7 +427,7 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
                     }
                 }
             }
-                
+
             const int border = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
             if (!IsZoomed(p_hwnd)) {
                 bool l = cursor.x < border;
@@ -502,7 +504,7 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
             }
             break;
         }
-        
+
         case WM_NCLBUTTONDOWN: {
             if (window && window->custom_titlebar && (p_wparam == HTCLOSE || p_wparam == HTMAXBUTTON || p_wparam == HTMINBUTTON))
                 return 0;
@@ -516,7 +518,7 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
 WindowDriverWin32::SystemInfo WindowDriverWin32::get_system_info()
 {
     SystemInfo info;
-    
+
     {
         typedef LONG (WINAPI *RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
         RTL_OSVERSIONINFOW rovi{};
@@ -540,7 +542,7 @@ WindowDriverWin32::SystemInfo WindowDriverWin32::get_system_info()
             info.os_name = buf;
         }
     }
-    
+
     {
         int regs[4] = {};
         __cpuid(regs, 0x80000000);
@@ -556,7 +558,7 @@ WindowDriverWin32::SystemInfo WindowDriverWin32::get_system_info()
             info.cpu_brand = "Unknown CPU";
         }
     }
-    
+
     info.cpu_threads = std::thread::hardware_concurrency();
 
     {

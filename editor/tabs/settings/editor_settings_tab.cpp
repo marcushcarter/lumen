@@ -1,6 +1,6 @@
 #include <editor/tabs/settings/editor_settings_tab.h>
-#include <editor/editor_settings.h>
-#include <drivers/imgui/imgui_helpers.h>
+#include <editor/application/editor_settings.h>
+#include <editor/ui/ui_widgets.h>
 #include <drivers/windows/window_driver_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -39,14 +39,17 @@ void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
     if (ImGui::BeginCombo("Preset", Theme::theme_preset_name(s.theme.preset))) {
         for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
             if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, s.theme.preset == i)) {
-                s.theme.preset  = i;
+                s.theme.preset = i;
                 s.theme.base = Theme::THEME_PRESETS[i].base;
                 s.theme.accent = Theme::THEME_PRESETS[i].accent;
                 s.theme.text = Theme::THEME_PRESETS[i].text;
                 theme_changed = true;
             }
         }
-        if (ImGui::Selectable("Custom", s.theme.preset == -1)) { s.theme.preset = -1; theme_changed = true; }
+        if (ImGui::Selectable("Custom", s.theme.preset == -1)) {
+            s.theme.preset = -1;
+            theme_changed = true;
+        }
         ImGui::EndCombo();
     }
 
@@ -58,7 +61,10 @@ void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
     if (ImGui::Checkbox("Use system accent", &s.theme.use_system_accent)) theme_changed = true;
 
     bool custom = ctx.win32->window.custom_titlebar;
-    if (ImGui::Checkbox("Custom titlebar", &custom)) ctx.win32->window_set_custom_titlebar(custom);
+    if (ImGui::Checkbox("Custom titlebar", &custom)) {
+        ctx.win32->window_set_custom_titlebar(custom);
+        s.dirty = true;
+    }
 
     if (ImGui::Button("Reset to default theme", ImVec2(-FLT_MIN, 0.0f))) {
         s.theme = Theme{};
@@ -66,10 +72,16 @@ void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
     }
 
     int v = (int)s.vsync_mode;
-    if (ImGui::Combo("Vsync", &v, VSYNC_MODE_NAMES, 3)) { s.vsync_mode = (VsyncMode)v; s.dirty = true; }
+    if (ImGui::Combo("Vsync", &v, VSYNC_MODE_NAMES, (int)std::size(VSYNC_MODE_NAMES))) {
+        s.vsync_mode = (VsyncMode)v;
+        s.dirty = true;
+    }
     if (ImGui::DragInt("Fps_cap", &s.fps_cap, 1.0f, 0, 1000, s.fps_cap == 0 ? "Unlimited" : "%d", ImGuiSliderFlags_AlwaysClamp)) s.dirty = true;
 
-    if (theme_changed) _apply_theme(ctx);
+    if (theme_changed) {
+        _apply_theme(ctx);
+        s.dirty = true;
+    }
 
     ImGui::End();
 }

@@ -1,25 +1,25 @@
 #include <editor/project_manager/project_manager.h>
-#include <drivers/imgui/ui_style.h>
-#include <drivers/windows/dialogs_win32.h>
-#include <drivers/toml/toml_helpers.h>
-#include <core/project/project.h>
-#include <core/io/path.h>
 #include <core/base/error.h>
-#include <core/base/utils.h>
-#include <drivers/imgui/tab_strip.h>
+#include <core/base/hash.h>
+#include <core/base/strings.h>
+#include <core/io/path.h>
+#include <core/project/project.h>
 #include <drivers/git/git_driver.h>
+#include <drivers/toml/toml_helpers.h>
+#include <drivers/windows/dialogs_win32.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
-#include <cfloat>
-#include <cstdio>
-#include <cstring>
-
-#include <fstream>
 #include <algorithm>
 #include <cctype>
+#include <cfloat>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <ctime>
+#include <fstream>
 #include <numbers>
 
 namespace lumen {
@@ -74,9 +74,9 @@ void ProjectManager::load_recents()
         recent.push_back(std::move(e));
     }
 }
- 
+
 void ProjectManager::save_recents()
-{   
+{
     toml::array entries;
     for (const auto& e : recent) {
         toml::table t;
@@ -94,7 +94,7 @@ void ProjectManager::save_recents()
     if (!out) return;
     out << root << '\n';
 }
- 
+
 void ProjectManager::add_recent(const std::filesystem::path& p_root, std::string_view p_name)
 {
     bool was_fav = false;
@@ -105,7 +105,7 @@ void ProjectManager::add_recent(const std::filesystem::path& p_root, std::string
             break;
         }
     }
-    
+
     std::time_t t = std::time(nullptr);
     std::tm tm{};
     localtime_s(&tm, &t);
@@ -121,16 +121,9 @@ void ProjectManager::add_recent(const std::filesystem::path& p_root, std::string
     save_recents();
 }
 
-static uint32_t _name_hash(std::string_view p_name)
-{
-    uint32_t h = 2166136261u;
-    for (char c : p_name) { h ^= (uint8_t)c; h *= 16777619u; }
-    return h;
-}
-
 static void _draw_placeholder_thumb(ImDrawList* dl, ImVec2 p_min, ImVec2 p_max, std::string_view p_name, float p_rounding, float p_font_size)
 {
-    const float hue = (float)(_name_hash(p_name) % 360) / 360.0f;
+    const float hue = (float)(hash_fnv32(p_name) % 360) / 360.0f;
     dl->AddRectFilled(p_min, p_max, ImGui::GetColorU32((ImVec4)ImColor::HSV(hue, 0.35f, 0.42f)), p_rounding);
 
     char initials[3] = {};
@@ -185,33 +178,6 @@ static bool _chip(const char* p_label, bool p_on)
     dl->AddRect(p, q, p_on ? ui.color.accent_soft_active : ui.color.line, ui.radius.pill, 0, ui.stroke.hairline);
     dl->AddText(ImVec2(ImFloor(p.x + ui.project_manager.chip_pad_x), ImFloor(p.y + (size.y - ts.y) * 0.5f)), (p_on || hovered) ? ui.color.text : ui.color.text_dim, p_label, end);
     return pressed;
-}
-
-static void _push_primary_button()
-{
-    const UiStyle& ui = ui_style();
-    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.accent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.accent_hover);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.accent_active);
-    ImGui::PushStyleColor(ImGuiCol_Text, ui.color.text);
-}
-
-static void _push_run_button()
-{
-    const UiStyle& ui = ui_style();
-    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.success_soft);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.success_soft_hover);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.success_soft_active);
-    ImGui::PushStyleColor(ImGuiCol_Text, ui.color.success_text);
-}
-
-static void _push_neutral_button()
-{
-    const UiStyle& ui = ui_style();
-    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.field);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.field_hover);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.field_active);
-    ImGui::PushStyleColor(ImGuiCol_Text, ui.color.text);
 }
 
 static float _button_width(const char* p_label)
@@ -304,7 +270,7 @@ void ProjectManager::_draw_toolbar()
 
     const float row_y = ImFloor((ws.y - ui.stroke.hairline - ImGui::GetFrameHeight()) * 0.5f);
     ImGui::SetCursorPos(ImVec2(ui.toolbar.padding_x, row_y));
-    dock_search_bar("##filter", filter_buf, sizeof(filter_buf), pm.filter_width);
+    ui_search_bar("##filter", filter_buf, sizeof(filter_buf), pm.filter_width);
 
     int favorite_count = 0;
     int missing_count = 0;
@@ -339,19 +305,19 @@ void ProjectManager::_draw_toolbar()
     ImGui::SameLine();
     const char* sorts[] = { "Last Opened", "Name", "Path" };
     ImGui::SetNextItemWidth(pm.sort_width);
-    dock_field_push_style();
+    ui_field_push_style();
     ImGui::Combo("##sort", &sort_index, sorts, 3);
-    dock_field_pop_style();
+    ui_field_pop_style();
 
     ImGui::SameLine();
-    _push_neutral_button();
+    ui_push_buttons(UiButton::NEUTRAL);
     ImGui::Button(add_label);
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
 
     ImGui::SameLine();
-    _push_primary_button();
+    ui_push_buttons(UiButton::PRIMARY);
     if (ImGui::Button(new_label)) new_project_request = true;
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
 }
 
 void ProjectManager::_draw_list(EditorContext& ctx)
@@ -519,22 +485,22 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     const bool missing = e.missing;
 
     ImGui::BeginDisabled(missing);
-    _push_primary_button();
+    ui_push_buttons(UiButton::PRIMARY);
     if (ImGui::Button("Open in Editor", ImVec2(full, pm.action_height))) ctx.open_project_callback(e.path);
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
 
     ImGui::Dummy(ImVec2(0.0f, pm.action_gap - ImGui::GetStyle().ItemSpacing.y));
     const bool playing = ctx.run_is_running && ctx.run_is_running(e.path);
-    if (playing) _push_neutral_button();
-    else _push_run_button();
+    if (playing) ui_push_buttons(UiButton::NEUTRAL);
+    else ui_push_buttons(UiButton::SUCCESS);
     if (ImGui::Button(playing ? ICON_FA_STOP "  Stop" : ICON_FA_PLAY "  Run", ImVec2(full, pm.action_height)) && ctx.run_toggle) {
         ctx.run_toggle(e.path);
     }
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
     ImGui::EndDisabled();
 
     ImGui::Dummy(ImVec2(0.0f, pm.action_gap - ImGui::GetStyle().ItemSpacing.y));
-    _push_neutral_button();
+    ui_push_buttons(UiButton::NEUTRAL);
     if (ImGui::Button("Remove", ImVec2(half, pm.action_height))) {
         recent.erase(recent.begin() + selected);
         save_recents();
@@ -542,7 +508,6 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     }
     ImGui::SameLine(0.0f, pm.action_gap);
     ImGui::BeginDisabled(missing || playing);
-    // ImGui::Button("Delete", ImVec2(full - half - pm.action_gap, pm.action_height));
     if (ImGui::Button("Delete", ImVec2(full - half - pm.action_gap, pm.action_height))) {
         const std::wstring name = std::filesystem::path(reinterpret_cast<const char8_t*>(e.name.c_str())).wstring();
         const std::wstring heading = L"Delete \"" + name + L"\"?";
@@ -559,7 +524,7 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
     }
     ImGui::EndDisabled();
     if (playing && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Stop the running project first");
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
 
     ImGui::EndChild();
 }
@@ -674,7 +639,7 @@ void ProjectManager::_draw_new_project(EditorContext& ctx)
     const float start_x = ImGui::GetCursorPosX();
     const float frame_h = ImGui::GetFrameHeight();
 
-    // template thumbnail row goes here (layout A)
+    // template thumbnail row
 
     ImGui::TextUnformatted("Project Name:");
     ImGui::SetNextItemWidth(full);
@@ -702,7 +667,7 @@ void ProjectManager::_draw_new_project(EditorContext& ctx)
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", new_project_message.c_str());
 
     ImGui::SameLine();
-    _push_neutral_button();
+    ui_push_buttons(UiButton::NEUTRAL);
     if (ImGui::Button("Browse", ImVec2(pm.browse_width, 0.0f))) {
         const std::wstring picked = drivers::Win32Dialogs::open_folder(L"Choose project path");
         if (!picked.empty()) {
@@ -710,11 +675,10 @@ void ProjectManager::_draw_new_project(EditorContext& ctx)
             _new_project_validate();
         }
     }
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
 
     if (new_project_location[0] != '\0') ImGui::TextDisabled(ICON_FA_ARROW_RIGHT "  %s", _u8_string(new_project_root).c_str());
 
-    // fixed two-line slot so the popup doesn't jump as the message changes
     const float message_y = ImGui::GetCursorPosY();
     const float message_h = ImGui::GetTextLineHeight() * 2.0f + style.ItemSpacing.y;
     ImGui::PushStyleColor(ImGuiCol_Text, new_project_status == VALID ? ui.color.text_dim : status_col);
@@ -741,19 +705,19 @@ void ProjectManager::_draw_new_project(EditorContext& ctx)
     bool create = false;
     bool edit = false;
     ImGui::BeginDisabled(!can_create);
-    _push_primary_button();
+    ui_push_buttons(UiButton::PRIMARY);
     if (ImGui::Button(edit_label, ImVec2(edit_w, 0.0f))) create = edit = true;
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
     ImGui::SameLine();
-    _push_neutral_button();
+    ui_push_buttons(UiButton::NEUTRAL);
     if (ImGui::Button("Create", ImVec2(pm.button_width, 0.0f))) create = true;
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
     ImGui::EndDisabled();
 
     ImGui::SameLine();
-    _push_neutral_button();
+    ui_push_buttons(UiButton::NEUTRAL);
     const bool cancel = ImGui::Button("Cancel", ImVec2(pm.button_width, 0.0f));
-    ImGui::PopStyleColor(4);
+    ui_pop_buttons();
 
     if (can_create && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) create = edit = true;
     if (cancel || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();

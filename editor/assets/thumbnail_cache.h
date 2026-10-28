@@ -67,16 +67,18 @@ struct ThumbnailCache
     struct ParsedModel { uint64_t stamp = 0; LModel model; };
     struct Retired { drivers::DeviceDriverVulkan::Image image; uint64_t frame = 0; };
     struct PendingWrite { JobCounter counter; bool ok = false; };
+    struct TextureView { VkImage image = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE; };
+    struct RetiredView { VkImageView view = VK_NULL_HANDLE; uint64_t frame = 0; };
 
     drivers::DeviceDriverVulkan* dd = nullptr;
 
     std::filesystem::path dir;
     bool disk_scanned = false;
-    std::unordered_map<Guid, uint64_t, GuidHash, GuidEq> disk;
+    std::unordered_map<Guid, uint64_t> disk;
 
-    std::unordered_map<Guid, Entry, GuidHash, GuidEq> entries;
-    std::unordered_map<Guid, ParsedMaterial, GuidHash, GuidEq> materials;
-    std::unordered_map<Guid, ParsedModel, GuidHash, GuidEq> models;
+    std::unordered_map<Guid, Entry> entries;
+    std::unordered_map<Guid, ParsedMaterial> materials;
+    std::unordered_map<Guid, ParsedModel> models;
     std::deque<Guid> queue;
     Job job;
     uint64_t ticket_serial = 0;
@@ -91,6 +93,8 @@ struct ThumbnailCache
 
     std::vector<Retired> retired;
     std::vector<std::unique_ptr<PendingWrite>> writes;
+    std::unordered_map<Guid, TextureView> texture_views;
+    std::vector<RetiredView> retired_views;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd);
     void shutdown(EditorContext& ctx);
@@ -110,6 +114,8 @@ struct ThumbnailCache
     void _swap_image(EditorContext& ctx, Entry& r_entry, drivers::DeviceDriverVulkan::Image p_image, uint64_t p_key);
     void _retire(EditorContext& ctx, drivers::DeviceDriverVulkan::Image& r_image);
     void _collect(EditorContext& ctx, bool p_all);
+    VkImageView _texture_view(EditorContext& ctx, Guid p_guid);
+    void _retire_view(EditorContext& ctx, VkImageView p_view);
 
     bool _resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);

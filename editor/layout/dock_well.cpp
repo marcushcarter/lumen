@@ -1,6 +1,7 @@
 #include <editor/layout/dock_well.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
 #include <imgui_internal.h>
 
 namespace lumen {
@@ -99,11 +100,9 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (active) {
             active->panel->draw_contents(ctx);
         } else {
-            const char* hint = "Drop a panel here";
-            const ImVec2 ts = ImGui::CalcTextSize(hint);
             const ImVec2 wp = ImGui::GetWindowPos();
             const ImVec2 ws = ImGui::GetWindowSize();
-            ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(wp.x + (ws.x - ts.x) * 0.5f), ImFloor(wp.y + (ws.y - ts.y) * 0.5f)), ui.color.text_dim, hint);
+            ui_text_centered(ImGui::GetWindowDrawList(), wp, ImVec2(wp.x + ws.x, wp.y + ws.y), ui.color.text_dim, "Drop a panel here");
         }
     }
     ImGui::EndChild();
@@ -114,4 +113,4 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PopID();
 }
 
-}
+}

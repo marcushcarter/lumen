@@ -11,7 +11,7 @@ Error MaterialCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fr
     dd = &r_dd;
     frame_count = p_frame_count ? p_frame_count : 1;
     slot_buffers.resize(frame_count);
-    uploaded_version.assign(frame_count, UINT64_MAX);
+    _uploaded_version.assign(frame_count, UINT64_MAX);
     materials.assign(1, default_material());
     bins.assign(1, (uint8_t)RASTER_BIN_OPAQUE);
     return _grow(INITIAL_CAPACITY);
@@ -20,10 +20,10 @@ Error MaterialCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fr
 void MaterialCache::shutdown()
 {
     for (Buffer& b : slot_buffers) dd->buffer_free(b);
-    for (Retired& r : retired) dd->buffer_free(r.buffer);
+    for (Retired& r : _retired) dd->buffer_free(r.buffer);
     slot_buffers.clear();
-    retired.clear();
-    uploaded_version.clear();
+    _retired.clear();
+    _uploaded_version.clear();
     by_guid.clear();
     materials.clear();
     bins.clear();
@@ -34,11 +34,11 @@ void MaterialCache::shutdown()
 void MaterialCache::begin_frame(uint64_t p_frame_number)
 {
     frame_number = p_frame_number;
-    for (size_t i = 0; i < retired.size();) {
-        if (frame_number >= retired[i].frame + frame_count) {
-            dd->buffer_free(retired[i].buffer);
-            retired[i] = std::move(retired.back());
-            retired.pop_back();
+    for (size_t i = 0; i < _retired.size();) {
+        if (frame_number >= _retired[i].frame + frame_count) {
+            dd->buffer_free(_retired[i].buffer);
+            _retired[i] = std::move(_retired.back());
+            _retired.pop_back();
         } else {
             ++i;
         }
@@ -68,7 +68,7 @@ Error MaterialCache::set(const LMaterial& p_material)
 {
     using enum Error;
     const LMaterial& m = p_material;
-    if (m.guid == Guid{}) return FAILED;
+    if (!m.guid.valid()) return FAILED;
 
     auto it = by_guid.find(m.guid);
     if (it != by_guid.end()) {
@@ -129,7 +129,7 @@ GPUMaterial MaterialCache::_build(const LMaterial& p_material, const TextureCach
 
 uint8_t MaterialCache::_bin(const LMaterial& p_material)
 {
-    const bool masked = p_material.alpha_mode == AlphaMode::MASKED && (p_material.base_color_texture != Guid{} || p_material.base_color.a < p_material.alpha_cutoff);
+    const bool masked = p_material.alpha_mode == AlphaMode::MASKED && (p_material.base_color_texture.valid() || p_material.base_color.a < p_material.alpha_cutoff);
     return (uint8_t)((masked ? RASTER_BIN_MASKED : 0u) | (p_material.two_sided ? RASTER_BIN_TWO_SIDED : 0u));
 }
 
@@ -144,25 +144,25 @@ Error MaterialCache::_grow(uint32_t p_capacity)
 {
     using enum Error;
     for (Buffer& b : slot_buffers) {
-        if (b.buffer) retired.push_back({ frame_number, std::move(b) });
+        if (b.buffer) _retired.push_back({ frame_number, std::move(b) });
         b = dd->buffer_create({ .size = (VkDeviceSize)p_capacity * sizeof(GPUMaterial), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "materials" });
         LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "MaterialCache: material buffer allocation failed.");
     }
     capacity = p_capacity;
-    uploaded_version.assign(slot_buffers.size(), UINT64_MAX);
+    _uploaded_version.assign(slot_buffers.size(), UINT64_MAX);
     return OK;
 }
 
 void MaterialCache::resolve(const TextureCache& p_textures)
 {
-    if (built_content == content_version && built_textures == p_textures.version) return;
+    if (_built_content == content_version && _built_textures == p_textures.version) return;
 
     materials[MATERIAL_DEFAULT] = default_material();
     for (uint32_t i : free_slots) materials[i] = default_material();
     for (const auto& [guid, entry] : by_guid) materials[entry.index] = _build(entry.material, p_textures);
 
-    built_content = content_version;
-    built_textures = p_textures.version;
+    _built_content = content_version;
+    _built_textures = p_textures.version;
     version++;
 }
 
@@ -174,13 +174,13 @@ void MaterialCache::upload(uint32_t p_frame)
         while (next < materials.size()) next *= 2;
         if (_grow(next) != Error::OK) return;
     }
-    if (uploaded_version[p_frame] == version) return;
+    if (_uploaded_version[p_frame] == version) return;
 
     Buffer& b = slot_buffers[p_frame];
     const VkDeviceSize bytes = (VkDeviceSize)materials.size() * sizeof(GPUMaterial);
     dd->buffer_update(b, materials.data(), bytes);
     dd->buffer_flush(b, 0, bytes);
-    uploaded_version[p_frame] = version;
+    _uploaded_version[p_frame] = version;
 }
 
 GPUMaterial MaterialCache::default_material()

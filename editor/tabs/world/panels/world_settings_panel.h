@@ -10,5 +10,5 @@ struct WorldSettingsPanel : Panel
     DockZone default_zone() const override { return DockZone::RIGHT_BOTTOM; }
     void draw_contents(EditorContext&) override;
 };
-    
+
 }

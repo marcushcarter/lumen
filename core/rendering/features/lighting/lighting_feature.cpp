@@ -63,7 +63,7 @@ void LightingFeature::_create_lighting_pass()
         if (!depth || !albedo || !normal || !material || !emissive || !camera || !lights || !out) return;
         if (!atmosphere || !sky_lighting || !transmittance || !aerial || !skyview || !lut_sampler) return;
         const bool local_lights = cull && sorted;
-        const uint32_t mode = !local_lights ? LIGHT_MODE_NONE : (masks ? LIGHT_MODE_TILED : LIGHT_MODE_ZBIN);
+        const uint32_t mode = (uint32_t)(!local_lights ? LightMode::NONE : (masks ? LightMode::TILED : LightMode::ZBIN));
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -144,8 +144,8 @@ Error LightingFeature::create_pipelines()
     const VkSpecializationMapEntry entries[2] = { { 0, 0, sizeof(uint32_t) }, { 1, sizeof(uint32_t), sizeof(uint32_t) } };
     for (uint32_t t = 0; t < SHADING_TILE_TYPES; t++) {
         for (uint32_t m = 0; m < LIGHT_MODE_COUNT; m++) {
-            if ((t == SHADING_TILE_SKY || t == SHADING_TILE_UNLIT) && m != LIGHT_MODE_NONE) {
-                lighting_pipes[t][m] = lighting_pipes[t][LIGHT_MODE_NONE];
+            if ((t == SHADING_TILE_SKY || t == SHADING_TILE_UNLIT) && m != (uint32_t)LightMode::NONE) {
+                lighting_pipes[t][m] = lighting_pipes[t][(uint32_t)LightMode::NONE];
                 continue;
             }
             const uint32_t values[2] = { m, t };
@@ -161,7 +161,7 @@ void LightingFeature::destroy_resources()
 {
     for (uint32_t t = 0; t < SHADING_TILE_TYPES; t++) {
         for (uint32_t m = 0; m < LIGHT_MODE_COUNT; m++) {
-            if ((t != SHADING_TILE_SKY && t != SHADING_TILE_UNLIT) || m == LIGHT_MODE_NONE) ctx->dd->pipeline_free(lighting_pipes[t][m]);
+            if ((t != SHADING_TILE_SKY && t != SHADING_TILE_UNLIT) || m == (uint32_t)LightMode::NONE) ctx->dd->pipeline_free(lighting_pipes[t][m]);
             lighting_pipes[t][m] = {};
         }
     }

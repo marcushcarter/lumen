@@ -4,18 +4,6 @@
 
 namespace lumen {
 
-static drivers::DeviceDriverVulkan::ImageCreateInfo _lut_info(uint32_t p_width, uint32_t p_height, const char* p_name, VkFormat p_format = VK_FORMAT_R16G16B16A16_SFLOAT)
-{
-    drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
-    ci.format = p_format;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
-    ci.fixed_width = p_width;
-    ci.fixed_height = p_height;
-    ci.name = p_name;
-    return ci;
-}
-
 void AtmosphereFeature::_create_transmittance_pass()
 {
     transmittance_pass.name = "AtmosphereTransmittance";
@@ -138,7 +126,7 @@ void AtmosphereFeature::_create_aerial_pass()
     aerial_pass.name = "AtmosphereAerialPerspective";
     aerial_pass.category = PASS_CATEGORY_LIGHTING;
     aerial_pass.setup = [](RenderGraph::Builder& b) {
-        b.create_image("AerialPerspective", _lut_info(AERIAL_SIZE * AERIAL_SLICES, AERIAL_SIZE, "AerialPerspective", VK_FORMAT_R16G16B16A16_SFLOAT));
+        b.create_image("AerialPerspective", _storage_image_info("AerialPerspective", AERIAL_SIZE * AERIAL_SLICES, AERIAL_SIZE));
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
@@ -213,7 +201,7 @@ void AtmosphereFeature::_create_sky_lighting_pass()
 
 drivers::DeviceDriverVulkan::Image AtmosphereFeature::_create_lut(uint32_t p_width, uint32_t p_height, const char* p_name)
 {
-    drivers::DeviceDriverVulkan::ImageCreateInfo ci = _lut_info(p_width, p_height, p_name);
+    drivers::DeviceDriverVulkan::ImageCreateInfo ci = _storage_image_info(p_name, p_width, p_height);
     ci.pool = ctx->dd->image_persistent_pool;
     return ctx->dd->image_create_dedicated(ci, { p_width, p_height });
 }

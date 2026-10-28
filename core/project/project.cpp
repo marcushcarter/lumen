@@ -1,11 +1,16 @@
 #include <core/project/project.h>
 #include <core/io/path.h>
+#include <core/io/file_io.h>
 #include <drivers/toml/toml_helpers.h>
+#include <cstring>
 #include <fstream>
-#include <cstdio>
-#include <cstdlib>
+#include <sstream>
 
 namespace lumen {
+
+/***************/
+/**** FILES ****/
+/***************/
 
 void Project::_resolve_dirs(const std::filesystem::path& p_root)
 {
@@ -41,6 +46,10 @@ std::filesystem::path Project::content_path(Guid p_guid) const
     return content_dir / buf;
 }
 
+/***************/
+/**** STATE ****/
+/***************/
+
 Error Project::load(const std::filesystem::path& p_root)
 {
     using enum Error;
@@ -65,7 +74,7 @@ Error Project::load(const std::filesystem::path& p_root)
         return FAILED;
     }
 
-    settings.width  = tbl.at_path("window.width").value_or(settings.width);
+    settings.width = tbl.at_path("window.width").value_or(settings.width);
     settings.height = tbl.at_path("window.height").value_or(settings.height);
     settings.window_icon = Guid::from_string(tbl.at_path("window.icon").value_or(std::string{}));
     settings.window_title = tbl.at_path("window.title").value_or(std::string{});
@@ -81,6 +90,10 @@ Error Project::load(const std::filesystem::path& p_root)
 void Project::unload()
 {
     root.clear();
+    data_dir.clear();
+    assets_dir.clear();
+    content_dir.clear();
+    editor_dir.clear();
     name.clear();
     settings = {};
 }
@@ -102,17 +115,15 @@ Error Project::save() const
     window.insert_or_assign("width", settings.width);
     window.insert_or_assign("height", settings.height);
     window.insert_or_assign("title", settings.window_title);
-    window.insert_or_assign("icon", settings.window_icon == Guid{} ? std::string{} : settings.window_icon.to_string());
+    window.insert_or_assign("icon", !settings.window_icon.valid() ? std::string{} : settings.window_icon.to_string());
 
     toml::table out_tbl;
     out_tbl.insert_or_assign("project", std::move(project));
     out_tbl.insert_or_assign("window", std::move(window));
 
-    std::ofstream out(root / FILE_NAME, std::ios::binary);
-    if (!out) return FAILED;
-    out << out_tbl << '\n';
-
-    return OK;
+    std::ostringstream ss;
+    ss << out_tbl << '\n';
+    return write_file_atomic(root / FILE_NAME, ss.str()) ? OK : FAILED;
 }
 
 Error Project::create(const std::filesystem::path& p_root, std::string_view p_name)
@@ -168,19 +179,12 @@ Error Project::destroy(const std::filesystem::path& p_root)
 
 std::string Project::peek_name(const std::filesystem::path& p_root)
 {
-    std::ifstream f(p_root / FILE_NAME);
-    if (!f) return p_root.filename().string();
-    std::string line;
-    while (std::getline(f, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line.empty() || line[0] == '#') continue;
-        size_t sp = line.find(' ');
-        if (sp == std::string::npos) continue;
-        if (line.substr(0, sp) == "project.name")
-            return line.substr(sp + 1);
-    }
     return p_root.filename().string();
 }
+
+/*********************/
+/**** ASSET PATHS ****/
+/*********************/
 
 std::string Project::asset_path_from(const std::filesystem::path& p_assets_dir, const std::filesystem::path& p_path)
 {

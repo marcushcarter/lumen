@@ -1,8 +1,8 @@
 #include <editor/assets/texture_viewer.h>
 #include <editor/assets/asset_registry.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <drivers/imgui/imgui_driver.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/ui_style.h>
 #include <core/rendering/renderer.h>
 #include <vulkan/vk_enum_string_helper.h>
 #include <IconsFontAwesome6.h>
@@ -152,7 +152,7 @@ void TextureViewer::shutdown()
 
 void TextureViewer::open(Guid p_guid)
 {
-    if (!is_open || !(guid == p_guid)) {
+    if (!is_open || guid != p_guid) {
         channel = Channel::RGBA;
         mip = -1;
         _fit_pending = true;

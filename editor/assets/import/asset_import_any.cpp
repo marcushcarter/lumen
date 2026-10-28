@@ -6,7 +6,7 @@
 
 namespace lumen {
 
-static std::string lower_ext(const std::filesystem::path& p)
+static std::string _lower_ext(const std::filesystem::path& p)
 {
     std::string e = p.extension().string();
     std::transform(e.begin(), e.end(), e.begin(), [](unsigned char c){ return (char)std::tolower(c); });
@@ -15,7 +15,7 @@ static std::string lower_ext(const std::filesystem::path& p)
 
 bool is_importable(const std::filesystem::path& p_src)
 {
-    const std::string e = lower_ext(p_src);
+    const std::string e = _lower_ext(p_src);
     return
         e == ".png" || e == ".jpg" || e == ".jpeg" || e == ".tga" || e == ".bmp" || // images
         e == ".fbx" || e == ".gltf" || e == ".glb" || e == ".obj" || e == ".dae" || e == ".stl" || e == ".ply" || e == ".3ds" || e == ".blend"; // models
@@ -23,7 +23,7 @@ bool is_importable(const std::filesystem::path& p_src)
 
 bool asset_import_any(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst)
 {
-    const std::string e = lower_ext(p_src);
+    const std::string e = _lower_ext(p_src);
 
     if (e == ".png" || e == ".jpg" || e == ".jpeg" || e == ".tga" || e == ".bmp") {
         const std::filesystem::path dst = p_dst / (p_src.stem().wstring() + L".ltexture");

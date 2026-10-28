@@ -11,8 +11,7 @@ struct EditorFolders
     static constexpr uint32_t ROOT = EditorFolderComponent::ROOT;
     static constexpr uint32_t MAX_NAME = 64;
 
-    struct Folder
-    {
+    struct Folder {
         Guid guid;
         uint32_t parent = ROOT;
         char name[MAX_NAME] = {};

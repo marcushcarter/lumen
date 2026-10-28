@@ -1,17 +1,18 @@
 #include <windows.h>
 #include <core/application/application.h>
 #include <core/application/launch_args.h>
-#include <game/game_application.h>
+#include <game/application/game_application.h>
 #include <cstdio>
 
 #if defined(LUMEN_EDITOR)
-    #include <editor/editor_application.h>
+    #include <editor/application/editor_application.h>
 #elif !defined(LUMEN_GAME)
     #error "lumen_main.cpp requires LUMEN_EDITOR or LUMEN_GAME"
 #endif
 
 #if !defined(LUMEN_CONSOLE)
-static void attach_console_or_null() {
+static void _attach_console_or_null()
+{
     FILE* dummy;
     if (AttachConsole(ATTACH_PARENT_PROCESS)) {
         freopen_s(&dummy, "CONOUT$", "w", stdout);
@@ -25,7 +26,8 @@ static void attach_console_or_null() {
 }
 #endif
 
-static std::unique_ptr<lumen::Application> create_application(const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info) {
+static std::unique_ptr<lumen::Application> _create_application(const lumen::LaunchArgs& p_args, lumen::ApplicationCreateInfo& info)
+{
 #if defined(LUMEN_EDITOR)
     if (!p_args.game) {
         info.window_title = "Lumen Editor";
@@ -44,15 +46,16 @@ static std::unique_ptr<lumen::Application> create_application(const lumen::Launc
     return game;
 }
 
-static int run_app() {
+static int _run_app()
+{
     lumen::ApplicationCreateInfo info;
-    info.width  = 1280;
+    info.width = 1280;
     info.height = 720;
 
     const lumen::LaunchArgs args = lumen::LaunchArgs::parse_command_line();
 
-    auto app = create_application(args, info);
-    
+    auto app = _create_application(args, info);
+
     lumen::Error err = app->initialize(info);
     if (err == lumen::Error::OK) err = app->run();
     if (err != lumen::Error::OK) app->report_fatal_error(err);
@@ -60,12 +63,14 @@ static int run_app() {
 }
 
 #if defined(LUMEN_CONSOLE)
-int main() {
-    return run_app();
+int main()
+{
+    return _run_app();
 }
 #else
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    attach_console_or_null();
-    return run_app();
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+{
+    _attach_console_or_null();
+    return _run_app();
 }
 #endif

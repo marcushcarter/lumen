@@ -1,4 +1,5 @@
 #pragma once
+#include <core/base/enum_flags.h>
 #include <cstdint>
 #include <string>
 #include <type_traits>
@@ -13,9 +14,11 @@ TextureUsage texture_usage_from_name(const std::string& p_name, TextureUsage p_f
 const char* texture_quality_name(TextureQuality p_quality);
 TextureQuality texture_quality_from_name(const std::string& p_name, TextureQuality p_fallback);
 
-enum TextureFlags : uint32_t { TEXTURE_FLAG_SRGB = 1u << 0, TEXTURE_FLAG_NORMAL_MAP = 1u << 1 };
+enum class TextureFlags : uint32_t { NONE = 0, SRGB = 1u << 0, NORMAL_MAP = 1u << 1 };
+LUMEN_ENUM_FLAGS(TextureFlags)
 
-struct LTexturePayloadHeader {
+struct LTexturePayloadHeader
+{
     uint32_t vk_format;
     uint32_t width;
     uint32_t height;

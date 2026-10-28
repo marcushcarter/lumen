@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 
 namespace lumen {
-    
+
 using namespace glm;
 
 static constexpr uint32_t MAX_INSTANCES = 64u * 1024;
@@ -18,8 +18,8 @@ static constexpr uint32_t LIGHT_TILE_WORDS = MAX_VISIBLE_LIGHTS / 32;
 static constexpr uint64_t LIGHT_CULL_ZBINS_OFFSET = 16 + 2 * LIGHT_ZBIN_COUNT * sizeof(uint32_t);
 static constexpr uint64_t LIGHT_CULL_DATA_SIZE = LIGHT_CULL_ZBINS_OFFSET + LIGHT_ZBIN_COUNT * 2 * sizeof(uint32_t);
 
-
-struct CameraUniform {
+struct CameraUniform
+{
     mat4 prev_view_proj;
     mat4 curr_view_proj;
     vec4 position;
@@ -32,14 +32,16 @@ struct CameraUniform {
     vec4 jitter;
 };
 
-struct Instance {
+struct Instance
+{
     uint32_t mesh_id;
     uint32_t transform_id;
     uint32_t entity_id;
     uint32_t slot_base;
 };
 
-struct Transform {
+struct Transform
+{
     mat4 prev_mtx;
     mat4 curr_mtx;
 };
@@ -65,11 +67,13 @@ static constexpr uint32_t SHADING_TILE_TYPES = 4u;
 static constexpr uint32_t SHADING_TILES_HEADER_SIZE = SHADING_TILE_TYPES * 16u + 16u;
 static constexpr uint32_t SHADING_TILES_ARGS_STRIDE = 16u;
 
-inline uint32_t shading_tile_count(uint32_t p_width, uint32_t p_height) {
+inline uint32_t shading_tile_count(uint32_t p_width, uint32_t p_height)
+{
     return ((p_width + SHADING_TILE_SIZE - 1) / SHADING_TILE_SIZE) * ((p_height + SHADING_TILE_SIZE - 1) / SHADING_TILE_SIZE);
 }
 
-struct GPUMaterial {
+struct GPUMaterial
+{
     vec4 base_color;
     vec3 emissive;
     float alpha_cutoff;
@@ -93,7 +97,8 @@ static_assert(sizeof(GPUMaterial) == 112, "GPUMaterial layout changed");
 static constexpr uint32_t LIGHT_IES_NONE = 0xFFFF;
 static constexpr uint32_t LIGHT_SHADOW_NONE = 0xFFFFFFFF;
 
-struct GpuLight {
+struct GpuLight
+{
     vec3 position;
     float range;
     vec3 radiance;
@@ -106,7 +111,8 @@ struct GpuLight {
     uint32_t fade;
 };
 
-struct GpuAtmosphere {
+struct GpuAtmosphere
+{
     mat4 world_to_celestial;
     vec3 rayleigh_scattering;
     float rayleigh_density_scale;

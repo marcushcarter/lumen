@@ -9,8 +9,7 @@ namespace lumen {
 
 struct AssetRegistry
 {
-    struct Entry
-    {
+    struct Entry {
         std::filesystem::path path;
         std::string asset_path;
         std::string name;

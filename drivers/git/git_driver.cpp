@@ -120,7 +120,7 @@ void GitDriver::initialize(const std::filesystem::path& p_root)
     {
         std::lock_guard lock(mutex);
         status = {};
-        ref_signature.clear();
+        _ref_signature.clear();
     }
     // existing repos pick up new ignore patterns too, so editor-only files never show up as changes
     if (_git_dir_exists()) _ignore_ensure();
@@ -133,7 +133,7 @@ void GitDriver::shutdown()
     repo_root.clear();
     std::lock_guard lock(mutex);
     status = {};
-    ref_signature.clear();
+    _ref_signature.clear();
 }
 
 bool GitDriver::refresh()
@@ -501,7 +501,7 @@ bool GitDriver::repo_init_now(const std::filesystem::path& p_root, const std::st
     {
         std::lock_guard lock(mutex);
         status = {};
-        ref_signature.clear();
+        _ref_signature.clear();
     }
 
     bool ok = false;
@@ -552,15 +552,15 @@ const char* GitDriver::operation_name(Operation p_operation)
 
 bool GitDriver::changes_poll()
 {
-    if (repo_root.empty() || busy || polling.exchange(true)) return false;
-    if (poll_worker.joinable()) poll_worker.join();
-    poll_worker = std::thread([this] {
+    if (repo_root.empty() || busy || _polling.exchange(true)) return false;
+    if (_poll_worker.joinable()) _poll_worker.join();
+    _poll_worker = std::thread([this] {
         State state;
         std::string signature;
         {
             std::lock_guard lock(mutex);
             state = status.state;
-            signature = ref_signature;
+            signature = _ref_signature;
         }
         bool folder_flagged;
         {
@@ -571,12 +571,12 @@ bool GitDriver::changes_poll()
         const bool folder = std::filesystem::is_directory(repo_root, ec);
         const bool git_dir = _git_dir_exists();
         if (state == State::NO_GIT || state == State::CHECKING) {
-            polling = false;
+            _polling = false;
             return;
         }
         if (folder == folder_flagged || git_dir != has_repo(state) || (git_dir && _signature() != signature)) _refresh_sync();
         else if (git_dir) changes_now();
-        polling = false;
+        _polling = false;
     });
     return true;
 }
@@ -664,8 +664,8 @@ bool GitDriver::_start(std::vector<Step> p_steps)
 bool GitDriver::_start_job(std::function<bool()> p_job, bool p_report)
 {
     if (repo_root.empty() || busy.exchange(true)) return false;
-    if (worker.joinable()) worker.join();
-    worker = std::thread([this, job = std::move(p_job), p_report] {
+    if (_worker.joinable()) _worker.join();
+    _worker = std::thread([this, job = std::move(p_job), p_report] {
         const bool ok = job();
         _refresh_sync();
         _finish(ok, p_report);
@@ -832,7 +832,7 @@ void GitDriver::_refresh_sync()
     }
     s.version = status.version + 1;
     status = std::move(s);
-    ref_signature = signature;
+    _ref_signature = signature;
 }
 
 std::vector<std::string> GitDriver::_parse_changes(const std::string& p_porcelain)
@@ -966,8 +966,8 @@ bool GitDriver::_run(const Step& p_step, std::string& r_output)
 
 void GitDriver::_join()
 {
-    if (worker.joinable()) worker.join();
-    if (poll_worker.joinable()) poll_worker.join();
+    if (_worker.joinable()) _worker.join();
+    if (_poll_worker.joinable()) _poll_worker.join();
 }
 
-}
+}

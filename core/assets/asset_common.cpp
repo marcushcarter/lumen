@@ -1,6 +1,7 @@
 #include <core/assets/asset_common.h>
 #include <core/assets/lmesh.h>
 #include <toml++/toml.hpp>
+#include <fstream>
 
 namespace lumen {
 

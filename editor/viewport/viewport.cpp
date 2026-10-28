@@ -1,7 +1,7 @@
 #include <editor/viewport/viewport.h>
 #include <drivers/imgui/imgui_driver.h>
-#include <drivers/imgui/imgui_helpers.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
+#include <editor/ui/ui_style.h>
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_graph.h>
 #include <core/rendering/render_path/editor_render_path.h>
@@ -201,7 +201,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         const uint32_t h = (uint32_t)ImClamp(size.y * screen_percentage, 1.0f, 8192.0f);
         ctx.renderer->request_size(w, h);
     }
-    
+
     if (ctx.render_path) {
         const DebugView& view = DEBUG_VIEWS[selected_view];
         const bool lit = view.op == DebugViewOp::COPY && view.image && std::strcmp(view.image, "DisplayColor") == 0;
@@ -213,7 +213,7 @@ void Viewport::_draw_image(EditorContext& ctx)
     RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
     VkImageView sel_view = VK_NULL_HANDLE;
     if (sel && sel->image && sel->image->state.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) sel_view = sel->image->image_view;
-    
+
     VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
     bool pick_click = false;
     bool look_click = false;
@@ -360,4 +360,4 @@ void Viewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::EndChild();
 }
 
-}
+}

@@ -12,7 +12,6 @@ struct ModelDetailsPanel : Panel
 
     const char* name() const override { return ICON_FA_CUBES "  Model"; }
     DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
-    // bool closable() const override { return false; }
     bool pinned() const override { return true; }
     void draw_contents(EditorContext& ctx) override;
 };

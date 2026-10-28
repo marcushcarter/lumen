@@ -1,14 +1,14 @@
 #include <editor/viewport/overlay_bar.h>
-#include <drivers/imgui/imgui_helpers.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_style.h>
 #include <imgui.h>
 #include <cstdio>
 #include <algorithm>
 
 namespace lumen {
 
-static void overlay_push_style()
+static void _overlay_push_style()
 {
     const UiStyle& ui = ui_style();
     ImGui::PushStyleColor(ImGuiCol_Button, ui.color.overlay);
@@ -17,7 +17,7 @@ static void overlay_push_style()
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui.overlay.rounding);
 }
 
-static void overlay_pop_style()
+static void _overlay_pop_style()
 {
     ImGui::PopStyleVar(1);
     ImGui::PopStyleColor(3);
@@ -61,12 +61,12 @@ bool OverlayBar::_emit(const char* p_label, ImVec2 p_size, bool p_active)
 
     ImGui::SetCursorScreenPos(ImVec2(x, row_y));
 
-    overlay_push_style();
+    _overlay_push_style();
     int pushed = 0;
     if (p_active) { ImGui::PushStyleColor(ImGuiCol_Button, active_col); ++pushed; }
     const bool clicked = ImGui::Button(p_label, ImVec2(w, h));
     if (pushed) ImGui::PopStyleColor(pushed);
-    overlay_pop_style();
+    _overlay_pop_style();
     return clicked;
 }
 
@@ -127,12 +127,12 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
 
     ImGui::SetCursorScreenPos(ImVec2(x, row_y));
 
-    overlay_push_style();
+    _overlay_push_style();
     int pushed = 0;
     if (ImGui::IsPopupOpen(p_label)) { ImGui::PushStyleColor(ImGuiCol_Button, active_col); ++pushed; }
     const bool clicked = ImGui::Button(p_label, ImVec2(w, h));
     if (pushed) ImGui::PopStyleColor(pushed);
-    overlay_pop_style();
+    _overlay_pop_style();
 
     const ImVec2 bmin = ImGui::GetItemRectMin();
     const ImVec2 bmax = ImGui::GetItemRectMax();
@@ -142,16 +142,16 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
     const ImVec2 anchor(right ? bmax.x : bmin.x, bmax.y + ui_style().menu.popup_offset);
     ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, 0.0f));
 
-    dock_menu_push_style();
+    ui_menu_push_style();
     const bool open = ImGui::BeginPopup(p_label, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    if (!open) dock_menu_pop_style();
+    if (!open) ui_menu_pop_style();
     return open;
 }
 
 void OverlayBar::end_menu()
 {
     ImGui::EndPopup();
-    dock_menu_pop_style();
+    ui_menu_pop_style();
 }
 
 void OverlayBar::gap(float p_w)

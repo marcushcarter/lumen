@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <iterator>
 #include <string_view>
 
 namespace lumen {
@@ -15,7 +16,7 @@ inline const char* vsync_mode_name(VsyncMode p_mode)
 
 inline VsyncMode vsync_mode_from_name(std::string_view p_name, VsyncMode p_fallback)
 {
-    for (int i = 0; i < 3; i++) if (p_name == VSYNC_MODE_NAMES[i]) return (VsyncMode)i;
+    for (int i = 0; i < (int)std::size(VSYNC_MODE_NAMES); i++) if (p_name == VSYNC_MODE_NAMES[i]) return (VsyncMode)i;
     return p_fallback;
 }
 

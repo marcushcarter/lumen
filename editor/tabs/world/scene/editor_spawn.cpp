@@ -1,7 +1,7 @@
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <core/world/components.h>
 #include <core/rendering/renderer.h>
 #include <IconsFontAwesome6.h>

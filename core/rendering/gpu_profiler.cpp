@@ -14,26 +14,26 @@ Error GpuProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
     using enum Error;
 
     dd = &r_dd;
-    period_ns = dd->physical_device_properties.limits.timestampPeriod;
+    _period_ns = dd->physical_device_properties.limits.timestampPeriod;
 
     uint32_t valid_bits = dd->timestamp_valid_bits(dd->cd->graphics_queue_family);
-    if (valid_bits == 0 || period_ns == 0.0) {
+    if (valid_bits == 0 || _period_ns == 0.0) {
         supported = false;
-        active = prev_active = false;
-        log_write("GpuProfiler: GPU timing unsupported (validBits=%u, period=%f).", valid_bits, period_ns);
+        active = _prev_active = false;
+        log_write("GpuProfiler: GPU timing unsupported (validBits=%u, period=%f).", valid_bits, _period_ns);
         return OK;
     }
 
     supported = true;
     stats_supported = supported && dd->physical_device_features.pipelineStatisticsQuery && dd->physical_device_features.occlusionQueryPrecise;
-    valid_mask = (valid_bits >= 64) ? ~0ull : ((1ull << valid_bits) - 1);
+    _valid_mask = (valid_bits >= 64) ? ~0ull : ((1ull << valid_bits) - 1);
 
     if (!stats_supported) {
         log_write("GpuProfiler: extended stats UNSUPPORTED (pipelineStatisticsQuery=%d, occlusionQueryPrecise=%d).", (int)dd->physical_device_features.pipelineStatisticsQuery, (int)dd->physical_device_features.occlusionQueryPrecise);
     }
 
-    slots.resize(p_frame_count);
-    for (Slot& s : slots) {
+    _slots.resize(p_frame_count);
+    for (Slot& s : _slots) {
         s.pool = dd->query_pool_create_timestamp(CAPACITY);
         if (stats_supported) {
             s.stat_pool = dd->query_pool_create_pipeline_statistics(CAPACITY, VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT | VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT);
@@ -42,31 +42,31 @@ Error GpuProfiler::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
         s.marks.reserve(256);
     }
 
-    raw_scratch.resize(CAPACITY);
-    stat_scratch.resize(static_cast<size_t>(CAPACITY) * STAT_COUNT);
-    occl_scratch.resize(CAPACITY);
+    _raw_scratch.resize(CAPACITY);
+    _stat_scratch.resize(static_cast<size_t>(CAPACITY) * STAT_COUNT);
+    _occl_scratch.resize(CAPACITY);
     return OK;
 }
 
 void GpuProfiler::shutdown()
 {
-    for (Slot& s : slots) {
+    for (Slot& s : _slots) {
         dd->query_pool_free(s.pool);
         if (stats_supported) {
             dd->query_pool_free(s.stat_pool);
             dd->query_pool_free(s.occl_pool);
         }
     }
-    slots.clear();
-    raw_scratch.clear();
-    stat_scratch.clear();
-    occl_scratch.clear();
-    name_table.clear();
+    _slots.clear();
+    _raw_scratch.clear();
+    _stat_scratch.clear();
+    _occl_scratch.clear();
+    _name_table.clear();
     _named_ids.clear();
     _clear_results();
     supported = false;
     stats_supported = false;
-    active = prev_active = false;
+    active = _prev_active = false;
     stats_active = false;
 }
 
@@ -76,30 +76,25 @@ void GpuProfiler::shutdown()
 
 uint64_t GpuProfiler::intern(std::string_view p_s)
 {
-    uint64_t h = 1469598103934665603ull;
-    for (char c : p_s) { h ^= static_cast<uint8_t>(c); h *= 1099511628211ull; }
-    return h;
+    return hash_fnv(p_s);
 }
 
 uint64_t GpuProfiler::intern_named(std::string_view p_s)
 {
     uint64_t id = intern(p_s);
-    if (_named_ids.insert(id, (uint32_t)name_table.size())) name_table.emplace_back(p_s);
+    if (_named_ids.insert(id, (uint32_t)_name_table.size())) _name_table.emplace_back(p_s);
     return id;
 }
 
 uint64_t GpuProfiler::draw_key(uint64_t p_pass_name_id, uint64_t p_name_id, uint32_t p_occurrence)
 {
-    uint64_t h = p_pass_name_id;
-    h ^= p_name_id + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-    h ^= static_cast<uint64_t>(p_occurrence) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-    return h;
+    return hash_combine(hash_combine(p_pass_name_id, p_name_id), p_occurrence);
 }
 
 const char* GpuProfiler::name_of(uint64_t p_id) const
 {
     const uint32_t i = _named_ids.get(p_id);
-    return i != IdMap::NONE ? name_table[i].c_str() : "?";
+    return i != IdMap::NONE ? _name_table[i].c_str() : "?";
 }
 
 /*******************/
@@ -120,13 +115,13 @@ void GpuProfiler::_clear_results()
         h.timings.clear();
     }
     history_head = 0;
-    last_query_count = 0;
-    last_stat_count = 0;
+    _last_query_count = 0;
+    _last_stat_count = 0;
 }
 
 bool GpuProfiler::_write_boundary(VkCommandBuffer p_cmd, uint32_t& r_index)
 {
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
     if (s.query_count >= s.reset_count) { s.overflowed = true; return false; }
     r_index = s.query_count++;
     dd->command_write_timestamp(p_cmd, s.pool, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, r_index);
@@ -139,20 +134,20 @@ void GpuProfiler::_resolve()
     if (!active) return;
     if (frozen) return;
 
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
     if (!s.recorded) return;
     if (s.query_count < 2 || s.marks.empty()) { results.clear(); total_ms = 0.0; total_draws = 0; result_frame = UINT64_MAX; return; }
 
-    if (dd->query_pool_get_results(s.pool, 0, s.query_count, raw_scratch.data()) != OK) return;
+    if (dd->query_pool_get_results(s.pool, 0, s.query_count, _raw_scratch.data()) != OK) return;
 
-    last_query_count = s.query_count;
-    last_stat_count = s.stat_count;
+    _last_query_count = s.query_count;
+    _last_stat_count = s.stat_count;
     truncated = s.overflowed;
 
     bool have_stats = s.stats_recorded && s.stat_count > 0;
     if (have_stats) {
-        Error e1 = dd->query_pool_get_results(s.stat_pool, 0, s.stat_count, stat_scratch.data(), STAT_COUNT);
-        Error e2 = dd->query_pool_get_results(s.occl_pool, 0, s.occl_count, occl_scratch.data(), 1);
+        Error e1 = dd->query_pool_get_results(s.stat_pool, 0, s.stat_count, _stat_scratch.data(), STAT_COUNT);
+        Error e2 = dd->query_pool_get_results(s.occl_pool, 0, s.occl_count, _occl_scratch.data(), 1);
         if (e1 != OK || e2 != OK) have_stats = false;
     }
 
@@ -161,23 +156,23 @@ void GpuProfiler::_resolve()
 
     auto delta_ms = [&](uint32_t p_a, uint32_t p_b) -> double {
         if (p_a == INVALID || p_b == INVALID) return 0.0;
-        uint64_t a = raw_scratch[p_a] & valid_mask;
-        uint64_t b = raw_scratch[p_b] & valid_mask;
-        return (b >= a ? double(b - a) : 0.0) * period_ns * 1e-6;
+        uint64_t a = _raw_scratch[p_a] & _valid_mask;
+        uint64_t b = _raw_scratch[p_b] & _valid_mask;
+        return (b >= a ? double(b - a) : 0.0) * _period_ns * 1e-6;
     };
 
-    uint64_t cal_gpu = raw_scratch[0] & valid_mask;
+    uint64_t cal_gpu = _raw_scratch[0] & _valid_mask;
     int64_t cal_cpu = s.submit_ticks;
     uint64_t max_deviation = 0;
     const bool aligned = dd->timestamps_calibrate(cal_gpu, cal_cpu, max_deviation);
-    cal_gpu &= valid_mask;
-    const double cpu_per_gpu = period_ns * cpu_profiler().ticks_per_ns;
+    cal_gpu &= _valid_mask;
+    const double cpu_per_gpu = _period_ns * cpu_profiler().ticks_per_ns;
 
     auto to_ticks = [&](uint32_t p_query) -> int64_t {
         if (p_query == INVALID) return 0;
-        const uint64_t d = ((raw_scratch[p_query] & valid_mask) - cal_gpu) & valid_mask;
+        const uint64_t d = ((_raw_scratch[p_query] & _valid_mask) - cal_gpu) & _valid_mask;
         int64_t sd = (int64_t)d;
-        if (valid_mask != ~0ull && d > (valid_mask >> 1)) sd = (int64_t)d - (int64_t)(valid_mask + 1);
+        if (_valid_mask != ~0ull && d > (_valid_mask >> 1)) sd = (int64_t)d - (int64_t)(_valid_mask + 1);
         return cal_cpu + (int64_t)std::llround((double)sd * cpu_per_gpu);
     };
 
@@ -208,10 +203,10 @@ void GpuProfiler::_resolve()
         t.kind = m.kind;
 
         if (m.kind == MarkKind::DRAW && have_stats && m.stat_query != INVALID) {
-            const uint64_t* st = &stat_scratch[static_cast<size_t>(m.stat_query) * STAT_COUNT];
+            const uint64_t* st = &_stat_scratch[static_cast<size_t>(m.stat_query) * STAT_COUNT];
             t.vertices = st[0];
             t.primitives = st[1];
-            t.samples = (m.occl_query != INVALID) ? occl_scratch[m.occl_query] : 0;
+            t.samples = (m.occl_query != INVALID) ? _occl_scratch[m.occl_query] : 0;
         }
         t.instances = m.instances;
 
@@ -249,24 +244,24 @@ void GpuProfiler::_resolve()
 
 void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
 {
-    slot = p_slot;
+    _slot = p_slot;
 
     CpuProfiler& cpu = cpu_profiler();
     cpu.zone_begin("GPU Profiler Resolve");
     _resolve();
     cpu.zone_end();
 
-    prev_active = active;
+    _prev_active = active;
     active = supported && settings && settings->gpu_on();
     stats_active = active && stats_supported;
 
-    if (prev_active && !active) {
+    if (_prev_active && !active) {
         _clear_results();
-        for (Slot& s : slots) s.recorded = false;
+        for (Slot& s : _slots) s.recorded = false;
     }
     if (!active) return;
 
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
     s.marks.clear();
     s.query_count = 0;
     s.stat_count = 0;
@@ -280,12 +275,12 @@ void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
     s.frame_number = frame_number;
     s.submit_ticks = 0;
 
-    uint32_t want = std::max(RESET_MIN, last_query_count * 2);
+    uint32_t want = std::max(RESET_MIN, _last_query_count * 2);
     s.reset_count = std::min(CAPACITY, want);
     dd->command_reset_query_pool(p_cmd, s.pool, 0, s.reset_count);
 
     if (stats_active) {
-        uint32_t swant = std::max(RESET_MIN, last_stat_count * 2);
+        uint32_t swant = std::max(RESET_MIN, _last_stat_count * 2);
         s.stat_reset = std::min(CAPACITY, swant);
         dd->command_reset_query_pool(p_cmd, s.stat_pool, 0, s.stat_reset);
         dd->command_reset_query_pool(p_cmd, s.occl_pool, 0, s.stat_reset);
@@ -299,7 +294,7 @@ void GpuProfiler::frame_begin(VkCommandBuffer p_cmd, uint32_t p_slot)
 void GpuProfiler::frame_end()
 {
     if (!active) return;
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
     s.recorded = true;
     s.stats_recorded = stats_active;
 }
@@ -307,13 +302,13 @@ void GpuProfiler::frame_end()
 void GpuProfiler::frame_submitted(int64_t p_ticks)
 {
     if (!active) return;
-    slots[slot].submit_ticks = p_ticks;
+    _slots[_slot].submit_ticks = p_ticks;
 }
 
 void GpuProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)
 {
     if (!active) return;
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
 
     Mark m;
     m.name_id = intern_named(p_name);
@@ -337,8 +332,8 @@ void GpuProfiler::pass_begin(VkCommandBuffer p_cmd, std::string_view p_name, std
 
 void GpuProfiler::pass_end(VkCommandBuffer p_cmd, uint32_t p_draw_count)
 {
-    if (!active || slots[slot].open_pass == INVALID) return;
-    Slot& s = slots[slot];
+    if (!active || _slots[_slot].open_pass == INVALID) return;
+    Slot& s = _slots[_slot];
     Mark& m = s.marks[s.open_pass];
 
     m.draw_count = p_draw_count;
@@ -355,7 +350,7 @@ void GpuProfiler::pass_end(VkCommandBuffer p_cmd, uint32_t p_draw_count)
 void GpuProfiler::sync_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_category)
 {
     if (!active) return;
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
 
     Mark m;
     m.name_id = intern_named(p_name);
@@ -377,8 +372,8 @@ void GpuProfiler::sync_begin(VkCommandBuffer p_cmd, std::string_view p_name, std
 
 void GpuProfiler::sync_end(VkCommandBuffer p_cmd)
 {
-    if (!active || slots[slot].open_barrier == INVALID) return;
-    Slot& s = slots[slot];
+    if (!active || _slots[_slot].open_barrier == INVALID) return;
+    Slot& s = _slots[_slot];
     Mark& m = s.marks[s.open_barrier];
 
     uint32_t ts;
@@ -392,7 +387,7 @@ void GpuProfiler::sync_end(VkCommandBuffer p_cmd)
 void GpuProfiler::_leaf_begin(VkCommandBuffer p_cmd, std::string_view p_name, std::string_view p_type, MarkKind p_kind, uint32_t p_instances, bool p_query_stats)
 {
     if (!active) return;
-    Slot& s = slots[slot];
+    Slot& s = _slots[_slot];
     if (s.open_pass == INVALID) return;
 
     const uint64_t pass_name_id = s.marks[s.open_pass].name_id;
@@ -439,8 +434,8 @@ void GpuProfiler::_leaf_begin(VkCommandBuffer p_cmd, std::string_view p_name, st
 
 void GpuProfiler::_leaf_end(VkCommandBuffer p_cmd)
 {
-    if (!active || slots[slot].open_draw == INVALID) return;
-    Slot& s = slots[slot];
+    if (!active || _slots[_slot].open_draw == INVALID) return;
+    Slot& s = _slots[_slot];
     Mark& m = s.marks[s.open_draw];
 
     if (stats_active && m.stat_query != INVALID) {

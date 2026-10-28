@@ -12,8 +12,7 @@ struct FrameStats
     static constexpr uint32_t MAX_WAITS = 64;
     static constexpr float RESOLVE_INTERVAL_S = 0.5f;
 
-    struct Row
-    {
+    struct Row {
         const char* name;
         bool wait;
         float samples[HISTORY];

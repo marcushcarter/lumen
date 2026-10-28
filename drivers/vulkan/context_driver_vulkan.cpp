@@ -1,7 +1,6 @@
 #include <drivers/vulkan/context_driver_vulkan.h>
 #include <core/version.h>
 #include <windows.h>
-#include <iostream>
 
 namespace lumen::drivers {
 
@@ -30,7 +29,8 @@ Error ContextDriverVulkan::_initialize_vulkan_version()
     return OK;
 }
 
-void ContextDriverVulkan::_register_requested_instance_extension(const std::string& p_extension_name, bool p_required) {
+void ContextDriverVulkan::_register_requested_instance_extension(const std::string& p_extension_name, bool p_required)
+{
     requested_instance_extensions[p_extension_name] = p_required;
 }
 
@@ -42,9 +42,8 @@ Error ContextDriverVulkan::_initialize_instance_extensions()
 
     _register_requested_instance_extension(VK_KHR_SURFACE_EXTENSION_NAME, true);
     _register_requested_instance_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME, true);
-    
+
     _register_requested_instance_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true);
-    // _register_requested_instance_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false);
     _register_requested_instance_extension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, false);
 
     uint32_t instance_extension_count = 0;
@@ -74,7 +73,7 @@ Error ContextDriverVulkan::_initialize_instance_extensions()
                 ("Required Vulkan instance extension " + name + " was not found.").c_str());
         }
     }
-        
+
     return OK;
 }
 
@@ -131,7 +130,6 @@ Error ContextDriverVulkan::_initialize_instance()
     //     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     // }
 
-    // Instance
     VkApplicationInfo app_info{ VK_STRUCTURE_TYPE_APPLICATION_INFO };
     app_info.pApplicationName = LUMEN_VERSION_NAME;
     app_info.applicationVersion = VK_MAKE_VERSION(LUMEN_VERSION_MAJOR, LUMEN_VERSION_MINOR, LUMEN_VERSION_PATCH);
@@ -168,21 +166,13 @@ Error ContextDriverVulkan::_initialize_instance()
     }
 
     VkResult result = vkCreateInstance(&instance_ci, nullptr, &instance);
-    LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED,
-        "vkCreateInstance failed. Do you have a compatible Vulkan driver installed?");
+    LUMEN_ERR_FAIL_COND_V_MSG(result != VK_SUCCESS, FAILED, "vkCreateInstance failed. Do you have a compatible Vulkan driver installed?");
 
-    // Debug Messenger
     if (validation_enabled) {
         functions.DebugUtilsMessengerCallbackEXT = _debug_messenger_callback;
 
         VkDebugUtilsMessengerCreateInfoEXT debug_messenger_ci{ VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
-
-        debug_messenger_ci.messageSeverity =
-            // VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-            // VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-
+        debug_messenger_ci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         debug_messenger_ci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         debug_messenger_ci.pfnUserCallback = functions.DebugUtilsMessengerCallbackEXT;
         debug_messenger_ci.pUserData = this;
@@ -192,12 +182,10 @@ Error ContextDriverVulkan::_initialize_instance()
 
         VkResult debug_result = func(instance, &debug_messenger_ci, nullptr, &debug_messenger);
         LUMEN_ERR_FAIL_COND_V_MSG(debug_result != VK_SUCCESS, FAILED, "Failed to create Vulkan debug messenger.");
-        
+
         functions.DestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
         LUMEN_ERR_FAIL_COND_V_MSG(!functions.DestroyDebugUtilsMessengerEXT, FAILED, "vkDestroyDebugUtilsMessengerEXT not present.");
     }
-
-    // fill functions
 
     return OK;
 }
@@ -219,23 +207,23 @@ Error ContextDriverVulkan::_initialize_devices()
     err = vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data());
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, "vkEnumeratePhysicalDevices (fetch) failed.");
 
-	for (uint32_t i = 0; i < physical_devices.size(); i++) {
-		VkPhysicalDeviceProperties props;
-		vkGetPhysicalDeviceProperties(physical_devices[i], &props);
+    for (uint32_t i = 0; i < physical_devices.size(); i++) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(physical_devices[i], &props);
 
-		DriverDevice& driver_device = driver_devices[i];
+        DriverDevice& driver_device = driver_devices[i];
         driver_device.name = std::wstring(props.deviceName, props.deviceName + strlen(props.deviceName));
         driver_device.vendor_id = props.vendorID;
         driver_device.device_type = props.deviceType;
 
-		uint32_t queue_family_properties_count = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_properties_count, nullptr);
+        uint32_t queue_family_properties_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_properties_count, nullptr);
 
-		if (queue_family_properties_count > 0) {
-			device_queue_families[i].properties.resize(queue_family_properties_count);
-			vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_properties_count, device_queue_families[i].properties.data());
-		}
-	}
+        if (queue_family_properties_count > 0) {
+            device_queue_families[i].properties.resize(queue_family_properties_count);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_properties_count, device_queue_families[i].properties.data());
+        }
+    }
 
     return OK;
 }
@@ -244,18 +232,18 @@ Error ContextDriverVulkan::initialize()
 {
     using enum Error;
     Error err;
-    
+
     err = _initialize_vulkan_version();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = _initialize_instance_extensions();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = _initialize_instance();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = _initialize_devices();
-	LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     return OK;
 }
@@ -307,7 +295,7 @@ Error ContextDriverVulkan::surface_create(HWND p_hwnd)
     VkResult err = vkCreateWin32SurfaceKHR(instance, &surface_ci, nullptr, &surface.surface);
     LUMEN_ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED,
         "vkCreateWin32SurfaceKHR failed.");
-        
+
     surface.needs_resize = true;
 
     return OK;
@@ -318,9 +306,9 @@ void ContextDriverVulkan::surface_set_size(uint32_t p_width, uint32_t p_height)
     if (p_width == 0 || p_height == 0) return;
     if (p_width == surface.width && p_height == surface.height) return;
 
-	surface.width = p_width;
-	surface.height = p_height;
-	surface.needs_resize = true;
+    surface.width = p_width;
+    surface.height = p_height;
+    surface.needs_resize = true;
 }
 
 void ContextDriverVulkan::surface_set_vsync_mode(VsyncMode p_mode)
@@ -330,7 +318,7 @@ void ContextDriverVulkan::surface_set_vsync_mode(VsyncMode p_mode)
     surface.needs_resize = true;
 }
 
-static void resolve_queue_families(VkPhysicalDevice p_device, VkSurfaceKHR p_surface, const std::vector<VkQueueFamilyProperties>& p_queue_properties, int& r_graphics, int& r_present, int& r_transfer, int& r_compute)
+static void _resolve_queue_families(VkPhysicalDevice p_device, VkSurfaceKHR p_surface, const std::vector<VkQueueFamilyProperties>& p_queue_properties, int& r_graphics, int& r_present, int& r_transfer, int& r_compute)
 {
     r_graphics = -1;
     r_present = -1;
@@ -362,7 +350,7 @@ static void resolve_queue_families(VkPhysicalDevice p_device, VkSurfaceKHR p_sur
     if (r_compute < 0) r_compute = r_graphics;
 }
 
-static bool device_has_required_extensions(VkPhysicalDevice p_device, const std::vector<const char*>& p_required)
+static bool _device_has_required_extensions(VkPhysicalDevice p_device, const std::vector<const char*>& p_required)
 {
     uint32_t ext_count = 0;
     vkEnumerateDeviceExtensionProperties(p_device, nullptr, &ext_count, nullptr);
@@ -399,11 +387,11 @@ Error ContextDriverVulkan::physical_device_select(int p_override_index)
 
         VkPhysicalDevice candidate = physical_devices[p_override_index];
 
-        LUMEN_ERR_FAIL_COND_V_MSG(!device_has_required_extensions(candidate, required_device_extensions), FAILED,
+        LUMEN_ERR_FAIL_COND_V_MSG(!_device_has_required_extensions(candidate, required_device_extensions), FAILED,
             "Requested physical device does not support required extensions.");
 
         int graphics, present, transfer, compute;
-        resolve_queue_families(candidate, surface.surface, device_queue_families[p_override_index].properties,
+        _resolve_queue_families(candidate, surface.surface, device_queue_families[p_override_index].properties,
             graphics, present, transfer, compute);
 
         LUMEN_ERR_FAIL_COND_V_MSG(graphics < 0 || present < 0, FAILED,
@@ -423,12 +411,12 @@ Error ContextDriverVulkan::physical_device_select(int p_override_index)
     for (uint32_t i = 0; i < physical_devices.size(); ++i) {
         VkPhysicalDevice candidate = physical_devices[i];
 
-        if (!device_has_required_extensions(candidate, required_device_extensions)) {
+        if (!_device_has_required_extensions(candidate, required_device_extensions)) {
             continue;
         }
 
         int graphics, present, transfer, compute;
-        resolve_queue_families(candidate, surface.surface, device_queue_families[i].properties,
+        _resolve_queue_families(candidate, surface.surface, device_queue_families[i].properties,
             graphics, present, transfer, compute);
 
         if (graphics < 0 || present < 0) {
@@ -459,31 +447,38 @@ Error ContextDriverVulkan::physical_device_select(int p_override_index)
     return OK;
 }
 
-VkInstance ContextDriverVulkan::instance_get() const {
+VkInstance ContextDriverVulkan::instance_get() const
+{
     return instance;
 }
 
-const DriverDevice& ContextDriverVulkan::device_get(uint32_t p_device_index) const {
+const DriverDevice& ContextDriverVulkan::device_get(uint32_t p_device_index) const
+{
     return driver_devices[p_device_index];
 }
 
-uint32_t ContextDriverVulkan::device_get_count() {
+uint32_t ContextDriverVulkan::device_get_count()
+{
     return static_cast<uint32_t>(driver_devices.size());
 }
 
-VkPhysicalDevice ContextDriverVulkan::physical_device_get(uint32_t p_device_index) const {
+VkPhysicalDevice ContextDriverVulkan::physical_device_get(uint32_t p_device_index) const
+{
     return physical_devices[p_device_index];
 }
 
-VkQueueFamilyProperties ContextDriverVulkan::queue_family_get(uint32_t p_device_index, uint32_t p_queue_family_index) const {
+VkQueueFamilyProperties ContextDriverVulkan::queue_family_get(uint32_t p_device_index, uint32_t p_queue_family_index) const
+{
     return device_queue_families[p_device_index].properties[p_queue_family_index];
 }
 
-uint32_t ContextDriverVulkan::queue_family_get_count(uint32_t p_device_index) const {
+uint32_t ContextDriverVulkan::queue_family_get_count(uint32_t p_device_index) const
+{
     return static_cast<uint32_t>(device_queue_families[p_device_index].properties.size());
 }
 
-const ContextDriverVulkan::Functions& ContextDriverVulkan::functions_get() const {
+const ContextDriverVulkan::Functions& ContextDriverVulkan::functions_get() const
+{
     return functions;
 }
 

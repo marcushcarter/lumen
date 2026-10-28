@@ -18,19 +18,19 @@ struct World;
 
 struct Renderer
 {
-    drivers::DeviceDriverVulkan* dd = nullptr;
-
     /***************/
     /**** SETUP ****/
     /***************/
 
+    drivers::DeviceDriverVulkan* dd = nullptr;
+    const ProfilingSettings* profiling = nullptr;
+
     RenderView main_view;
-    
     TextureCache textures;
     GeometryPool geometry;
     ModelCache models;
     MaterialCache materials;
-    
+
     uint32_t frame_count = 1;
     uint32_t current_frame = 0;
     uint64_t frame_number = 0;
@@ -42,11 +42,9 @@ struct Renderer
     std::vector<drivers::DeviceDriverVulkan::CommandPool> command_pools;
     std::vector<VkCommandBuffer> command_buffers;
 
-    const ProfilingSettings* profiling = nullptr;
-
     Error initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling);
     void shutdown();
-    
+
     /*****************/
     /**** PROJECT ****/
     /*****************/
@@ -57,14 +55,14 @@ struct Renderer
     /****************/
     /**** SIZING ****/
     /****************/
-    
+
     static constexpr uint32_t RESIZE_SETTLE_FRAMES = 4;
 
     uint32_t pending_width = 0;
     uint32_t pending_height = 0;
-    uint32_t settle_width = 0;
-    uint32_t settle_height = 0;
-    uint32_t settle_frames = 0;
+    uint32_t _settle_width = 0;
+    uint32_t _settle_height = 0;
+    uint32_t _settle_frames = 0;
     uint64_t resize_epoch = 0;
 
     void request_size(uint32_t p_width, uint32_t p_height);
@@ -78,10 +76,6 @@ struct Renderer
     std::vector<RenderView*> views;
     std::vector<RenderView*> _queued_views;
 
-    Error view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height);
-    void view_destroy(RenderView& r_view);
-    Error view_render(RenderView& r_view, const World& p_world);
-
     Error _view_create_buffers(RenderView& r_view);
     void _view_destroy_buffers(RenderView& r_view);
     Error _view_set_size(RenderView& r_view, uint32_t p_width, uint32_t p_height);
@@ -90,6 +84,9 @@ struct Renderer
     void _view_collect_hiz(RenderView& r_view, bool p_all);
     void _view_reset(RenderView& r_view);
     void _view_begin(RenderView& r_view, const World& p_world);
+    Error view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height);
+    void view_destroy(RenderView& r_view);
+    Error view_render(RenderView& r_view, const World& p_world);
 
     /***************/
     /**** FRAME ****/
@@ -97,18 +94,15 @@ struct Renderer
 
     bool frame_acquired = false;
 
-    void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }
-    void camera_cut() { main_view.camera_cut_pending = true; }
-
     void _frame_build(RenderView& r_view, const World& p_world);
     void _frame_upload(RenderView& r_view);
-
+    void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }
+    void camera_cut() { main_view.camera_cut_pending = true; }
     Error acquire_frame();
     Error begin_frame(const World& p_world);
     Error compile();
     Error record();
     Error end_frame();
-    
     RenderContext make_context() { return make_context(main_view); }
     RenderContext make_context(RenderView& r_view);
 };

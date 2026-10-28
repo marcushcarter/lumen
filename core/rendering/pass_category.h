@@ -18,7 +18,8 @@ inline constexpr const char* PASS_CATEGORY_PRESENT = "Present";
 inline constexpr const char* PASS_CATEGORY_EDITOR = "Editor";
 inline constexpr const char* PASS_CATEGORY_PROFILING = "Profiling";
 
-struct PassCategory {
+struct PassCategory
+{
     const char* name;
     uint8_t r, g, b;
 };
@@ -39,7 +40,8 @@ inline constexpr PassCategory PASS_CATEGORIES[] = {
     { PASS_CATEGORY_PROFILING, 130, 130, 130 },
 };
 
-inline const PassCategory* pass_category_find(const char* p_name) {
+inline const PassCategory* pass_category_find(const char* p_name)
+{
     for (const PassCategory& c : PASS_CATEGORIES) if (std::strcmp(c.name, p_name) == 0) return &c;
     return nullptr;
 }

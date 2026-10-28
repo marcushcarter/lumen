@@ -34,13 +34,13 @@ struct EditorContext
     Renderer* renderer = nullptr;
     Project* project = nullptr;
     World* world = nullptr;
-    
+
     ProjectManager* project_manager = nullptr;
     WorldTab* world_tab = nullptr;
     SharedPanels* shared_panels = nullptr;
     TabManager* tabs = nullptr;
     EditorSelection* selection = nullptr;
-    
+
     EditorRenderPath* render_path = nullptr;
     EditorSettings* settings = nullptr;
     ProfilingSettings* profiling = nullptr;
@@ -50,7 +50,7 @@ struct EditorContext
     EditorFolders* folders = nullptr;
     TextureViewer* texture_viewer = nullptr;
     ThumbnailCache* thumbnails = nullptr;
-        
+
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;
     std::function<void()> save_all_callback;

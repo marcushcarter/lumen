@@ -111,7 +111,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         const DebugView& d = DEBUG_VIEWS[pass_view];
 
         _create_viewport(b, d.op == DebugViewOp::COPY ? d.image : nullptr);
-        
+
         if (d.inputs & DebugViewInputs::SOURCE)
             b.read_image(d.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
@@ -128,7 +128,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
             b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
-        
+
         if ((d.inputs & DebugViewInputs::LIGHTS) && b.graph->buffer_resource("LightCullData")) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
             if (b.graph->buffer_resource("LightTileMasks")) b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -154,7 +154,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             VkDeviceAddress light_cull_addr;
             VkDeviceAddress light_masks_addr;
             VkDeviceAddress light_sorted_addr;
-            uint32_t vis_index; 
+            uint32_t vis_index;
             uint32_t depth_index;
             uint32_t src_index;
             uint32_t out_slot;
@@ -219,7 +219,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         cl.dispatch("Viewport resolve", gx, gy);
     };
 }
-   
+
 Error DebugViewFeature::create_resources()
 {
     _create_overdraw_raster_passes();
@@ -228,7 +228,7 @@ Error DebugViewFeature::create_resources()
 };
 
 Error DebugViewFeature::create_pipelines()
-{    
+{
     viewport_resolve_pipe = _compute_pipeline(L"SHADERS_EDITOR_DEBUG_VIEW_COMP", "editor/debug_view.comp");
     viewport_copy_pipe = _compute_pipeline(L"SHADERS_EDITOR_VIEWPORT_COPY_COMP", "editor/viewport_copy.comp");
 
@@ -256,7 +256,7 @@ Error DebugViewFeature::create_pipelines()
     ctx->dd->shader_free(vs);
     ctx->dd->shader_free(fs);
     }
-    
+
     return Error::OK;
 }
 

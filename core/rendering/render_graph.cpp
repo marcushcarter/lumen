@@ -1,4 +1,6 @@
 #include <core/rendering/render_graph.h>
+#include <algorithm>
+#include <cmath>
 
 namespace lumen {
 
@@ -21,20 +23,20 @@ Error RenderGraph::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fram
     gpu_profiler.initialize(r_dd, p_frame_count);
 
     const uint32_t ts_bits = dd->timestamp_valid_bits(dd->cd->graphics_queue_family);
-    frame_timer_mask = ts_bits >= 64 ? ~0ull : ((1ull << ts_bits) - 1ull);
-    frame_timer_period_ns = dd->physical_device_properties.limits.timestampPeriod;
-    frame_timer_pools.assign(ts_bits > 0 ? frame_count : 0, VK_NULL_HANDLE);
-    frame_timer_written.assign(frame_timer_pools.size(), 0);
-    for (VkQueryPool& pool : frame_timer_pools) {
+    _frame_timer_mask = ts_bits >= 64 ? ~0ull : ((1ull << ts_bits) - 1ull);
+    _frame_timer_period_ns = dd->physical_device_properties.limits.timestampPeriod;
+    _frame_timer_pools.assign(ts_bits > 0 ? frame_count : 0, VK_NULL_HANDLE);
+    _frame_timer_written.assign(_frame_timer_pools.size(), 0);
+    for (VkQueryPool& pool : _frame_timer_pools) {
         VkQueryPoolCreateInfo qci{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
         qci.queryType = VK_QUERY_TYPE_TIMESTAMP;
         qci.queryCount = 2;
         LUMEN_ERR_FAIL_COND_V_MSG(vkCreateQueryPool(dd->device, &qci, nullptr, &pool) != VK_SUCCESS, FAILED, "RenderGraph: frame timer query pool creation failed.");
     }
 
-    breadcrumb_buffers.resize(frame_count);
-    breadcrumb_names.resize(frame_count);
-    for (drivers::DeviceDriverVulkan::Buffer& b : breadcrumb_buffers) {
+    _breadcrumb_buffers.resize(frame_count);
+    _breadcrumb_names.resize(frame_count);
+    for (drivers::DeviceDriverVulkan::Buffer& b : _breadcrumb_buffers) {
         b = dd->buffer_create({ .size = 2 * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = false, .host_visible = true, .cpu_read = true, .pool = dd->readback_pool, .name = "breadcrumbs" });
         LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "RenderGraph: breadcrumb buffer allocation failed.");
     }
@@ -49,18 +51,18 @@ void RenderGraph::shutdown()
 
     gpu_profiler.shutdown();
 
-    for (VkQueryPool pool : frame_timer_pools) if (pool) vkDestroyQueryPool(dd->device, pool, nullptr);
-    frame_timer_pools.clear();
-    frame_timer_written.clear();
+    for (VkQueryPool pool : _frame_timer_pools) if (pool) vkDestroyQueryPool(dd->device, pool, nullptr);
+    _frame_timer_pools.clear();
+    _frame_timer_written.clear();
 
-    for (drivers::DeviceDriverVulkan::Buffer& b : breadcrumb_buffers) dd->buffer_free(b);
-    breadcrumb_buffers.clear();
-    breadcrumb_names.clear();
+    for (drivers::DeviceDriverVulkan::Buffer& b : _breadcrumb_buffers) dd->buffer_free(b);
+    _breadcrumb_buffers.clear();
+    _breadcrumb_names.clear();
 
-    for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
-    framebuffer_cache.clear();
-    for (auto& [k, rp] : render_pass_cache) dd->render_pass_free(rp);
-    render_pass_cache.clear();
+    for (auto& [k, fb] : _framebuffer_cache) dd->framebuffer_free(fb);
+    _framebuffer_cache.clear();
+    for (auto& [k, rp] : _render_pass_cache) dd->render_pass_free(rp);
+    _render_pass_cache.clear();
 
     for (ImageTransientPool& pool : image_transient_pools) {
         for (auto& [key, imgs] : pool.free)
@@ -89,8 +91,8 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
     RetiredResources r{};
     r.epoch = epoch;
 
-    for (auto& [k, fb] : framebuffer_cache) r.framebuffers.push_back(fb);
-    framebuffer_cache.clear();
+    for (auto& [k, fb] : _framebuffer_cache) r.framebuffers.push_back(fb);
+    _framebuffer_cache.clear();
     _alias_free.clear();
 
     for (ImageTransientPool& pool : image_transient_pools) {
@@ -99,25 +101,25 @@ Error RenderGraph::set_size(uint32_t p_width, uint32_t p_height)
         pool.free.clear();
     }
 
-    retired.push_back(std::move(r));
+    _retired.push_back(std::move(r));
 
     return OK;
 }
 
 void RenderGraph::framebuffers_flush()
 {
-    for (auto& [k, fb] : framebuffer_cache) dd->framebuffer_free(fb);
-    framebuffer_cache.clear();
+    for (auto& [k, fb] : _framebuffer_cache) dd->framebuffer_free(fb);
+    _framebuffer_cache.clear();
 }
 
 void RenderGraph::_collect_retired(bool p_all)
 {
-    for (size_t i = 0; i < retired.size();) {
-        if (p_all || epoch >= retired[i].epoch + frame_count) {
-            for (VkFramebuffer& fb : retired[i].framebuffers) dd->framebuffer_free(fb);
-            for (drivers::DeviceDriverVulkan::Image& img : retired[i].images) dd->image_free(img);
-            retired[i] = std::move(retired.back());
-            retired.pop_back();
+    for (size_t i = 0; i < _retired.size();) {
+        if (p_all || epoch >= _retired[i].epoch + frame_count) {
+            for (VkFramebuffer& fb : _retired[i].framebuffers) dd->framebuffer_free(fb);
+            for (drivers::DeviceDriverVulkan::Image& img : _retired[i].images) dd->image_free(img);
+            _retired[i] = std::move(_retired.back());
+            _retired.pop_back();
         } else {
             ++i;
         }
@@ -130,12 +132,7 @@ void RenderGraph::_collect_retired(bool p_all)
 
 uint64_t RenderGraph::intern(std::string_view p_name)
 {
-    uint64_t hash = 1469598103934665603ull;
-    for (char c : p_name) {
-        hash ^= static_cast<uint8_t>(c);
-        hash *= 1099511628211ull;
-    }
-    return hash;
+    return hash_fnv(p_name);
 }
 
 uint64_t RenderGraph::intern_named(std::string_view p_name)
@@ -159,19 +156,19 @@ void RenderGraph::release_transients()
 
 drivers::DeviceDriverVulkan::Image* RenderGraph::image(std::string_view p_name)
 {
-    const uint32_t i = image_resource_map.get(intern(p_name));
+    const uint32_t i = _image_resource_map.get(intern(p_name));
     return i == IdMap::NONE ? nullptr : image_resources[i].image;
 }
 
 RenderGraph::ImageResource* RenderGraph::image_resource(std::string_view p_name)
 {
-    const uint32_t i = image_resource_map.get(intern(p_name));
+    const uint32_t i = _image_resource_map.get(intern(p_name));
     return i == IdMap::NONE ? nullptr : &image_resources[i];
 }
 
 RenderGraph::ImageResource* RenderGraph::image_resource_by_id(uint64_t p_name_id)
 {
-    const uint32_t i = image_resource_map.get(p_name_id);
+    const uint32_t i = _image_resource_map.get(p_name_id);
     return i == IdMap::NONE ? nullptr : &image_resources[i];
 }
 
@@ -182,31 +179,31 @@ void RenderGraph::import_image(std::string_view p_name, drivers::DeviceDriverVul
     ImageResource r{};
     r.kind = ResourceKind::IMPORTED;
     r.name_id = id;
-    r.image = p_image; 
+    r.image = p_image;
     r.final_layout = p_final_layout;
     r.final_stage = p_final_stage;
     r.final_access = p_final_access;
     r.output = p_output;
-    
+
     if (!p_preserve) {
         p_image->state.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        p_image->state.stage  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        p_image->state.stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
         p_image->state.access = 0;
         p_image->state.read_stages = 0;
         p_image->state.read_access = 0;
     }
 
-    declared_image_formats.set(id, (uint32_t)p_image->format);
+    _declared_image_formats.set(id, (uint32_t)p_image->format);
 
     uint32_t res_idx = static_cast<uint32_t>(image_resources.size());
     image_resources.push_back(std::move(r));
-    image_resource_map.insert(id, res_idx);
+    _image_resource_map.insert(id, res_idx);
 }
 
 void RenderGraph::create_image(std::string_view p_name, const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info)
 {
     uint64_t id = intern_named(p_name);
-    if (image_resource_map.contains(id)) return;
+    if (_image_resource_map.contains(id)) return;
 
     ImageResource r{};
     r.kind = ResourceKind::TRANSIENT;
@@ -216,17 +213,17 @@ void RenderGraph::create_image(std::string_view p_name, const drivers::DeviceDri
     r.image_create_info.pool = dd->image_transient_pool;
     r.final_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    declared_image_formats.set(id, (uint32_t)p_create_info.format);
+    _declared_image_formats.set(id, (uint32_t)p_create_info.format);
 
     uint32_t idx = static_cast<uint32_t>(image_resources.size());
     image_resources.push_back(std::move(r));
-    image_resource_map.set(id, idx);
+    _image_resource_map.set(id, idx);
 }
 
 uint64_t RenderGraph::_image_transient_key(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info, VkExtent2D p_extent)
 {
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&](uint64_t v) { h ^= v; h *= 1099511628211ull; };
+    uint64_t h = HASH_FNV_OFFSET;
+    auto mix = [&](uint64_t v) { h = hash_fnv_step(h, v); };
     mix(p_create_info.format);
     mix(p_create_info.usage);
     mix(p_create_info.aspect);
@@ -252,7 +249,7 @@ void RenderGraph::_image_resolve_extent(const drivers::DeviceDriverVulkan::Image
 void RenderGraph::_image_materialize_transient(ImageResource& r)
 {
     if (r.image) return;
-    
+
     drivers::DeviceDriverVulkan::ImageCreateInfo image_ci = r.image_create_info;
     image_ci.name = debug_names[r.name_id].c_str();
 
@@ -305,26 +302,26 @@ void RenderGraph::_image_release_transients()
 
 void RenderGraph::declare_image_format(std::string_view p_name, VkFormat p_format)
 {
-    declared_image_formats.set(intern_named(p_name), (uint32_t)p_format);
+    _declared_image_formats.set(intern_named(p_name), (uint32_t)p_format);
 }
 
 // ----- BUFFER -----
 
 drivers::DeviceDriverVulkan::Buffer* RenderGraph::buffer(std::string_view p_name)
 {
-    const uint32_t i = buffer_resource_map.get(intern(p_name));
+    const uint32_t i = _buffer_resource_map.get(intern(p_name));
     return i == IdMap::NONE ? nullptr : buffer_resources[i].buffer;
 }
 
 RenderGraph::BufferResource* RenderGraph::buffer_resource(std::string_view p_name)
 {
-    const uint32_t i = buffer_resource_map.get(intern(p_name));
+    const uint32_t i = _buffer_resource_map.get(intern(p_name));
     return i == IdMap::NONE ? nullptr : &buffer_resources[i];
 }
 
 RenderGraph::BufferResource* RenderGraph::buffer_resource_by_id(uint64_t p_name_id)
 {
-    const uint32_t i = buffer_resource_map.get(p_name_id);
+    const uint32_t i = _buffer_resource_map.get(p_name_id);
     return i == IdMap::NONE ? nullptr : &buffer_resources[i];
 }
 
@@ -347,13 +344,13 @@ void RenderGraph::import_buffer(std::string_view p_name, drivers::DeviceDriverVu
 
     uint32_t res_idx = static_cast<uint32_t>(buffer_resources.size());
     buffer_resources.push_back(std::move(r));
-    buffer_resource_map.insert(id, res_idx);
+    _buffer_resource_map.insert(id, res_idx);
 }
 
 void RenderGraph::create_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::BufferCreateInfo& p_create_info)
 {
     uint64_t id = intern_named(p_name);
-    if (buffer_resource_map.contains(id)) return;
+    if (_buffer_resource_map.contains(id)) return;
 
     BufferResource r{};
     r.kind = ResourceKind::TRANSIENT;
@@ -364,13 +361,13 @@ void RenderGraph::create_buffer(std::string_view p_name, const drivers::DeviceDr
 
     uint32_t idx = static_cast<uint32_t>(buffer_resources.size());
     buffer_resources.push_back(std::move(r));
-    buffer_resource_map.set(id, idx);
+    _buffer_resource_map.set(id, idx);
 }
 
 uint64_t RenderGraph::_buffer_transient_key(VkBufferUsageFlags p_usage, bool p_device_local, bool p_host_visible, bool p_cpu_read, VkDeviceSize p_capacity)
 {
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&](uint64_t v) { h ^= v; h *= 1099511628211ull; };
+    uint64_t h = HASH_FNV_OFFSET;
+    auto mix = [&](uint64_t v) { h = hash_fnv_step(h, v); };
     mix((uint64_t)p_usage);
     mix((uint64_t)p_device_local | ((uint64_t)p_host_visible << 1) | ((uint64_t)p_cpu_read << 2));
     mix((uint64_t)p_capacity);
@@ -567,7 +564,7 @@ void RenderGraph::Builder::read_all_images(VkPipelineStageFlags2 p_stage)
         if (already) continue;
 
         ImageAccess a;
-        a.name_id  = r.name_id;
+        a.name_id = r.name_id;
         a.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         a.stage = p_stage;
         a.access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
@@ -660,10 +657,10 @@ void RenderGraph::Builder::write_buffer(std::string_view p_name, VkPipelineStage
 
 void RenderGraph::_breadcrumb_reset(VkCommandBuffer p_cmd)
 {
-    const drivers::DeviceDriverVulkan::Buffer& b = breadcrumb_buffers[current_frame];
+    const drivers::DeviceDriverVulkan::Buffer& b = _breadcrumb_buffers[current_frame];
     vkCmdFillBuffer(p_cmd, b.buffer, 0, sizeof(uint32_t), (uint32_t)epoch);
     vkCmdFillBuffer(p_cmd, b.buffer, sizeof(uint32_t), sizeof(uint32_t), BREADCRUMB_NONE);
-    breadcrumb_names[current_frame].clear();
+    _breadcrumb_names[current_frame].clear();
 }
 
 void RenderGraph::_breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order)
@@ -677,19 +674,19 @@ void RenderGraph::_breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order)
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mb;
     vkCmdPipelineBarrier2(p_cmd, &dep);
-    vkCmdFillBuffer(p_cmd, breadcrumb_buffers[current_frame].buffer, sizeof(uint32_t), sizeof(uint32_t), p_order);
+    vkCmdFillBuffer(p_cmd, _breadcrumb_buffers[current_frame].buffer, sizeof(uint32_t), sizeof(uint32_t), p_order);
 }
 
 void RenderGraph::breadcrumb_report()
 {
     if (dd) dd->device_fault_report();
     if (!breadcrumbs) return;
-    for (uint32_t f = 0; f < (uint32_t)breadcrumb_buffers.size(); f++) {
-        drivers::DeviceDriverVulkan::Buffer& b = breadcrumb_buffers[f];
+    for (uint32_t f = 0; f < (uint32_t)_breadcrumb_buffers.size(); f++) {
+        drivers::DeviceDriverVulkan::Buffer& b = _breadcrumb_buffers[f];
         if (!b.mapped) continue;
         dd->buffer_invalidate(b, 0, 2 * sizeof(uint32_t));
         const uint32_t* v = (const uint32_t*)b.mapped;
-        const std::vector<std::string>& names = breadcrumb_names[f];
+        const std::vector<std::string>& names = _breadcrumb_names[f];
         const uint32_t done = v[1];
         const char* last = done == BREADCRUMB_NONE ? "(none)" : done < names.size() ? names[done].c_str() : "?";
         const char* next = done == BREADCRUMB_NONE ? (names.empty() ? "?" : names[0].c_str()) : done + 1 < names.size() ? names[done + 1].c_str() : "(final barriers / end of frame)";
@@ -706,8 +703,8 @@ VkRenderPass RenderGraph::_get_or_create_render_pass(Node& node)
     drivers::DeviceDriverVulkan::RenderPassCreateInfo render_pass_ci{};
     render_pass_ci.attachments.reserve(node.attachment_access_idx.size());
 
-    uint64_t key = 1469598103934665603ull;
-    auto mix = [&](uint64_t v){ key ^= v; key *= 1099511628211ull; };
+    uint64_t key = HASH_FNV_OFFSET;
+    auto mix = [&](uint64_t v) { key = hash_fnv_step(key, v); };
 
     for (int ai : node.attachment_access_idx) {
         ImageAccess& a = node.image_accesses[ai];
@@ -731,19 +728,19 @@ VkRenderPass RenderGraph::_get_or_create_render_pass(Node& node)
         mix((uint64_t)att.is_depth);
     }
 
-    if (auto it = render_pass_cache.find(key); it != render_pass_cache.end()) return it->second;
+    if (auto it = _render_pass_cache.find(key); it != _render_pass_cache.end()) return it->second;
 
     render_pass_ci.name = "graph_render_pass";
     VkRenderPass rp = dd->render_pass_create(render_pass_ci);
-    render_pass_cache[key] = rp;
+    _render_pass_cache[key] = rp;
     return rp;
 }
 
 VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
 {
     const uint32_t node_mark = node_count;
-    const size_t img_mark  = image_resources.size();
-    const size_t buf_mark  = buffer_resources.size();
+    const size_t img_mark = image_resources.size();
+    const size_t buf_mark = buffer_resources.size();
 
     const uint32_t node_idx = _node_push(&p_pass);
     if (p_pass.setup) {
@@ -759,12 +756,12 @@ VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
         if (!a.is_attachment) continue;
 
         VkFormat fmt = VK_FORMAT_UNDEFINED;
-        if (const uint32_t ri = image_resource_map.get(a.name_id); ri != IdMap::NONE) {
+        if (const uint32_t ri = _image_resource_map.get(a.name_id); ri != IdMap::NONE) {
             const ImageResource& r = image_resources[ri];
             fmt = (r.kind == ResourceKind::TRANSIENT) ? r.image_create_info.format : (r.image ? r.image->format : VK_FORMAT_UNDEFINED);
         }
         if (fmt == VK_FORMAT_UNDEFINED) {
-            if (const uint32_t f = declared_image_formats.get(a.name_id); f != IdMap::NONE) fmt = (VkFormat)f;
+            if (const uint32_t f = _declared_image_formats.get(a.name_id); f != IdMap::NONE) fmt = (VkFormat)f;
         }
         if (fmt == VK_FORMAT_UNDEFINED) {
             log_write("RenderGraph: pass '%s' attaches '%s' with no resolvable format. If it is imported after pipeline creation, call declare_image_format().", p_pass.name.c_str(), debug_names[a.name_id].c_str());
@@ -772,21 +769,21 @@ VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
         atts.push_back({ fmt, a.is_depth });
     }
 
-    for (size_t i = image_resources.size(); i-- > img_mark; ) image_resource_map.erase(image_resources[i].name_id);
+    for (size_t i = image_resources.size(); i-- > img_mark; ) _image_resource_map.erase(image_resources[i].name_id);
     image_resources.resize(img_mark);
-    for (size_t i = buffer_resources.size(); i-- > buf_mark; ) buffer_resource_map.erase(buffer_resources[i].name_id);
+    for (size_t i = buffer_resources.size(); i-- > buf_mark; ) _buffer_resource_map.erase(buffer_resources[i].name_id);
     buffer_resources.resize(buf_mark);
     node_count = node_mark;
 
-    uint64_t key = 1469598103934665603ull;
-    auto mix = [&](uint64_t v){ key ^= v; key *= 1099511628211ull; };
+    uint64_t key = HASH_FNV_OFFSET;
+    auto mix = [&](uint64_t v) { key = hash_fnv_step(key, v); };
     mix(0xC0FFEEull);
     for (const Att& a : atts) {
         mix((uint64_t)a.format);
         mix((uint64_t)a.is_depth);
     }
 
-    if (auto it = render_pass_cache.find(key); it != render_pass_cache.end()) return it->second;
+    if (auto it = _render_pass_cache.find(key); it != _render_pass_cache.end()) return it->second;
 
     drivers::DeviceDriverVulkan::RenderPassCreateInfo render_pass_ci{};
     render_pass_ci.attachments.reserve(atts.size());
@@ -803,7 +800,7 @@ VkRenderPass RenderGraph::acquire_render_pass(Pass& p_pass)
     }
     render_pass_ci.name = "compat_render_pass";
     VkRenderPass rp = dd->render_pass_create(render_pass_ci);
-    render_pass_cache[key] = rp;
+    _render_pass_cache[key] = rp;
     return rp;
 }
 
@@ -812,8 +809,8 @@ VkFramebuffer RenderGraph::_get_or_create_framebuffer(Node& node)
     std::vector<VkImageView> views;
     views.reserve(node.attachment_access_idx.size());
 
-    uint64_t key = 1469598103934665603ull;
-    auto mix = [&](uint64_t v) { key ^= v; key *= 1099511628211ull; };
+    uint64_t key = HASH_FNV_OFFSET;
+    auto mix = [&](uint64_t v) { key = hash_fnv_step(key, v); };
     mix((uint64_t)(uintptr_t)node.render_pass);
 
     for (int ai : node.attachment_access_idx) {
@@ -822,10 +819,10 @@ VkFramebuffer RenderGraph::_get_or_create_framebuffer(Node& node)
         mix((uint64_t)(uintptr_t)img.image_view);
     }
 
-    if (auto it = framebuffer_cache.find(key); it != framebuffer_cache.end()) return it->second;
+    if (auto it = _framebuffer_cache.find(key); it != _framebuffer_cache.end()) return it->second;
 
     VkFramebuffer fb = dd->framebuffer_create(node.render_pass, views, node.area);
-    framebuffer_cache[key] = fb;
+    _framebuffer_cache[key] = fb;
     return fb;
 }
 
@@ -840,17 +837,17 @@ void RenderGraph::begin(uint32_t p_current_frame)
     _frame_timer_read();
     _collect_retired(false);
     transient_alloc_failed = false;
-    
+
     image_resources.clear();
     image_resources.reserve(64);
-    image_resource_map.clear();
-    final_image_barriers.clear();
-    
+    _image_resource_map.clear();
+    _final_image_barriers.clear();
+
     buffer_resources.clear();
     buffer_resources.reserve(64);
-    buffer_resource_map.clear();
-    final_buffer_barriers.clear();
-    
+    _buffer_resource_map.clear();
+    _final_buffer_barriers.clear();
+
     node_count = 0;
 }
 
@@ -904,7 +901,7 @@ Error RenderGraph::compile()
         Node& node = nodes[n];
 
         for (ImageAccess& a : node.image_accesses) {
-            const uint32_t ri = image_resource_map.get(a.name_id);
+            const uint32_t ri = _image_resource_map.get(a.name_id);
             if (ri == IdMap::NONE) {
                 log_write("RenderGraph: pass '%s' accesses unimported image '%s'.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
                 continue;
@@ -928,7 +925,7 @@ Error RenderGraph::compile()
         }
 
         for (BufferAccess& a : node.buffer_accesses) {
-            const uint32_t ri = buffer_resource_map.get(a.name_id);
+            const uint32_t ri = _buffer_resource_map.get(a.name_id);
             if (ri == IdMap::NONE) {
                 log_write("RenderGraph: pass '%s' accesses unimported buffer '%s'.", node.pass->name.c_str(), debug_names[a.name_id].c_str());
                 continue;
@@ -1194,7 +1191,7 @@ Error RenderGraph::compile()
         b.dst_stage = r.final_stage;
         b.src_access = img.state.access;
         b.dst_access = r.final_access;
-        final_image_barriers.push_back(b);
+        _final_image_barriers.push_back(b);
 
         img.state.layout = r.final_layout;
         img.state.stage = r.final_stage;
@@ -1216,12 +1213,19 @@ Error RenderGraph::compile()
         b.dst_stage = r.final_stage;
         b.src_access = buf.state.access & FINAL_BUF_WRITE_MASK;
         b.dst_access = r.final_access;
-        final_buffer_barriers.push_back(b);
+        _final_buffer_barriers.push_back(b);
         buf.state.stage = r.final_stage;
         buf.state.access = 0;
         buf.state.read_stages = 0;
         buf.state.read_access = 0;
     }
+
+    uint32_t live_images = 0;
+    for (const ImageResource& r : image_resources) live_images += (r.kind == ResourceKind::TRANSIENT && r.image == &r.transient_storage) ? 1u : 0u;
+    uint32_t live_buffers = 0;
+    for (const BufferResource& r : buffer_resources) live_buffers += (r.kind == ResourceKind::TRANSIENT && r.buffer) ? 1u : 0u;
+    image_peak_live = std::max(image_peak_live, live_images);
+    buffer_peak_live = std::max(buffer_peak_live, live_buffers);
 
     return transient_alloc_failed ? FAILED : OK;
 }
@@ -1271,20 +1275,20 @@ void RenderGraph::_emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageB
 
 void RenderGraph::_frame_timer_read()
 {
-    if (current_frame >= frame_timer_pools.size() || !frame_timer_written[current_frame]) return;
+    if (current_frame >= _frame_timer_pools.size() || !_frame_timer_written[current_frame]) return;
     uint64_t ts[2] = {};
-    if (vkGetQueryPoolResults(dd->device, frame_timer_pools[current_frame], 0, 2, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) return;
-    frame_timer_written[current_frame] = 0;
-    const uint64_t delta = ((ts[1] & frame_timer_mask) - (ts[0] & frame_timer_mask)) & frame_timer_mask;
-    gpu_frame_ms = (double)delta * frame_timer_period_ns * 1e-6;
+    if (vkGetQueryPoolResults(dd->device, _frame_timer_pools[current_frame], 0, 2, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) return;
+    _frame_timer_written[current_frame] = 0;
+    const uint64_t delta = ((ts[1] & _frame_timer_mask) - (ts[0] & _frame_timer_mask)) & _frame_timer_mask;
+    gpu_frame_ms = (double)delta * _frame_timer_period_ns * 1e-6;
 }
 
 void RenderGraph::execute(VkCommandBuffer p_cmd)
 {
-    const bool frame_timer = current_frame < frame_timer_pools.size();
+    const bool frame_timer = current_frame < _frame_timer_pools.size();
     if (frame_timer) {
-        vkCmdResetQueryPool(p_cmd, frame_timer_pools[current_frame], 0, 2);
-        vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, frame_timer_pools[current_frame], 0);
+        vkCmdResetQueryPool(p_cmd, _frame_timer_pools[current_frame], 0, 2);
+        vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, _frame_timer_pools[current_frame], 0);
     }
     gpu_profiler.frame_begin(p_cmd, current_frame);
     if (breadcrumbs) _breadcrumb_reset(p_cmd);
@@ -1310,17 +1314,17 @@ void RenderGraph::execute(VkCommandBuffer p_cmd)
         gpu_profiler.pass_end(p_cmd, cl.draw_count);
 
         if (breadcrumbs) {
-            breadcrumb_names[current_frame].push_back(node.pass->name);
-            _breadcrumb_mark(p_cmd, (uint32_t)breadcrumb_names[current_frame].size() - 1);
+            _breadcrumb_names[current_frame].push_back(node.pass->name);
+            _breadcrumb_mark(p_cmd, (uint32_t)_breadcrumb_names[current_frame].size() - 1);
         }
     }
 
-    _emit_barriers(p_cmd, final_image_barriers, final_buffer_barriers);
+    _emit_barriers(p_cmd, _final_image_barriers, _final_buffer_barriers);
 
     gpu_profiler.frame_end();
     if (frame_timer) {
-        vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame_timer_pools[current_frame], 1);
-        frame_timer_written[current_frame] = 1;
+        vkCmdWriteTimestamp2(p_cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, _frame_timer_pools[current_frame], 1);
+        _frame_timer_written[current_frame] = 1;
     }
 
     release_transients();

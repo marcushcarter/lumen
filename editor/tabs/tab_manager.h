@@ -12,8 +12,7 @@ struct TabManager
 {
     static constexpr size_t NPOS = SIZE_MAX;
 
-    struct CloseRequest
-    {
+    struct CloseRequest {
         TabKind kind;
         Guid guid;
         bool force = false;
@@ -44,8 +43,13 @@ struct TabManager
         return raw;
     }
 
-    void add(EditorTab* p_tab, TabKind p_kind, Guid p_guid = {});
+    size_t _index_of(TabKind p_kind, Guid p_guid) const;
+    void _process_closes(EditorContext& ctx);
+    void _draw_confirm(EditorContext& ctx);
+    void _remove_at(EditorContext& ctx, size_t p_index);
+    void _resolve_active();
 
+    void add(EditorTab* p_tab, TabKind p_kind, Guid p_guid = {});
     EditorTab* find(TabKind p_kind, Guid p_guid) const;
     bool is_active(TabKind p_kind, Guid p_guid = {}) const;
     void focus(EditorTab* p_tab);
@@ -54,12 +58,6 @@ struct TabManager
 
     void draw_bar(ImVec2 p_min, ImVec2 p_max, float p_reserved_right, ImU32 p_bg, const std::function<void(ImVec2, ImVec2)>& p_block);
     void update(EditorContext& ctx, float p_dt);
-
-    size_t _index_of(TabKind p_kind, Guid p_guid) const;
-    void _process_closes(EditorContext& ctx);
-    void _draw_confirm(EditorContext& ctx);
-    void _remove_at(EditorContext& ctx, size_t p_index);
-    void _resolve_active();
 };
 
 }

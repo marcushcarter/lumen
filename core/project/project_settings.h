@@ -19,5 +19,5 @@ struct ProjectSettings
 
     friend bool operator==(const ProjectSettings&, const ProjectSettings&) = default;
 };
-    
+
 }

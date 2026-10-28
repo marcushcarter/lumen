@@ -33,7 +33,7 @@ struct TextureCooker
         CookSettings settings;
         std::shared_ptr<ImportControl> progress;
     };
-    
+
     static Error _cook(const Job& p_job);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const CookSettings& p_settings = {});

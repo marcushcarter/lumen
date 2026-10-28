@@ -60,31 +60,27 @@ struct GeometryPool
     static constexpr uint32_t MAX_MESHLET_VERTS = 2u * MAX_VERTS;
     static constexpr uint32_t LOCAL_TRI_SLOT_OVERFLOW = 255u;
     static constexpr uint32_t CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
-
     static constexpr uint32_t INVALID_MESH = UINT32_MAX;
 
-    drivers::DeviceDriverVulkan* dd = nullptr;
-    uint32_t frame_count = 1;
-    uint64_t frame_number = 0;
-    uint64_t version = 0;
-
-    enum ArenaKind : uint32_t {
-        ARENA_VERTICES,
-        ARENA_VERTEX_ATTRIBUTES,
-        ARENA_INDICES,
-        ARENA_TRI_SLOTS,
-        ARENA_CLUSTERS,
-        ARENA_GROUPS,
-        ARENA_SKIN,
-        ARENA_BVH_NODES,
-        ARENA_MESHES,
-        ARENA_MESHLET_VERTICES,
-        ARENA_CLUSTER_VERTEX_BASE,
-        ARENA_LOCAL_TRIANGLES,
-        ARENA_CLUSTER_VERTICES,
-        ARENA_CLUSTER_SLOTS,
-        ARENA_COUNT,
+    enum class ArenaKind : uint32_t {
+        VERTICES,
+        VERTEX_ATTRIBUTES,
+        INDICES,
+        TRI_SLOTS,
+        CLUSTERS,
+        GROUPS,
+        SKIN,
+        BVH_NODES,
+        MESHES,
+        MESHLET_VERTICES,
+        CLUSTER_VERTEX_BASE,
+        LOCAL_TRIANGLES,
+        CLUSTER_VERTICES,
+        CLUSTER_SLOTS,
+        COUNT,
     };
+
+    static constexpr uint32_t ARENA_COUNT = (uint32_t)ArenaKind::COUNT;
 
     struct Arena {
         drivers::DeviceDriverVulkan::Buffer buffer;
@@ -106,20 +102,6 @@ struct GeometryPool
         uint32_t meshlet_vertex = RangeAllocator::INVALID, meshlet_vertex_count = 0;
     };
 
-    Arena arenas[ARENA_COUNT];
-    std::vector<drivers::DeviceDriverVulkan::Buffer> address_buffers;
-
-    RangeAllocator vertex_alloc;
-    RangeAllocator tri_alloc;
-    RangeAllocator cluster_alloc;
-    RangeAllocator group_alloc;
-    RangeAllocator skin_alloc;
-    RangeAllocator bvh_alloc;
-    RangeAllocator meshlet_vertex_alloc;
-    
-    uint32_t cluster_extent = 0;
-    uint32_t max_cluster_tris = 0;
-
     struct RetiredMesh {
         uint64_t frame;
         uint32_t id;
@@ -131,18 +113,38 @@ struct GeometryPool
         drivers::DeviceDriverVulkan::Buffer buffer;
     };
 
+    drivers::DeviceDriverVulkan* dd = nullptr;
+    uint32_t frame_count = 1;
+    uint64_t frame_number = 0;
+    uint64_t version = 0;
+
+    Arena arenas[ARENA_COUNT];
+    std::vector<drivers::DeviceDriverVulkan::Buffer> address_buffers;
+
+    RangeAllocator vertex_alloc;
+    RangeAllocator tri_alloc;
+    RangeAllocator cluster_alloc;
+    RangeAllocator group_alloc;
+    RangeAllocator skin_alloc;
+    RangeAllocator bvh_alloc;
+    RangeAllocator meshlet_vertex_alloc;
+    uint32_t cluster_extent = 0;
+    uint32_t max_cluster_tris = 0;
+
     std::vector<LMesh> meshes;
     std::vector<MeshRanges> mesh_ranges;
     std::vector<Guid> mesh_guids;
     std::vector<uint32_t> free_meshes;
-    std::vector<RetiredMesh> retired_meshes;
-    std::vector<RetiredBuffer> retired_buffers;
-    std::unordered_map<Guid, uint32_t, GuidHash, GuidEq> by_guid;
-    
+    std::vector<RetiredMesh> _retired_meshes;
+    std::vector<RetiredBuffer> _retired_buffers;
+    std::unordered_map<Guid, uint32_t> by_guid;
+
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
     void begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials);
-    
+
+    Arena& _arena(ArenaKind p_kind) { return arenas[(uint32_t)p_kind]; }
+    const Arena& _arena(ArenaKind p_kind) const { return arenas[(uint32_t)p_kind]; }
     void _arena_setup(ArenaKind p_kind, uint32_t p_stride, uint32_t p_initial, uint32_t p_max, VkBufferUsageFlags p_usage, const char* p_name);
     Error _arena_create(Arena& r_arena, uint32_t p_capacity);
     uint32_t _grow_target(ArenaKind p_kind, uint64_t p_min) const;
@@ -159,7 +161,7 @@ struct GeometryPool
     void free();
 
     drivers::DeviceDriverVulkan::Buffer& address_buffer(uint32_t p_slot) { return address_buffers[p_slot]; }
-    const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return arenas[ARENA_INDICES].buffer; }
+    const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return _arena(ArenaKind::INDICES).buffer; }
 
     uint32_t find(Guid p_guid) const {
         auto it = by_guid.find(p_guid);
@@ -167,7 +169,7 @@ struct GeometryPool
     }
 
     const LMesh* get(uint32_t p_id) const {
-        return p_id < meshes.size() && mesh_guids[p_id] != Guid{} ? &meshes[p_id] : nullptr;
+        return p_id < meshes.size() && mesh_guids[p_id].valid() ? &meshes[p_id] : nullptr;
     }
 };
 

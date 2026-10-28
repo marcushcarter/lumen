@@ -16,15 +16,14 @@ struct OverlayBar
     float cursor_x;
     ImU32 active_col;
 
+    bool _emit(const char* p_label, ImVec2 p_size, bool p_active);
+
     void begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_margin = -1.0f, float p_spacing = -1.0f);
     void end();
-
-    bool _emit(const char* p_label, ImVec2 p_size, bool p_active);
-    
     bool button(const char* p_label, ImVec2 p_size = ImVec2(0, 0));
     bool toggle(const char* p_label, bool& p_active, ImVec2 p_size = ImVec2(0, 0));
-    bool combo(const char* id, const char* preview, float width);
-    bool begin_menu(const char* p_label, ImVec2 p_size = ImVec2(0,0));
+    bool combo(const char* p_id, const char* p_preview, float p_width);
+    bool begin_menu(const char* p_label, ImVec2 p_size = ImVec2(0, 0));
     void end_menu();
 
     void gap(float p_w = -1.0f);

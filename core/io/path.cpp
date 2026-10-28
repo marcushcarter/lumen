@@ -2,11 +2,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shellapi.h>
-
-// #include <string>
-// #include <vector>
-// #include <algorithm>
-// #include <system_error>
+#include <algorithm>
 
 namespace lumen {
 
@@ -27,7 +23,7 @@ static std::filesystem::path _known_folder(const KNOWNFOLDERID& p_id, std::wstri
     std::filesystem::create_directories(dir, ec);
     return dir;
 }
-    
+
 std::filesystem::path Paths::local_data(std::wstring_view p_subpath) { return _known_folder(FOLDERID_LocalAppData, p_subpath); }
 std::filesystem::path Paths::local_low_data(std::wstring_view p_subpath) { return _known_folder(FOLDERID_LocalAppDataLow, p_subpath); }
 std::filesystem::path Paths::roaming_data(std::wstring_view p_subpath) { return _known_folder(FOLDERID_RoamingAppData, p_subpath); }
@@ -212,4 +208,4 @@ void Paths::gather_subdirs(const std::filesystem::path& p_path, std::vector<std:
     std::sort(p_out.begin(), p_out.end());
 }
 
-};
+}

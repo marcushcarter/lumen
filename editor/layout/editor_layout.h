@@ -1,10 +1,11 @@
 #pragma once
-#include <editor/editor_context.h>
+#include <editor/application/editor_context.h>
 #include <editor/layout/dock_well.h>
 #include <editor/layout/panel.h>
 #include <editor/viewport/viewport.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -65,6 +66,20 @@ struct EditorLayout
     bool bottom_was_open = false;
     Drop pending_drop;
 
+    float _layout_center(float p_top, float p_bottom);
+    void _apply_center_delta(float p_delta, bool p_activated);
+    void _end_drawer_drag();
+    void _draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
+    void _draw_column(EditorContext& ctx, Column& r_column, bool p_dragging, ImVec2 p_min, ImVec2 p_max);
+    void _column_layout(Column& r_column, bool p_dragging, float p_col_h, bool& r_top, bool& r_bottom, float& r_top_h);
+    CornerState _corner_splitter(const char* p_id, ImVec2 p_cross, bool p_h_left, ImVec2 p_v_min, ImVec2 p_v_max, ImVec2 p_h_min, ImVec2 p_h_max);
+    void _apply_split_left(float p_delta, bool p_activated, float p_body_w);
+    void _apply_split_right(float p_delta, bool p_activated, float p_body_w);
+    void _edge_target(const char* p_id, ImVec2 p_min, DockZone p_zone);
+    void _draw_footer(ImVec2 p_min, ImVec2 p_max);
+    void _uncollapse(DockZone p_zone);
+    void _apply_drop();
+
     template <class T, class... A>
     T* add_panel(A&&... a) {
         auto up = std::make_unique<T>(std::forward<A>(a)...);
@@ -92,26 +107,13 @@ struct EditorLayout
         return static_cast<T*>(s->panel);
     }
     DockWell& well(DockZone p_zone);
+    std::array<DockWell*, 5> wells() { return { &bottom, &left.top, &left.bottom, &right.top, &right.bottom }; }
     void open_panel(DockSlot& r_slot);
 
     void initialize(const char* p_host_id);
     void shutdown();
     void draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar);
     void draw_menu();
-
-    float _layout_center(float p_top, float p_bottom);
-    void _apply_center_delta(float p_delta, bool p_activated);
-    void _end_drawer_drag();
-    void _draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
-    void _draw_column(EditorContext& ctx, Column& r_column, bool p_dragging, ImVec2 p_min, ImVec2 p_max);
-    void _column_layout(Column& r_column, bool p_dragging, float p_col_h, bool& r_top, bool& r_bottom, float& r_top_h);
-    CornerState _corner_splitter(const char* p_id, ImVec2 p_cross, bool p_h_left, ImVec2 p_v_min, ImVec2 p_v_max, ImVec2 p_h_min, ImVec2 p_h_max);
-    void _apply_split_left(float p_delta, bool p_activated, float p_body_w);
-    void _apply_split_right(float p_delta, bool p_activated, float p_body_w);
-    void _edge_target(const char* p_id, ImVec2 p_min, DockZone p_zone);
-    void _draw_footer(ImVec2 p_min, ImVec2 p_max);
-    void _uncollapse(DockZone p_zone);
-    void _apply_drop();
 };
 
-}
+}

@@ -2,7 +2,7 @@
 #include <editor/layout/panel.h>
 
 namespace lumen {
-    
+
 void console_submit(const char* p_command);
 
 struct OutputPanel : Panel

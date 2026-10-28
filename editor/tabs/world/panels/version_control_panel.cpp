@@ -1,8 +1,9 @@
 #include <editor/tabs/world/panels/version_control_panel.h>
-#include <editor/editor_context.h>
-#include <drivers/imgui/imgui_helpers.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/ui_style.h>
+#include <core/base/hash.h>
+#include <editor/application/editor_context.h>
+#include <editor/ui/ui_widgets.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_style.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <core/project/project.h>
 #include <imgui.h>
@@ -122,7 +123,7 @@ void VersionControlPanel::_draw_setup(EditorContext& ctx)
 
     if (cached.state == GitState::NO_GIT) {
         ImGui::TextWrapped("Git for Windows isn't installed. Version control needs it to run.");
-        imgui_link("Download Git for Windows", GIT_DOWNLOAD_URL);
+        ui_link("Download Git for Windows", GIT_DOWNLOAD_URL);
         if (ImGui::Button(ICON_FA_ROTATE "  Retry")) git.refresh();
     } else if (!_identity()) {
         ImGui::TextWrapped("Your name and email are attached to every commit.");
@@ -159,9 +160,7 @@ void VersionControlPanel::_draw_toolbar(EditorContext& ctx)
     const ImGuiHoveredFlags tip = ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled;
     char label[64];
 
-    ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.transparent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.transparent);
+    ui_push_buttons(UiButton::GHOST);
     ImGui::BeginDisabled(busy);
 
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
@@ -191,10 +190,10 @@ void VersionControlPanel::_draw_toolbar(EditorContext& ctx)
     }
 
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-    dock_field_push_style();
+    ui_field_push_style();
     ImGui::SetNextItemWidth(-(bw * 3.0f + spacing * 3.0f + pad_x));
     const bool enter = ImGui::InputTextWithHint("##vc_message", "What changed?", message, MESSAGE_SIZE, ImGuiInputTextFlags_EnterReturnsTrue);
-    dock_field_pop_style();
+    ui_field_pop_style();
     if (enter) _commit(ctx);
 
     ImGui::SameLine();
@@ -236,7 +235,7 @@ void VersionControlPanel::_draw_toolbar(EditorContext& ctx)
         }
         ImGui::EndTooltip();
     }
-    ImGui::PopStyleColor(3);
+    ui_pop_buttons();
 }
 
 bool VersionControlPanel::_message_blank() const
@@ -514,15 +513,15 @@ void VersionControlPanel::_draw_footer()
 
 void VersionControlPanel::_draw_commit_menu(EditorContext& ctx)
 {
-    dock_menu_push_style();
+    ui_menu_push_style();
     if (!ImGui::BeginPopup("##vc_commit_menu")) {
-        dock_menu_pop_style();
+        ui_menu_pop_style();
         return;
     }
     if (menu_row == NONE || menu_row >= (int32_t)cached.commits.size()) {
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
-        dock_menu_pop_style();
+        ui_menu_pop_style();
         return;
     }
     const int32_t gi = row_group[(size_t)menu_row];
@@ -603,7 +602,7 @@ void VersionControlPanel::_draw_commit_menu(EditorContext& ctx)
     }
 
     ImGui::EndPopup();
-    dock_menu_pop_style();
+    ui_menu_pop_style();
 }
 
 void VersionControlPanel::_draw_rename_popup(EditorContext& ctx)
@@ -813,8 +812,7 @@ void VersionControlPanel::_build_graph()
 
 ImU32 VersionControlPanel::_branch_color(const std::string& p_name)
 {
-    uint32_t h = 2166136261u;
-    for (const char ch : p_name) h = (h ^ (uint8_t)ch) * 16777619u;
+    uint32_t h = hash_fnv32(p_name);
     h ^= h >> 13;
     h *= 0x5bd1e995u;
     h ^= h >> 15;

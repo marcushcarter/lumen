@@ -6,9 +6,10 @@ namespace lumen {
 
 struct GameRenderPath : SceneRenderPath
 {
-    PresentFeature present; 
+    PresentFeature present;
 
-    GameRenderPath() {
+    void _register_features() override {
+        SceneRenderPath::_register_features();
         features.push_back(&present);
     }
 };

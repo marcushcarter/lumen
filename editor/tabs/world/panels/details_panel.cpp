@@ -1,8 +1,8 @@
 #include <editor/tabs/world/panels/details_panel.h>
-#include <editor/editor_context.h>
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/ui_style.h>
-#include <drivers/imgui/imgui_helpers.h>
+#include <editor/application/editor_context.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/asset_field.h>
@@ -30,47 +30,41 @@ static void _accent_underline()
     ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - ui.details.line * 2.0f), mx, ui.color.accent);
 }
 
-bool DetailsPanel::_component_begin(const char* p_title, bool* r_remove)
-{
-    if (r_remove) *r_remove = false;
-    return imgui_category(p_title, r_remove);
-}
-
 void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
 {
     AtmosphereComponent& atmosphere = ctx.world->atmosphere;
     ImGui::TextDisabled("Atmosphere");
     ImGui::Spacing();
-    dock_field_push_style();
-    if (_component_begin("Time")) {
+    ui_field_push_style();
+    if (ui_category("Time")) {
         ImGui::SliderFloat("Time of Day", &atmosphere.time_of_day, 0.0f, 24.0f, "%.2f h", ImGuiSliderFlags_AlwaysClamp);
     }
-    if (_component_begin("Aerosols")) {
+    if (ui_category("Aerosols")) {
         ImGui::DragFloat("Turbidity", &atmosphere.mie_turbidity, 0.01f, 0.0f, 50.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::DragFloat("Height", &atmosphere.mie_height_km, 0.01f, 0.1f, 10.0f, "%.2f km", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Anisotropy (g)", &atmosphere.mie_g, 0.0f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Albedo", &atmosphere.mie_albedo, 0.5f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Angstrom Exponent", &atmosphere.mie_angstrom, 0.0f, 2.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
-    if (_component_begin("Stratospheric Aerosols")) {
+    if (ui_category("Stratospheric Aerosols")) {
         ImGui::SliderFloat("Optical Depth", &atmosphere.strat_aerosol_depth, 0.0f, 0.2f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Layer Height", &atmosphere.strat_aerosol_height_km, 12.0f, 30.0f, "%.1f km", ImGuiSliderFlags_AlwaysClamp);
     }
-    if (_component_begin("Stars")) {
+    if (ui_category("Stars")) {
         ImGui::DragFloat("Brightness", &atmosphere.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Density", &atmosphere.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
-    if (_component_begin("Sun Flare")) {
+    if (ui_category("Sun Flare")) {
         ImGui::DragFloat("Intensity", &atmosphere.flare_intensity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::DragFloat("Glow", &atmosphere.flare_glow, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::DragFloat("Rays", &atmosphere.flare_rays, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Ray Length", &atmosphere.flare_ray_length, 0.01f, 0.3f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::DragFloat("Ghosts", &atmosphere.flare_ghosts, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
     }
-    if (_component_begin("World")) {
+    if (ui_category("World")) {
         ImGui::DragFloat("Sea Level Offset", &atmosphere.sea_level_offset_km, 0.01f, -1.0f, 9.0f, "%.3f km", ImGuiSliderFlags_AlwaysClamp);
     }
-    dock_field_pop_style();
+    ui_field_pop_style();
 }
 
 void DetailsPanel::draw_contents(EditorContext& ctx)
@@ -103,22 +97,22 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     }
     ImGui::Spacing();
 
-    dock_field_push_style();
+    ui_field_push_style();
     if (TransformComponent* xf = world.try_get<TransformComponent>(e)) {
-        if (_component_begin("Transform")) {
+        if (ui_category("Transform")) {
             bool changed = false;
-            changed |= imgui_drag_float3_axes("Position", &xf->position.x, 0.1f);
+            changed |= ui_drag_float3_axes("Position", &xf->position.x, 0.1f);
             if (rotation_entity != e || rotation_seen != xf->rotation) {
                 rotation_euler = degrees(eulerAngles(xf->rotation));
                 rotation_entity = e;
                 rotation_seen = xf->rotation;
             }
-            if (imgui_drag_float3_axes("Rotation", &rotation_euler.x, 0.5f)) {
+            if (ui_drag_float3_axes("Rotation", &rotation_euler.x, 0.5f)) {
                 xf->rotation = quat(radians(rotation_euler));
                 rotation_seen = xf->rotation;
                 changed = true;
             }
-            changed |= imgui_drag_float3_axes("Scale", &xf->scale.x, 0.01f);
+            changed |= ui_drag_float3_axes("Scale", &xf->scale.x, 0.01f);
             if (changed) {
                 for (int i = 0; i < 3; i++) {
                     if (!std::isfinite(xf->position[i]) || std::abs(xf->position[i]) > 1e6f) xf->position[i] = 0.0f;
@@ -132,7 +126,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 
     if (ModelComponent* model = world.try_get<ModelComponent>(e)) {
         bool remove = false;
-        const bool o = _component_begin("Model", &remove);
+        const bool o = ui_category("Model", &remove);
         if (o && asset_thumbnail_field(ctx, "###model_field", model->model, AssetType::MODEL, "Drop a model asset here")) {
             world.touch(e);
         }
@@ -141,7 +135,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 
     if (ModelGridComponent* grid = world.try_get<ModelGridComponent>(e)) {
         bool remove = false;
-        const bool o = _component_begin("Model Grid", &remove);
+        const bool o = ui_category("Model Grid", &remove);
         if (o) {
             bool changed = asset_thumbnail_field(ctx, "###model_grid_field", grid->model, AssetType::MODEL, "Drop a model asset here");
             int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
@@ -160,7 +154,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 
     if (LightComponent* light = world.try_get<LightComponent>(e)) {
         bool remove = false;
-        const bool o = _component_begin("Light", &remove);
+        const bool o = ui_category("Light", &remove);
         if (o) {
             bool changed = false;
             int type = light->type == LightType::SPOT ? 1 : 0;
@@ -204,17 +198,17 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<LightComponent>(e);
     }
 
-    if (LightProfileComponent* light_prof = world.try_get<LightProfileComponent>(e)) {
-        bool remove = false;
-        const bool o = _component_begin("Light Profile", &remove);
-        if (o) {
-            // bool changed = _ies_field(ctx, light_prof->ies);
-            // if (changed) world.touch(e);
-        }
-        if (remove) world.deferred_remove<LightProfileComponent>(e);
-    }
+    // if (LightProfileComponent* light_prof = world.try_get<LightProfileComponent>(e)) {
+    //     bool remove = false;
+    //     const bool o = ui_category("Light Profile", &remove);
+    //     if (o) {
+    //         // bool changed = _ies_field(ctx, light_prof->ies);
+    //         // if (changed) world.touch(e);
+    //     }
+    //     if (remove) world.deferred_remove<LightProfileComponent>(e);
+    // }
 
-    dock_field_pop_style();
+    ui_field_pop_style();
     ImGui::Spacing();
 
     ImGui::PushID("Add Component");
@@ -223,7 +217,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     ImGui::PopStyleColor(3);
     _accent_underline();
     if (add_pressed) ImGui::OpenPopup("##add_component");
-    dock_menu_push_style();
+    ui_menu_push_style();
     if (ImGui::BeginPopup("##add_component")) {
         bool any = false;
         for (uint32_t i = 0; i < (uint32_t)world.components.size(); i++) {
@@ -235,7 +229,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (!any) ImGui::TextDisabled("Nothing to add");
         ImGui::EndPopup();
     }
-    dock_menu_pop_style();
+    ui_menu_pop_style();
     ImGui::PopID();
 }
 

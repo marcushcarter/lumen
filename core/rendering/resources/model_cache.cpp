@@ -13,7 +13,7 @@ Error ModelCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame
     dd = &r_dd;
     const uint32_t frame_count = p_frame_count ? p_frame_count : 1;
     slot_buffers.resize(frame_count);
-    uploaded_version.assign(frame_count, UINT64_MAX);
+    _uploaded_version.assign(frame_count, UINT64_MAX);
     for (Buffer& b : slot_buffers) {
         b = dd->buffer_create({ .size = (VkDeviceSize)MAX_SLOTS * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "model_slot_table" });
         LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "ModelCache: slot table allocation failed.");
@@ -26,7 +26,7 @@ void ModelCache::shutdown()
 {
     for (Buffer& b : slot_buffers) dd->buffer_free(b);
     slot_buffers.clear();
-    uploaded_version.clear();
+    _uploaded_version.clear();
     by_guid.clear();
     slot_table.clear();
 }
@@ -35,12 +35,12 @@ Error ModelCache::load(const std::filesystem::path& p_path)
 {
     using enum Error;
     LModel model;
-    if (model.load(p_path) != OK || model.guid == Guid{}) return FAILED;
+    if (model.load(p_path) != OK || !model.guid.valid()) return FAILED;
     Entry& e = by_guid[model.guid];
     e = Entry{};
     e.mesh = model.mesh;
     e.materials = model.materials;
-    geometry_version = UINT64_MAX;
+    _geometry_version = UINT64_MAX;
     version++;
     return OK;
 }
@@ -48,7 +48,7 @@ Error ModelCache::load(const std::filesystem::path& p_path)
 void ModelCache::unload(Guid p_guid)
 {
     if (!by_guid.erase(p_guid)) return;
-    geometry_version = UINT64_MAX;
+    _geometry_version = UINT64_MAX;
     version++;
 }
 
@@ -57,7 +57,7 @@ void ModelCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materi
     if (auto it = by_guid.find(p_guid); it != by_guid.end() && it->second.mesh == p_mesh) {
         if (it->second.materials != p_materials) {
             it->second.materials = p_materials;
-            slots_dirty = true;
+            _slots_dirty = true;
         }
         return;
     }
@@ -65,14 +65,14 @@ void ModelCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materi
     e = Entry{};
     e.mesh = p_mesh;
     e.materials = p_materials;
-    geometry_version = UINT64_MAX;
+    _geometry_version = UINT64_MAX;
     version++;
 }
 
 void ModelCache::clear()
 {
     by_guid.clear();
-    geometry_version = UINT64_MAX;
+    _geometry_version = UINT64_MAX;
     version++;
 }
 
@@ -86,11 +86,11 @@ void ModelCache::_write_slots(const Entry& p_entry, const MaterialCache& p_mater
 
 void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials)
 {
-    if (geometry_version == p_geometry.version && material_layout == p_materials.layout_version) {
-        if (!slots_dirty && material_bins == p_materials.bin_version) return;
+    if (_geometry_version == p_geometry.version && _material_layout == p_materials.layout_version) {
+        if (!_slots_dirty && _material_bins == p_materials.bin_version) return;
         for (const auto& [guid, entry] : by_guid) _write_slots(entry, p_materials);
-        slots_dirty = false;
-        material_bins = p_materials.bin_version;
+        _slots_dirty = false;
+        _material_bins = p_materials.bin_version;
         slot_version++;
         return;
     }
@@ -114,22 +114,22 @@ void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_
     }
     if (overflow) log_write("ModelCache: slot table full (%u), some models use the default material.", MAX_SLOTS);
 
-    geometry_version = p_geometry.version;
-    material_layout = p_materials.layout_version;
-    material_bins = p_materials.bin_version;
-    slots_dirty = false;
+    _geometry_version = p_geometry.version;
+    _material_layout = p_materials.layout_version;
+    _material_bins = p_materials.bin_version;
+    _slots_dirty = false;
     version++;
     slot_version++;
 }
 
 void ModelCache::upload(uint32_t p_frame)
 {
-    if (p_frame >= slot_buffers.size() || uploaded_version[p_frame] == slot_version) return;
+    if (p_frame >= slot_buffers.size() || _uploaded_version[p_frame] == slot_version) return;
     Buffer& b = slot_buffers[p_frame];
     const VkDeviceSize bytes = (VkDeviceSize)slot_table.size() * sizeof(uint32_t);
     dd->buffer_update(b, slot_table.data(), bytes);
     dd->buffer_flush(b, 0, bytes);
-    uploaded_version[p_frame] = slot_version;
+    _uploaded_version[p_frame] = slot_version;
 }
 
 }

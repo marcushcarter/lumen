@@ -8,7 +8,8 @@ struct ThumbnailRenderPath : SceneRenderPath
 {
     ThumbnailCaptureFeature capture;
 
-    ThumbnailRenderPath() {
+    void _register_features() override {
+        SceneRenderPath::_register_features();
         features.push_back(&capture);
     }
 };

@@ -1,5 +1,5 @@
 #include <editor/tabs/tab_manager.h>
-#include <drivers/imgui/tab_strip.h>
+#include <editor/ui/tab_strip.h>
 #include <cstdio>
 
 namespace lumen {
@@ -135,19 +135,20 @@ void TabManager::_draw_confirm(EditorContext& ctx)
     ImGui::Text("Save changes to '%s' before closing?", t->title());
     ImGui::Spacing();
 
-    enum { NONE, SAVE, DISCARD, CANCEL } choice = NONE;
-    if (ImGui::Button("Save")) choice = SAVE;
+    enum class Choice { NONE, SAVE, DISCARD, CANCEL };
+    Choice choice = Choice::NONE;
+    if (ImGui::Button("Save")) choice = Choice::SAVE;
     ImGui::SameLine();
-    if (ImGui::Button("Don't Save")) choice = DISCARD;
+    if (ImGui::Button("Don't Save")) choice = Choice::DISCARD;
     ImGui::SameLine();
-    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) choice = CANCEL;
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) choice = Choice::CANCEL;
 
-    if (choice != NONE) {
+    if (choice != Choice::NONE) {
         ImGui::CloseCurrentPopup();
         _confirm_open = false;
     }
-    if (choice == SAVE && t->save(ctx) == Error::OK) close(t->kind, t->guid, true);
-    if (choice == DISCARD) close(t->kind, t->guid, true);
+    if (choice == Choice::SAVE && t->save(ctx) == Error::OK) close(t->kind, t->guid, true);
+    if (choice == Choice::DISCARD) close(t->kind, t->guid, true);
     ImGui::EndPopup();
 }
 

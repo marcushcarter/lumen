@@ -2,6 +2,7 @@
 #include <core/base/error.h>
 #include <filesystem>
 #include <string_view>
+#include <vector>
 
 namespace lumen {
 
@@ -29,7 +30,6 @@ struct Paths
     static bool is_under(const std::filesystem::path& p_path, const std::filesystem::path& p_base);
     static bool has_subdir(const std::filesystem::path& p_path);
     static void gather_subdirs(const std::filesystem::path& p_path, std::vector<std::filesystem::path>& p_out);
-    
 };
-    
-};
+
+}

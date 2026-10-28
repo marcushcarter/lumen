@@ -1,61 +1,10 @@
-#include <drivers/imgui/tab_strip.h>
-#include <drivers/imgui/ui_style.h>
+#include <editor/ui/tab_strip.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
 
 namespace lumen {
-
-void dock_menu_push_style()
-{
-    const UiStyle& ui = ui_style();
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ui.color.chrome);
-    ImGui::PushStyleColor(ImGuiCol_Border, ui.color.line);
-    ImGui::PushStyleColor(ImGuiCol_Separator, ui.color.line);
-    ImGui::PushStyleColor(ImGuiCol_Header, ui.color.panel);
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ui.color.hover);
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui.color.panel);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.panel);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ui.color.hover);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ui.color.line);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ui.menu.padding);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, ui.menu.rounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, ui.menu.border);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui.menu.rounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, ui.menu.rounding);
-}
-
-void dock_menu_pop_style()
-{
-    ImGui::PopStyleVar(5);
-    ImGui::PopStyleColor(9);
-}
-
-void dock_field_push_style()
-{
-    const UiStyle& ui = ui_style();
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.field);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ui.color.field_hover);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ui.color.field_active);
-    ImGui::PushStyleColor(ImGuiCol_Header, ui.color.field_hover);
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ui.color.field_active);
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui.color.field_pressed);
-}
-
-void dock_field_pop_style()
-{
-    ImGui::PopStyleColor(6);
-}
-
-bool dock_search_bar(const char* p_id, char* p_buf, size_t p_size, float p_width)
-{
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui_style().radius.pill);
-    dock_field_push_style();
-    ImGui::SetNextItemWidth(p_width);
-    const bool changed = ImGui::InputTextWithHint(p_id, ICON_FA_MAGNIFYING_GLASS "  Search...", p_buf, p_size);
-    dock_field_pop_style();
-    ImGui::PopStyleVar();
-    return changed;
-}
 
 float TabStrip::height()
 {
@@ -269,8 +218,7 @@ bool TabStrip::trailing_button(const char* p_icon)
         draw_list->AddRectFilled(ha, hb, ui.color.hover);
     }
 
-    const ImVec2 ts = ImGui::CalcTextSize(p_icon);
-    draw_list->AddText(ImVec2(ImFloor(a.x + (h - ts.x) * 0.5f), ImFloor(a.y + (h - ts.y) * 0.5f)), hovered ? ui.color.text : ui.color.text_dim, p_icon);
+    ui_text_centered(draw_list, a, ImVec2(a.x + h, a.y + h), hovered ? ui.color.text : ui.color.text_dim, p_icon);
     return pressed;
 }
 
@@ -287,18 +235,17 @@ bool TabStrip::console_field(const char* p_id, const char* p_label, const char* 
 
     ImGui::SetCursorScreenPos(ImVec2(x, ImFloor(min.y + (h - ImGui::GetFrameHeight()) * 0.5f)));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui.console_bar.rounding);
-    dock_field_push_style();
+    ui_field_push_style();
     ImGui::SetNextItemWidth(p_field_width);
     const bool submitted = ImGui::InputTextWithHint(p_id, p_hint, p_buf, p_size, ImGuiInputTextFlags_EnterReturnsTrue);
     if (submitted) ImGui::SetKeyboardFocusHere(-1);
-    dock_field_pop_style();
+    ui_field_pop_style();
     ImGui::PopStyleVar();
 
     cursor_x = x + p_field_width + ui.console_bar.pad;
     return submitted;
 }
 
-// Keeps tabs at their natural width; the wheel scrolls them sideways when they overflow.
 void TabStrip::scrollable(float& r_scroll, bool p_reveal, float p_lead)
 {
     scale = 1.0f;

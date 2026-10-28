@@ -23,8 +23,7 @@ struct TransformGizmo
         SCALE_X, SCALE_Y, SCALE_Z,
     };
 
-    struct Frame
-    {
+    struct Frame {
         mat4 view_proj;
         vec3 cam_position;
         quat cam_rotation;
@@ -35,8 +34,7 @@ struct TransformGizmo
         ImVec2 size;
     };
 
-    struct Shape
-    {
+    struct Shape {
         ImVec2 center;
         ImVec2 tip[3];
         ImVec2 scale[3];

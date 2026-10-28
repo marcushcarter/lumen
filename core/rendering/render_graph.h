@@ -2,6 +2,7 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/gpu_profiler.h>
 #include <core/base/error.h>
+#include <core/base/hash.h>
 #include <core/base/id_map.h>
 #include <functional>
 #include <string>
@@ -17,48 +18,45 @@ struct RenderGraph
     /***************/
     /**** SETUP ****/
     /***************/
-    
+
     struct RetiredResources {
         uint64_t epoch = 0;
         std::vector<drivers::DeviceDriverVulkan::Image> images;
         std::vector<VkFramebuffer> framebuffers;
     };
-    
+
     drivers::DeviceDriverVulkan* dd = nullptr;
-    
     uint32_t frame_count = 1;
     uint32_t current_frame = 0;
     uint32_t width = 0, height = 0;
-
     uint64_t epoch = 0;
-    std::vector<RetiredResources> retired;
-    
+    std::vector<RetiredResources> _retired;
     GpuProfiler gpu_profiler;
-    
+
+    void _collect_retired(bool p_all);
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t frame_count);
     void shutdown();
     Error set_size(uint32_t p_width, uint32_t p_height);
     void framebuffers_flush();
-    void _collect_retired(bool p_all);
 
     /***************/
     /**** NAMES ****/
     /***************/
-    
+
     std::unordered_map<uint64_t, std::string> debug_names;
     IdMap _named_ids;
-    
+
     static uint64_t intern(std::string_view p_name);
     uint64_t intern_named(std::string_view p_name);
 
     /*******************/
     /**** RESOURCES ****/
     /*******************/
-    
+
     enum class ResourceKind { IMPORTED, TRANSIENT };
 
     void release_transients();
-    
+
     // ----- IMAGE -----
 
     struct ImageResource {
@@ -109,26 +107,24 @@ struct RenderGraph
     };
 
     std::vector<ImageResource> image_resources;
-    IdMap image_resource_map;
-    std::vector<ImageBarrier> final_image_barriers;
+    IdMap _image_resource_map;
+    std::vector<ImageBarrier> _final_image_barriers;
     std::vector<ImageTransientPool> image_transient_pools;
-    IdMap declared_image_formats;
+    IdMap _declared_image_formats;
 
     uint32_t image_peak_live = 0;
     uint32_t image_reuse_hits = 0;
     uint32_t image_reuse_misses = 0;
 
-    drivers::DeviceDriverVulkan::Image* image(std::string_view p_name);
-    ImageResource* image_resource(std::string_view p_name);
-    ImageResource* image_resource_by_id(uint64_t p_name_id);
-    void import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve = false, bool p_output = false);
-    
-    void create_image(std::string_view p_name, const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info);
     uint64_t _image_transient_key(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info, VkExtent2D p_extent);
     void _image_resolve_extent(const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info, uint32_t& r_width, uint32_t& r_height);
     void _image_materialize_transient(ImageResource& r);
     void _image_release_transients();
-    
+    drivers::DeviceDriverVulkan::Image* image(std::string_view p_name);
+    ImageResource* image_resource(std::string_view p_name);
+    ImageResource* image_resource_by_id(uint64_t p_name_id);
+    void import_image(std::string_view p_name, drivers::DeviceDriverVulkan::Image* p_image, VkImageLayout p_final_layout, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_preserve = false, bool p_output = false);
+    void create_image(std::string_view p_name, const drivers::DeviceDriverVulkan::ImageCreateInfo& p_create_info);
     void declare_image_format(std::string_view p_name, VkFormat p_format);
 
     // ----- BUFFER -----
@@ -171,30 +167,29 @@ struct RenderGraph
     struct BufferTransientPool {
         std::unordered_map<uint64_t, std::vector<drivers::DeviceDriverVulkan::Buffer>> free;
     };
-    
+
     std::vector<BufferResource> buffer_resources;
-    IdMap buffer_resource_map;
-    std::vector<BufferBarrier> final_buffer_barriers;
+    IdMap _buffer_resource_map;
+    std::vector<BufferBarrier> _final_buffer_barriers;
     std::vector<BufferTransientPool> buffer_transient_pools;
 
     uint32_t buffer_peak_live = 0;
     uint32_t buffer_reuse_hits = 0;
     uint32_t buffer_reuse_misses = 0;
-    
+
+    uint64_t _buffer_transient_key(VkBufferUsageFlags p_usage, bool p_device_local, bool p_host_visible, bool p_cpu_read, VkDeviceSize p_capacity);
+    void _buffer_materialize_transient(BufferResource& r);
+    void _buffer_release_transients();
     drivers::DeviceDriverVulkan::Buffer* buffer(std::string_view p_name);
     BufferResource* buffer_resource(std::string_view p_name);
     BufferResource* buffer_resource_by_id(uint64_t p_name_id);
     void import_buffer(std::string_view p_name, drivers::DeviceDriverVulkan::Buffer* p_buffer, VkPipelineStageFlags2 p_final_stage, VkAccessFlags2 p_final_access, bool p_output = false);
-    
     void create_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::BufferCreateInfo& p_create_info);
-    uint64_t _buffer_transient_key(VkBufferUsageFlags p_usage, bool p_device_local, bool p_host_visible, bool p_cpu_read, VkDeviceSize p_capacity);
-    void _buffer_materialize_transient(BufferResource& r);
-    void _buffer_release_transients();
-    
+
     /******************/
     /**** COMMANDS ****/
     /******************/
-    
+
     struct CommandList {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         RenderGraph* graph = nullptr;
@@ -219,7 +214,7 @@ struct RenderGraph
         void fill_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_buffer, uint32_t p_value, VkDeviceSize p_offset = 0, VkDeviceSize p_size = VK_WHOLE_SIZE);
         void update_buffer(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_buffer, const void* p_data, VkDeviceSize p_size, VkDeviceSize p_offset = 0);
     };
-    
+
     /**************/
     /**** PASS ****/
     /**************/
@@ -274,7 +269,7 @@ struct RenderGraph
     uint32_t node_count = 0;
 
     uint32_t _node_push(Pass* p_pass);
-    
+
     /*********************/
     /**** BREADCRUMBS ****/
     /*********************/
@@ -283,38 +278,36 @@ struct RenderGraph
 
     bool breadcrumbs = false;
     bool transient_alloc_failed = false;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> breadcrumb_buffers;
-    std::vector<std::vector<std::string>> breadcrumb_names;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> _breadcrumb_buffers;
+    std::vector<std::vector<std::string>> _breadcrumb_names;
 
     void _breadcrumb_reset(VkCommandBuffer p_cmd);
+    void _breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order);
+    void breadcrumb_report();
 
     /*********************/
     /**** FRAME TIMER ****/
     /*********************/
 
-    std::vector<VkQueryPool> frame_timer_pools;
-    std::vector<uint8_t> frame_timer_written;
-    double frame_timer_period_ns = 1.0;
-    uint64_t frame_timer_mask = ~0ull;
+    std::vector<VkQueryPool> _frame_timer_pools;
+    std::vector<uint8_t> _frame_timer_written;
+    double _frame_timer_period_ns = 1.0;
+    uint64_t _frame_timer_mask = ~0ull;
     double gpu_frame_ms = 0.0;
 
     void _frame_timer_read();
-    void _breadcrumb_mark(VkCommandBuffer p_cmd, uint32_t p_order);
-    void breadcrumb_report();
-    
+
     /***************/
     /**** CACHE ****/
     /***************/
 
-    std::unordered_map<uint64_t, VkRenderPass> render_pass_cache;
+    std::unordered_map<uint64_t, VkRenderPass> _render_pass_cache;
+    std::unordered_map<uint64_t, VkFramebuffer> _framebuffer_cache;
 
     VkRenderPass _get_or_create_render_pass(Node& node);
+    VkFramebuffer _get_or_create_framebuffer(Node& node);
     VkRenderPass acquire_render_pass(Pass& p_pass);
 
-    std::unordered_map<uint64_t, VkFramebuffer> framebuffer_cache;
-
-    VkFramebuffer _get_or_create_framebuffer(Node& node);
-    
     /***************/
     /**** GRAPH ****/
     /***************/
@@ -327,11 +320,11 @@ struct RenderGraph
     std::vector<VkImageMemoryBarrier2> _vk_image_barriers;
     std::vector<VkBufferMemoryBarrier2> _vk_buffer_barriers;
 
+    void _emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageBarrier>& p_images, const std::vector<BufferBarrier>& p_buffers);
     void begin(uint32_t p_current_frame);
     void add(Pass* p_pass);
     Error compile();
     void execute(VkCommandBuffer p_cmd);
-    void _emit_barriers(VkCommandBuffer p_cmd, const std::vector<ImageBarrier>& p_images, const std::vector<BufferBarrier>& p_buffers);
 };
-    
+
 }

@@ -60,7 +60,7 @@ struct FlareSettings
 };
 
 struct FrameData
-{    
+{
     std::vector<Instance> instances_scratch;
     std::vector<Transform> transforms_scratch;
     uint32_t instance_count = 0;

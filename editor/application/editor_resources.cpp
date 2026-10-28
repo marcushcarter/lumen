@@ -1,6 +1,7 @@
-#include <editor/editor_resources.h>
+#include <editor/application/editor_resources.h>
 #include <core/io/image_io.h>
 #include <core/io/embedded_resource.h>
+#include <algorithm>
 
 namespace lumen {
 
@@ -9,18 +10,14 @@ Error EditorResources::initialize(drivers::DeviceDriverVulkan& r_dd)
     using enum Error;
 
     dd = &r_dd;
-    
+
     ImageData<uint8_t, 4> icon_data = ImageIO::load_from_resource<uint8_t, 4>(L"LOGOS_MINIMAL_PNG");
-    if (icon_data.valid()) icon_image = dd->image_create_texture(icon_data.pixels, static_cast<uint32_t>(icon_data.width), static_cast<uint32_t>(icon_data.height), "editor_logo");
+    if (icon_data.valid()) icon_image = dd->image_create_texture(icon_data.pixels, static_cast<uint32_t>(icon_data.width), static_cast<uint32_t>(icon_data.height), "editor_icon");
     ImageIO::free_image(icon_data);
 
     ImageData<uint8_t, 4> logo_data = ImageIO::load_from_resource<uint8_t, 4>(L"LOGOS_LOGO_PNG");
     if (logo_data.valid()) logo_image = dd->image_create_texture(logo_data.pixels, static_cast<uint32_t>(logo_data.width), static_cast<uint32_t>(logo_data.height), "editor_logo");
     ImageIO::free_image(logo_data);
-
-    ImageData<uint8_t, 4> test_data = ImageIO::load_from_resource<uint8_t, 4>(L"LOGOS_LOGO_PNG");
-    if (test_data.valid()) test_thumbnail = dd->image_create_texture(test_data.pixels, static_cast<uint32_t>(test_data.width), static_cast<uint32_t>(test_data.height), "editor_logo");
-    ImageIO::free_image(test_data);
 
     {
         EmbeddedResource::Blob blob = EmbeddedResource::load(L"LICENSE");
@@ -40,10 +37,8 @@ Error EditorResources::initialize(drivers::DeviceDriverVulkan& r_dd)
 void EditorResources::shutdown()
 {
     dd->device_wait_idle();
-
     dd->image_free(icon_image);
     dd->image_free(logo_image);
-    dd->image_free(test_thumbnail);
 }
 
 }

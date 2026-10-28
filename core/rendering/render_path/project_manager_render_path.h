@@ -8,10 +8,10 @@ struct ProjectManagerRenderPath : RenderPath
 {
     ImGuiFeature ui;
 
-    ProjectManagerRenderPath() {
+    void _register_features() override {
         ui.viewport = nullptr;
         features.push_back(&ui);
     }
 };
 
-}
+}

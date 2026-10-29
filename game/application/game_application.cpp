@@ -12,7 +12,12 @@ Error GameApplication::on_init()
     using enum Error;
 
     screenshot_reveal = false;
-    if (project_root.empty()) project_root = "D:/TestLumen";
+    if (project_root.empty()) {
+        wchar_t exe[MAX_PATH]{};
+        const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        LUMEN_ERR_FAIL_COND_V_MSG(n == 0 || n == MAX_PATH, FAILED, "Game: GetModuleFileName failed.");
+        project_root = std::filesystem::path(exe).parent_path();
+    }
     Error err = project_load(project_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 

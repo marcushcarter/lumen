@@ -57,8 +57,6 @@ struct ContentBrowserPanel : Panel
     std::filesystem::path anchor;
     std::filesystem::path _selection_folder;
     bool delete_requested = false;
-    bool delete_confirm_open = false;
-    char delete_message[160] = {};
     std::filesystem::path rename_target;
     char rename_buf[256] = {};
     bool rename_focus = false;

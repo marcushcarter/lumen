@@ -8,11 +8,14 @@
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
+#include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <string>
 
 namespace lumen {
 
@@ -212,7 +215,6 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) _delete_selection(ctx);
     }
-    if (ui_confirm_delete("Delete Folder###outliner_delete", delete_confirm_open, delete_message, "This can't be undone.")) _delete_now(ctx, false);
 }
 
 void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
@@ -670,9 +672,9 @@ void OutlinerPanel::_delete_selection(EditorContext& ctx)
         return;
     }
 
-    if (top_folders == 1) snprintf(delete_message, sizeof(delete_message), "Delete '%s' with %u entities and %u subfolders?", folders.folders[first].name, entities, subfolders);
-    else snprintf(delete_message, sizeof(delete_message), "Delete %u folders with %u entities and %u subfolders?", top_folders, entities, subfolders);
-    delete_confirm_open = true;
+    const std::wstring counts = std::to_wstring(entities) + L" entities and " + std::to_wstring(subfolders) + L" subfolders?";
+    const std::wstring heading = top_folders == 1 ? L"Delete \"" + std::filesystem::path(reinterpret_cast<const char8_t*>(folders.folders[first].name)).wstring() + L"\" with " + counts : L"Delete " + std::to_wstring(top_folders) + L" folders with " + counts;
+    if (drivers::Win32Dialogs::confirm(top_folders == 1 ? L"Delete Folder" : L"Delete Folders", heading.c_str(), L"This can't be undone.")) _delete_now(ctx, false);
 }
 
 void OutlinerPanel::_delete_now(EditorContext& ctx, bool p_keep_contents)

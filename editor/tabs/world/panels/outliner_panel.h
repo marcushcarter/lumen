@@ -67,8 +67,6 @@ struct OutlinerPanel : Panel
     char rename_buffer[64] = {};
     bool rename_focus = false;
 
-    bool delete_confirm_open = false;
-    char delete_message[160] = {};
 
     void _refresh(const World& world, const EditorFolders& folders);
     void _rebuild(const World& world, const EditorFolders& folders, bool p_full);

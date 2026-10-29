@@ -50,6 +50,7 @@ struct EditorApplication : Application
     bool wants_docking() const override { return true; }
     bool wants_custom_titlebar() const override { return false; }
     bool should_tick_game() const override { return false; }
+    bool loads_authoring_assets() const override { return true; }
     VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
     float fps_cap() const override { return (float)settings.fps_cap; }
     BackgroundPolicy background_policy() const override { return { .render_unfocused = false, .housekeeping_ms = 1000 }; }

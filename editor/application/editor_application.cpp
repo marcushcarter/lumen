@@ -4,7 +4,9 @@
 #include <core/base/hash.h>
 #include <core/io/path.h>
 #include <core/version.h>
+#include <editor/assets/content_cooker.h>
 #include <editor/assets/import/icon_cooker.h>
+#include <editor/export/project_exporter.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/world/panels/project_settings_panel.h>
@@ -95,9 +97,17 @@ Error EditorApplication::on_init()
     _ctx.save_all_callback = [this] { save_all(); };
     _ctx.reload_project_callback = [this](std::function<void()> p_op) { reload_project(std::move(p_op)); };
     _ctx.pie_is_playing = [this] { return play.is_running(); };
-    _ctx.pie_toggle_play = [this] { if (play.is_running()) play.stop(); else play.launch(project.root); };
+    _ctx.pie_toggle_play = [this] {
+        if (play.is_running()) { play.stop(); return; }
+        ContentCooker::cook(project);
+        play.launch(project.root);
+    };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
-    _ctx.run_toggle = [this](const std::filesystem::path& p_root) { if (run.is_running_for(p_root)) run.stop(); else run.relaunch(p_root); };
+    _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
+        if (run.is_running_for(p_root)) { run.stop(); return; }
+        ContentCooker::cook_root(p_root);
+        run.relaunch(p_root);
+    };
 
     git.ignore_lines = { std::string("/") + Project::DIR_EDITOR + "/" };
     _project_state_default = _project_state_write();
@@ -770,6 +780,8 @@ void EditorApplication::_titlebar_editor_menu()
 
         // ImGui::Separator();
 
+        if (ImGui::MenuItem("Export Project...")) ProjectExporter::run_with_dialog(project);
+        ImGui::Separator();
         if (ImGui::MenuItem("Exit")) close_project();
         if (ImGui::MenuItem("Quit", "Alt+F4")) win32.window_request_close();
         ImGui::EndMenu();

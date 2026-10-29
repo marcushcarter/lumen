@@ -1,8 +1,10 @@
 #pragma once
 #include <core/assets/guid.h>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <filesystem>
+#include <vector>
 
 namespace lumen {
 
@@ -15,6 +17,7 @@ enum class AssetType : uint32_t {
 };
 
 inline constexpr uint32_t LASSET_VERSION = 1;
+inline constexpr uint32_t COOKED_PAYLOAD_MAX = 64u * 1024 * 1024;
 
 inline AssetType asset_type_from_u32(uint32_t p_v)
 {
@@ -62,5 +65,7 @@ static_assert(sizeof(LAssetHeader) == 24, "LAssetHeader layout changed");
 AssetInfo read_asset_info(const std::filesystem::path& p_path);
 bool read_asset_header(const std::filesystem::path& p_path, LAssetHeader& r_header);
 bool asset_version_supported(AssetType p_type, uint32_t p_version);
+bool write_cooked_asset(const std::filesystem::path& p_path, AssetType p_type, Guid p_guid, const void* p_payload, size_t p_size);
+bool read_cooked_asset(const std::filesystem::path& p_path, AssetType p_type, LAssetHeader& r_header, std::vector<uint8_t>& r_payload);
 
 }

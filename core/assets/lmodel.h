@@ -20,6 +20,12 @@ struct LModel
         ModelImportMode mode = ModelImportMode::FULL;
     };
 
+    struct Cooked {
+        Guid mesh;
+        uint32_t material_count = 0;
+        uint32_t _pad = 0;
+    };
+
     Guid guid;
     Guid mesh;
     std::vector<Guid> materials;
@@ -27,6 +33,8 @@ struct LModel
 
     Error load(const std::filesystem::path& p_path);
     Error save(const std::filesystem::path& p_path) const;
+    Error load_cooked(const std::filesystem::path& p_path);
+    Error save_cooked(const std::filesystem::path& p_path) const;
 };
 
 }

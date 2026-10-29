@@ -43,11 +43,14 @@ struct Project
     std::string name;
     ProjectSettings settings;
 
-    Error load(const std::filesystem::path& p_root);
+    Error load(const std::filesystem::path& p_root, bool p_authoring);
     Error save() const;
     void unload();
     bool loaded() const { return !root.empty(); }
     const std::string& window_title() const { return settings.window_title.empty() ? name : settings.window_title; }
+    std::string default_export_name() const { return name + "_export"; }
+    std::string export_folder() const { return settings.export_folder.empty() ? default_export_name() : settings.export_folder; }
+    std::string export_exe() const;
 
     static Error create(const std::filesystem::path& p_root, std::string_view p_name);
     static Error destroy(const std::filesystem::path& p_root);

@@ -295,9 +295,10 @@ Error Application::project_load(const std::filesystem::path &p_root)
 {
     using enum Error;
 
-    Error err = project.load(p_root);
+    const bool authoring = loads_authoring_assets();
+    Error err = project.load(p_root, authoring);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    err = renderer.load(project.content_dir, project.assets_dir);
+    err = renderer.load(project.content_dir, authoring ? project.assets_dir : std::filesystem::path{});
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = world.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);

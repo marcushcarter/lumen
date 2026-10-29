@@ -2,6 +2,7 @@
 #include <core/assets/asset_common.h>
 #include <core/io/file_io.h>
 #include <toml++/toml.hpp>
+#include <cstring>
 #include <sstream>
 #include <string>
 
@@ -70,6 +71,35 @@ Error LModel::save(const std::filesystem::path& p_path) const
     std::ostringstream ss;
     ss << tbl;
     return write_file_atomic(p_path, ss.str()) ? OK : FAILED;
+}
+
+Error LModel::load_cooked(const std::filesystem::path& p_path)
+{
+    using enum Error;
+    LAssetHeader header{};
+    std::vector<uint8_t> payload;
+    if (!read_cooked_asset(p_path, AssetType::MODEL, header, payload) || payload.size() < sizeof(Cooked)) return FAILED;
+
+    Cooked cooked;
+    std::memcpy(&cooked, payload.data(), sizeof(cooked));
+    if (payload.size() != sizeof(Cooked) + (size_t)cooked.material_count * sizeof(Guid)) return FAILED;
+
+    *this = LModel{};
+    guid = header.guid;
+    mesh = cooked.mesh;
+    materials.resize(cooked.material_count);
+    if (cooked.material_count) std::memcpy(materials.data(), payload.data() + sizeof(Cooked), (size_t)cooked.material_count * sizeof(Guid));
+    return OK;
+}
+
+Error LModel::save_cooked(const std::filesystem::path& p_path) const
+{
+    using enum Error;
+    const Cooked cooked{ mesh, (uint32_t)materials.size(), 0 };
+    std::vector<uint8_t> payload(sizeof(Cooked) + materials.size() * sizeof(Guid));
+    std::memcpy(payload.data(), &cooked, sizeof(cooked));
+    if (!materials.empty()) std::memcpy(payload.data() + sizeof(Cooked), materials.data(), materials.size() * sizeof(Guid));
+    return write_cooked_asset(p_path, AssetType::MODEL, guid, payload.data(), payload.size()) ? OK : FAILED;
 }
 
 }

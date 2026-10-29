@@ -127,34 +127,6 @@ bool ui_icon_button(const char* p_icon, float p_size, const char* p_tooltip)
     return pressed;
 }
 
-bool ui_confirm_delete(const char* p_popup, bool& r_open, const char* p_message, const char* p_detail)
-{
-    if (r_open) {
-        ImGui::OpenPopup(p_popup);
-        r_open = false;
-    }
-    const UiStyle& ui = ui_style();
-    const ImVec2 button(ui.project_manager.button_width, 0.0f);
-    bool confirmed = false;
-    ui_menu_push_style();
-    if (ImGui::BeginPopupModal(p_popup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
-        ImGui::TextUnformatted(p_message);
-        ImGui::TextDisabled("%s", p_detail);
-        ImGui::Spacing();
-        ui_push_buttons(UiButton::DANGER);
-        if (ImGui::Button("Delete", button) || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-            confirmed = true;
-            ImGui::CloseCurrentPopup();
-        }
-        ui_pop_buttons();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", button) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-    ui_menu_pop_style();
-    return confirmed;
-}
-
 UiRename ui_inline_rename(ImVec2 p_pos, float p_width, char* r_buf, size_t p_size, bool& r_focus)
 {
     const float pad = ui_style().outliner.rename_pad_x;

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <type_traits>
 
 namespace lumen {
 
@@ -25,6 +26,31 @@ struct LMaterial
         std::string name;
 
         bool operator==(const ImportRecord&) const = default;
+    };
+
+    struct Cooked {
+        vec4 base_color;
+        vec4 custom;
+        vec3 emissive_color;
+        float emissive_nits;
+        vec2 uv_scale;
+        vec2 uv_offset;
+        Guid base_color_texture;
+        Guid normal_texture;
+        Guid roughness_texture;
+        Guid metallic_texture;
+        Guid ao_texture;
+        Guid emissive_texture;
+        Guid custom_texture;
+        float alpha_cutoff;
+        float normal_scale;
+        float roughness;
+        float metallic;
+        float ao_strength;
+        uint8_t shading_model;
+        uint8_t alpha_mode;
+        uint8_t two_sided;
+        uint8_t _pad;
     };
 
     Guid guid;
@@ -61,8 +87,13 @@ struct LMaterial
 
     Error load(const std::filesystem::path& p_path);
     Error save(const std::filesystem::path& p_path) const;
+    Error load_cooked(const std::filesystem::path& p_path);
+    Error save_cooked(const std::filesystem::path& p_path) const;
 
     bool operator==(const LMaterial&) const = default;
 };
+
+static_assert(sizeof(LMaterial::Cooked) == 144, "LMaterial::Cooked layout changed");
+static_assert(std::is_trivially_copyable_v<LMaterial::Cooked>);
 
 }

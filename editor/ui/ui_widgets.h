@@ -29,7 +29,6 @@ void ui_pop_buttons();
 
 bool ui_search_bar(const char* p_id, char* p_buf, size_t p_size, float p_width);
 bool ui_icon_button(const char* p_icon, float p_size, const char* p_tooltip = nullptr);
-bool ui_confirm_delete(const char* p_popup, bool& r_open, const char* p_message, const char* p_detail);
 UiRename ui_inline_rename(ImVec2 p_pos, float p_width, char* r_buf, size_t p_size, bool& r_focus);
 
 void ui_text_centered(ImDrawList* p_dl, ImVec2 p_min, ImVec2 p_max, ImU32 p_color, const char* p_text, const char* p_end = nullptr);

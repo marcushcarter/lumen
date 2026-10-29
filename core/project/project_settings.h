@@ -16,6 +16,8 @@ struct ProjectSettings
     int height = DEFAULT_HEIGHT;
     Guid window_icon;
     std::string window_title;
+    std::string export_folder;
+    std::string export_exe;
 
     friend bool operator==(const ProjectSettings&, const ProjectSettings&) = default;
 };

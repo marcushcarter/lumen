@@ -3,6 +3,8 @@
 #include <core/world/world.h>
 #include <core/world/components.h>
 #include <core/assets/asset_common.h>
+#include <core/assets/lmaterial.h>
+#include <core/assets/lmodel.h>
 #include <core/io/embedded_resource.h>
 #include <core/base/cpu_profiler.h>
 #include <glm/glm.hpp>
@@ -141,8 +143,9 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
     main_view.hiz_reset_pending = true;
     for (RenderView* v : views) v->hiz_reset_pending = true;
 
+    const bool authoring = !p_assets_dir.empty();
     std::error_code ec;
-    if (std::filesystem::exists(p_assets_dir, ec)) {
+    if (authoring && std::filesystem::exists(p_assets_dir, ec)) {
         for (auto it = std::filesystem::recursive_directory_iterator(p_assets_dir, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
             const std::filesystem::path ext = it->path().extension();
@@ -167,6 +170,18 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
             case AssetType::MESH:
                 geometry.load(ah.guid, path);
                 break;
+            case AssetType::MODEL: {
+                if (authoring) break;
+                LModel model;
+                if (model.load_cooked(path) == OK) models.set(model.guid, model.mesh, model.materials);
+                break;
+            }
+            case AssetType::MATERIAL: {
+                if (authoring) break;
+                LMaterial material;
+                if (material.load_cooked(path) == OK) materials.set(material);
+                break;
+            }
             default:
                 break;
         }

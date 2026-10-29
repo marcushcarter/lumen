@@ -50,7 +50,7 @@ std::filesystem::path Project::content_path(Guid p_guid) const
 /**** STATE ****/
 /***************/
 
-Error Project::load(const std::filesystem::path& p_root)
+Error Project::load(const std::filesystem::path& p_root, bool p_authoring)
 {
     using enum Error;
     unload();
@@ -78,8 +78,12 @@ Error Project::load(const std::filesystem::path& p_root)
     settings.height = tbl.at_path("window.height").value_or(settings.height);
     settings.window_icon = Guid::from_string(tbl.at_path("window.icon").value_or(std::string{}));
     settings.window_title = tbl.at_path("window.title").value_or(std::string{});
+    settings.export_folder = tbl.at_path("export.folder").value_or(std::string{});
+    settings.export_exe = tbl.at_path("export.exe").value_or(std::string{});
 
-    if (Error e = _ensure_layout(p_root); e != OK) return e;
+    if (p_authoring) {
+        if (Error e = _ensure_layout(p_root); e != OK) return e;
+    }
 
     _resolve_dirs(p_root);
     name = p_root.filename().string();
@@ -96,6 +100,13 @@ void Project::unload()
     editor_dir.clear();
     name.clear();
     settings = {};
+}
+
+std::string Project::export_exe() const
+{
+    std::string exe = settings.export_exe.empty() ? default_export_name() : settings.export_exe;
+    if (std::filesystem::path(exe).extension() != ".exe") exe += ".exe";
+    return exe;
 }
 
 Error Project::save() const
@@ -117,9 +128,14 @@ Error Project::save() const
     window.insert_or_assign("title", settings.window_title);
     window.insert_or_assign("icon", !settings.window_icon.valid() ? std::string{} : settings.window_icon.to_string());
 
+    toml::table export_tbl;
+    export_tbl.insert_or_assign("folder", settings.export_folder);
+    export_tbl.insert_or_assign("exe", settings.export_exe);
+
     toml::table out_tbl;
     out_tbl.insert_or_assign("project", std::move(project));
     out_tbl.insert_or_assign("window", std::move(window));
+    out_tbl.insert_or_assign("export", std::move(export_tbl));
 
     std::ostringstream ss;
     ss << out_tbl << '\n';

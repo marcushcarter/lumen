@@ -479,9 +479,8 @@ void ContentBrowserPanel::_delete_selection()
         delete_requested = true;
         return;
     }
-    if (folders == 1) std::snprintf(delete_message, sizeof(delete_message), "Delete '%s' with %u items?", first->filename().string().c_str(), contents);
-    else std::snprintf(delete_message, sizeof(delete_message), "Delete %u folders with %u items?", folders, contents);
-    delete_confirm_open = true;
+    const std::wstring heading = folders == 1 ? L"Delete \"" + first->filename().wstring() + L"\" with " + std::to_wstring(contents) + L" items?" : L"Delete " + std::to_wstring(folders) + L" folders with " + std::to_wstring(contents) + L" items?";
+    if (drivers::Win32Dialogs::confirm(folders == 1 ? L"Delete Folder" : L"Delete Folders", heading.c_str(), L"Deleted files go to the Recycle Bin.")) delete_requested = true;
 }
 
 void ContentBrowserPanel::_delete_now(EditorContext& ctx)
@@ -713,7 +712,6 @@ void ContentBrowserPanel::_reset_root(const std::filesystem::path& p_root)
     rename_target.clear();
     cancel_request.clear();
     delete_requested = false;
-    delete_confirm_open = false;
     selected_folder = p_root;
     last_refresh = -1.0e9;
 }
@@ -822,7 +820,6 @@ void ContentBrowserPanel::draw_contents(EditorContext& ctx)
     _draw_footer();
     ImGui::EndChild();
 
-    if (ui_confirm_delete("Delete Folder###content_browser_delete", delete_confirm_open, delete_message, "Deleted files go to the Recycle Bin.")) _delete_now(ctx);
 }
 
 }

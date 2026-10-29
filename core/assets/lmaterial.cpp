@@ -2,6 +2,7 @@
 #include <core/assets/asset_common.h>
 #include <core/io/file_io.h>
 #include <toml++/toml.hpp>
+#include <cstring>
 #include <sstream>
 #include <string>
 
@@ -182,6 +183,71 @@ Error LMaterial::save(const std::filesystem::path& p_path) const
     std::ostringstream ss;
     ss << tbl;
     return write_file_atomic(p_path, ss.str()) ? OK : FAILED;
+}
+
+Error LMaterial::load_cooked(const std::filesystem::path& p_path)
+{
+    using enum Error;
+    LAssetHeader header{};
+    std::vector<uint8_t> payload;
+    if (!read_cooked_asset(p_path, AssetType::MATERIAL, header, payload) || payload.size() != sizeof(Cooked)) return FAILED;
+
+    Cooked c;
+    std::memcpy(&c, payload.data(), sizeof(c));
+    if (c.shading_model > (uint8_t)ShadingModel::EYE || c.alpha_mode > (uint8_t)AlphaMode::MASKED) return FAILED;
+
+    *this = LMaterial{};
+    guid = header.guid;
+    shading_model = (ShadingModel)c.shading_model;
+    alpha_mode = (AlphaMode)c.alpha_mode;
+    two_sided = c.two_sided != 0;
+    alpha_cutoff = c.alpha_cutoff;
+    base_color = c.base_color;
+    base_color_texture = c.base_color_texture;
+    normal_texture = c.normal_texture;
+    normal_scale = c.normal_scale;
+    roughness = c.roughness;
+    roughness_texture = c.roughness_texture;
+    metallic = c.metallic;
+    metallic_texture = c.metallic_texture;
+    ao_strength = c.ao_strength;
+    ao_texture = c.ao_texture;
+    emissive_color = c.emissive_color;
+    emissive_nits = c.emissive_nits;
+    emissive_texture = c.emissive_texture;
+    custom = c.custom;
+    custom_texture = c.custom_texture;
+    uv_scale = c.uv_scale;
+    uv_offset = c.uv_offset;
+    return OK;
+}
+
+Error LMaterial::save_cooked(const std::filesystem::path& p_path) const
+{
+    using enum Error;
+    Cooked c{};
+    c.base_color = base_color;
+    c.custom = custom;
+    c.emissive_color = emissive_color;
+    c.emissive_nits = emissive_nits;
+    c.uv_scale = uv_scale;
+    c.uv_offset = uv_offset;
+    c.base_color_texture = base_color_texture;
+    c.normal_texture = normal_texture;
+    c.roughness_texture = roughness_texture;
+    c.metallic_texture = metallic_texture;
+    c.ao_texture = ao_texture;
+    c.emissive_texture = emissive_texture;
+    c.custom_texture = custom_texture;
+    c.alpha_cutoff = alpha_cutoff;
+    c.normal_scale = normal_scale;
+    c.roughness = roughness;
+    c.metallic = metallic;
+    c.ao_strength = ao_strength;
+    c.shading_model = (uint8_t)shading_model;
+    c.alpha_mode = (uint8_t)alpha_mode;
+    c.two_sided = two_sided ? 1 : 0;
+    return write_cooked_asset(p_path, AssetType::MATERIAL, guid, &c, sizeof(c)) ? OK : FAILED;
 }
 
 }

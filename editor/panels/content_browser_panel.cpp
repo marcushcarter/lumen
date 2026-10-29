@@ -63,6 +63,7 @@ ContentBrowserPanel::Dir& ContentBrowserPanel::_cache_get(const std::filesystem:
 
 void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r_dir)
 {
+    r_dir.path = p_dir;
     r_dir.path_str = p_dir.string();
     r_dir.name = p_dir.filename().string();
 
@@ -95,71 +96,66 @@ void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r
 /**** TREE ****/
 /**************/
 
-void ContentBrowserPanel::_draw_folder_node(const std::filesystem::path& p_dir, int p_depth)
+void ContentBrowserPanel::_tree_emit(const std::filesystem::path& p_dir, uint16_t p_depth)
 {
-    Dir& node = _cache_get(p_dir);
-    ImGui::PushID(node.path_str.c_str());
+    const Dir& node = _cache_get(p_dir);
+    if (!node.exists) return;
+    tree_rows.push_back({ &node, p_depth });
+    if (p_depth != 0 && !open_folders.contains(p_dir)) return;
+    if (tree_ascending) {
+        for (const std::filesystem::path& sub : node.subdirs) _tree_emit(sub, (uint16_t)(p_depth + 1));
+    } else {
+        for (auto it = node.subdirs.rbegin(); it != node.subdirs.rend(); ++it) _tree_emit(*it, (uint16_t)(p_depth + 1));
+    }
+}
 
-    ImGuiStorage* storage = ImGui::GetStateStorage();
-    const ImGuiID open_key = ImGui::GetID("open");
-    bool open = storage->GetBool(open_key, p_depth == 0);
+void ContentBrowserPanel::_tree_toggle(const std::filesystem::path& p_dir)
+{
+    if (!open_folders.erase(p_dir)) open_folders.insert(p_dir);
+}
 
+void ContentBrowserPanel::_draw_tree_row(const TreeRow& p_row, float p_row_h)
+{
+    const Dir& node = *p_row.dir;
+    const bool is_root = p_row.depth == 0;
     const bool has_children = !node.subdirs.empty();
-    if (!has_children) open = false;
-
+    const bool open = has_children && (is_root || open_folders.contains(node.path));
+    const bool selected = selected_folder == node.path;
     const UiStyle& ui = ui_style();
-    const float indent_w = ImGui::GetFontSize();
-    const float row_h = ImGui::GetTextLineHeight() + ui.asset_browser.row_pad_y;
-    const float full_w = ImGui::GetContentRegionAvail().x;
-    const ImVec2 row_min = ImGui::GetCursorScreenPos();
-    const ImVec2 row_max = ImVec2(row_min.x + full_w, row_min.y + row_h);
-    const float indent = p_depth * indent_w;
+    const float font = ImGui::GetFontSize();
+    const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
+
+    ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
+    ImGui::PushID(node.path_str.c_str());
+    ImGui::TableSetColumnIndex(0);
+    const ImVec2 cell = ImGui::GetCursorScreenPos();
+    const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
+    if (ImGui::Selectable("##row", selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0.0f, content_h))) {
+        selected_folder = node.path;
+        if (!is_root && has_children && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) _tree_toggle(node.path);
+    }
+    _drop_target(node.path);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    const bool selected_here = selected_folder == p_dir;
-    const bool hovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(row_min, row_max);
-    if (selected_here) dl->AddRectFilled(row_min, row_max, ImGui::GetColorU32(ImGuiCol_Header));
-    else if (hovered) dl->AddRectFilled(row_min, row_max, ImGui::GetColorU32(ImGuiCol_HeaderHovered));
-
-    const float chevron_w = ui.asset_browser.chevron_width;
-    const ImVec2 chev_min(row_min.x + indent, row_min.y);
+    float x = cell.x + (float)p_row.depth * font;
     if (has_children) {
-        ImGui::SetCursorScreenPos(chev_min);
-        if (ImGui::InvisibleButton("chevron", ImVec2(chevron_w, row_h))) {
-            open = !open;
-            storage->SetBool(open_key, open);
+        bool arrow_hovered = false;
+        if (!is_root) {
+            ImGui::SetCursorScreenPos(ImVec2(x, cell.y));
+            if (ImGui::InvisibleButton("##arrow", ImVec2(font, content_h))) _tree_toggle(node.path);
+            arrow_hovered = ImGui::IsItemHovered();
         }
-        const bool chev_hover = ImGui::IsItemHovered();
-        const ImU32 tri_col = ImGui::GetColorU32(chev_hover ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-        const float fs = ImGui::GetFontSize();
-        const ImVec2 arrow_pos(chev_min.x + (chevron_w - fs) * 0.5f, row_min.y + (row_h - fs) * 0.5f);
-        ImGui::RenderArrow(dl, arrow_pos, tri_col, open ? ImGuiDir_Down : ImGuiDir_Right, 1.0f);
+        const ImU32 arrow_col = ImGui::GetColorU32(arrow_hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        ImGui::RenderArrow(dl, ImVec2(x, text_y + font * ui.outliner.arrow_offset_scale), arrow_col, open ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
     }
-
-    const float body_x = row_min.x + indent + chevron_w;
-    float body_w = row_max.x - body_x;
-    if (body_w < 1.0f) body_w = 1.0f;
-    ImGui::SetCursorScreenPos(ImVec2(body_x, row_min.y));
-    if (ImGui::InvisibleButton("row", ImVec2(body_w, row_h))) selected_folder = p_dir;
-    if (has_children && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        open = !open;
-        storage->SetBool(open_key, open);
-    }
-    _drop_target(p_dir);
+    x += font;
 
     const char* icon = open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
-    const ImVec2 is = ImGui::CalcTextSize(icon);
-    dl->AddText(ImVec2(body_x, row_min.y + (row_h - is.y) * 0.5f), ui.color.folder, icon);
-
-    const float icon_gap = ui.asset_browser.icon_gap;
-    const float name_x = body_x + is.x + icon_gap;
-    dl->PushClipRect(ImVec2(name_x, row_min.y), row_max, true);
-    dl->AddText(ImVec2(name_x, row_min.y + (row_h - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), node.name.c_str());
-    dl->PopClipRect();
-
-    ImGui::SetCursorScreenPos(ImVec2(row_min.x, row_max.y));
-    if (open) for (const std::filesystem::path& sub : node.subdirs) _draw_folder_node(sub, p_depth + 1);
+    const float icon_w = font * ui.outliner.icon_width_scale;
+    const ImVec2 icon_size = ImGui::CalcTextSize(icon);
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), ui.color.folder, icon);
+    x += icon_w + ui.outliner.icon_gap;
+    dl->AddText(ImVec2(x, text_y), ImGui::GetColorU32(ImGuiCol_Text), node.name.c_str());
 
     ImGui::PopID();
 }
@@ -706,6 +702,8 @@ void ContentBrowserPanel::_reset_root(const std::filesystem::path& p_root)
 {
     _root = p_root;
     dirs.clear();
+    tree_rows.clear();
+    open_folders.clear();
     _thumb_infos.clear();
     _clear_selection();
     _selection_folder.clear();
@@ -745,13 +743,45 @@ void ContentBrowserPanel::_add_asset_menu(EditorContext& ctx)
 void ContentBrowserPanel::_draw_tree(const std::filesystem::path& p_root, ImVec2 p_origin, float p_width, float p_height)
 {
     const UiStyle& ui = ui_style();
-    ImGui::BeginChild("##left", ImVec2(p_width, p_height), ImGuiChildFlags_AlwaysUseWindowPadding);
-    if (_cache_get(p_root).exists) _draw_folder_node(p_root, 0);
-    const float divider_x = p_origin.x + p_width;
-    const float shadow_w = ui.asset_browser.divider_shadow;
-    const ImU32 edge = ui.color.shadow;
-    const ImU32 fade = ui.color.transparent;
-    ImGui::GetWindowDrawList()->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, p_origin.y), ImVec2(divider_x, p_origin.y + p_height), fade, edge, edge, fade);
+    const UiStyle::Outliner& style = ui.outliner;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.padding);
+    ImGui::BeginChild("##left", ImVec2(p_width, p_height), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+
+    const float row_h = ImMax(ImGui::GetFrameHeight(), ImGui::GetFontSize() + style.row_pad_y * 2.0f);
+    const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings;
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.cell_pad_x, style.row_pad_y));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, style.row_pad_y * 2.0f));
+    if (ImGui::BeginTable("##folders", 1, flags)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Folder Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder);
+        ImGui::TableHeadersRow();
+
+        if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsDirty) {
+            if (specs->SpecsCount > 0) tree_ascending = specs->Specs[0].SortDirection != ImGuiSortDirection_Descending;
+            specs->SpecsDirty = false;
+        }
+
+        tree_rows.clear();
+        _tree_emit(p_root, 0);
+
+        ImGuiListClipper clipper;
+        clipper.Begin((int)tree_rows.size(), row_h);
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) _draw_tree_row(tree_rows[i], row_h);
+        }
+
+        const float divider_x = p_origin.x + p_width;
+        const float shadow_w = ui.asset_browser.divider_shadow;
+        const ImU32 edge = ui.color.shadow;
+        const ImU32 fade = ui.color.transparent;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->PushClipRect(p_origin, ImVec2(divider_x, p_origin.y + p_height), false);
+        dl->AddRectFilledMultiColor(ImVec2(divider_x - shadow_w, p_origin.y), ImVec2(divider_x, p_origin.y + p_height), fade, edge, edge, fade);
+        dl->PopClipRect();
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar(2);
     ImGui::EndChild();
 }
 

@@ -5,9 +5,18 @@
 #include <core/project/project.h>
 #include <editor/assets/content_cooker.h>
 #include <drivers/windows/dialogs_win32.h>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <system_error>
+#include <windows.h>
+#include <shlobj.h>
 
 namespace lumen {
+
+static_assert(sizeof(ProjectExporter::IcoHeader) == 6);
+static_assert(sizeof(ProjectExporter::IcoEntry) == 16);
+static_assert(sizeof(ProjectExporter::GroupIconEntry) == 14);
 
 std::filesystem::path ProjectExporter::_setting_path(const std::string& p_setting, const std::filesystem::path& p_fallback)
 {
@@ -25,6 +34,61 @@ std::filesystem::path ProjectExporter::_exe_name(const Project& p_project)
     std::filesystem::path exe = _setting_path(p_project.settings.export_exe, p_project.root.filename().wstring() + L"_export");
     if (exe.extension() != L".exe") exe += L".exe";
     return exe;
+}
+
+bool ProjectExporter::_update_icon_resources(const std::filesystem::path& p_exe, const std::vector<uint8_t>& p_ico)
+{
+    IcoHeader header;
+    std::memcpy(&header, p_ico.data(), sizeof(header));
+
+    HANDLE update = BeginUpdateResourceW(p_exe.c_str(), FALSE);
+    if (!update) return false;
+
+    const WORD lang = MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL);
+    std::vector<uint8_t> group(sizeof(IcoHeader) + header.count * sizeof(GroupIconEntry));
+    std::memcpy(group.data(), &header, sizeof(header));
+
+    bool ok = true;
+    for (uint32_t i = 0; i < header.count && ok; ++i) {
+        IcoEntry entry;
+        std::memcpy(&entry, p_ico.data() + sizeof(IcoHeader) + i * sizeof(IcoEntry), sizeof(entry));
+        const uint16_t id = (uint16_t)(i + 1);
+        ok = UpdateResourceW(update, RT_ICON, MAKEINTRESOURCEW(id), lang, (LPVOID)(p_ico.data() + entry.offset), entry.bytes) != FALSE;
+
+        const GroupIconEntry group_entry{ entry.width, entry.height, entry.colors, entry.reserved, entry.planes, entry.bit_count, entry.bytes, id };
+        std::memcpy(group.data() + sizeof(IcoHeader) + i * sizeof(GroupIconEntry), &group_entry, sizeof(group_entry));
+    }
+    if (ok) ok = UpdateResourceW(update, RT_GROUP_ICON, MAKEINTRESOURCEW(ICON_GROUP_ID), lang, group.data(), (DWORD)group.size()) != FALSE;
+
+    if (!EndUpdateResourceW(update, ok ? FALSE : TRUE)) return false;
+    return ok;
+}
+
+bool ProjectExporter::_set_exe_icon(const std::filesystem::path& p_exe, const std::filesystem::path& p_icon)
+{
+    std::ifstream f(p_icon, std::ios::binary);
+    if (!f) return false;
+    const std::vector<uint8_t> ico((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (ico.size() < sizeof(IcoHeader)) return false;
+
+    IcoHeader header;
+    std::memcpy(&header, ico.data(), sizeof(header));
+    if (header.reserved != 0 || header.type != 1 || header.count == 0) return false;
+    if (ico.size() < sizeof(IcoHeader) + header.count * sizeof(IcoEntry)) return false;
+    for (uint32_t i = 0; i < header.count; ++i) {
+        IcoEntry entry;
+        std::memcpy(&entry, ico.data() + sizeof(IcoHeader) + i * sizeof(IcoEntry), sizeof(entry));
+        if (entry.bytes == 0 || (uint64_t)entry.offset + entry.bytes > ico.size()) return false;
+    }
+
+    for (uint32_t attempt = 0; attempt < ICON_UPDATE_ATTEMPTS; ++attempt) {
+        if (_update_icon_resources(p_exe, ico)) {
+            SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, p_exe.c_str(), nullptr);
+            return true;
+        }
+        Sleep(ICON_RETRY_MS);
+    }
+    return false;
 }
 
 Error ProjectExporter::run(const Project& p_project, const std::filesystem::path& p_destination, std::filesystem::path& r_out)
@@ -65,6 +129,11 @@ Error ProjectExporter::run(const Project& p_project, const std::filesystem::path
     if (!write_file_atomic(exe, runtime.data, runtime.size)) {
         log_write("Export: couldn't write '%s'.", exe.string().c_str());
         return FAILED;
+    }
+
+    const std::filesystem::path icon = out / Project::FILE_WINDOW_ICON;
+    if (std::filesystem::exists(icon, ec) && !_set_exe_icon(exe, icon)) {
+        log_write("Export: couldn't set the executable icon from '%s'.", icon.string().c_str());
     }
 
     r_out = exe;

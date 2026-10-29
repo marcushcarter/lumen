@@ -5,9 +5,11 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/layout/panel.h>
 #include <IconsFontAwesome6.h>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace lumen {
@@ -30,11 +32,17 @@ struct ContentBrowserPanel : Panel
     };
 
     struct Dir {
+        std::filesystem::path path;
         std::string path_str;
         std::string name;
         std::vector<std::filesystem::path> subdirs;
         std::vector<Entry> entries;
         bool exists = false;
+    };
+
+    struct TreeRow {
+        const Dir* dir;
+        uint16_t depth;
     };
 
     struct ItemResult {
@@ -51,6 +59,9 @@ struct ContentBrowserPanel : Panel
     std::filesystem::path selected_folder;
     std::filesystem::path _root;
     float split_x = 0.18f;
+    std::vector<TreeRow> tree_rows;
+    std::unordered_set<std::filesystem::path> open_folders;
+    bool tree_ascending = true;
 
     char search_buf[256] = {};
     std::vector<std::filesystem::path> selection;
@@ -72,7 +83,9 @@ struct ContentBrowserPanel : Panel
     void request_refresh() { refresh_requested = true; if (registry) registry->request_rebuild(); }
 
     void _reset_root(const std::filesystem::path& p_root);
-    void _draw_folder_node(const std::filesystem::path& p_dir, int p_depth);
+    void _tree_emit(const std::filesystem::path& p_dir, uint16_t p_depth);
+    void _tree_toggle(const std::filesystem::path& p_dir);
+    void _draw_tree_row(const TreeRow& p_row, float p_row_h);
 
     std::filesystem::path _target_folder(const EditorContext& ctx) const;
     bool _nested_in_selection(const std::filesystem::path& p_path) const;

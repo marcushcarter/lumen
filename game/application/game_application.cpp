@@ -1,11 +1,27 @@
 #include <game/application/game_application.h>
 #include <core/io/path.h>
+#include <core/world/components.h>
 #include <imgui.h>
 #include <windows.h>
 #include <shellapi.h>
 #include <filesystem>
 
 namespace lumen {
+
+void GameApplication::_spawn_test_model()
+{
+    Guid model;
+    for (const auto& [guid, entry] : renderer.models.by_guid) {
+        if (!model.valid() || guid < model) model = guid;
+    }
+    if (!model.valid()) return;
+
+    const Entity e = world.create();
+    world.add<TransformComponent>(e, TransformComponent{});
+    world.add<ModelComponent>(e, { model });
+    world.add<StaticTag>(e);
+    log_write("Game: spawned test model %s at the origin.", model.to_string().c_str());
+}
 
 Error GameApplication::on_init()
 {
@@ -20,6 +36,7 @@ Error GameApplication::on_init()
     }
     Error err = project_load(project_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    _spawn_test_model();
 
     win32.window_set_title(project.window_title());
     win32.window_set_size(project.settings.width, project.settings.height);
@@ -50,10 +67,10 @@ void GameApplication::on_update(float p_dt)
 }
 
 void GameApplication::update_camera(float )
-{
-    vec3 target = vec3(0.0f, 2.0f, 0.0f);
-    float radius = -1.5f;
-    float height = -0.5f;
+{    
+    vec3 target = vec3(0.0f, 1.0f, 0.0f);
+    float radius = 3.0f;
+    float height = 1.0f;
     float angle = 0.0f;
 
     const vec3 eye = target + vec3(radius * std::cos(angle), height, -radius * std::sin(angle));

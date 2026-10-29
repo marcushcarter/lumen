@@ -14,6 +14,7 @@ struct GameApplication : Application
     std::filesystem::path project_root;
     float title_frame_avg = 0.0f;
 
+    void _spawn_test_model();
     Error on_init() override;
     void on_update(float p_dt) override;
     void on_shutdown() override;
@@ -26,7 +27,6 @@ struct GameApplication : Application
     /****************/
 
     Camera orbit_camera;
-    float orbit_time = 0.0f;
 
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override { return orbit_camera; }

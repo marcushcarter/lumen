@@ -262,28 +262,19 @@ void Viewport::_draw_image(EditorContext& ctx)
 
     left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
     if (left_overlay.begin_menu(ICON_FA_BARS)) {
-        ImGui::SliderFloat("Viewport Resolution", &screen_percentage, 0.01f, 1.0f);
+        float vp_res = screen_percentage * 100.0f;
+        if (ImGui::SliderFloat("Viewport Resolution", &vp_res, 25.0f, 100.0f, "%.0f%%")) screen_percentage = vp_res / 100.0f;
         float internal = ctx.renderer->main_view.render_scale * 100.0f;
         if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
-        ImGui::SliderFloat("LOD Bias", &ctx.renderer->main_view.lod_bias, 0.25f, 4.0f);
-        if (ctx.render_path) {
-            GeometryFeature& geo = ctx.render_path->geometry;
-            ImGui::Checkbox("Occlusion Culling", &geo.occlusion);
-            ImGui::Checkbox("Contribution Culling", &geo.contribution_culling);
-            ImGui::SliderFloat("Min Screen Radius (px)", &geo.contribution_px, 0.25f, 8.0f);
-            ImGui::Checkbox("Mesh Shading", &geo.mesh_shading);
-            ImGui::Checkbox("Task Shading", &geo.task_shading);
-            ImGui::Separator();
-            ImGui::Checkbox("TAA", &ctx.render_path->taa.enabled);
-            ImGui::SliderFloat("Sharpness", &ctx.render_path->taa.sharpness, 0.0f, 2.0f);
-            static const char* TONEMAPPERS[PostProcessFeature::TONEMAPPER_COUNT] = { "AgX", "ACES", "PBR Neutral", "None", "AgX Punchy" };
-            int tonemapper = (int)ctx.render_path->post.tonemapper;
-            if (ImGui::Combo("Tonemapper", &tonemapper, TONEMAPPERS, PostProcessFeature::TONEMAPPER_COUNT)) ctx.render_path->post.tonemapper = (PostProcessFeature::Tonemapper)tonemapper;
-            ImGui::Checkbox("Auto Exposure", &ctx.render_path->exposure.enabled);
-            ImGui::Checkbox("Bloom", &ctx.render_path->bloom.enabled);
-            ImGui::SliderFloat("Bloom Intensity", &ctx.render_path->bloom.intensity, 0.0f, 0.2f);
-            ImGui::Checkbox("Lens Flare", &ctx.render_path->lens_flare.enabled);
-        }
+        float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
+        if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
+        ImGui::Checkbox("TAA", &ctx.render_path->taa.enabled);
+        static const char* TONEMAPPERS[PostProcessFeature::TONEMAPPER_COUNT] = { "None", "AgX",  "AgX Punchy", "ACES", "PBR Neutral" };
+        int tonemapper = (int)ctx.render_path->post.tonemapper;
+        if (ImGui::Combo("Tonemapper", &tonemapper, TONEMAPPERS, PostProcessFeature::TONEMAPPER_COUNT)) ctx.render_path->post.tonemapper = (PostProcessFeature::Tonemapper)tonemapper;
+        ImGui::Checkbox("Auto Exposure", &ctx.render_path->exposure.enabled);
+        ImGui::Checkbox("Bloom", &ctx.render_path->bloom.enabled);
+        ImGui::Checkbox("Lens Flare", &ctx.render_path->lens_flare.enabled);
         left_overlay.end_menu();
     }
     left_overlay.gap();

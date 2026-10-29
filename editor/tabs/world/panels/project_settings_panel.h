@@ -16,7 +16,7 @@ struct ProjectSettingsPanel : Panel
 
     bool _text_setting(const char* p_label, const char* p_hint, const char* p_tooltip, char* r_buf, std::string& r_value);
 
-    const char* name() const override { return ICON_FA_SLIDERS "  Project Settings"; }
+    const char* name() const override { return ICON_FA_WRENCH "  Project Settings"; }
     DockZone default_zone() const override { return DockZone::RIGHT_BOTTOM; }
     bool default_open() const override { return false; }
     void draw_contents(EditorContext& ctx) override;

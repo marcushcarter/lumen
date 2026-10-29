@@ -533,7 +533,7 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_card(EditorContext& ctx, I
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 bg = selected ? ImGui::GetColorU32(hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header) : hovered ? ui.color.field_active : ui.color.sunken;
+    const ImU32 bg = selected ? ImGui::GetColorU32(hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header) : hovered ? ui.color.field_hover : ui.color.field;
     dl->AddRectFilled(p0, p1, bg);
 
     const ImVec2 thumb0 = p0;

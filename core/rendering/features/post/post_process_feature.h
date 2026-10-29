@@ -12,7 +12,7 @@ struct PostProcessFeature : Feature
     static constexpr float NIGHT_START_SUN_Y = -0.0349f;
     static constexpr float NIGHT_FULL_SUN_Y = -0.2079f;
 
-    enum class Tonemapper : uint32_t { AGX, ACES, PBR_NEUTRAL, NONE, AGX_PUNCHY, COUNT };
+    enum class Tonemapper : uint32_t { NONE, AGX, AGX_PUNCHY, ACES, PBR_NEUTRAL, COUNT };
 
     static constexpr uint32_t TONEMAPPER_COUNT = (uint32_t)Tonemapper::COUNT;
 

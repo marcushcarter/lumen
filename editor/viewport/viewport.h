@@ -40,6 +40,8 @@ struct Viewport
     bool allow_outline = true;
     bool allow_gizmo = true;
     bool allow_look = false;
+    bool allow_grid = true;
+    bool show_grid = true;
     float* time_of_day = nullptr;
     bool fullscreen = false;
 

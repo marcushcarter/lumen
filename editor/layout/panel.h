@@ -54,7 +54,6 @@ struct Panel
     void _resolve_names() {
         title = name();
         layout_id = title;
-        // Font Awesome glyphs live in the private use area, U+E000..U+F8FF, which is 3 bytes of UTF-8 led by 0xEE/0xEF
         while ((uint8_t)layout_id[0] == 0xEE || (uint8_t)layout_id[0] == 0xEF) layout_id += 3;
         while (*layout_id == ' ') layout_id++;
     }

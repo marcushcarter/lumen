@@ -190,6 +190,7 @@ void Viewport::_draw_image(EditorContext& ctx)
             if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
         }
     }
+    if (ctx.render_path) ctx.render_path->outline.enabled = allow_outline;
     if (allow_outline && ctx.render_path && ctx.selection && ctx.render_path->outline.source_version != ctx.selection->version) {
         ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
         ctx.render_path->outline.source_version = ctx.selection->version;
@@ -202,6 +203,21 @@ void Viewport::_draw_image(EditorContext& ctx)
         ctx.renderer->request_size(w, h);
     }
 
+    if (ctx.render_path) {
+        const UiStyle& ui = ui_style();
+        GridFeature& grid = ctx.render_path->grid;
+        grid.show_grid = allow_grid && show_grid;
+        grid.show_axes = allow_grid && show_grid;
+        grid.ui_width = size.x;
+        grid.axis_thickness = ui.gizmo.axis_thickness;
+        grid.head_length = ui.gizmo.head_length;
+        grid.head_width = ui.gizmo.head_width;
+        const ImU32 axis_color[3] = { ui.color.gizmo_x, ui.color.gizmo_y, ui.color.gizmo_z };
+        for (uint32_t i = 0; i < 3; i++) {
+            const ImVec4 c = ImGui::ColorConvertU32ToFloat4(axis_color[i]);
+            grid.axis_color[i] = vec4(c.x, c.y, c.z, c.w);
+        }
+    }
     if (ctx.render_path) {
         const DebugView& view = DEBUG_VIEWS[selected_view];
         const bool lit = view.op == DebugViewOp::COPY && view.image && std::strcmp(view.image, "DisplayColor") == 0;
@@ -301,6 +317,11 @@ void Viewport::_draw_image(EditorContext& ctx)
             }
             left_overlay.end_menu();
         }
+    }
+    if (allow_grid) {
+        left_overlay.gap();
+        left_overlay.toggle(ICON_FA_BORDER_ALL "###grid", show_grid);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(show_grid ? "Hide grid" : "Show grid");
     }
     left_overlay.end();
 

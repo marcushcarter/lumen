@@ -10,8 +10,6 @@ namespace lumen {
 struct OutlineFeature : Feature
 {
     static constexpr uint32_t MIN_MASK_BYTES = 4096;
-    static constexpr uint32_t MAX_CLUSTERS = 1u << 18;
-    static constexpr uint32_t CLUSTERS_HEADER = 16;
 
     std::vector<drivers::DeviceDriverVulkan::Buffer> mask_buffers;
     std::vector<uint64_t> slot_version;
@@ -29,21 +27,13 @@ struct OutlineFeature : Feature
     glm::vec2 pass_rect_min = glm::vec2(0.0f);
     glm::vec2 pass_rect_max = glm::vec2(1.0f);
 
-    RenderGraph::Pass init_pass;
-    RenderGraph::Pass gather_pass;
-    RenderGraph::Pass raster_pass;
     RenderGraph::Pass outline_pass;
-    drivers::DeviceDriverVulkan::Pipeline gather_pipe;
-    drivers::DeviceDriverVulkan::Pipeline raster_pipe;
     drivers::DeviceDriverVulkan::Pipeline outline_pipe;
+
+    void _create_outline_pass();
 
     void set_selection(const Entity* p_entities, uint32_t p_count);
     void set_rect(glm::vec2 p_min, glm::vec2 p_max) { rect_min = p_min; rect_max = p_max; }
-
-    void _create_init_pass();
-    void _create_gather_pass();
-    void _create_raster_pass();
-    void _create_outline_pass();
 
     Error create_resources() override;
     Error create_pipelines() override;

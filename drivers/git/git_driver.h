@@ -22,7 +22,6 @@ struct GitDriver
 
     std::filesystem::path repo_root;
     std::function<void(const std::string&)> log_callback;
-    // patterns the repo's .gitignore must contain, appended when missing (set before initialize)
     std::vector<std::string> ignore_lines;
 
     void _ignore_ensure();

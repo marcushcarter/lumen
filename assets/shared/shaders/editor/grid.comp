@@ -1,0 +1,165 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform image2D u_storage_rgba16f[];
+
+layout(buffer_reference, scalar) readonly buffer GridParams {
+    vec4 clip_z;
+    vec4 clip_w;
+    vec4 camera;
+    vec4 ray;
+    vec4 ray_dx;
+    vec4 ray_dy;
+    vec4 axis_color[3];
+    vec4 axis_origin;
+    vec4 axis_tip[3];
+    vec4 axis_bounds;
+    vec4 axis_style;
+    uvec4 size;
+};
+
+layout(push_constant, scalar) uniform Push {
+    GridParams params;
+    uint depth_index;
+    uint out_slot;
+    uint flags;
+} pc;
+
+const uint FLAG_GRID = 1u;
+const uint FLAG_AXES = 2u;
+
+const vec3 GRID_COLOR = vec3(0.18);
+const float GRID_MINOR_ALPHA = 0.25;
+const float GRID_MAJOR_ALPHA = 0.5;
+const float GRID_MAJOR_CELLS = 10.0;
+const float GRID_LINE_PX = 1.0;
+const float DEPTH_TOLERANCE = 1e-3;
+const float MIN_ALPHA = 1.0 / 255.0;
+
+float grid_lines(vec2 p_uv, vec2 p_deriv) {
+    const vec2 target = min(p_deriv * GRID_LINE_PX, vec2(0.5));
+    const vec2 draw = clamp(target, p_deriv, vec2(0.5));
+    const vec2 aa = max(p_deriv, vec2(1e-6)) * 1.5;
+    const vec2 uv = 1.0 - abs(fract(p_uv) * 2.0 - 1.0);
+    vec2 g = smoothstep(draw + aa, draw - aa, uv);
+    g *= clamp(target / draw, 0.0, 1.0);
+    g = mix(g, target, clamp(p_deriv * 2.0 - 1.0, 0.0, 1.0));
+    return mix(g.x, 1.0, g.y);
+}
+
+float grid(GridParams p, vec2 p_center, out float r_depth) {
+    const vec3 cam = p.camera.xyz;
+    const vec3 d = p.ray.xyz + p.ray_dx.xyz * p_center.x + p.ray_dy.xyz * p_center.y;
+    r_depth = 0.0;
+    if (d.y * cam.y >= 0.0) return 0.0;
+
+    const float t = -cam.y / d.y;
+    const vec3 hit = cam + d * t;
+    const float dist = distance(hit.xz, cam.xz);
+    const float radius = p.camera.w;
+    if (dist >= radius) return 0.0;
+
+    const vec3 dx = d + p.ray_dx.xyz;
+    const vec3 dy = d + p.ray_dy.xyz;
+    const vec2 hit_x = cam.xz + dx.xz * (-cam.y / dx.y);
+    const vec2 hit_y = cam.xz + dy.xz * (-cam.y / dy.y);
+    const vec2 ddx = hit_x - hit.xz;
+    const vec2 ddy = hit_y - hit.xz;
+    const vec2 deriv = vec2(length(vec2(ddx.x, ddy.x)), length(vec2(ddx.y, ddy.y)));
+
+    const float minor = grid_lines(hit.xz, deriv);
+    const float major = grid_lines(hit.xz / GRID_MAJOR_CELLS, deriv / GRID_MAJOR_CELLS);
+    const float fade = 1.0 - smoothstep(radius * 0.5, radius, dist);
+    r_depth = dot(p.clip_z, vec4(hit, 1.0)) / dot(p.clip_w, vec4(hit, 1.0));
+    return max(minor * GRID_MINOR_ALPHA, major * GRID_MAJOR_ALPHA) * fade;
+}
+
+float segment_distance(vec2 p_p, vec2 p_a, vec2 p_b, out float r_t) {
+    const vec2 ab = p_b - p_a;
+    r_t = clamp(dot(p_p - p_a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+    return length(p_p - (p_a + ab * r_t));
+}
+
+float triangle_distance(vec2 p_p, vec2 p_a, vec2 p_b, vec2 p_c) {
+    const vec2 e0 = p_b - p_a, e1 = p_c - p_b, e2 = p_a - p_c;
+    const vec2 v0 = p_p - p_a, v1 = p_p - p_b, v2 = p_p - p_c;
+    const vec2 q0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+    const vec2 q1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+    const vec2 q2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+    const float s = sign(e0.x * e2.y - e0.y * e2.x);
+    const vec2 d = min(min(vec2(dot(q0, q0), s * (v0.x * e0.y - v0.y * e0.x)), vec2(dot(q1, q1), s * (v1.x * e1.y - v1.y * e1.x))), vec2(dot(q2, q2), s * (v2.x * e2.y - v2.y * e2.x)));
+    return -sqrt(d.x) * sign(d.y);
+}
+
+float axis(GridParams p, uint p_axis, vec2 p_center, out float r_depth) {
+    const vec4 tip_data = p.axis_tip[p_axis];
+    r_depth = 0.0;
+    if (tip_data.w == 0.0) return 0.0;
+
+    const vec2 o = p.axis_origin.xy;
+    const vec2 tip = tip_data.xy;
+    const float thickness = p.axis_style.x;
+    const float head_length = p.axis_style.y;
+    const float head_width = p.axis_style.z;
+    const vec2 dir = tip - o;
+    const float len = length(dir);
+    const vec2 n = dir / len;
+
+    float t;
+    float d;
+    if (len > head_length) {
+        const vec2 base = tip - n * head_length;
+        const vec2 side = vec2(-n.y, n.x) * head_width * 0.5;
+        const vec2 join = base + n * head_length * 0.5;
+        const float shaft = segment_distance(p_center, o, join, t) - thickness * 0.5;
+        t *= length(join - o) / len;
+        const float head = triangle_distance(p_center, tip, base + side, base - side);
+        if (head < shaft) t = clamp(dot(p_center - o, n) / len, 0.0, 1.0);
+        d = min(shaft, head);
+    } else {
+        d = segment_distance(p_center, o, tip, t) - thickness * 0.5;
+    }
+    r_depth = mix(p.axis_origin.z, tip_data.z, t);
+    return clamp(0.5 - d, 0.0, 1.0) * p.axis_color[p_axis].a;
+}
+
+void main() {
+    GridParams p = pc.params;
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(p.size.x) || pixel.y >= int(p.size.y)) return;
+    const vec2 center = vec2(pixel) + 0.5;
+
+    float grid_depth = 0.0;
+    const float grid_a = (pc.flags & FLAG_GRID) != 0u ? grid(p, center, grid_depth) : 0.0;
+
+    float axis_a[3] = { 0.0, 0.0, 0.0 };
+    float axis_depth[3] = { 0.0, 0.0, 0.0 };
+    bool any_axis = false;
+    if ((pc.flags & FLAG_AXES) != 0u && all(greaterThanEqual(center, p.axis_bounds.xy)) && all(lessThanEqual(center, p.axis_bounds.zw))) {
+        for (uint i = 0u; i < 3u; i++) {
+            axis_a[i] = axis(p, i, center, axis_depth[i]);
+            any_axis = any_axis || axis_a[i] >= MIN_ALPHA;
+        }
+    }
+    if (grid_a < MIN_ALPHA && !any_axis) return;
+
+    const ivec2 sp = ivec2(center * vec2(p.size.zw) / vec2(p.size.xy));
+    const float scene = texelFetch(u_textures[pc.depth_index], sp, 0).r * (1.0 - DEPTH_TOLERANCE);
+    const bool grid_visible = grid_a >= MIN_ALPHA && grid_depth >= scene;
+    bool axis_visible = false;
+    for (uint i = 0u; i < 3u; i++) axis_visible = axis_visible || (axis_a[i] >= MIN_ALPHA && axis_depth[i] >= scene);
+    if (!grid_visible && !axis_visible) return;
+
+    vec4 c = imageLoad(u_storage_rgba16f[pc.out_slot], pixel);
+    if (grid_visible) c.rgb = mix(c.rgb, GRID_COLOR, grid_a);
+    for (uint i = 0u; i < 3u; i++) {
+        if (axis_a[i] >= MIN_ALPHA && axis_depth[i] >= scene) c.rgb = mix(c.rgb, p.axis_color[i].rgb, axis_a[i]);
+    }
+    imageStore(u_storage_rgba16f[pc.out_slot], pixel, c);
+}

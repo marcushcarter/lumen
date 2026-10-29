@@ -18,6 +18,7 @@ Error MaterialTab::create(EditorContext& ctx)
     _refresh_title();
 
     _create_layout(ctx, "MaterialHost");
+    layout.viewport.allow_grid = false;
     layout.add_panel<MaterialDetailsPanel>()->tab = this;
 
     _create_preview();

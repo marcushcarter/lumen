@@ -111,9 +111,9 @@ struct ContentBrowserPanel : Panel
     void _delete_now(EditorContext& ctx);
 
     AssetInfo _resolve_asset(const std::filesystem::path& p_path);
-    float _row_height() const;
+    ImVec2 _card_size() const;
     void _context_menu(EditorContext& ctx, const std::filesystem::path* p_row);
-    ItemResult _list_item(EditorContext& ctx, ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress = -1.0f, bool p_importing = false);
+    ItemResult _card(EditorContext& ctx, ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress = -1.0f, bool p_importing = false);
     void _list_draw(EditorContext& ctx);
 
     void _add_asset_menu(EditorContext& ctx);

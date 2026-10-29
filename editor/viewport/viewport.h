@@ -41,6 +41,7 @@ struct Viewport
     bool allow_gizmo = true;
     bool allow_look = false;
     bool allow_grid = true;
+    bool allow_asset_drop = true;
     bool show_grid = true;
     float* time_of_day = nullptr;
     bool fullscreen = false;
@@ -56,6 +57,7 @@ struct Viewport
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     void _draw_image(EditorContext& ctx);
     void _update_look(bool p_start, ImVec2 p_center);
+    void _asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
 
     void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 };

@@ -193,6 +193,10 @@ void UiStyle::_build_components()
     asset_browser.splitter = space.md;
     asset_browser.min_side = 120.0f;
     asset_browser.divider_shadow = space.huge;
+    asset_browser.card_width = 96.0f;
+    asset_browser.card_gap = space.lg;
+    asset_browser.card_pad = space.md;
+    asset_browser.card_icon_scale = 2.5f;
 
     profiler.lane_gap = space.xs;
     profiler.section_height = 18.0f;

@@ -9,7 +9,10 @@
 #include <core/rendering/features/post/post_process_feature.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
+#include <editor/assets/asset_drag_payload.h>
 #include <editor/tabs/world/scene/editor_selection.h>
+#include <editor/tabs/world/scene/editor_spawn.h>
+#include <editor/tabs/world/scene/editor_folders.h>
 #include <IconsFontAwesome6.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
@@ -245,6 +248,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         pick_click = allow_pick && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
         look_click = allow_look && !gizmo_hot && image_clicked;
         look_hover = allow_look && image_hovered;
+        if (allow_asset_drop) _asset_drop(ctx, pos, size);
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.sunken);
@@ -347,6 +351,19 @@ void Viewport::_draw_image(EditorContext& ctx)
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
+}
+
+void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+{
+    if (!ctx.world || !ctx.selection || !ctx.folders) return;
+    if (!ImGui::BeginDragDropTargetCustom(ImRect(p_pos, ImVec2(p_pos.x + p_size.x, p_pos.y + p_size.y)), ImGui::GetID("##asset_drop"))) return;
+    if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
+        const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
+        if (asset.type == AssetType::MODEL && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
+            editor_spawn(ctx, SpawnType::MODEL, EditorFolders::ROOT, asset.guid);
+        }
+    }
+    ImGui::EndDragDropTarget();
 }
 
 void Viewport::_update_look(bool p_start, ImVec2 p_center)

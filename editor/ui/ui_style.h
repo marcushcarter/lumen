@@ -347,6 +347,10 @@ struct UiStyle
         float splitter;
         float min_side;
         float divider_shadow;
+        float card_width;
+        float card_gap;
+        float card_pad;
+        float card_icon_scale;
     };
 
     struct Profiler {

@@ -209,10 +209,11 @@ AssetInfo ContentBrowserPanel::_resolve_asset(const std::filesystem::path& p_pat
     return info;
 }
 
-float ContentBrowserPanel::_row_height() const
+ImVec2 ContentBrowserPanel::_card_size() const
 {
     const UiStyle& ui = ui_style();
-    return ImFloor(ImGui::GetTextLineHeight() * 2.0f + ui.asset_browser.item_subtitle_gap + ui.asset_browser.row_pad_y * 2.0f);
+    const float w = ui.asset_browser.card_width;
+    return ImVec2(w, ImFloor(w + ImGui::GetTextLineHeight() * 2.0f + ui.asset_browser.item_subtitle_gap + ui.asset_browser.card_pad * 2.0f));
 }
 
 std::filesystem::path ContentBrowserPanel::_target_folder(const EditorContext& ctx) const
@@ -492,28 +493,27 @@ void ContentBrowserPanel::_delete_now(EditorContext& ctx)
     request_refresh();
 }
 
-ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(EditorContext& ctx, ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
+ContentBrowserPanel::ItemResult ContentBrowserPanel::_card(EditorContext& ctx, ImTextureID p_texture, const char* p_icon, ImU32 p_icon_col, const char* p_name, const char* p_type, const std::filesystem::path& p_path, float p_progress, bool p_importing)
 {
     const UiStyle& ui = ui_style();
-    const float row_h = _row_height();
-    const float pad_x = ui.asset_browser.item_pad;
-    const float pad_y = ui.asset_browser.row_pad_y;
-    const float icon_size = row_h - pad_y * 2.0f;
-    const float line_h = ImGui::GetTextLineHeight();
+    const ImVec2 size = _card_size();
+    const float pad = ui.asset_browser.card_pad;
 
     const bool renaming = rename_target == p_path;
     const bool selected = _is_selected(p_path);
     ItemResult result;
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const ImVec2 p1(p0.x + ImGui::GetContentRegionAvail().x, p0.y + row_h);
+    const ImVec2 p1(p0.x + size.x, p0.y + size.y);
 
-    result.clicked = ImGui::Selectable("##row", selected, ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, row_h));
+    ImGui::SetNextItemAllowOverlap();
+    result.clicked = ImGui::InvisibleButton("##card", size);
+    const bool hovered = ImGui::IsItemHovered();
     result.context = ImGui::IsItemClicked(ImGuiMouseButton_Right);
-    result.activated = !renaming && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    result.activated = !renaming && hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     if (result.context && !selected && !p_importing) _select_only(p_path);
 
     ui_context_menu_push_style();
-    if (!renaming && ImGui::BeginPopupContextItem("##row_menu")) {
+    if (!renaming && ImGui::BeginPopupContextItem("##card_menu")) {
         if (p_importing) {
             if (ImGui::MenuItem("Cancel Import")) cancel_request = p_path;
         } else {
@@ -533,42 +533,47 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(EditorContext& c
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 icon0(p0.x + pad_x, p0.y + pad_y);
-    const ImVec2 icon1(icon0.x + icon_size, icon0.y + icon_size);
+    const ImU32 bg = selected ? ImGui::GetColorU32(hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header) : hovered ? ui.color.field_active : ui.color.sunken;
+    dl->AddRectFilled(p0, p1, bg);
+
+    const ImVec2 thumb0 = p0;
+    const ImVec2 thumb1(p1.x, p0.y + size.x);
     if (p_texture) {
-        dl->AddImageRounded(p_texture, icon0, icon1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, ui.radius.sm);
+        dl->AddImage(p_texture, thumb0, thumb1);
     } else if (p_icon) {
-        const ImVec2 is = ImGui::CalcTextSize(p_icon);
-        dl->AddText(ImVec2(ImFloor(icon0.x + (icon_size - is.x) * 0.5f), ImFloor(icon0.y + (icon_size - is.y) * 0.5f)), p_icon_col, p_icon);
+        const float icon_font = ImGui::GetFontSize() * ui.asset_browser.card_icon_scale;
+        const ImVec2 is = ImGui::GetFont()->CalcTextSizeA(icon_font, FLT_MAX, 0.0f, p_icon);
+        const ImVec2 at(ImFloor(thumb0.x + (size.x - is.x) * 0.5f), ImFloor(thumb0.y + (size.x - is.y) * 0.5f));
+        dl->AddText(ImGui::GetFont(), icon_font, at, p_icon_col, p_icon);
     }
 
-    const float text_x = icon1.x + pad_x;
-    const float text_max_x = p1.x - pad_x;
-    const float name_y = ImFloor(p0.y + (row_h - (line_h * 2.0f + ui.asset_browser.item_subtitle_gap)) * 0.5f);
-    const float sub_y = name_y + line_h + ui.asset_browser.item_subtitle_gap;
-
+    const float name_x = p0.x + pad;
+    const float name_max_x = p1.x - pad;
+    const float name_y = thumb1.y + pad;
+    const float type_y = name_y + ImGui::GetTextLineHeight() + ui.asset_browser.item_subtitle_gap;
     if (renaming) {
-        const UiRename rename = ui_inline_rename(ImVec2(text_x, name_y), ImMax(1.0f, text_max_x - text_x), rename_buf, sizeof(rename_buf), rename_focus);
+        const UiRename rename = ui_inline_rename(ImVec2(name_x, name_y), ImMax(1.0f, name_max_x - name_x), rename_buf, sizeof(rename_buf), rename_focus);
         if (rename != UiRename::NONE) {
             if (rename == UiRename::COMMIT) _rename_commit();
             rename_target.clear();
         }
-        ImGui::SetCursorScreenPos(ImVec2(p0.x, p1.y));
-        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    } else {
+        dl->PushClipRect(ImVec2(name_x, thumb1.y), ImVec2(name_max_x, p1.y), true);
+        dl->AddText(ImVec2(name_x, name_y), ImGui::GetColorU32(ImGuiCol_Text), p_name);
+        dl->PopClipRect();
     }
-
-    dl->PushClipRect(ImVec2(text_x, p0.y), ImVec2(text_max_x, p1.y), true);
-    if (!renaming) dl->AddText(ImVec2(text_x, name_y), ImGui::GetColorU32(ImGuiCol_Text), p_name);
-    if (p_type && *p_type) dl->AddText(ImVec2(text_x, sub_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), p_type);
-    dl->PopClipRect();
+    if (p_type && *p_type) {
+        dl->PushClipRect(ImVec2(name_x, thumb1.y), ImVec2(name_max_x, p1.y), true);
+        dl->AddText(ImVec2(name_x, type_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), p_type);
+        dl->PopClipRect();
+    }
 
     if (p_progress >= 0.0f && p_progress < 1.0f) {
         const float bar_h = ui.asset_browser.progress_height;
         const ImVec2 bar0(p0.x, p1.y - bar_h);
-        const ImVec2 bar1(p1.x, p1.y);
-        dl->AddRectFilled(bar0, bar1, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg));
-        const float w = (bar1.x - bar0.x) * p_progress;
-        if (w > 0.5f) dl->AddRectFilled(bar0, ImVec2(bar0.x + w, bar1.y), ImGui::GetColorU32(ImGuiCol_Button));
+        dl->AddRectFilled(bar0, p1, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg));
+        const float w = size.x * p_progress;
+        if (w > 0.5f) dl->AddRectFilled(bar0, ImVec2(bar0.x + w, p1.y), ImGui::GetColorU32(ImGuiCol_Button));
     }
 
     return result;
@@ -577,7 +582,10 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_list_item(EditorContext& c
 void ContentBrowserPanel::_list_draw(EditorContext& ctx)
 {
     const UiStyle& ui = ui_style();
-    const float row_h = _row_height();
+    const ImVec2 card = _card_size();
+    const float gap = ui.asset_browser.card_gap;
+    const float margin = ui.outliner.pad_x;
+    const float row_stride = card.y + gap;
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.0f));
     if (_selection_folder != selected_folder) {
         _clear_selection();
@@ -594,77 +602,93 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
         }
 
         const bool importing = !ctx.imports->pending.empty();
+        std::vector<std::filesystem::path> pending;
+        if (importing) {
+            for (const std::filesystem::path& ppath : ctx.imports->pending_out(selected_folder)) {
+                if (query.empty() || str_lowered(ppath.filename().string()).find(query) != std::string::npos) pending.push_back(ppath);
+            }
+        }
         std::filesystem::path open_request;
 
+        const float avail_w = ImMax(1.0f, ImGui::GetContentRegionAvail().x - margin * 2.0f);
+        const uint32_t columns = (uint32_t)ImMax(1.0f, ImFloor((avail_w + gap) / (card.x + gap)));
+        const uint32_t total = (uint32_t)(_visible.size() + pending.size());
+        const uint32_t row_count = (total + columns - 1) / columns;
+
+        ImGui::Dummy(ImVec2(0.0f, gap));
         if (_scroll_to_rename && !rename_target.empty()) {
             for (uint32_t k = 0; k < (uint32_t)_visible.size(); ++k) {
                 if (dir->entries[_visible[k]].path != rename_target) continue;
-                const float y = (float)k * row_h;
+                const float y = (float)(k / columns) * row_stride;
                 const float view_h = ImGui::GetWindowHeight();
-                if (y < ImGui::GetScrollY() || y + row_h > ImGui::GetScrollY() + view_h) ImGui::SetScrollY(y - (view_h - row_h) * 0.5f);
+                if (y < ImGui::GetScrollY() || y + row_stride > ImGui::GetScrollY() + view_h) ImGui::SetScrollY(y - (view_h - row_stride) * 0.5f);
                 _scroll_to_rename = false;
                 break;
             }
         }
 
         ImGuiListClipper clipper;
-        clipper.Begin((int)_visible.size(), row_h);
+        clipper.Begin((int)row_count, row_stride);
         while (clipper.Step()) {
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-                Entry& e = dir->entries[_visible[row]];
-                ImGui::PushID(e.lower_name.c_str());
+                const ImVec2 row_pos = ImGui::GetCursorScreenPos();
+                for (uint32_t col = 0; col < columns; ++col) {
+                    const uint32_t index = (uint32_t)row * columns + col;
+                    if (index >= total) break;
+                    ImGui::SetCursorScreenPos(ImVec2(row_pos.x + margin + (float)col * (card.x + gap), row_pos.y));
 
-                const float progress = importing ? ctx.imports->progress(e.path) : -1.0f;
-
-                VkDescriptorSet set = VK_NULL_HANDLE;
-                if (!e.is_dir) {
-                    if (!e.guid_checked) {
-                        const AssetInfo info = _resolve_asset(e.path);
-                        e.guid = info.guid;
-                        e.asset_type = info.type;
-                        e.guid_checked = true;
+                    if (index >= (uint32_t)_visible.size()) {
+                        const std::filesystem::path& ppath = pending[index - _visible.size()];
+                        ImGui::PushID((int)index);
+                        _card(ctx, 0, ICON_FA_FILE_IMPORT, ImGui::GetColorU32(ImGuiCol_TextDisabled), ppath.stem().string().c_str(), "Importing", ppath, ctx.imports->progress(ppath), true);
+                        ImGui::PopID();
+                        continue;
                     }
-                    const bool shown = !e.is_texture || e.asset_type == AssetType::TEXTURE;
-                    const VkImageView view = shown ? ctx.thumbnails->get(ctx, e.guid, e.asset_type) : VK_NULL_HANDLE;
-                    if (view) set = ctx.imgui->texture_cache.get(view);
-                }
 
-                const ImU32 icon_col = e.is_dir ? ui.color.folder : ImGui::GetColorU32(ImGuiCol_TextDisabled);
-                const ItemResult r = _list_item(ctx, (ImTextureID)set, e.icon, icon_col, e.name.c_str(), e.type.c_str(), e.path, progress);
-                if (r.clicked) {
-                    const ImGuiIO& io = ImGui::GetIO();
-                    _click(*dir, (uint32_t)row, io.KeyCtrl, io.KeyShift);
-                }
+                    Entry& e = dir->entries[_visible[index]];
+                    ImGui::PushID(e.lower_name.c_str());
 
-                if (e.is_dir) _drop_target(e.path);
+                    const float progress = importing ? ctx.imports->progress(e.path) : -1.0f;
 
-                if (r.activated && e.is_dir) open_request = e.path;
-                if (r.activated && !e.is_dir && e.path.extension() == ".lmodel") {
-                    const AssetInfo info = read_asset_info(e.path);
-                    if (info.valid() && info.type == AssetType::MODEL) ctx.tabs->open<ModelTab>(info.guid)->path = e.path;
+                    VkDescriptorSet set = VK_NULL_HANDLE;
+                    if (!e.is_dir) {
+                        if (!e.guid_checked) {
+                            const AssetInfo info = _resolve_asset(e.path);
+                            e.guid = info.guid;
+                            e.asset_type = info.type;
+                            e.guid_checked = true;
+                        }
+                        const bool shown = !e.is_texture || e.asset_type == AssetType::TEXTURE;
+                        const VkImageView view = shown ? ctx.thumbnails->get(ctx, e.guid, e.asset_type) : VK_NULL_HANDLE;
+                        if (view) set = ctx.imgui->texture_cache.get(view);
+                    }
+
+                    const ImU32 icon_col = e.is_dir ? ui.color.folder : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                    const ItemResult r = _card(ctx, (ImTextureID)set, e.icon, icon_col, e.name.c_str(), e.type.c_str(), e.path, progress);
+                    if (r.clicked) {
+                        const ImGuiIO& io = ImGui::GetIO();
+                        _click(*dir, index, io.KeyCtrl, io.KeyShift);
+                    }
+
+                    if (e.is_dir) _drop_target(e.path);
+
+                    if (r.activated && e.is_dir) open_request = e.path;
+                    if (r.activated && !e.is_dir && e.path.extension() == ".lmodel") {
+                        const AssetInfo info = read_asset_info(e.path);
+                        if (info.valid() && info.type == AssetType::MODEL) ctx.tabs->open<ModelTab>(info.guid)->path = e.path;
+                    }
+                    if (r.activated && !e.is_dir && e.path.extension() == ".lmaterial") {
+                        const AssetInfo info = read_asset_info(e.path);
+                        if (info.valid() && info.type == AssetType::MATERIAL) ctx.tabs->open<MaterialTab>(info.guid)->path = e.path;
+                    }
+                    if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer && e.asset_type == AssetType::TEXTURE && e.guid.valid()) ctx.texture_viewer->open(e.guid);
+                    ImGui::PopID();
                 }
-                if (r.activated && !e.is_dir && e.path.extension() == ".lmaterial") {
-                    const AssetInfo info = read_asset_info(e.path);
-                    if (info.valid() && info.type == AssetType::MATERIAL) ctx.tabs->open<MaterialTab>(info.guid)->path = e.path;
-                }
-                if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer && e.asset_type == AssetType::TEXTURE && e.guid.valid()) ctx.texture_viewer->open(e.guid);
-                ImGui::PopID();
+                ImGui::SetCursorScreenPos(row_pos);
+                ImGui::Dummy(ImVec2(avail_w, row_stride));
             }
         }
         clipper.End();
-
-        if (importing) {
-            int i = (int)_visible.size();
-            std::vector<std::filesystem::path> pending = ctx.imports->pending_out(selected_folder);
-            for (const auto& ppath : pending) {
-                if (!query.empty() && str_lowered(ppath.filename().string()).find(query) == std::string::npos) continue;
-
-                ImGui::PushID(i);
-                _list_item(ctx, 0, ICON_FA_FILE_IMPORT, ImGui::GetColorU32(ImGuiCol_TextDisabled), ppath.stem().string().c_str(), "Importing", ppath, ctx.imports->progress(ppath), true);
-                ImGui::PopID();
-                ++i;
-            }
-        }
 
         if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered() && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift) _clear_selection();
 

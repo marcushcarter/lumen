@@ -27,6 +27,7 @@ void AssetTab::_create_layout(EditorContext& ctx, const char* p_host_prefix)
     layout.viewport.allow_outline = false;
     layout.viewport.allow_gizmo = false;
     layout.viewport.allow_look = true;
+    layout.viewport.allow_asset_drop = false;
     layout.add_shared(ctx.shared_panels->content_browser);
 }
 

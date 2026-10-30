@@ -2,7 +2,7 @@
 #include <core/rendering/features/atmosphere/atmosphere_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
-#include <core/world/components.h>
+#include <core/world/world_settings.h>
 #include <algorithm>
 #include <cmath>
 
@@ -30,10 +30,12 @@ void LightingFeature::_create_lighting_pass()
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Atmosphere", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("SkyLighting", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image("AerialPerspective", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        b.read_image("SkyView", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        if (b.graph->buffer_resource("SkyLighting")) {
+            b.read_buffer("SkyLighting", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+            b.read_image("TransmittanceLut", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+            b.read_image("AerialPerspective", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+            b.read_image("SkyView", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        }
         if (local_lights) {
             b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
             b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -61,7 +63,8 @@ void LightingFeature::_create_lighting_pass()
         auto* tiles = cl.graph->buffer("ShadingTiles");
         if (!tiles) return;
         if (!depth || !albedo || !normal || !material || !emissive || !camera || !lights || !out) return;
-        if (!atmosphere || !sky_lighting || !transmittance || !aerial || !skyview || !lut_sampler) return;
+        if (!atmosphere || !lut_sampler) return;
+        const bool sky = sky_lighting && transmittance && aerial && skyview;
         const bool local_lights = cull && sorted;
         const uint32_t mode = (uint32_t)(!local_lights ? LightMode::NONE : (masks ? LightMode::TILED : LightMode::ZBIN));
 
@@ -96,7 +99,7 @@ void LightingFeature::_create_lighting_pass()
         pc.sorted_addr = local_lights ? sorted->device_address : 0;
         pc.masks_addr = masks ? masks->device_address : 0;
         pc.atmosphere_addr = atmosphere->device_address;
-        pc.sky_lighting_addr = sky_lighting->device_address;
+        pc.sky_lighting_addr = sky ? sky_lighting->device_address : 0;
         pc.tiles_addr = tiles->device_address;
         pc.depth_index = depth->bindless_sampled;
         pc.albedo_index = albedo->bindless_sampled;
@@ -107,13 +110,13 @@ void LightingFeature::_create_lighting_pass()
         pc.width = out->extent.width;
         pc.height = out->extent.height;
         pc.directional_count = (ctx->frame->directional_count & 0xFFFFu) | (local_lights ? LIGHTING_FLAG_LOCAL_LIGHTS : 0u);
-        pc.transmittance_index = transmittance->bindless_sampled;
-        pc.aerial_index = aerial->bindless_sampled;
+        pc.transmittance_index = sky ? transmittance->bindless_sampled : 0;
+        pc.aerial_index = sky ? aerial->bindless_sampled : 0;
         pc.sampler_index = *lut_sampler;
-        pc.skyview_index = skyview->bindless_sampled;
+        pc.skyview_index = sky ? skyview->bindless_sampled : 0;
         const float pixel_angle = 2.0f * ctx->frame->camera.tan_half_fov_y / (float)pc.height;
-        pc.sun_reject_cos = std::cos(std::min(AtmosphereComponent::SUN_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
-        pc.moon_reject_cos = std::cos(std::min(AtmosphereComponent::MOON_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
+        pc.sun_reject_cos = std::cos(std::min(CelestialSettings::SUN_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
+        pc.moon_reject_cos = std::cos(std::min(CelestialSettings::MOON_ANGULAR_RADIUS + 2.0f * pixel_angle, 3.14159265f));
 
         static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
         static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (unlit)", "Deferred lighting (mixed)" };

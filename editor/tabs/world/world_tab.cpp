@@ -169,7 +169,7 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
     (void)p_dt;
     if (ctx.selection && ctx.selection->version != selection_version) {
         selection_version = ctx.selection->version;
-        if (!ctx.selection->empty() || ctx.selection->atmosphere) layout.well(details->default_zone()).active_name = details->layout_id;
+        if (!ctx.selection->empty() || ctx.selection->environment) layout.well(details->default_zone()).active_name = details->layout_id;
     }
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
 }

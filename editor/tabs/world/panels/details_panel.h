@@ -15,7 +15,7 @@ struct DetailsPanel : Panel
     DockZone default_zone() const override { return DockZone::RIGHT_BOTTOM; }
     bool pinned() const override { return true; }
     void draw_contents(EditorContext& ctx) override;
-    void _draw_atmosphere(EditorContext& ctx);
+    void _draw_environment(EditorContext& ctx);
 };
 
 }

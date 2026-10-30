@@ -1,5 +1,6 @@
 #pragma once
 #include <core/world/components.h>
+#include <core/world/world_settings.h>
 #include <core/world/camera.h>
 #include <core/base/error.h>
 #include <core/base/id_map.h>
@@ -51,7 +52,8 @@ struct World
 
     Camera default_camera;
     Camera* active_camera = &default_camera;
-    AtmosphereComponent atmosphere;
+    EnvironmentSettings environment;
+    PostProcessSettings post;
 
     uint64_t static_version = 0;
     uint64_t structure_version = 0;

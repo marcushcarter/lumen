@@ -583,11 +583,14 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.hiz_history_valid = !r_view.camera_cut_pending && !r_view.hiz_reset_pending;
     }
 
-    // Atmosphere.
+    // Environment.
     {
-        using A = AtmosphereComponent;
-        const AtmosphereComponent& atmo = p_world.atmosphere;
-        frame.flare = { atmo.flare_intensity, atmo.flare_glow, atmo.flare_rays, atmo.flare_ray_length, atmo.flare_ghosts };
+        using A = AtmosphereSettings;
+        using C = CelestialSettings;
+        const EnvironmentSettings& env = p_world.environment;
+        const AtmosphereSettings& atmo = env.atmosphere;
+        const CelestialSettings& cel = env.celestial;
+        frame.flare = p_world.post.lens_flare;
         GpuAtmosphere& g = frame.atmosphere;
 
         const vec4 lut_key[2] = { vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom), vec4(atmo.strat_aerosol_depth, atmo.strat_aerosol_height_km, 0.0f, 0.0f) };
@@ -619,16 +622,16 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 
         const double PI_D = 3.14159265358979323846;
         const double DEG = PI_D / 180.0;
-        const double lat = A::LATITUDE_DEG * DEG;
-        const double rotation = ((double)atmo.time_of_day - 12.0) * 15.0 * DEG;
+        const double lat = C::LATITUDE_DEG * DEG;
+        const double rotation = ((double)cel.time_of_day - 12.0) * 15.0 * DEG;
         const double ch = std::cos(rotation), sh = std::sin(rotation);
         const double cp = std::cos(lat), sp = std::sin(lat);
         const dmat3 hour(ch, -sh, 0.0, sh, ch, 0.0, 0.0, 0.0, 1.0);
         const dmat3 local(0.0, cp, sp, 1.0, 0.0, 0.0, 0.0, sp, -cp);
         const dmat3 eq_to_world = local * hour;
         auto radec = [](double p_ra, double p_dec) { return dvec3(std::cos(p_dec) * std::cos(p_ra), std::cos(p_dec) * std::sin(p_ra), std::sin(p_dec)); };
-        const dvec3 sun = normalize(eq_to_world * radec(0.0, A::SUN_DECLINATION_DEG * DEG));
-        const dvec3 moon = normalize(eq_to_world * radec(PI_D, (-A::SUN_DECLINATION_DEG + A::MOON_OFFSET_DEG) * DEG));
+        const dvec3 sun = normalize(eq_to_world * radec(0.0, C::SUN_DECLINATION_DEG * DEG));
+        const dvec3 moon = normalize(eq_to_world * radec(PI_D, (-C::SUN_DECLINATION_DEG + C::MOON_OFFSET_DEG) * DEG));
         const dvec3 pole = eq_to_world * dvec3(0.0, 0.0, 1.0);
         const double phase_angle = PI_D - std::acos(clamp(dot(sun, moon), -1.0, 1.0));
         const double phase_deg = phase_angle / DEG;
@@ -637,10 +640,10 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 
         g.world_to_celestial = mat4(transpose(mat3(eq_to_world)));
         g.sun_direction = vec3(sun);
-        g.sun_cos_angular_radius = std::cos(A::SUN_ANGULAR_RADIUS);
-        g.sun_illuminance = vec3(A::SUN_ILLUMINANCE_LUX);
+        g.sun_cos_angular_radius = std::cos(C::SUN_ANGULAR_RADIUS);
+        g.sun_illuminance = vec3(C::SUN_ILLUMINANCE_LUX);
         g.moon_direction = vec3(moon);
-        g.moon_cos_angular_radius = std::cos(A::MOON_ANGULAR_RADIUS);
+        g.moon_cos_angular_radius = std::cos(C::MOON_ANGULAR_RADIUS);
         g.moon_illuminance = vec3(moon_lux);
         g.moon_up = normalize(vec3(pole - moon * dot(pole, moon)));
         g.moon_phase_angle = (float)phase_angle;
@@ -650,11 +653,11 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         g.observer_km = vec3(cam_km.x, A::PLANET_RADIUS_KM + altitude, cam_km.z);
         g.altitude_km = altitude;
         g.night_luminance = A::NIGHT_LUMINANCE;
-        g.star_brightness = atmo.star_brightness;
-        g.star_density = atmo.star_density;
-        g.moon_disk_brightness = A::MOON_DISK_BRIGHTNESS;
-        g.sun_angular_radius = A::SUN_ANGULAR_RADIUS;
-        g.moon_angular_radius = A::MOON_ANGULAR_RADIUS;
+        g.star_brightness = cel.star_brightness;
+        g.star_density = cel.star_density;
+        g.moon_disk_brightness = C::MOON_DISK_BRIGHTNESS;
+        g.sun_angular_radius = C::SUN_ANGULAR_RADIUS;
+        g.moon_angular_radius = C::MOON_ANGULAR_RADIUS;
         {
             const double r = (double)A::PLANET_RADIUS_KM + altitude;
             const double rg = A::PLANET_RADIUS_KM;
@@ -665,12 +668,22 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
             g.horizon_mu = (float)-std::sqrt(std::max(1.0 - (rg / r) * (rg / r), 0.0));
         }
 
-        frame.directional[0] = _directional_pack(g.sun_direction, g.sun_illuminance, A::SUN_ANGULAR_RADIUS);
-        frame.directional[1] = _directional_pack(g.moon_direction, g.moon_illuminance, A::MOON_ANGULAR_RADIUS);
-        frame.directional_count = MAX_DIRECTIONAL_LIGHTS;
+        g.sky_mode = (uint32_t)env.sky_mode;
+        g.background_radiance = env.sky_mode == SkyMode::SOLID_COLOR ? env.background_color * env.background_intensity : vec3(0.0f);
 
-        const float sun_altitude_deg = (float)(std::asin(clamp(sun.y, -1.0, 1.0)) / DEG);
-        frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(_cycle_ev100(sun_altitude_deg)));
+        if (env.sky_mode == SkyMode::ATMOSPHERE) {
+            frame.directional[0] = _directional_pack(g.sun_direction, g.sun_illuminance, C::SUN_ANGULAR_RADIUS);
+            frame.directional[1] = _directional_pack(g.moon_direction, g.moon_illuminance, C::MOON_ANGULAR_RADIUS);
+            frame.directional_count = MAX_DIRECTIONAL_LIGHTS;
+
+            const float sun_altitude_deg = (float)(std::asin(clamp(sun.y, -1.0, 1.0)) / DEG);
+            frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(_cycle_ev100(sun_altitude_deg)));
+        } else {
+            frame.directional[0] = {};
+            frame.directional[1] = {};
+            frame.directional_count = 0;
+            frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
+        }
     }
 
     r_view.camera_cut_pending = false;

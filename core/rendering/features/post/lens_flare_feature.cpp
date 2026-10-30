@@ -41,7 +41,7 @@ void LensFlareFeature::_create_visibility_pass()
         auto* transmittance = cl.graph->image("TransmittanceLut");
         if (!flare || !camera || !atmosphere || !depth || !transmittance || !lut_sampler) return;
 
-        const FlareSettings& s = ctx->frame->flare;
+        const LensFlareSettings& s = ctx->frame->flare;
         struct Push {
             VkDeviceAddress camera_addr;
             VkDeviceAddress atmosphere_addr;

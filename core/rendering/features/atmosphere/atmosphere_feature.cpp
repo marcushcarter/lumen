@@ -1,6 +1,7 @@
 #include <core/rendering/features/atmosphere/atmosphere_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
+#include <core/world/world_settings.h>
 
 namespace lumen {
 
@@ -266,6 +267,7 @@ void AtmosphereFeature::destroy_resources()
 void AtmosphereFeature::build(RenderGraph& g)
 {
     if (!g.image_resource("G_Depth")) return;
+    if (ctx->frame->atmosphere.sky_mode != (uint32_t)SkyMode::ATMOSPHERE) return;
 
     g.import_image("TransmittanceLut", &transmittance_lut, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
     g.import_image("MultiscatterLut", &multiscatter_lut, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);

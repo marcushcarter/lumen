@@ -2,6 +2,7 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/world_gpu.h>
 #include <core/assets/guid.h>
+#include <core/world/world_settings.h>
 #include <core/base/error.h>
 #include <vector>
 #include <glm/glm.hpp>
@@ -50,15 +51,6 @@ struct StaticLights
     }
 };
 
-struct FlareSettings
-{
-    float intensity = 0.0f;
-    float glow = 0.0f;
-    float rays = 0.0f;
-    float ray_length = 0.0f;
-    float ghosts = 0.0f;
-};
-
 struct FrameData
 {
     std::vector<Instance> instances_scratch;
@@ -84,7 +76,7 @@ struct FrameData
     GpuAtmosphere atmosphere{};
     vec4 atmosphere_lut_key[2] = { vec4(-1.0f), vec4(-1.0f) };
     uint64_t atmosphere_lut_version = 0;
-    FlareSettings flare;
+    LensFlareSettings flare;
 
     struct EntityCache {
         mat4 prev_mtx;

@@ -41,7 +41,13 @@ layout(buffer_reference, scalar) readonly buffer AtmosphereBuffer {
     float skyview_zenith_horizon;
     float skyview_beta;
     float horizon_mu;
+    vec3 background_radiance;
+    uint sky_mode;
 };
+
+const uint SKY_MODE_NONE = 0u;
+const uint SKY_MODE_SOLID_COLOR = 1u;
+const uint SKY_MODE_ATMOSPHERE = 2u;
 
 layout(buffer_reference, scalar) buffer SkyLightingBuffer { vec4 sh[9]; };
 

@@ -149,8 +149,13 @@ void main() {
     vec3 view_dir = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
 
     if (TILE_TYPE == SHADING_TILE_SKY || (TILE_TYPE == SHADING_TILE_MIXED && shading_model == SHADING_MODEL_SKY)) {
-        float pixel_angle = 2.0 * pc.camera.tan_half_fov_y / float(pc.height);
-        vec3 sky = sky_color(view_dir, pc.skyview_index, pixel_angle, pc.camera.pre_exposure, pc.sun_reject_cos, pc.moon_reject_cos) * pc.camera.pre_exposure;
+        vec3 sky = vec3(0.0);
+        if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) {
+            float pixel_angle = 2.0 * pc.camera.tan_half_fov_y / float(pc.height);
+            sky = sky_color(view_dir, pc.skyview_index, pixel_angle, pc.camera.pre_exposure, pc.sun_reject_cos, pc.moon_reject_cos) * pc.camera.pre_exposure;
+        } else if (g_atmo.sky_mode == SKY_MODE_SOLID_COLOR) {
+            sky = g_atmo.background_radiance * pc.camera.pre_exposure;
+        }
         imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(sky, vec3(HDR_MAX)), 1.0));
         return;
     }
@@ -164,8 +169,11 @@ void main() {
 
     if (TILE_TYPE == SHADING_TILE_UNLIT || (TILE_TYPE == SHADING_TILE_MIXED && shading_model == SHADING_MODEL_UNLIT)) {
         vec3 unlit = albedo + texelFetch(u_textures[pc.emissive_index], p, 0).rgb * pc.camera.pre_exposure;
-        vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
-        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(unlit * ap.a + ap.rgb, vec3(HDR_MAX)), 1.0));
+        if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) {
+            vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
+            unlit = unlit * ap.a + ap.rgb;
+        }
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(unlit, vec3(HDR_MAX)), 1.0));
         return;
     }
 
@@ -224,12 +232,16 @@ void main() {
         }
     }
 
-    vec3 indirect = s.diffuse_color * sh_irradiance(pc.sky_lighting, s.n) * (ATMO_INV_PI * ao);
+    vec3 indirect = vec3(0.0);
+    if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) indirect = s.diffuse_color * sh_irradiance(pc.sky_lighting, s.n) * (ATMO_INV_PI * ao);
+    else if (g_atmo.sky_mode == SKY_MODE_SOLID_COLOR) indirect = s.diffuse_color * g_atmo.background_radiance * ao;
 
     vec3 emissive = texelFetch(u_textures[pc.emissive_index], p, 0).rgb;
     vec3 color = (direct + indirect + emissive) * pc.camera.pre_exposure;
-    vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
-    color = color * ap.a + ap.rgb;
+    if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) {
+        vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
+        color = color * ap.a + ap.rgb;
+    }
 
     imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(color, vec3(HDR_MAX)), 1.0));
 }

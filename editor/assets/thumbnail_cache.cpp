@@ -123,7 +123,7 @@ Error ThumbnailCache::_ensure_view(EditorContext& ctx)
 
     world.initialize();
     world.load();
-    world.atmosphere.time_of_day = TIME_OF_DAY;
+    world.environment.celestial.time_of_day = TIME_OF_DAY;
     entity = world.create();
     world.add<TransformComponent>(entity);
     world.add<ModelComponent>(entity, { preview_sphere });

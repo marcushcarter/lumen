@@ -35,8 +35,8 @@ void AssetTab::_create_preview()
 {
     preview.initialize();
     preview.load();
-    preview.atmosphere.time_of_day = PREVIEW_TIME_OF_DAY;
-    layout.viewport.time_of_day = &preview.atmosphere.time_of_day;
+    preview.environment.celestial.time_of_day = PREVIEW_TIME_OF_DAY;
+    layout.viewport.time_of_day = &preview.environment.celestial.time_of_day;
     _preview_model = Guid::generate();
     const Entity e = preview.create();
     preview.add<TransformComponent>(e);

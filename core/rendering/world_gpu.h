@@ -149,6 +149,8 @@ struct GpuAtmosphere
     float skyview_zenith_horizon;
     float skyview_beta;
     float horizon_mu;
+    vec3 background_radiance;
+    uint32_t sky_mode;
 };
 
 struct IndirectDispatch { uint32_t x, y, z; };

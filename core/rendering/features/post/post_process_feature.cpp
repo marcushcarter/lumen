@@ -84,6 +84,7 @@ void PostProcessFeature::_create_composite_pass()
 
 float PostProcessFeature::night_factor() const
 {
+    if (ctx->frame->atmosphere.sky_mode != (uint32_t)SkyMode::ATMOSPHERE) return 0.0f;
     const float y = ctx->frame->atmosphere.sun_direction.y;
     const float t = std::clamp((NIGHT_START_SUN_Y - y) / (NIGHT_START_SUN_Y - NIGHT_FULL_SUN_Y), 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t) * night_shift;

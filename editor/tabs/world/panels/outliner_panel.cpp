@@ -265,7 +265,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     }
 
     _draw_world_row(ctx, row_h);
-    if (world_expanded) _draw_atmosphere_row(ctx, row_h);
+    if (world_expanded) _draw_environment_row(ctx, row_h);
 
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
@@ -479,7 +479,7 @@ void OutlinerPanel::_draw_world_row(EditorContext& ctx, float p_row_h)
     ImGui::PopID();
 }
 
-void OutlinerPanel::_draw_atmosphere_row(EditorContext& ctx, float p_row_h)
+void OutlinerPanel::_draw_environment_row(EditorContext& ctx, float p_row_h)
 {
     EditorSelection& selection = *ctx.selection;
     const UiStyle& ui = ui_style();
@@ -487,12 +487,12 @@ void OutlinerPanel::_draw_atmosphere_row(EditorContext& ctx, float p_row_h)
     const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
 
     ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
-    ImGui::PushID("atmosphere");
+    ImGui::PushID("environment");
     ImGui::TableSetColumnIndex(1);
     const ImVec2 cell = ImGui::GetCursorScreenPos();
     const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
-    if (ImGui::Selectable("##row", selection.atmosphere, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, content_h))) {
-        selection.select_atmosphere();
+    if (ImGui::Selectable("##row", selection.environment, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, content_h))) {
+        selection.select_environment();
         has_anchor = false;
         last_primary = ENTITY_NULL;
     }
@@ -504,10 +504,10 @@ void OutlinerPanel::_draw_atmosphere_row(EditorContext& ctx, float p_row_h)
     const ImVec2 icon_size = ImGui::CalcTextSize(ICON_FA_CLOUD_SUN);
     dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), text_col, ICON_FA_CLOUD_SUN);
     x += icon_w + ui.outliner.icon_gap;
-    dl->AddText(ImVec2(x, text_y), text_col, "Atmosphere");
+    dl->AddText(ImVec2(x, text_y), text_col, "Environment");
 
     ImGui::TableSetColumnIndex(2);
-    dl->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), "Atmosphere");
+    dl->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), "Environment");
     ImGui::PopID();
 }
 

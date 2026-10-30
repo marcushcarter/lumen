@@ -30,14 +30,33 @@ static void _accent_underline()
     ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - ui.details.line * 2.0f), mx, ui.color.accent);
 }
 
-void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
+void DetailsPanel::_draw_environment(EditorContext& ctx)
 {
-    AtmosphereComponent& atmosphere = ctx.world->atmosphere;
-    ImGui::TextDisabled("Atmosphere");
+    EnvironmentSettings& env = ctx.world->environment;
+    AtmosphereSettings& atmosphere = env.atmosphere;
+    CelestialSettings& celestial = env.celestial;
+    LensFlareSettings& flare = ctx.world->post.lens_flare;
+    ImGui::TextDisabled("Environment");
     ImGui::Spacing();
     ui_field_push_style();
+    if (ui_category("Sky")) {
+        static const char* SKY_MODES[] = { "None", "Solid Color", "Atmosphere" };
+        int mode = (int)env.sky_mode;
+        if (ImGui::Combo("Mode", &mode, SKY_MODES, IM_ARRAYSIZE(SKY_MODES))) env.sky_mode = (SkyMode)mode;
+        if (env.sky_mode == SkyMode::SOLID_COLOR) {
+            ImGui::ColorEdit3("Color", &env.background_color.x);
+            ImGui::DragFloat("Intensity", &env.background_intensity, 1.0f, 0.0f, 100000.0f, "%.1f nits", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        }
+        if (env.sky_mode != SkyMode::ATMOSPHERE) {
+            ImGui::DragFloat("Exposure", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp);
+        }
+    }
+    if (env.sky_mode != SkyMode::ATMOSPHERE) {
+        ui_field_pop_style();
+        return;
+    }
     if (ui_category("Time")) {
-        ImGui::SliderFloat("Time of Day", &atmosphere.time_of_day, 0.0f, 24.0f, "%.2f h", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Time of Day", &celestial.time_of_day, 0.0f, 24.0f, "%.2f h", ImGuiSliderFlags_AlwaysClamp);
     }
     if (ui_category("Aerosols")) {
         ImGui::DragFloat("Turbidity", &atmosphere.mie_turbidity, 0.01f, 0.0f, 50.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
@@ -51,15 +70,15 @@ void DetailsPanel::_draw_atmosphere(EditorContext& ctx)
         ImGui::SliderFloat("Layer Height", &atmosphere.strat_aerosol_height_km, 12.0f, 30.0f, "%.1f km", ImGuiSliderFlags_AlwaysClamp);
     }
     if (ui_category("Stars")) {
-        ImGui::DragFloat("Brightness", &atmosphere.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Density", &atmosphere.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Brightness", &celestial.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Density", &celestial.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
     if (ui_category("Sun Flare")) {
-        ImGui::DragFloat("Intensity", &atmosphere.flare_intensity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Glow", &atmosphere.flare_glow, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Rays", &atmosphere.flare_rays, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Ray Length", &atmosphere.flare_ray_length, 0.01f, 0.3f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Ghosts", &atmosphere.flare_ghosts, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Intensity", &flare.intensity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Glow", &flare.glow, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Rays", &flare.rays, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SliderFloat("Ray Length", &flare.ray_length, 0.01f, 0.3f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Ghosts", &flare.ghosts, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
     }
     if (ui_category("World")) {
         ImGui::DragFloat("Sea Level Offset", &atmosphere.sea_level_offset_km, 0.01f, -1.0f, 9.0f, "%.3f km", ImGuiSliderFlags_AlwaysClamp);
@@ -71,8 +90,8 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (!ctx.world || !ctx.selection) return;
     World& world = *ctx.world;
-    if (ctx.selection->atmosphere) {
-        _draw_atmosphere(ctx);
+    if (ctx.selection->environment) {
+        _draw_environment(ctx);
         return;
     }
     const Entity e = ctx.selection->primary();

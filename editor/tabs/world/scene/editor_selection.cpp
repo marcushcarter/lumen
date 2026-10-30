@@ -6,12 +6,12 @@ namespace lumen {
 
 void EditorSelection::clear()
 {
-    if (empty() && !atmosphere) return;
+    if (empty() && !environment) return;
     for (const Entity e : entities) entity_marks[e.index] = 0;
     for (const uint32_t f : folders) folder_marks[f] = 0;
     entities.clear();
     folders.clear();
-    atmosphere = false;
+    environment = false;
     version++;
 }
 
@@ -21,18 +21,18 @@ void EditorSelection::select(Entity p_entity)
     add(p_entity);
 }
 
-void EditorSelection::select_atmosphere()
+void EditorSelection::select_environment()
 {
     clear();
-    atmosphere = true;
+    environment = true;
     version++;
 }
 
 void EditorSelection::add(Entity p_entity)
 {
     if (p_entity == ENTITY_NULL) return;
-    if (atmosphere) {
-        atmosphere = false;
+    if (environment) {
+        environment = false;
         version++;
     }
     if (contains(p_entity)) {
@@ -62,8 +62,8 @@ void EditorSelection::toggle(Entity p_entity)
 
 void EditorSelection::add_folder(uint32_t p_folder)
 {
-    if (atmosphere) {
-        atmosphere = false;
+    if (environment) {
+        environment = false;
         version++;
     }
     if (contains_folder(p_folder)) {

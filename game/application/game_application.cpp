@@ -62,8 +62,8 @@ void GameApplication::on_update(float p_dt)
     //     win32.window_set_title(title);
     // }
 
-    world.atmosphere.time_of_day += p_dt / 5.0f;
-    if (world.atmosphere.time_of_day > 24.0f) world.atmosphere.time_of_day = 0.0f;
+    world.environment.celestial.time_of_day += p_dt / 5.0f;
+    if (world.environment.celestial.time_of_day > 24.0f) world.environment.celestial.time_of_day = 0.0f;
 }
 
 void GameApplication::update_camera(float )

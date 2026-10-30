@@ -1,6 +1,7 @@
 #include <core/rendering/features/post/auto_exposure_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/io/embedded_resource.h>
+#include <core/world/world_settings.h>
 #include <algorithm>
 
 namespace lumen {
@@ -78,7 +79,8 @@ void AutoExposureFeature::_create_reduce_pass()
         pc.dt = dt;
         pc.min_ev = std::min(min_ev, max_ev);
         const float sun_y = ctx->frame->atmosphere.sun_direction.y;
-        const float day = std::clamp((sun_y - NIGHT_SUN_Y) / (DAY_SUN_Y - NIGHT_SUN_Y), 0.0f, 1.0f);
+        const bool sun = ctx->frame->atmosphere.sky_mode == (uint32_t)SkyMode::ATMOSPHERE;
+        const float day = sun ? std::clamp((sun_y - NIGHT_SUN_Y) / (DAY_SUN_Y - NIGHT_SUN_Y), 0.0f, 1.0f) : 1.0f;
         pc.max_ev = std::max(pc.min_ev, std::max(min_ev, max_ev) * day * day * (3.0f - 2.0f * day));
         pc.low_percentile = std::clamp(low_percentile, 0.0f, 1.0f);
         pc.high_percentile = std::clamp(high_percentile, pc.low_percentile, 1.0f);

@@ -5,6 +5,7 @@
 #include <editor/application/editor_context.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
 #include <imgui.h>
 #include <IconsFontAwesome6.h>
 #include <cfloat>
@@ -13,17 +14,26 @@
 
 namespace lumen {
 
-bool asset_field(EditorContext& ctx, const char* p_id, Guid& r_guid, AssetType p_type, const char* p_hint, const std::function<void()>& p_tooltip)
+bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid& r_guid, AssetType p_type, const std::function<void()>& p_tooltip)
 {
     bool changed = false;
+    const std::string_view type = asset_type_section(p_type);
     const AssetRegistry::Entry* asset = ctx.assets ? ctx.assets->find(r_guid) : nullptr;
+
+    ImGui::PushID(p_id);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s:", p_label);
+    ImGui::SameLine();
+
     char label[160];
     if (asset) {
-        snprintf(label, sizeof(label), "%s%s", asset->name.c_str(), p_id);
+        snprintf(label, sizeof(label), "%s##field", asset->name.c_str());
+    } else if (!r_guid.valid()) {
+        snprintf(label, sizeof(label), "No %.*s selected##field", (int)type.size(), type.data());
     } else {
         char guid[Guid::BUFFER];
         r_guid.to_chars(guid);
-        snprintf(label, sizeof(label), "%s%s%s", guid, !r_guid.valid() ? "" : " (missing)", p_id);
+        snprintf(label, sizeof(label), "%s (missing)##field", guid);
     }
     const float clear_w = ImGui::GetFrameHeight();
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -33,8 +43,10 @@ bool asset_field(EditorContext& ctx, const char* p_id, Guid& r_guid, AssetType p
             ImGui::BeginTooltip();
             p_tooltip();
             ImGui::EndTooltip();
+        } else if (asset) {
+            ImGui::SetTooltip("%s", asset->asset_path.c_str());
         } else {
-            ImGui::SetTooltip("%s", asset ? asset->asset_path.c_str() : p_hint);
+            ImGui::SetTooltip("Drag a %.*s here from Content Browser", (int)type.size(), type.data());
         }
     }
     if (ImGui::BeginDragDropTarget()) {
@@ -50,80 +62,13 @@ bool asset_field(EditorContext& ctx, const char* p_id, Guid& r_guid, AssetType p
     }
 
     ImGui::SameLine(0.0f, spacing);
-    ImGui::PushID(p_id);
     ImGui::BeginDisabled(!r_guid.valid());
-    if (ImGui::Button(ICON_FA_TRASH_CAN, ImVec2(clear_w, 0.0f))) {
+    ui_push_buttons(UiButton::GHOST);
+    if (ImGui::Button(ICON_FA_TRASH_CAN "##clear", ImVec2(clear_w, 0.0f))) {
         r_guid = Guid{};
         changed = true;
     }
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Clear");
-    ImGui::PopID();
-    return changed;
-}
-
-bool asset_thumbnail_field(EditorContext& ctx, const char* p_id, Guid& r_guid, AssetType p_type, const char* p_hint, const std::function<void()>& p_tooltip)
-{
-    const UiStyle& ui = ui_style();
-    bool changed = false;
-    const bool empty = !r_guid.valid();
-    const AssetRegistry::Entry* asset = !empty && ctx.assets ? ctx.assets->find(r_guid) : nullptr;
-
-    const ImVec2 size(ASSET_THUMBNAIL_FIELD_SIZE, ASSET_THUMBNAIL_FIELD_SIZE);
-    const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const ImVec2 p1(p0.x + size.x, p0.y + size.y);
-    ImGui::InvisibleButton(p_id, size);
-    const bool hovered = ImGui::IsItemHovered();
-
-    VkImageView view = VK_NULL_HANDLE;
-    if (asset && ctx.thumbnails) view = ctx.thumbnails->get(ctx, r_guid, p_type);
-    const VkDescriptorSet set = view && ctx.imgui ? ctx.imgui->texture_cache.get(view) : VK_NULL_HANDLE;
-
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p0, p1, ui.color.sunken, ui.radius.sm);
-    if (set) {
-        dl->AddImageRounded((ImTextureID)set, p0, p1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, ui.radius.sm);
-    } else if (!asset) {
-        const char* text = empty ? "na" : "missing";
-        const ImVec2 t = ImGui::CalcTextSize(text);
-        dl->AddText(ImVec2(std::floor(p0.x + (size.x - t.x) * 0.5f), std::floor(p0.y + (size.y - t.y) * 0.5f)), ui.color.text_dim, text);
-    }
-    if (hovered) dl->AddRect(p0, p1, ui.color.accent, ui.radius.sm);
-
-    if (hovered && !ImGui::GetDragDropPayload()) {
-        if (asset && p_tooltip) {
-            ImGui::BeginTooltip();
-            p_tooltip();
-            ImGui::EndTooltip();
-        } else if (asset) {
-            ImGui::SetTooltip("%s", asset->asset_path.c_str());
-        } else if (empty) {
-            ImGui::SetTooltip("%s", p_hint);
-        } else {
-            char guid[Guid::BUFFER];
-            r_guid.to_chars(guid);
-            ImGui::SetTooltip("%s (missing)", guid);
-        }
-    }
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
-            if (((const AssetDragPayload*)peek->Data)->type == p_type) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-                    r_guid = ((const AssetDragPayload*)payload->Data)->guid;
-                    changed = true;
-                }
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
-    ImGui::PushID(p_id);
-    ImGui::BeginDisabled(empty);
-    if (ImGui::Button(ICON_FA_TRASH_CAN, ImVec2(ImGui::GetFrameHeight(), 0.0f))) {
-        r_guid = Guid{};
-        changed = true;
-    }
+    ui_pop_buttons();
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Clear");
     ImGui::PopID();

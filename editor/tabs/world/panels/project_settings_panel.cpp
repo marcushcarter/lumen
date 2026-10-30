@@ -49,7 +49,7 @@ void ProjectSettingsPanel::draw_contents(EditorContext& ctx)
         s.height = ProjectSettings::DEFAULT_HEIGHT;
         commit = true;
     }
-    const bool icon_changed = asset_thumbnail_field(ctx, "###window_icon", s.window_icon, AssetType::TEXTURE, "Drop a texture here");
+    const bool icon_changed = asset_field(ctx, "Texture", "###window_icon", s.window_icon, AssetType::TEXTURE);
 
     ImGui::SeparatorText("Export");
     const std::string default_name = project.default_export_name();

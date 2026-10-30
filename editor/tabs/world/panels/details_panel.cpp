@@ -127,7 +127,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (ModelComponent* model = world.try_get<ModelComponent>(e)) {
         bool remove = false;
         const bool o = ui_category("Model", &remove);
-        if (o && asset_thumbnail_field(ctx, "###model_field", model->model, AssetType::MODEL, "Drop a model asset here")) {
+        if (o && asset_field(ctx, "Model", "###model_field", model->model, AssetType::MODEL)) {
             world.touch(e);
         }
         if (remove) world.deferred_remove<ModelComponent>(e);
@@ -137,7 +137,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         bool remove = false;
         const bool o = ui_category("Model Grid", &remove);
         if (o) {
-            bool changed = asset_thumbnail_field(ctx, "###model_grid_field", grid->model, AssetType::MODEL, "Drop a model asset here");
+            bool changed = asset_field(ctx, "Model", "###model_grid_field", grid->model, AssetType::MODEL);
             int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
             if (ImGui::DragInt3("Count", count, 0.2f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                 grid->count = uvec3((uint32_t)count[0], (uint32_t)count[1], (uint32_t)count[2]);

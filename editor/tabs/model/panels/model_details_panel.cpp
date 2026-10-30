@@ -29,7 +29,7 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
 
     if (ui_category("Mesh")) {
         const AssetRegistry::Entry* mesh = ctx.assets ? ctx.assets->find(tab->model.mesh) : nullptr;
-        asset_thumbnail_field(ctx, "###model_mesh", tab->model.mesh, AssetType::MESH, "Drop a mesh asset here");
+        asset_field(ctx, "Mesh", "###model_mesh", tab->model.mesh, AssetType::MESH);
 
         const LMeshStats& s = tab->mesh_stats;
         char buf[32];
@@ -59,9 +59,10 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
         for (uint32_t i = 0; i < count; ++i) {
             char id[32];
             std::snprintf(id, sizeof(id), "###model_material_%u", i);
-            ImGui::Text(i < tab->mesh_stats.slots ? "Slot %u" : "Slot %u (unused)", i);
+            char slot[32];
+            std::snprintf(slot, sizeof(slot), i < tab->mesh_stats.slots ? "Slot %u" : "Slot %u (unused)", i);
             Guid m = i < mats.size() ? mats[i] : Guid{};
-            if (asset_thumbnail_field(ctx, id, m, AssetType::MATERIAL, "Drop a material asset here (empty = default)")) {
+            if (asset_field(ctx, slot, id, m, AssetType::MATERIAL)) {
                 if (i >= mats.size()) mats.resize(i + 1);
                 mats[i] = m;
                 changed = true;

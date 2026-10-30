@@ -10,8 +10,7 @@ namespace lumen {
 
 static bool _texture(EditorContext& ctx, const char* p_label, const char* p_id, Guid& r_guid)
 {
-    ImGui::TextUnformatted(p_label);
-    return asset_thumbnail_field(ctx, p_id, r_guid, AssetType::TEXTURE, "Drop a texture asset here");
+    return asset_field(ctx, p_label, p_id, r_guid, AssetType::TEXTURE);
 }
 
 void MaterialDetailsPanel::draw_contents(EditorContext& ctx)

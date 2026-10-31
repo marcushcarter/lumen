@@ -221,13 +221,6 @@ void Viewport::_draw_image(EditorContext& ctx)
             grid.axis_color[i] = vec4(c.x, c.y, c.z, c.w);
         }
     }
-    if (ctx.render_path) {
-        const DebugView& view = DEBUG_VIEWS[selected_view];
-        const bool lit = view.op == DebugViewOp::COPY && view.image && std::strcmp(view.image, "DisplayColor") == 0;
-        ctx.render_path->taa.suppressed = !lit;
-        ctx.renderer->main_view.jitter = ctx.render_path->taa.enabled && lit;
-    }
-
     const char* vp_image = ctx.render_path ? ctx.render_path->ui.viewport_image(ctx.renderer->main_view.graph) : nullptr;
     RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
     VkImageView sel_view = VK_NULL_HANDLE;
@@ -268,13 +261,6 @@ void Viewport::_draw_image(EditorContext& ctx)
         if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
         float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
         if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
-        ImGui::Checkbox("TAA", &ctx.render_path->taa.enabled);
-        static const char* TONEMAPPERS[PostProcessFeature::TONEMAPPER_COUNT] = { "None", "AgX",  "AgX Punchy", "ACES", "PBR Neutral" };
-        int tonemapper = (int)ctx.render_path->post.tonemapper;
-        if (ImGui::Combo("Tonemapper", &tonemapper, TONEMAPPERS, PostProcessFeature::TONEMAPPER_COUNT)) ctx.render_path->post.tonemapper = (PostProcessFeature::Tonemapper)tonemapper;
-        ImGui::Checkbox("Auto Exposure", &ctx.render_path->exposure.enabled);
-        ImGui::Checkbox("Bloom", &ctx.render_path->bloom.enabled);
-        ImGui::Checkbox("Lens Flare", &ctx.render_path->lens_flare.enabled);
         left_overlay.end_menu();
     }
     left_overlay.gap();

@@ -100,7 +100,6 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     err = _view_create_buffers(main_view);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    main_view.jitter = true;
     set_size(1, 1);
     pending_width = main_view.output_width;
     pending_height = main_view.output_height;
@@ -572,7 +571,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.output_width = out_w;
         frame.output_height = out_h;
         frame.texture_grad_scale = r_view.jitter ? ratio * 0.70710678f : 1.0f;
-        frame.taa_reset = r_view.camera_cut_pending;
         frame.camera.position = vec4(camera.position, 1.0f);
         _extract_frustum_planes(frame.camera.curr_view_proj, frame.camera.frustum_planes);
         frame.camera.near_z = camera.near_z;
@@ -590,7 +588,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         const EnvironmentSettings& env = p_world.environment;
         const AtmosphereSettings& atmo = env.atmosphere;
         const CelestialSettings& cel = env.celestial;
-        frame.flare = p_world.post.lens_flare;
         GpuAtmosphere& g = frame.atmosphere;
 
         const vec4 lut_key[2] = { vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom), vec4(atmo.strat_aerosol_depth, atmo.strat_aerosol_height_km, 0.0f, 0.0f) };

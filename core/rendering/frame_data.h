@@ -69,14 +69,12 @@ struct FrameData
     uint32_t output_width = 0;
     uint32_t output_height = 0;
     float texture_grad_scale = 1.0f;
-    bool taa_reset = true;
 
     CameraUniform camera{};
 
     GpuAtmosphere atmosphere{};
     vec4 atmosphere_lut_key[2] = { vec4(-1.0f), vec4(-1.0f) };
     uint64_t atmosphere_lut_version = 0;
-    LensFlareSettings flare;
 
     struct EntityCache {
         mat4 prev_mtx;

@@ -51,7 +51,6 @@ void World::unload()
     _deferred.clear();
     _by_guid.clear();
     environment = {};
-    post = {};
     static_version++;
     structure_version++;
     entity_version++;

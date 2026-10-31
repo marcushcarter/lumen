@@ -19,7 +19,6 @@ struct EditorRenderPath : SceneRenderPath
 
     void _register_features() override {
         SceneRenderPath::_register_features();
-        taa.enabled = false;
         ui.viewport = "Viewport";
         ui.viewport_fallback = "DisplayColor";
         features.push_back(&debug);

@@ -65,19 +65,4 @@ struct EnvironmentSettings
     CelestialSettings celestial;
 };
 
-struct LensFlareSettings
-{
-    float intensity = 1.0f;
-    float glow = 0.5f;
-    float rays = 1.0f;
-    float ray_length = 0.06f;
-    float ghosts = 0.1f;
-};
-
-// World-level until per-camera/view post settings exist.
-struct PostProcessSettings
-{
-    LensFlareSettings lens_flare;
-};
-
 }

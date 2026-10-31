@@ -35,7 +35,6 @@ void DetailsPanel::_draw_environment(EditorContext& ctx)
     EnvironmentSettings& env = ctx.world->environment;
     AtmosphereSettings& atmosphere = env.atmosphere;
     CelestialSettings& celestial = env.celestial;
-    LensFlareSettings& flare = ctx.world->post.lens_flare;
     ImGui::TextDisabled("Environment");
     ImGui::Spacing();
     ui_field_push_style();
@@ -72,13 +71,6 @@ void DetailsPanel::_draw_environment(EditorContext& ctx)
     if (ui_category("Stars")) {
         ImGui::DragFloat("Brightness", &celestial.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
         ImGui::SliderFloat("Density", &celestial.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-    }
-    if (ui_category("Sun Flare")) {
-        ImGui::DragFloat("Intensity", &flare.intensity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Glow", &flare.glow, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Rays", &flare.rays, 0.01f, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Ray Length", &flare.ray_length, 0.01f, 0.3f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Ghosts", &flare.ghosts, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
     }
     if (ui_category("World")) {
         ImGui::DragFloat("Sea Level Offset", &atmosphere.sea_level_offset_km, 0.01f, -1.0f, 9.0f, "%.3f km", ImGuiSliderFlags_AlwaysClamp);

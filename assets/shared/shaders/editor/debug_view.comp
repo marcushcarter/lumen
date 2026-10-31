@@ -189,14 +189,6 @@ void main() {
 
     if (pc.op == OP_COPY) {
         color = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb;
-    } else if (pc.op == OP_ALBEDO) {
-        color = vec3(0.0);
-        if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) {
-            vec3 albedo;
-            uint flags;
-            gbuffer_decode_albedo(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), albedo, flags);
-            color = albedo;
-        }
     } else if (pc.op == OP_WIREFRAME) {
         uvec2 v, ref;
         color = vec3(0);
@@ -277,26 +269,12 @@ void main() {
             vec3 n = gbuffer_decode_normal(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg);
             color = srgb_to_linear(n * 0.5 + 0.5);
         }
-    } else if (pc.op == OP_ROUGHNESS || pc.op == OP_METALLIC || pc.op == OP_MATERIAL_AO) {
-        float roughness, metallic, ao;
-        uint model;
-        gbuffer_decode_material(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), roughness, metallic, ao, model);
-        float value = pc.op == OP_ROUGHNESS ? roughness : (pc.op == OP_METALLIC ? metallic : ao);
-        color = model == SHADING_MODEL_SKY ? vec3(0.0) : srgb_to_linear(vec3(value));
-    } else if (pc.op == OP_SHADING_MODEL) {
-        float roughness, metallic, ao;
-        uint model;
-        gbuffer_decode_material(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0), roughness, metallic, ao, model);
-        color = model == SHADING_MODEL_SKY ? vec3(0.0) : hash_color(model);
     } else if (pc.op == OP_VELOCITY) {
         vec2 m = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rg;
         const float SCALE = 40.0;
         float speed = length(m) * SCALE;
         float hue = atan(m.y, m.x) / 6.2831853 + 0.5;
         color = hsv_to_rgb(vec3(hue, 1.0, clamp(speed, 0.0, 1.0)));
-    } else if (pc.op == OP_EMISSIVE) {
-        vec3 e = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb * pc.camera.pre_exposure;
-        color = e / (1.0 + e);
     } else if (pc.op == OP_DEPTH) {
         color = vec3(linearize_depth(coord));
     }

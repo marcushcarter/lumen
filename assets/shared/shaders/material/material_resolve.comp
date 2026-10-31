@@ -18,14 +18,9 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
-layout(set = 0, binding = 0) uniform texture2D u_textures[];
-layout(set = 0, binding = 2) uniform sampler u_samplers[];
 
-layout(set = 0, binding = 1, rgba8) uniform writeonly image2D u_storage_rgba8[];
-layout(set = 0, binding = 1, rgb10_a2) uniform writeonly image2D u_storage_rgb10a2[];
 layout(set = 0, binding = 1, rg16) uniform writeonly image2D u_storage_rg16[];
 layout(set = 0, binding = 1, rg16f) uniform writeonly image2D u_storage_rg16f[];
-layout(set = 0, binding = 1, r11f_g11f_b10f) uniform writeonly image2D u_storage_r11g11b10f[];
 
 layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
 
@@ -38,44 +33,18 @@ layout(push_constant) uniform Push {
     ShadingTileBuffer shading_tiles;
     uint vis_index;
     uint normal_slot;
-    uint albedo_slot;
-    uint material_slot;
-    uint custom_slot;
     uint motion_slot;
-    uint emissive_slot;
     uint width;
     uint height;
     uint flags;
-    uint sampler_index;
-    float grad_scale;
 } pc;
 
 const uint RESOLVE_WRITE_MOTION = 1u << 0;
-const uint RESOLVE_WRITE_CUSTOM = 1u << 1;
-const float EMISSIVE_MAX = 60000.0;
-const vec3 UNSUPPORTED_MODEL_COLOR = vec3(1.0, 0.0, 1.0);
 
 struct Surface {
     vec3 normal;
     vec2 motion;
-    vec3 albedo;
-    float roughness;
-    float metallic;
-    float ao;
-    vec3 emissive;
-    uint shading_model;
 };
-
-void surface_default(out Surface r_s) {
-    r_s.normal = vec3(0.0, 1.0, 0.0);
-    r_s.motion = vec2(0.0);
-    r_s.albedo = vec3(1.0);
-    r_s.roughness = 0.5;
-    r_s.metallic = 0.0;
-    r_s.ao = 1.0;
-    r_s.emissive = vec3(0.0);
-    r_s.shading_model = SHADING_MODEL_DEFAULT_LIT;
-}
 
 bool ray_barycentrics(vec3 p_dir, vec3 p_0, vec3 p_1, vec3 p_2, out vec3 r_bary) {
     vec3 e1 = p_1 - p_0;
@@ -92,10 +61,6 @@ bool ray_barycentrics(vec3 p_dir, vec3 p_0, vec3 p_1, vec3 p_2, out vec3 r_bary)
     return true;
 }
 
-vec4 sample_material(uint p_tex, vec2 p_uv, vec2 p_dx, vec2 p_dy) {
-    return textureGrad(sampler2D(u_textures[nonuniformEXT(p_tex)], u_samplers[pc.sampler_index]), p_uv, p_dx, p_dy);
-}
-
 struct Object {
     vec3 m0;
     vec3 m1;
@@ -106,8 +71,6 @@ struct Object {
     vec3 c2;
     vec3 pos_min;
     vec3 pos_extent;
-    vec2 uv_min;
-    vec2 uv_extent;
     uint transform_id;
     uint slot_base;
     uint slot_count;
@@ -138,8 +101,6 @@ Object load_object(uint p_inst) {
     o.c2 = cross(o.m0, o.m1);
     o.pos_min = pc.geometry.meshes.data[mesh_id].pos_min;
     o.pos_extent = pc.geometry.meshes.data[mesh_id].pos_extent;
-    o.uv_min = pc.geometry.meshes.data[mesh_id].uv_min;
-    o.uv_extent = pc.geometry.meshes.data[mesh_id].uv_extent;
     o.slot_count = pc.geometry.meshes.data[mesh_id].slot_count;
     return o;
 }
@@ -174,28 +135,9 @@ vec3 oct_decode_unnormalized(vec2 p_f) {
     return n;
 }
 
-bool triangle_tangent(Object p_o, Triangle p_t, vec2 p_uv0, vec2 p_uv1, vec2 p_uv2, vec3 p_n, out vec3 r_t, out vec3 r_b) {
-    vec3 e1 = p_t.l1 - p_t.l0;
-    vec3 e2 = p_t.l2 - p_t.l0;
-    vec2 d1 = p_uv1 - p_uv0;
-    vec2 d2 = p_uv2 - p_uv0;
-    float det = d1.x * d2.y - d1.y * d2.x;
-    if (abs(det) < 1e-12) return false;
-    float r = 1.0 / det;
-    vec3 lt = (e1 * d2.y - e2 * d1.y) * r;
-    vec3 lb = (e2 * d1.x - e1 * d2.x) * r;
-    vec3 t = p_o.m0 * lt.x + p_o.m1 * lt.y + p_o.m2 * lt.z;
-    vec3 b = p_o.m0 * lb.x + p_o.m1 * lb.y + p_o.m2 * lb.z;
-    t -= p_n * dot(p_n, t);
-    float len_sq = dot(t, t);
-    if (len_sq < 1e-16) return false;
-    r_t = t * inversesqrt(len_sq);
-    r_b = cross(p_n, r_t) * (dot(cross(p_n, r_t), b) < 0.0 ? -1.0 : 1.0);
-    return true;
-}
-
-bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_dir_dy, bool p_motion, out Surface r_s) {
-    surface_default(r_s);
+bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surface r_s) {
+    r_s.normal = vec3(0.0, 1.0, 0.0);
+    r_s.motion = vec2(0.0);
     if (vis_is_terrain(p_vis)) return false;
 
     const uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(p_vis)];
@@ -224,54 +166,6 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_d
     const Material m = pc.geometry.materials.data[material_index];
     if (material_two_sided(m) && dot(n, p_dir) > 0.0) n = -n;
     r_s.normal = n;
-
-    r_s.shading_model = material_shading_model(m);
-    const bool unlit = r_s.shading_model == SHADING_MODEL_UNLIT;
-    if (r_s.shading_model != SHADING_MODEL_DEFAULT_LIT && !unlit) {
-        r_s.albedo = vec3(0.0);
-        r_s.roughness = 1.0;
-        r_s.metallic = 0.0;
-        r_s.emissive = UNSUPPORTED_MODEL_COLOR / max(pc.camera.pre_exposure, 1e-8);
-        return true;
-    }
-
-    r_s.albedo = m.base_color.rgb;
-    r_s.roughness = m.roughness;
-    r_s.metallic = m.metallic;
-    r_s.ao = 1.0;
-    r_s.emissive = m.emissive;
-
-    const bool textured = m.base_color_tex != TEXTURE_NONE || m.emissive_tex != TEXTURE_NONE || (!unlit && (m.normal_tex != TEXTURE_NONE || m.roughness_tex != TEXTURE_NONE || m.metallic_tex != TEXTURE_NONE || m.ao_tex != TEXTURE_NONE));
-    if (textured) {
-        vec3 b_dx, b_dy;
-        if (!ray_barycentrics(p_dir_dx, p0, p1, p2, b_dx)) b_dx = b;
-        if (!ray_barycentrics(p_dir_dy, p0, p1, p2, b_dy)) b_dy = b;
-
-        const vec2 uv0 = o.uv_min + vertex_uv_unorm(tri.a0) * o.uv_extent;
-        const vec2 uv1 = o.uv_min + vertex_uv_unorm(tri.a1) * o.uv_extent;
-        const vec2 uv2 = o.uv_min + vertex_uv_unorm(tri.a2) * o.uv_extent;
-        const vec2 raw_uv = uv0 * b.x + uv1 * b.y + uv2 * b.z;
-        const vec2 uv = raw_uv * m.uv_transform.xy + m.uv_transform.zw;
-        const vec2 uv_dx = (uv0 * b_dx.x + uv1 * b_dx.y + uv2 * b_dx.z - raw_uv) * m.uv_transform.xy * pc.grad_scale;
-        const vec2 uv_dy = (uv0 * b_dy.x + uv1 * b_dy.y + uv2 * b_dy.z - raw_uv) * m.uv_transform.xy * pc.grad_scale;
-
-        if (m.base_color_tex != TEXTURE_NONE) r_s.albedo *= sample_material(m.base_color_tex, uv, uv_dx, uv_dy).rgb;
-        if (!unlit && m.roughness_tex != TEXTURE_NONE) r_s.roughness *= sample_material(m.roughness_tex, uv, uv_dx, uv_dy).r;
-        if (!unlit && m.metallic_tex != TEXTURE_NONE) r_s.metallic *= sample_material(m.metallic_tex, uv, uv_dx, uv_dy).r;
-        if (!unlit && m.ao_tex != TEXTURE_NONE) r_s.ao = 1.0 + m.ao_strength * (sample_material(m.ao_tex, uv, uv_dx, uv_dy).r - 1.0);
-        if (m.emissive_tex != TEXTURE_NONE) r_s.emissive *= sample_material(m.emissive_tex, uv, uv_dx, uv_dy).rgb;
-
-        vec3 t, bt;
-        if (!unlit && m.normal_tex != TEXTURE_NONE && triangle_tangent(o, tri, uv0, uv1, uv2, n, t, bt)) {
-            vec2 xy = (sample_material(m.normal_tex, uv, uv_dx, uv_dy).rg * 2.0 - 1.0) * m.normal_scale;
-            float z = sqrt(clamp(1.0 - dot(xy, xy), 0.0, 1.0));
-            r_s.normal = normalize(t * xy.x + bt * xy.y + n * z);
-        }
-    }
-
-    r_s.roughness = clamp(r_s.roughness, 0.0, 1.0);
-    r_s.metallic = clamp(r_s.metallic, 0.0, 1.0);
-    r_s.ao = clamp(r_s.ao, 0.0, 1.0);
     return true;
 }
 
@@ -288,44 +182,29 @@ uvec2 swizzled_group(uint p_groups_x, uint p_groups_y) {
 
 shared uint s_paths;
 
-uint resolve_pixel(ivec2 coord) {
+bool resolve_pixel(ivec2 coord) {
     const uint v = texelFetch(u_textures_uint[pc.vis_index], coord, 0).x;
 
-    const vec2 texel = 2.0 / vec2(pc.width, pc.height);
-    const vec2 ndc = (vec2(coord) + 0.5) * texel - 1.0;
-    const mat4 inv_vp = pc.camera.inv_view_proj;
+    const vec2 ndc = (vec2(coord) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0;
     const vec3 cam = pc.camera.position.xyz;
-    const vec4 h = inv_vp * vec4(ndc, 1.0, 1.0);
+    const vec4 h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    const bool write_motion = (pc.flags & RESOLVE_WRITE_MOTION) != 0u;
 
     if (vis_is_empty(v)) {
-        imageStore(u_storage_rgba8[pc.material_slot], coord, gbuffer_encode_material(0.0, 0.0, 0.0, SHADING_MODEL_SKY));
-        if ((pc.flags & RESOLVE_WRITE_CUSTOM) != 0u) imageStore(u_storage_rgba8[pc.custom_slot], coord, vec4(0.0));
-        if ((pc.flags & RESOLVE_WRITE_MOTION) != 0u) {
+        if (write_motion) {
             const vec4 prev_clip = pc.camera.prev_view_proj * vec4(h.xyz / h.w - cam, 0.0);
             const vec2 motion = prev_clip.w > 0.0 ? ((ndc - pc.camera.jitter.xy) - (prev_clip.xy / prev_clip.w - pc.camera.jitter.zw)) * 0.5 : vec2(0.0);
             imageStore(u_storage_rg16f[pc.motion_slot], coord, vec4(motion, 0.0, 0.0));
         }
-        imageStore(u_storage_r11g11b10f[pc.emissive_slot], coord, vec4(0.0));
-        return SHADING_MODEL_SKY;
+        return false;
     }
 
-    const vec4 h_dx = h + inv_vp[0] * texel.x;
-    const vec4 h_dy = h + inv_vp[1] * texel.y;
-    const vec3 dir = h.xyz / h.w - cam;
-    const vec3 dir_dx = h_dx.xyz / h_dx.w - cam;
-    const vec3 dir_dy = h_dy.xyz / h_dy.w - cam;
-
     Surface s;
-    const bool write_motion = (pc.flags & RESOLVE_WRITE_MOTION) != 0u;
-    resolve_surface(v, ndc, dir, dir_dx, dir_dy, write_motion, s);
+    resolve_surface(v, ndc, h.xyz / h.w - cam, write_motion, s);
 
-    imageStore(u_storage_rgb10a2[pc.albedo_slot], coord, gbuffer_encode_albedo(s.albedo, 0u));
     imageStore(u_storage_rg16[pc.normal_slot], coord, vec4(gbuffer_encode_normal(s.normal), 0.0, 0.0));
-    imageStore(u_storage_rgba8[pc.material_slot], coord, gbuffer_encode_material(s.roughness, s.metallic, s.ao, s.shading_model));
-    if ((pc.flags & RESOLVE_WRITE_CUSTOM) != 0u) imageStore(u_storage_rgba8[pc.custom_slot], coord, vec4(0.0));
-    imageStore(u_storage_r11g11b10f[pc.emissive_slot], coord, vec4(min(s.emissive, vec3(EMISSIVE_MAX)), 0.0));
     if (write_motion) imageStore(u_storage_rg16f[pc.motion_slot], coord, vec4(s.motion, 0.0, 0.0));
-    return s.shading_model;
+    return true;
 }
 
 void classify_tile(uvec2 p_tile, uint p_tiles) {
@@ -353,7 +232,7 @@ void main() {
 
     if (gl_LocalInvocationIndex == 0u) s_paths = 0u;
     barrier();
-    const uint path = (px.x < pc.width && px.y < pc.height) ? shading_path(resolve_pixel(ivec2(px))) : 0u;
+    const uint path = (px.x < pc.width && px.y < pc.height) ? (resolve_pixel(ivec2(px)) ? SHADING_PATH_LIT : SHADING_PATH_SKY) : 0u;
     const uint wave_paths = subgroupOr(path);
     if (subgroupElect()) atomicOr(s_paths, wave_paths);
     barrier();

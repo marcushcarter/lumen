@@ -107,23 +107,11 @@ GPUMaterial MaterialCache::_build(const LMaterial& p_material, const TextureCach
 {
     const LMaterial& m = p_material;
     GPUMaterial g{};
-    g.base_color = m.base_color;
-    g.emissive = m.emissive_color * m.emissive_nits;
-    g.alpha_cutoff = m.alpha_cutoff;
-    g.custom = m.custom;
     g.uv_transform = vec4(m.uv_scale, m.uv_offset);
-    g.roughness = m.roughness;
-    g.metallic = m.metallic;
-    g.normal_scale = m.normal_scale;
-    g.ao_strength = m.ao_strength;
     g.base_color_tex = p_textures.bindless_of(m.base_color_texture);
-    g.normal_tex = p_textures.bindless_of(m.normal_texture);
-    g.roughness_tex = p_textures.bindless_of(m.roughness_texture);
-    g.metallic_tex = p_textures.bindless_of(m.metallic_texture);
-    g.ao_tex = p_textures.bindless_of(m.ao_texture);
-    g.emissive_tex = p_textures.bindless_of(m.emissive_texture);
-    g.custom_tex = p_textures.bindless_of(m.custom_texture);
-    g.flags = (uint32_t)m.shading_model | ((uint32_t)m.alpha_mode << MATERIAL_ALPHA_SHIFT) | (m.two_sided ? MATERIAL_FLAG_TWO_SIDED : 0u);
+    g.base_alpha = m.base_color.a;
+    g.alpha_cutoff = m.alpha_cutoff;
+    g.flags = ((uint32_t)m.alpha_mode << MATERIAL_ALPHA_SHIFT) | (m.two_sided ? MATERIAL_FLAG_TWO_SIDED : 0u);
     return g;
 }
 
@@ -186,23 +174,11 @@ void MaterialCache::upload(uint32_t p_frame)
 GPUMaterial MaterialCache::default_material()
 {
     GPUMaterial g{};
-    g.base_color = vec4(1.0f);
-    g.emissive = vec3(0.0f);
-    g.alpha_cutoff = 0.5f;
-    g.custom = vec4(0.0f);
     g.uv_transform = vec4(1.0f, 1.0f, 0.0f, 0.0f);
-    g.roughness = 0.5f;
-    g.metallic = 0.0f;
-    g.normal_scale = 1.0f;
-    g.ao_strength = 1.0f;
     g.base_color_tex = TEXTURE_NONE;
-    g.normal_tex = TEXTURE_NONE;
-    g.roughness_tex = TEXTURE_NONE;
-    g.metallic_tex = TEXTURE_NONE;
-    g.ao_tex = TEXTURE_NONE;
-    g.emissive_tex = TEXTURE_NONE;
-    g.custom_tex = TEXTURE_NONE;
-    g.flags = (uint32_t)ShadingModel::DEFAULT_LIT;
+    g.base_alpha = 1.0f;
+    g.alpha_cutoff = 0.5f;
+    g.flags = 0u;
     return g;
 }
 

@@ -54,7 +54,7 @@ void LightingFeature::_create_lighting_pass()
         pc.directional_count = ctx->frame->directional_count;
 
         static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
-        static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (unlit)", "Deferred lighting (mixed)" };
+        static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (mixed)" };
         for (uint32_t t = 0; t < SHADING_TILE_TYPES; t++) {
             cl.dd->command_bind_pipeline(cl.cmd, lighting_pipes[t]);
             cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -71,7 +71,7 @@ Error LightingFeature::create_resources()
 
 Error LightingFeature::create_pipelines()
 {
-    static const char* NAMES[SHADING_TILE_TYPES] = { "lighting/deferred_lighting (sky)", "lighting/deferred_lighting (lit)", "lighting/deferred_lighting (unlit)", "lighting/deferred_lighting (mixed)" };
+    static const char* NAMES[SHADING_TILE_TYPES] = { "lighting/deferred_lighting (sky)", "lighting/deferred_lighting (lit)", "lighting/deferred_lighting (mixed)" };
     EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_LIGHTING_DEFERRED_LIGHTING_COMP");
     VkShaderModule cs = ctx->dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "lighting/deferred_lighting.comp" });
     const VkSpecializationMapEntry entry{ 0, 0, sizeof(uint32_t) };

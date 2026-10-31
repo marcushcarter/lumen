@@ -788,43 +788,17 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
 }
 
 static constexpr uint32_t RESOLVE_WRITE_MOTION = 1u << 0;
-static constexpr uint32_t RESOLVE_WRITE_CUSTOM = 1u << 1;
 
 void GeometryFeature::_create_material_resolve_pass()
 {
     material_resolve_pass.name = "MaterialResolve";
     material_resolve_pass.category = PASS_CATEGORY_MATERIAL;
     material_resolve_pass.setup = [this](RenderGraph::Builder& b) {
-
         drivers::DeviceDriverVulkan::ImageCreateInfo normal_ci{};
         normal_ci.name = "G_Normal";
         normal_ci.format = VK_FORMAT_R16G16_UNORM;
         normal_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Normal", normal_ci);
-
-        drivers::DeviceDriverVulkan::ImageCreateInfo albedo_ci{};
-        albedo_ci.name = "G_Albedo";
-        albedo_ci.format = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
-        albedo_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        b.create_image("G_Albedo", albedo_ci);
-
-        drivers::DeviceDriverVulkan::ImageCreateInfo material_ci{};
-        material_ci.name = "G_Material";
-        material_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
-        material_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        b.create_image("G_Material", material_ci);
-
-        drivers::DeviceDriverVulkan::ImageCreateInfo custom_ci{};
-        custom_ci.name = "G_Custom";
-        custom_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
-        custom_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        b.create_image("G_Custom", custom_ci);
-
-        drivers::DeviceDriverVulkan::ImageCreateInfo emissive_ci{};
-        emissive_ci.name = "G_Emissive";
-        emissive_ci.format = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
-        emissive_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        b.create_image("G_Emissive", emissive_ci);
 
         drivers::DeviceDriverVulkan::ImageCreateInfo motion_ci{};
         motion_ci.name = "G_Motion";
@@ -847,19 +821,11 @@ void GeometryFeature::_create_material_resolve_pass()
         b.write_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
         b.write_image("G_Normal", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_image("G_Albedo", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_image("G_Material", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_image("G_Custom", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_image("G_Emissive", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Motion", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     material_resolve_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto vis = cl.graph->image("G_Visibility");
         auto normal = cl.graph->image("G_Normal");
-        auto albedo = cl.graph->image("G_Albedo");
-        auto matl = cl.graph->image("G_Material");
-        auto custom = cl.graph->image("G_Custom");
-        auto emissive = cl.graph->image("G_Emissive");
         auto motion = cl.graph->image("G_Motion");
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
@@ -881,16 +847,10 @@ void GeometryFeature::_create_material_resolve_pass()
             VkDeviceAddress shading_tiles_addr;
             uint32_t vis_index;
             uint32_t normal_slot;
-            uint32_t albedo_slot;
-            uint32_t material_slot;
-            uint32_t custom_slot;
             uint32_t motion_slot;
-            uint32_t emissive_slot;
             uint32_t width;
             uint32_t height;
             uint32_t flags;
-            uint32_t sampler_index;
-            float grad_scale;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -900,18 +860,11 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.shading_tiles_addr = tiles->device_address;
         pc.vis_index = vis->bindless_sampled;
         pc.normal_slot = normal->bindless_storage;
-        pc.albedo_slot = albedo->bindless_storage;
-        pc.material_slot = matl->bindless_storage;
-        pc.custom_slot = custom->bindless_storage;
         pc.motion_slot = motion->bindless_storage;
-        pc.emissive_slot = emissive->bindless_storage;
         pc.width = vis->extent.width;
         pc.height = vis->extent.height;
         const RenderGraph::ImageResource* motion_res = cl.graph->image_resource("G_Motion");
-        const RenderGraph::ImageResource* custom_res = cl.graph->image_resource("G_Custom");
-        pc.flags = (motion_res && motion_res->read ? RESOLVE_WRITE_MOTION : 0u) | (custom_res && custom_res->read ? RESOLVE_WRITE_CUSTOM : 0u);
-        pc.sampler_index = material_sampler.bindless_sampler;
-        pc.grad_scale = ctx->frame->texture_grad_scale;
+        pc.flags = motion_res && motion_res->read ? RESOLVE_WRITE_MOTION : 0u;
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});

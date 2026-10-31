@@ -4,19 +4,15 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 
-#include "common/gbuffer.glsl"
-
 const uint SHADING_TILE_SIZE = 8u;
 
 const uint SHADING_TILE_SKY = 0u;
 const uint SHADING_TILE_LIT = 1u;
-const uint SHADING_TILE_UNLIT = 2u;
-const uint SHADING_TILE_MIXED = 3u;
-const uint SHADING_TILE_TYPES = 4u;
+const uint SHADING_TILE_MIXED = 2u;
+const uint SHADING_TILE_TYPES = 3u;
 
 const uint SHADING_PATH_SKY = 1u << 0u;
 const uint SHADING_PATH_LIT = 1u << 1u;
-const uint SHADING_PATH_UNLIT = 1u << 2u;
 
 const uint SHADING_TILE_DISPATCH_MAX = 65535u;
 
@@ -29,16 +25,9 @@ layout(buffer_reference, scalar) buffer ShadingTileBuffer {
     uint tiles[];
 };
 
-uint shading_path(uint p_model) {
-    if (p_model == SHADING_MODEL_SKY) return SHADING_PATH_SKY;
-    if (p_model == SHADING_MODEL_UNLIT) return SHADING_PATH_UNLIT;
-    return SHADING_PATH_LIT;
-}
-
 uint shading_tile_type(uint p_paths) {
     if (p_paths == SHADING_PATH_SKY) return SHADING_TILE_SKY;
     if (p_paths == SHADING_PATH_LIT) return SHADING_TILE_LIT;
-    if (p_paths == SHADING_PATH_UNLIT) return SHADING_TILE_UNLIT;
     return SHADING_TILE_MIXED;
 }
 

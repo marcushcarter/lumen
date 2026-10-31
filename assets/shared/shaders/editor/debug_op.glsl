@@ -11,16 +11,10 @@ const uint OP_MATERIAL_ID = 6u;
 const uint OP_VELOCITY = 7u;
 const uint OP_CLAY = 8u;
 const uint OP_OVERDRAW = 9u;
-const uint OP_ALBEDO = 10u;
-const uint OP_WIREFRAME = 11u;
-const uint OP_WORLD_NORMAL = 12u;
-const uint OP_LOD_LEVEL = 13u;
-const uint OP_CLUSTER_ERROR = 14u;
-const uint OP_TRIANGLE_DENSITY = 15u;
-const uint OP_ROUGHNESS = 16u;
-const uint OP_METALLIC = 17u;
-const uint OP_MATERIAL_AO = 18u;
-const uint OP_SHADING_MODEL = 19u;
-const uint OP_EMISSIVE = 20u;
+const uint OP_WIREFRAME = 10u;
+const uint OP_WORLD_NORMAL = 11u;
+const uint OP_LOD_LEVEL = 12u;
+const uint OP_CLUSTER_ERROR = 13u;
+const uint OP_TRIANGLE_DENSITY = 14u;
 
 #endif

@@ -15,17 +15,11 @@ enum class DebugViewOp : uint32_t {
     VELOCITY,
     CLAY,
     OVERDRAW,
-    ALBEDO,
     WIREFRAME,
     WORLD_NORMAL,
     LOD_LEVEL,
     CLUSTER_ERROR,
     TRIANGLE_DENSITY,
-    ROUGHNESS,
-    METALLIC,
-    MATERIAL_AO,
-    SHADING_MODEL,
-    EMISSIVE,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -58,11 +52,9 @@ struct DebugView
 static constexpr DebugViewCategory DV_CAT_CLUSTERS = { ICON_FA_CUBES, "Cluster Visualization" };
 static constexpr DebugViewCategory DV_CAT_GEOMETRY = { ICON_FA_SHAPES, "Geometry Inspection" };
 static constexpr DebugViewCategory DV_CAT_BUFFERS = { ICON_FA_LAYER_GROUP, "Buffer Visualization" };
-static constexpr DebugViewCategory DV_CAT_GI = { ICON_FA_SUN, "Radiance GI" };
 
 static constexpr DebugView DEBUG_VIEWS[] = {
     { ICON_FA_EYE, "Lit", nullptr, "DisplayColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
-    { ICON_FA_CIRCLE_HALF_STROKE, "Unlit", nullptr, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { ICON_FA_DRAW_POLYGON, "Wireframe", nullptr, nullptr, DebugViewOp::WIREFRAME, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
 
     { nullptr, "Triangles", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF },
@@ -83,27 +75,9 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     // mip level
     // texel density
 
-    { nullptr, "Base Color", &DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::ALBEDO, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { nullptr, "World Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
-    { nullptr, "Roughness", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::ROUGHNESS, DebugViewInputs::SOURCE },
-    { nullptr, "Metallic", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::METALLIC, DebugViewInputs::SOURCE },
-    { nullptr, "Material AO", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::MATERIAL_AO, DebugViewInputs::SOURCE },
-    { nullptr, "Shading Model", &DV_CAT_BUFFERS, "G_Material", DebugViewOp::SHADING_MODEL, DebugViewInputs::SOURCE },
-    // ao
-    { nullptr, "Custom Data", &DV_CAT_BUFFERS, "G_Custom", DebugViewOp::COPY, DebugViewInputs::SOURCE },
-    { nullptr, "Emissive", &DV_CAT_BUFFERS, "G_Emissive", DebugViewOp::EMISSIVE, DebugViewInputs::SOURCE },
     { nullptr, "Velocity", &DV_CAT_BUFFERS, "G_Motion", DebugViewOp::VELOCITY, DebugViewInputs::SOURCE },
     { nullptr, "Scene Depth", &DV_CAT_BUFFERS, "G_Depth", DebugViewOp::DEPTH, DebugViewInputs::SOURCE },
-
-
-    // gibs scene
-    // surfels
-    // surfel coverage
-    // surface cache
-    // geometry normals
-    // reflection view
-    // ray hit distance
-    // trace cost
 };
 static constexpr int DEBUG_VIEW_COUNT = (int)(sizeof(DEBUG_VIEWS) / sizeof(DEBUG_VIEWS[0]));
 

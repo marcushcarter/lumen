@@ -54,9 +54,8 @@ static constexpr uint32_t SLOT_MATERIAL_MASK = (1u << SLOT_BIN_SHIFT) - 1u;
 static constexpr uint32_t SHADING_TILE_SIZE = 8u;
 static constexpr uint32_t SHADING_TILE_SKY = 0u;
 static constexpr uint32_t SHADING_TILE_LIT = 1u;
-static constexpr uint32_t SHADING_TILE_UNLIT = 2u;
-static constexpr uint32_t SHADING_TILE_MIXED = 3u;
-static constexpr uint32_t SHADING_TILE_TYPES = 4u;
+static constexpr uint32_t SHADING_TILE_MIXED = 2u;
+static constexpr uint32_t SHADING_TILE_TYPES = 3u;
 static constexpr uint32_t SHADING_TILES_HEADER_SIZE = SHADING_TILE_TYPES * 16u + 16u;
 static constexpr uint32_t SHADING_TILES_ARGS_STRIDE = 16u;
 
@@ -67,25 +66,13 @@ inline uint32_t shading_tile_count(uint32_t p_width, uint32_t p_height)
 
 struct GPUMaterial
 {
-    vec4 base_color;
-    vec3 emissive;
-    float alpha_cutoff;
-    vec4 custom;
     vec4 uv_transform;
-    float roughness;
-    float metallic;
-    float normal_scale;
-    float ao_strength;
     uint32_t base_color_tex;
-    uint32_t normal_tex;
-    uint32_t roughness_tex;
-    uint32_t metallic_tex;
-    uint32_t ao_tex;
-    uint32_t emissive_tex;
-    uint32_t custom_tex;
+    float base_alpha;
+    float alpha_cutoff;
     uint32_t flags;
 };
-static_assert(sizeof(GPUMaterial) == 112, "GPUMaterial layout changed");
+static_assert(sizeof(GPUMaterial) == 32, "GPUMaterial layout changed");
 
 static constexpr uint32_t LIGHT_IES_NONE = 0xFFFF;
 static constexpr uint32_t LIGHT_SHADOW_NONE = 0xFFFFFFFF;

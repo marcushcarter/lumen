@@ -1,37 +1,6 @@
 #ifndef GBUFFER_GLSL
 #define GBUFFER_GLSL
 
-#include "common/color.glsl"
-
-const uint SHADING_MODEL_SKY = 0u;
-const uint SHADING_MODEL_DEFAULT_LIT = 1u;
-const uint SHADING_MODEL_UNLIT = 2u;
-const uint SHADING_MODEL_FOLIAGE = 3u;
-const uint SHADING_MODEL_SKIN = 4u;
-const uint SHADING_MODEL_CLOTH = 5u;
-const uint SHADING_MODEL_HAIR = 6u;
-const uint SHADING_MODEL_EYE = 7u;
-
-vec4 gbuffer_encode_albedo(vec3 albedo, uint flags) {
-    return vec4(sqrt(clamp(albedo, 0.0, 1.0)), float(flags & 3u) / 3.0);
-}
-
-void gbuffer_decode_albedo(vec4 g, out vec3 albedo, out uint flags) {
-    albedo = g.rgb * g.rgb;
-    flags = uint(g.a * 3.0 + 0.5);
-}
-
-vec4 gbuffer_encode_material(float roughness, float metallic, float ao, uint shading_model) {
-    return vec4(roughness, metallic, ao, float(shading_model & 0xffu) / 255.0);
-}
-
-void gbuffer_decode_material(vec4 g, out float roughness, out float metallic, out float ao, out uint shading_model) {
-    roughness = g.r;
-    metallic = g.g;
-    ao = g.b;
-    shading_model = uint(g.a * 255.0 + 0.5);
-}
-
 vec2 _oct_wrap(vec2 v) {
     return (1.0 - abs(v.yx)) * vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0);
 }

@@ -34,29 +34,6 @@ struct ModelGridComponent
     float spacing = 0.0f;
 };
 
-enum class LightType : uint8_t { POINT = 1, SPOT = 2 };
-struct LightComponent
-{
-    static constexpr uint8_t FLAG_CAST_SHADOWS = 1 << 0;
-    static constexpr uint8_t FLAG_AFFECTS_GI = 1 << 1;
-
-    LightType type = LightType::POINT;
-    uint8_t flags = FLAG_CAST_SHADOWS | FLAG_AFFECTS_GI;
-    vec3 color = vec3(1.0f);
-    float intensity = 1.0f;
-    float range = 10.0f;
-    float source_radius = 0.0f;
-    float inner_cone_angle = 20.0f;
-    float outer_cone_angle = 30.0f;
-    float fade_start = 0.0f;
-    float fade_end = 0.0f;
-
-    float shadow_bias = 1.0f;
-    float shadow_normal_bias = 1.0f;
-};
-
-struct LightProfileComponent { Guid ies; };
-
 struct StaticTag {};
 struct EditorHiddenTag {};
 

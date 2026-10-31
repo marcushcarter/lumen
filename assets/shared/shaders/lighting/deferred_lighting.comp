@@ -6,7 +6,6 @@
 
 #include "common/camera.glsl"
 #include "common/gbuffer.glsl"
-#include "common/lights.glsl"
 #include "common/shading_tiles.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -16,15 +15,15 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
-    LightBuffer lights;
     ShadingTileBuffer tiles;
     vec3 sky_radiance;
     uint depth_index;
+    vec3 sun_direction;
     uint normal_index;
+    vec3 sun_illuminance;
     uint out_slot;
     uint width;
     uint height;
-    uint directional_count;
 } pc;
 
 const float PI = 3.14159265359;
@@ -48,11 +47,7 @@ void main() {
 
     vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
 
-    vec3 direct = vec3(0.0);
-    for (uint i = 0u; i < pc.directional_count; i++) {
-        GpuLight light = pc.lights.data[i];
-        direct += ALBEDO / PI * light.radiance * clamp(dot(n, -light.direction), 0.0, 1.0);
-    }
+    vec3 direct = ALBEDO / PI * pc.sun_illuminance * clamp(dot(n, -pc.sun_direction), 0.0, 1.0);
     vec3 ambient = ALBEDO * pc.sky_radiance;
 
     vec3 color = (direct + ambient) * pc.camera.pre_exposure;

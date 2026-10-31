@@ -67,7 +67,6 @@ void GpuProfilerPanel::_copy_report(EditorContext& ctx)
     str_appendf(out, "\n--- Scene ---\n");
     str_appendf(out, "Instances: %u (static %u), cluster ref capacity: %u\n", v.frame.instance_count, (uint32_t)v.frame.static_insts.instances.size(), v.frame.cluster_ref_capacity);
     str_appendf(out, "Meshes loaded: %zu, cluster pool extent: %u\n", r.geometry.mesh_guids.size() - r.geometry.free_meshes.size(), r.geometry.cluster_extent);
-    str_appendf(out, "Lights: %u directional, %u local\n", v.frame.directional_count, v.frame.light_count > MAX_DIRECTIONAL_LIGHTS ? v.frame.light_count - MAX_DIRECTIONAL_LIGHTS : 0u);
     if (ctx.render_path && ctx.profiling && ctx.profiling->gpu_on()) {
         const GeometryFeature::CullStats& s = ctx.render_path->geometry.stats;
         str_appendf(out, "Cull: refs %u, phase1 visible %u, retest %u, phase2 visible %u, instances visible %u / occluded %u / recovered %u\n", s.refs, s.phase1_visible, s.retest, s.phase2_visible, s.instances_visible, s.instances_occluded, s.instances_recovered);

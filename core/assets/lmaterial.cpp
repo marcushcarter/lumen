@@ -8,39 +8,12 @@
 
 namespace lumen {
 
-const char* shading_model_name(ShadingModel p_model)
-{
-    switch (p_model) {
-        case ShadingModel::SKY: return "Sky";
-        case ShadingModel::DEFAULT_LIT: return "Default Lit";
-        case ShadingModel::UNLIT: return "Unlit";
-        case ShadingModel::FOLIAGE: return "Foliage";
-        case ShadingModel::SKIN: return "Skin";
-        case ShadingModel::CLOTH: return "Cloth";
-        case ShadingModel::HAIR: return "Hair";
-        case ShadingModel::EYE: return "Eye";
-    }
-    return "default_lit";
-}
-
-ShadingModel shading_model_from_name(const std::string& p_name, ShadingModel p_fallback)
-{
-    if (p_name == "Sky") return ShadingModel::SKY;
-    if (p_name == "Default Lit") return ShadingModel::DEFAULT_LIT;
-    if (p_name == "Unlit") return ShadingModel::UNLIT;
-    if (p_name == "Foliage") return ShadingModel::FOLIAGE;
-    if (p_name == "Skin") return ShadingModel::SKIN;
-    if (p_name == "Cloth") return ShadingModel::CLOTH;
-    if (p_name == "Hair") return ShadingModel::HAIR;
-    if (p_name == "Eye") return ShadingModel::EYE;
-    return p_fallback;
-}
-
 const char* alpha_mode_name(AlphaMode p_mode)
 {
     switch (p_mode) {
         case AlphaMode::NONE: return "Opaque";
         case AlphaMode::MASKED: return "Masked";
+        case AlphaMode::BLEND: return "Transparent";
     }
     return "Opaque";
 }
@@ -49,6 +22,7 @@ AlphaMode alpha_mode_from_name(const std::string& p_name, AlphaMode p_fallback)
 {
     if (p_name == "Opaque") return AlphaMode::NONE;
     if (p_name == "Masked") return AlphaMode::MASKED;
+    if (p_name == "Transparent") return AlphaMode::BLEND;
     return p_fallback;
 }
 
@@ -73,24 +47,6 @@ static float _read_float(toml::node_view<const toml::node> p_node, float p_fallb
     return (float)p_node.value_or((double)p_fallback);
 }
 
-template <int N>
-static vec<N, float> _read_vec(toml::node_view<const toml::node> p_node, vec<N, float> p_fallback)
-{
-    const toml::array* arr = p_node.as_array();
-    if (!arr || arr->size() != (size_t)N) return p_fallback;
-    vec<N, float> v = p_fallback;
-    for (int i = 0; i < N; ++i) v[i] = (float)(*arr)[(size_t)i].value_or((double)p_fallback[i]);
-    return v;
-}
-
-template <int N>
-static toml::array _write_vec(vec<N, float> p_v)
-{
-    toml::array arr;
-    for (int i = 0; i < N; ++i) arr.push_back((double)p_v[i]);
-    return arr;
-}
-
 Error LMaterial::load(const std::filesystem::path& p_path)
 {
     using enum Error;
@@ -107,33 +63,11 @@ Error LMaterial::load(const std::filesystem::path& p_path)
     guid = _read_guid(asset["guid"]);
 
     auto m = t[asset_type_section(AssetType::MATERIAL)];
-    shading_model = shading_model_from_name(m["shading_model"].value_or(std::string{}), def.shading_model);
     alpha_mode = alpha_mode_from_name(m["alpha_mode"].value_or(std::string{}), def.alpha_mode);
     two_sided = m["two_sided"].value_or(def.two_sided);
     alpha_cutoff = _read_float(m["alpha_cutoff"], def.alpha_cutoff);
-
-    base_color = _read_vec<4>(m["base_color"], def.base_color);
-    base_color_texture = _read_texture(m["base_color_texture"]);
-
-    normal_texture = _read_texture(m["normal_texture"]);
-    normal_scale = _read_float(m["normal_scale"], def.normal_scale);
-
-    roughness = _read_float(m["roughness"], def.roughness);
-    roughness_texture = _read_texture(m["roughness_texture"]);
-    metallic = _read_float(m["metallic"], def.metallic);
-    metallic_texture = _read_texture(m["metallic_texture"]);
-    ao_strength = _read_float(m["ao_strength"], def.ao_strength);
-    ao_texture = _read_texture(m["ao_texture"]);
-
-    emissive_color = _read_vec<3>(m["emissive_color"], def.emissive_color);
-    emissive_nits = _read_float(m["emissive_nits"], def.emissive_nits);
-    emissive_texture = _read_texture(m["emissive_texture"]);
-
-    custom = _read_vec<4>(m["custom"], def.custom);
-    custom_texture = _read_texture(m["custom_texture"]);
-
-    uv_scale = _read_vec<2>(m["uv_scale"], def.uv_scale);
-    uv_offset = _read_vec<2>(m["uv_offset"], def.uv_offset);
+    mask_texture = _read_texture(m["mask_texture"]);
+    if (!mask_texture.valid() && alpha_mode == AlphaMode::MASKED) mask_texture = _read_texture(m["base_color_texture"]);
 
     if (const toml::table* rec = t["import"].as_table()) {
         import.source = (*rec)["source"].value_or(std::string{});
@@ -146,27 +80,10 @@ Error LMaterial::save(const std::filesystem::path& p_path) const
 {
     using enum Error;
     toml::table m {
-        { "shading_model", shading_model_name(shading_model) },
         { "alpha_mode", alpha_mode_name(alpha_mode) },
         { "alpha_cutoff", (double)alpha_cutoff },
         { "two_sided", two_sided },
-        { "base_color", _write_vec<4>(base_color) },
-        { "base_color_texture", _guid_text(base_color_texture) },
-        { "normal_texture", _guid_text(normal_texture) },
-        { "normal_scale", (double)normal_scale },
-        { "roughness", (double)roughness },
-        { "roughness_texture", _guid_text(roughness_texture) },
-        { "metallic", (double)metallic },
-        { "metallic_texture", _guid_text(metallic_texture) },
-        { "ao_strength", (double)ao_strength },
-        { "ao_texture", _guid_text(ao_texture) },
-        { "emissive_color", _write_vec<3>(emissive_color) },
-        { "emissive_nits", (double)emissive_nits },
-        { "emissive_texture", _guid_text(emissive_texture) },
-        { "custom", _write_vec<4>(custom) },
-        { "custom_texture", _guid_text(custom_texture) },
-        { "uv_scale", _write_vec<2>(uv_scale) },
-        { "uv_offset", _write_vec<2>(uv_offset) },
+        { "mask_texture", _guid_text(mask_texture) },
     };
     toml::table tbl {
         { "asset", toml::table{
@@ -194,31 +111,14 @@ Error LMaterial::load_cooked(const std::filesystem::path& p_path)
 
     Cooked c;
     std::memcpy(&c, payload.data(), sizeof(c));
-    if (c.shading_model > (uint8_t)ShadingModel::EYE || c.alpha_mode > (uint8_t)AlphaMode::MASKED) return FAILED;
+    if (c.alpha_mode > (uint8_t)AlphaMode::BLEND) return FAILED;
 
     *this = LMaterial{};
     guid = header.guid;
-    shading_model = (ShadingModel)c.shading_model;
     alpha_mode = (AlphaMode)c.alpha_mode;
     two_sided = c.two_sided != 0;
     alpha_cutoff = c.alpha_cutoff;
-    base_color = c.base_color;
-    base_color_texture = c.base_color_texture;
-    normal_texture = c.normal_texture;
-    normal_scale = c.normal_scale;
-    roughness = c.roughness;
-    roughness_texture = c.roughness_texture;
-    metallic = c.metallic;
-    metallic_texture = c.metallic_texture;
-    ao_strength = c.ao_strength;
-    ao_texture = c.ao_texture;
-    emissive_color = c.emissive_color;
-    emissive_nits = c.emissive_nits;
-    emissive_texture = c.emissive_texture;
-    custom = c.custom;
-    custom_texture = c.custom_texture;
-    uv_scale = c.uv_scale;
-    uv_offset = c.uv_offset;
+    mask_texture = c.mask_texture;
     return OK;
 }
 
@@ -226,25 +126,8 @@ Error LMaterial::save_cooked(const std::filesystem::path& p_path) const
 {
     using enum Error;
     Cooked c{};
-    c.base_color = base_color;
-    c.custom = custom;
-    c.emissive_color = emissive_color;
-    c.emissive_nits = emissive_nits;
-    c.uv_scale = uv_scale;
-    c.uv_offset = uv_offset;
-    c.base_color_texture = base_color_texture;
-    c.normal_texture = normal_texture;
-    c.roughness_texture = roughness_texture;
-    c.metallic_texture = metallic_texture;
-    c.ao_texture = ao_texture;
-    c.emissive_texture = emissive_texture;
-    c.custom_texture = custom_texture;
+    c.mask_texture = mask_texture;
     c.alpha_cutoff = alpha_cutoff;
-    c.normal_scale = normal_scale;
-    c.roughness = roughness;
-    c.metallic = metallic;
-    c.ao_strength = ao_strength;
-    c.shading_model = (uint8_t)shading_model;
     c.alpha_mode = (uint8_t)alpha_mode;
     c.two_sided = two_sided ? 1 : 0;
     return write_cooked_asset(p_path, AssetType::MATERIAL, guid, &c, sizeof(c)) ? OK : FAILED;

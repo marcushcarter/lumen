@@ -16,5 +16,6 @@ const uint OP_WORLD_NORMAL = 11u;
 const uint OP_LOD_LEVEL = 12u;
 const uint OP_CLUSTER_ERROR = 13u;
 const uint OP_TRIANGLE_DENSITY = 14u;
+const uint OP_UV_CHECKER = 15u;
 
 #endif

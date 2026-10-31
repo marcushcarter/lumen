@@ -179,6 +179,44 @@ float triangle_pixel_area(ivec2 size, uvec2 v, uvec2 ref) {
 
 const uint LOD_HEAT_MAX_LEVEL = 9u;
 
+const float UV_CHECKER_TILES = 8.0;
+
+uint material_id(uvec2 v, uvec2 ref) {
+    const Instance inst = pc.instances.data[ref.x];
+    const uint tri_index = pc.geometry.clusters.data[ref.y].index_base / 3u + v.y;
+    const uint slot = geometry_tri_slot(pc.geometry, tri_index, pc.geometry.local_triangles.data[tri_index]);
+    if (slot >= pc.geometry.meshes.data[inst.mesh_id].slot_count) return MATERIAL_DEFAULT;
+    return slot_material(geometry_slot_entry(pc.geometry, inst.slot_base, slot));
+}
+
+bool sample_uv(ivec2 coord, ivec2 size, uvec2 v, uvec2 ref, out vec2 r_uv) {
+    const Instance inst = pc.instances.data[ref.x];
+    const Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+    if (mesh.uv_extent.x <= 0.0 && mesh.uv_extent.y <= 0.0) return false;
+
+    const uint tri_index = pc.geometry.clusters.data[ref.y].index_base / 3u + v.y;
+    const uint lt = pc.geometry.local_triangles.data[tri_index];
+    const uint vbase = pc.geometry.cluster_vertex_base.data[ref.y];
+    const uvec4 q0 = pc.geometry.cluster_vertices.data[vbase + (lt & 0xFFu)];
+    const uvec4 q1 = pc.geometry.cluster_vertices.data[vbase + ((lt >> 8u) & 0xFFu)];
+    const uvec4 q2 = pc.geometry.cluster_vertices.data[vbase + ((lt >> 16u) & 0xFFu)];
+
+    const mat4 model = pc.transforms.data[inst.transform_id].curr_mtx;
+    const vec3 cam = pc.camera.position.xyz;
+    const vec3 p0 = (model * vec4(mesh.pos_min + vertex_position_unorm(q0.xy) * mesh.pos_extent, 1.0)).xyz - cam;
+    const vec3 p1 = (model * vec4(mesh.pos_min + vertex_position_unorm(q1.xy) * mesh.pos_extent, 1.0)).xyz - cam;
+    const vec3 p2 = (model * vec4(mesh.pos_min + vertex_position_unorm(q2.xy) * mesh.pos_extent, 1.0)).xyz - cam;
+
+    const vec2 ndc = (vec2(coord) + 0.5) / vec2(size) * 2.0 - 1.0;
+    const vec4 h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    vec3 b;
+    if (!ray_barycentrics(h.xyz / h.w - cam, p0, p1, p2, b)) return false;
+
+    const vec2 uv = vertex_uv_unorm(q0.zw) * b.x + vertex_uv_unorm(q1.zw) * b.y + vertex_uv_unorm(q2.zw) * b.z;
+    r_uv = mesh.uv_min + uv * mesh.uv_extent;
+    return true;
+}
+
 void main() {
     uvec2 px = gl_GlobalInvocationID.xy;
     ivec2 size  = ivec2(pc.width, pc.height);
@@ -217,7 +255,7 @@ void main() {
     } else if (pc.op == OP_MATERIAL_ID) {
         uvec2 v, ref;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) color = mix(hash_color(pc.instances.data[ref.x].mesh_id + 1u), vec3(1.0), sobel_depth_edge(coord, size));
+        if (sample_vis(coord, v, ref)) color = mix(hash_color(material_id(v, ref) + 1u), vec3(1.0), sobel_depth_edge(coord, size));
     } else if (pc.op == OP_LOD_LEVEL) {
         uvec2 v, ref;
         color = vec3(0);
@@ -251,13 +289,27 @@ void main() {
             float t = clamp((log2(area) - TRI_DENSITY_LOG2_MIN) / (TRI_DENSITY_LOG2_MAX - TRI_DENSITY_LOG2_MIN), 0.0, 1.0);
             color = color_map_heat(1.0 - t);
         }
+    } else if (pc.op == OP_UV_CHECKER) {
+        uvec2 v, ref;
+        color = vec3(0);
+        if (sample_vis(coord, v, ref)) {
+            vec2 uv;
+            if (sample_uv(coord, size, v, ref, uv)) {
+                const vec2 cell = floor(uv * UV_CHECKER_TILES);
+                const float check = mod(cell.x + cell.y, 2.0) == 0.0 ? 1.0 : 0.35;
+                color = srgb_to_linear(vec3(fract(uv), 0.25)) * check;
+            } else {
+                color = DEBUG_ERROR_COLOR;
+            }
+            color = mix(color, vec3(0.0), sobel_depth_edge(coord, size));
+        }
     } else if (pc.op == OP_OVERDRAW) {
         float n = floor(imageLoad(u_storage_rgba16f[nonuniformEXT(pc.out_slot)], coord).r + 0.5);
         float t = 0.0;
         if (n > 2.0) t = 0.28 + (1.0 - 0.28) * (1.0 - exp2(-(n - 2.0) * 0.25));
         else if (n > 0.0) t = mix(0.12, 0.28, (n - 1.0) / max(2.0 - 1.0, 1.0));
         color = n > 0.0 ? color_map_heat(t) : vec3(0.0);
-        color = mix(color, vec3(1.0), sobel_depth_edge(coord, size));
+        // color = mix(color, vec3(1.0), sobel_depth_edge(coord, size));
     } else if (pc.op == OP_DEPTH_NORMAL) {
         vec3 n = view_normal_from_depth(coord, size);
         n.y = -n.y;

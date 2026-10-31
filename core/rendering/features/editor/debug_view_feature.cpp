@@ -39,7 +39,6 @@ void DebugViewFeature::_overdraw_raster_setup(RenderGraph::Builder& b, uint32_t 
     const VkAttachmentLoadOp load = phase == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
     _create_viewport(b, nullptr);
     b.color_attachment("Viewport", load, VkClearValue{.color = {.float32 = {0.0f, 0.0f, 0.0f, 0.0f}}});
-    b.depth_attachment("G_Depth", load, VkClearValue{.depthStencil = {0.0f, 0}});
     b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
     b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
     b.read_buffer("Instances", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -211,7 +210,6 @@ Error DebugViewFeature::create_pipelines()
     viewport_copy_pipe = _compute_pipeline(L"SHADERS_EDITOR_VIEWPORT_COPY_COMP", "editor/viewport_copy.comp");
 
     {
-    ctx->graph->declare_image_format("G_Depth", VK_FORMAT_D32_SFLOAT);
     VkRenderPass rp = ctx->graph->acquire_render_pass(overdraw_raster_pass);
     EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_RASTER_VISBUFFER_COMPACT_VERT");
     EmbeddedResource::Blob fs_blob = EmbeddedResource::load(L"SHADERS_EDITOR_OVERDRAW_FRAG");
@@ -222,9 +220,8 @@ Error DebugViewFeature::create_pipelines()
     pipeline_ci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     pipeline_ci.cull_mode = VK_CULL_MODE_FRONT_BIT;
     pipeline_ci.front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    pipeline_ci.depth_test = true;
-    pipeline_ci.depth_write = true;
-    pipeline_ci.depth_compare = VK_COMPARE_OP_GREATER_OR_EQUAL;
+    pipeline_ci.depth_test = false;
+    pipeline_ci.depth_write = false;
     pipeline_ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::ADDITIVE };
     pipeline_ci.name = "editor/overdraw_raster";
     overdraw_compact_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);

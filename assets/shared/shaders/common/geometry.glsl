@@ -103,6 +103,21 @@ vec3 vertex_position_unorm(uvec2 p_p) { return vec3(unpackUnorm2x16(p_p.x), unpa
 vec2 vertex_normal_oct(uvec2 p_a) { return unpackSnorm2x16(p_a.x); }
 vec2 vertex_uv_unorm(uvec2 p_a) { return unpackUnorm2x16(p_a.y); }
 
+bool ray_barycentrics(vec3 p_dir, vec3 p_0, vec3 p_1, vec3 p_2, out vec3 r_bary) {
+    vec3 e1 = p_1 - p_0;
+    vec3 e2 = p_2 - p_0;
+    vec3 pv = cross(p_dir, e2);
+    float det = dot(e1, pv);
+    if (abs(det) < 1e-20) return false;
+    float inv_det = 1.0 / det;
+    vec3 tv = -p_0;
+    float u = dot(tv, pv) * inv_det;
+    vec3 qv = cross(tv, e1);
+    float v = dot(p_dir, qv) * inv_det;
+    r_bary = vec3(1.0 - u - v, u, v);
+    return true;
+}
+
 vec3 oct_decode(vec2 p_f) {
     vec3 n = vec3(p_f, 1.0 - abs(p_f.x) - abs(p_f.y));
     float t = clamp(-n.z, 0.0, 1.0);

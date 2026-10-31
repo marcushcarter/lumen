@@ -10,7 +10,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
-#include <glm/gtc/packing.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -29,13 +28,11 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
     r_view.instance_buffers.resize(frame_count);
     r_view.transform_buffers.resize(frame_count);
     r_view.camera_buffers.resize(frame_count);
-    r_view.light_buffers.resize(frame_count);
 
     for (uint32_t i = 0; i < frame_count; i++) {
         r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         r_view.camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
-        r_view.light_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_LIGHTS * sizeof(GpuLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "lights"});
     }
 
     return OK;
@@ -47,12 +44,10 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
         dd->buffer_free(r_view.instance_buffers[i]);
         dd->buffer_free(r_view.transform_buffers[i]);
         dd->buffer_free(r_view.camera_buffers[i]);
-        dd->buffer_free(r_view.light_buffers[i]);
     }
     r_view.instance_buffers.clear();
     r_view.transform_buffers.clear();
     r_view.camera_buffers.clear();
-    r_view.light_buffers.clear();
 }
 
 Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling)
@@ -341,44 +336,6 @@ template <typename Fn> static void _mesh_grid_for_each(const ModelGridComponent&
     }
 }
 
-static GpuLight _light_pack(const TransformComponent& p_xf, const LightComponent& p_light, uint32_t p_ies_index)
-{
-    const uint32_t ies = p_ies_index & 0xFFFFu;
-    GpuLight g{};
-    g.radiance = p_light.color * p_light.intensity;
-    g.type_flags_ies = ((uint32_t)p_light.type & 0xFu) | (((uint32_t)p_light.flags & 0xFu) << 4) | (ies << 8);
-    g.shadow_id = LIGHT_SHADOW_NONE;
-    switch (p_light.type) {
-        case LightType::SPOT: {
-            const float outer = std::clamp(p_light.outer_cone_angle, 0.1f, 89.9f);
-            const float inner = std::clamp(p_light.inner_cone_angle, 0.0f, outer);
-            g.direction = normalize(p_xf.rotation * vec3(0.0f, 0.0f, -1.0f));
-            g.cos_outer = std::cos(radians(outer));
-            g.inv_cone_range = 1.0f / std::max(std::cos(radians(inner)) - g.cos_outer, 1e-4f);
-        } [[fallthrough]];
-        case LightType::POINT:
-            g.position = p_xf.position;
-            g.range = std::max(p_light.range, 0.01f);
-            g.source_radius = std::clamp(p_light.source_radius, 0.0f, g.range);
-            g.fade = packHalf2x16(p_light.fade_end > p_light.fade_start ? vec2(p_light.fade_start, p_light.fade_end) : vec2(0.0f));
-            break;
-    }
-    return g;
-}
-
-static GpuLight _directional_pack(vec3 p_to_light, vec3 p_illuminance, float p_angular_radius)
-{
-    constexpr uint32_t DIRECTIONAL_TYPE = 0;
-    constexpr uint32_t FLAGS = LightComponent::FLAG_CAST_SHADOWS | LightComponent::FLAG_AFFECTS_GI;
-    GpuLight g{};
-    g.direction = -p_to_light;
-    g.radiance = p_illuminance;
-    g.source_radius = p_angular_radius;
-    g.type_flags_ies = DIRECTIONAL_TYPE | (FLAGS << 4) | (LIGHT_IES_NONE << 8);
-    g.shadow_id = LIGHT_SHADOW_NONE;
-    return g;
-}
-
 static float _halton(uint32_t p_index, uint32_t p_base)
 {
     float f = 1.0f;
@@ -498,24 +455,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
     frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, static_insts.cluster_ref_capacity);
 
-    StaticLights& static_lights = frame.static_lights;
-    if (static_lights.world_version != p_world.static_version) {
-        static_lights.lights.clear();
-        p_world.view<TransformComponent, LightComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const LightComponent& p_light, const StaticTag&) {
-            if (static_lights.lights.size() < MAX_LIGHTS - MAX_DIRECTIONAL_LIGHTS) static_lights.lights.push_back(_light_pack(p_xf, p_light, 0xFFFF));
-        });
-        static_lights.world_version = p_world.static_version;
-        static_lights.version++;
-    }
-
-    const uint32_t light_base = MAX_DIRECTIONAL_LIGHTS + static_lights.count();
-    p_world.view<TransformComponent, LightComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const LightComponent& p_light) {
-        if (light_base + frame.lights_scratch.size() < MAX_LIGHTS) {
-            frame.lights_scratch.push_back(_light_pack(p_xf, p_light, 0xFFFF));
-        }
-    });
-    frame.light_count = light_base + (uint32_t)frame.lights_scratch.size();
-
     // Camera.
     {
         const uint32_t out_w = r_view.output_width ? r_view.output_width : width;
@@ -554,9 +493,8 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     // Environment.
     {
         const EnvironmentSettings& env = p_world.environment;
-        frame.directional[0] = _directional_pack(normalize(-EnvironmentSettings::SUN_DIRECTION), vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX), EnvironmentSettings::SUN_ANGULAR_RADIUS);
-        frame.directional[1] = {};
-        frame.directional_count = 1;
+        frame.sun_direction = normalize(EnvironmentSettings::SUN_DIRECTION);
+        frame.sun_illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
         frame.sky_radiance = env.sky_color * env.sky_intensity;
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
@@ -592,30 +530,6 @@ void Renderer::_frame_upload(RenderView& r_view)
         dd->buffer_flush(ib, i_off, (VkDeviceSize)dynamic_count * sizeof(Instance));
         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)dynamic_count * sizeof(Transform), t_off);
         dd->buffer_flush(tb, t_off, (VkDeviceSize)dynamic_count * sizeof(Transform));
-    }
-
-    StaticLights& static_lights = frame.static_lights;
-    drivers::DeviceDriverVulkan::Buffer& lb = r_view.light_buffers[current_frame];
-    if (static_lights.uploaded_version.size() != frame_count) static_lights.uploaded_version.assign(frame_count, UINT64_MAX);
-
-    dd->buffer_update(lb, frame.directional, sizeof(frame.directional));
-    dd->buffer_flush(lb, 0, sizeof(frame.directional));
-
-    const uint32_t light_base = MAX_DIRECTIONAL_LIGHTS + static_lights.count();
-    if (static_lights.uploaded_version[current_frame] != static_lights.version) {
-        if (static_lights.count() != 0) {
-            const VkDeviceSize s_off = (VkDeviceSize)MAX_DIRECTIONAL_LIGHTS * sizeof(GpuLight);
-            dd->buffer_update(lb, static_lights.lights.data(), (VkDeviceSize)static_lights.count() * sizeof(GpuLight), s_off);
-            dd->buffer_flush(lb, s_off, (VkDeviceSize)static_lights.count() * sizeof(GpuLight));
-        }
-        static_lights.uploaded_version[current_frame] = static_lights.version;
-    }
-
-    const uint32_t dynamic_lights = frame.light_count - light_base;
-    if (dynamic_lights != 0) {
-        const VkDeviceSize l_off = (VkDeviceSize)light_base * sizeof(GpuLight);
-        dd->buffer_update(lb, frame.lights_scratch.data(), (VkDeviceSize)dynamic_lights * sizeof(GpuLight), l_off);
-        dd->buffer_flush(lb, l_off, (VkDeviceSize)dynamic_lights * sizeof(GpuLight));
     }
 
     drivers::DeviceDriverVulkan::Buffer& cb = r_view.camera_buffers[current_frame];
@@ -713,7 +627,6 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &r_view.instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &r_view.transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Lights", &r_view.light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
 }
 
 void Renderer::_view_reset(RenderView& r_view)
@@ -721,7 +634,6 @@ void Renderer::_view_reset(RenderView& r_view)
     r_view._last_world = nullptr;
     r_view.frame.entity_cache.clear();
     r_view.frame.static_insts.clear();
-    r_view.frame.static_lights.clear();
     r_view.hiz_reset_pending = true;
     r_view.camera_cut_pending = true;
 }

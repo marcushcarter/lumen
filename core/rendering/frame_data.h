@@ -34,23 +34,6 @@ struct StaticInstances
     }
 };
 
-struct StaticLights
-{
-    std::vector<GpuLight> lights;
-
-    uint64_t version = 0;
-    uint64_t world_version = UINT64_MAX;
-    std::vector<uint64_t> uploaded_version;
-
-    uint32_t count() { return (uint32_t)lights.size(); }
-
-    void clear() {
-        lights.clear();
-        world_version = UINT64_MAX;
-        version++;
-    }
-};
-
 struct FrameData
 {
     std::vector<Instance> instances_scratch;
@@ -58,10 +41,8 @@ struct FrameData
     uint32_t instance_count = 0;
     uint32_t cluster_ref_capacity = 0;
 
-    GpuLight directional[MAX_DIRECTIONAL_LIGHTS] = {};
-    std::vector<GpuLight> lights_scratch;
-    uint32_t directional_count = 0;
-    uint32_t light_count = MAX_DIRECTIONAL_LIGHTS;
+    vec3 sun_direction = vec3(0.0f, -1.0f, 0.0f);
+    vec3 sun_illuminance = vec3(0.0f);
 
     float px_per_unit = 1.0f;
     bool hiz_history_valid = false;
@@ -85,7 +66,6 @@ struct FrameData
     std::vector<EntityCache> entity_cache;
 
     StaticInstances static_insts;
-    StaticLights static_lights;
 
     void reset();
 };

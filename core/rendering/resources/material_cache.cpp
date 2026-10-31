@@ -107,9 +107,7 @@ GPUMaterial MaterialCache::_build(const LMaterial& p_material, const TextureCach
 {
     const LMaterial& m = p_material;
     GPUMaterial g{};
-    g.uv_transform = vec4(m.uv_scale, m.uv_offset);
-    g.base_color_tex = p_textures.bindless_of(m.base_color_texture);
-    g.base_alpha = m.base_color.a;
+    g.mask_tex = p_textures.bindless_of(m.mask_texture);
     g.alpha_cutoff = m.alpha_cutoff;
     g.flags = ((uint32_t)m.alpha_mode << MATERIAL_ALPHA_SHIFT) | (m.two_sided ? MATERIAL_FLAG_TWO_SIDED : 0u);
     return g;
@@ -117,7 +115,7 @@ GPUMaterial MaterialCache::_build(const LMaterial& p_material, const TextureCach
 
 uint8_t MaterialCache::_bin(const LMaterial& p_material)
 {
-    const bool masked = p_material.alpha_mode == AlphaMode::MASKED && (p_material.base_color_texture.valid() || p_material.base_color.a < p_material.alpha_cutoff);
+    const bool masked = p_material.alpha_mode == AlphaMode::MASKED && p_material.mask_texture.valid();
     return (uint8_t)((masked ? RASTER_BIN_MASKED : 0u) | (p_material.two_sided ? RASTER_BIN_TWO_SIDED : 0u));
 }
 
@@ -174,9 +172,7 @@ void MaterialCache::upload(uint32_t p_frame)
 GPUMaterial MaterialCache::default_material()
 {
     GPUMaterial g{};
-    g.uv_transform = vec4(1.0f, 1.0f, 0.0f, 0.0f);
-    g.base_color_tex = TEXTURE_NONE;
-    g.base_alpha = 1.0f;
+    g.mask_tex = TEXTURE_NONE;
     g.alpha_cutoff = 0.5f;
     g.flags = 0u;
     return g;

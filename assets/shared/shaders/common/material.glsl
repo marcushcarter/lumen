@@ -8,9 +8,7 @@ const uint TEXTURE_NONE = 0xFFFFFFFFu;
 const uint MATERIAL_DEFAULT = 0u;
 
 struct Material {
-    vec4 uv_transform;
-    uint base_color_tex;
-    float base_alpha;
+    uint mask_tex;
     float alpha_cutoff;
     uint flags;
 };

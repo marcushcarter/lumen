@@ -20,6 +20,7 @@ enum class DebugViewOp : uint32_t {
     LOD_LEVEL,
     CLUSTER_ERROR,
     TRIANGLE_DENSITY,
+    UV_CHECKER,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -60,7 +61,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     { nullptr, "Triangles", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF },
     { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
     { nullptr, "Instances", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::INSTANCES, DebugViewInputs::VISBUF },
-    { nullptr, "Material ID", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::MATERIAL_ID, DebugViewInputs::VISBUF },
+    { nullptr, "Material ID", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::MATERIAL_ID, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { nullptr, "LOD Level", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::LOD_LEVEL, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { nullptr, "Cluster Error", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTER_ERROR, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { nullptr, "Triangle Density", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLE_DENSITY, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
@@ -70,6 +71,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
 
     { nullptr, "Depth Normal", &DV_CAT_GEOMETRY, "G_Depth", DebugViewOp::DEPTH_NORMAL, DebugViewInputs::SOURCE },
     { nullptr, "Clay", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
+    { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     // random color
     // zebra
     // mip level

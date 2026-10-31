@@ -18,40 +18,38 @@ void LightingFeature::_create_lighting_pass()
         b.read_image("G_Normal", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
-        b.read_buffer("Lights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* depth = cl.graph->image("G_Depth");
         auto* normal = cl.graph->image("G_Normal");
         auto* camera = cl.graph->buffer("Camera");
-        auto* lights = cl.graph->buffer("Lights");
         auto* tiles = cl.graph->buffer("ShadingTiles");
         auto* out = cl.graph->image("SceneColor");
-        if (!depth || !normal || !camera || !lights || !tiles || !out) return;
+        if (!depth || !normal || !camera || !tiles || !out) return;
 
         struct Push {
             VkDeviceAddress camera_addr;
-            VkDeviceAddress lights_addr;
             VkDeviceAddress tiles_addr;
             vec3 sky_radiance;
             uint32_t depth_index;
+            vec3 sun_direction;
             uint32_t normal_index;
+            vec3 sun_illuminance;
             uint32_t out_slot;
             uint32_t width;
             uint32_t height;
-            uint32_t directional_count;
         } pc{};
         pc.camera_addr = camera->device_address;
-        pc.lights_addr = lights->device_address;
         pc.tiles_addr = tiles->device_address;
         pc.sky_radiance = ctx->frame->sky_radiance;
+        pc.sun_direction = ctx->frame->sun_direction;
+        pc.sun_illuminance = ctx->frame->sun_illuminance;
         pc.depth_index = depth->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
-        pc.directional_count = ctx->frame->directional_count;
 
         static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
         static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (mixed)" };

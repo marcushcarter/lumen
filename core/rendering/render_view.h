@@ -34,7 +34,6 @@ struct RenderView
     std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> camera_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> light_buffers;
-    std::vector<drivers::DeviceDriverVulkan::Buffer> atmosphere_buffers;
 
     drivers::DeviceDriverVulkan::Image hiz_pyramid;
     std::vector<std::pair<uint64_t, drivers::DeviceDriverVulkan::Image>> hiz_retired;

@@ -71,10 +71,7 @@ struct FrameData
     float texture_grad_scale = 1.0f;
 
     CameraUniform camera{};
-
-    GpuAtmosphere atmosphere{};
-    vec4 atmosphere_lut_key[2] = { vec4(-1.0f), vec4(-1.0f) };
-    uint64_t atmosphere_lut_version = 0;
+    vec3 sky_radiance = vec3(0.0f);
 
     struct EntityCache {
         mat4 prev_mtx;

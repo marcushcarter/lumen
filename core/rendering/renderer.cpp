@@ -30,14 +30,12 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
     r_view.transform_buffers.resize(frame_count);
     r_view.camera_buffers.resize(frame_count);
     r_view.light_buffers.resize(frame_count);
-    r_view.atmosphere_buffers.resize(frame_count);
 
     for (uint32_t i = 0; i < frame_count; i++) {
         r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         r_view.camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
         r_view.light_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_LIGHTS * sizeof(GpuLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "lights"});
-        r_view.atmosphere_buffers[i] = dd->buffer_create({.size = sizeof(GpuAtmosphere),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "atmosphere"});
     }
 
     return OK;
@@ -50,13 +48,11 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
         dd->buffer_free(r_view.transform_buffers[i]);
         dd->buffer_free(r_view.camera_buffers[i]);
         dd->buffer_free(r_view.light_buffers[i]);
-        dd->buffer_free(r_view.atmosphere_buffers[i]);
     }
     r_view.instance_buffers.clear();
     r_view.transform_buffers.clear();
     r_view.camera_buffers.clear();
     r_view.light_buffers.clear();
-    r_view.atmosphere_buffers.clear();
 }
 
 Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling)
@@ -383,32 +379,6 @@ static GpuLight _directional_pack(vec3 p_to_light, vec3 p_illuminance, float p_a
     return g;
 }
 
-static float _cycle_ev100(float p_sun_altitude_deg)
-{
-    static constexpr float KEYS[][2] = { {-90.0f, 1.0f}, {-18.0f, 1.0f}, {-12.0f, 2.0f}, {-9.0f, 3.6f}, {-6.0f, 6.3f}, {-3.0f, 9.3f}, {0.0f, 11.8f}, {2.0f, 12.3f}, {8.0f, 13.3f}, {20.0f, 14.1f}, {90.0f, 14.8f}};
-    constexpr int COUNT = (int)(sizeof(KEYS) / sizeof(KEYS[0]));
-    const float e = std::clamp(p_sun_altitude_deg, -90.0f, 90.0f);
-
-    auto slope = [](int p_k) { return (KEYS[p_k + 1][1] - KEYS[p_k][1]) / (KEYS[p_k + 1][0] - KEYS[p_k][0]); };
-    auto tangent = [&](int p_k) {
-        if (p_k == 0) return slope(0);
-        if (p_k == COUNT - 1) return slope(COUNT - 2);
-        const float d0 = slope(p_k - 1);
-        const float d1 = slope(p_k);
-        if (d0 * d1 <= 0.0f) return 0.0f;
-        const float h0 = KEYS[p_k][0] - KEYS[p_k - 1][0];
-        const float h1 = KEYS[p_k + 1][0] - KEYS[p_k][0];
-        return 3.0f * (h0 + h1) / ((2.0f * h1 + h0) / d0 + (h1 + 2.0f * h0) / d1);
-    };
-    int i = 0;
-    while (i < COUNT - 2 && e > KEYS[i + 1][0]) i++;
-    const float h = KEYS[i + 1][0] - KEYS[i][0];
-    const float t = (e - KEYS[i][0]) / h;
-    const float t2 = t * t;
-    const float t3 = t2 * t;
-    return (2.0f * t3 - 3.0f * t2 + 1.0f) * KEYS[i][1] + (t3 - 2.0f * t2 + t) * h * tangent(i) + (-2.0f * t3 + 3.0f * t2) * KEYS[i + 1][1] + (t3 - t2) * h * tangent(i + 1);
-}
-
 static float _halton(uint32_t p_index, uint32_t p_base)
 {
     float f = 1.0f;
@@ -583,104 +553,12 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 
     // Environment.
     {
-        using A = AtmosphereSettings;
-        using C = CelestialSettings;
         const EnvironmentSettings& env = p_world.environment;
-        const AtmosphereSettings& atmo = env.atmosphere;
-        const CelestialSettings& cel = env.celestial;
-        GpuAtmosphere& g = frame.atmosphere;
-
-        const vec4 lut_key[2] = { vec4(atmo.mie_turbidity, atmo.mie_height_km, atmo.mie_albedo, atmo.mie_angstrom), vec4(atmo.strat_aerosol_depth, atmo.strat_aerosol_height_km, 0.0f, 0.0f) };
-        if (lut_key[0] != frame.atmosphere_lut_key[0] || lut_key[1] != frame.atmosphere_lut_key[1]) {
-            frame.atmosphere_lut_key[0] = lut_key[0];
-            frame.atmosphere_lut_key[1] = lut_key[1];
-            frame.atmosphere_lut_version++;
-        }
-
-        const vec3 angstrom = pow(vec3(680.0f, 550.0f, 440.0f) / 550.0f, vec3(-atmo.mie_angstrom));
-        const vec3 mie_scattering = A::MIE_BASE_SCATTERING * atmo.mie_turbidity * angstrom;
-        g.rayleigh_scattering = A::RAYLEIGH_SCATTERING;
-        g.rayleigh_density_scale = -1.0f / A::RAYLEIGH_HEIGHT_KM;
-        g.mie_scattering = mie_scattering;
-        g.mie_density_scale = -1.0f / max(atmo.mie_height_km, 0.01f);
-        g.mie_extinction = mie_scattering / max(atmo.mie_albedo, 0.01f);
-        g.mie_g = atmo.mie_g;
-        g.ozone_absorption = A::OZONE_ABSORPTION;
-        g.ozone_center_km = A::OZONE_CENTER_KM;
-        g.ground_albedo = A::GROUND_ALBEDO;
-        g.ozone_width_km = A::OZONE_WIDTH_KM;
-        const vec3 strat_angstrom = pow(vec3(680.0f, 550.0f, 440.0f) / 550.0f, vec3(-A::STRAT_AEROSOL_ANGSTROM));
-        g.strat_scattering = strat_angstrom * (atmo.strat_aerosol_depth / (0.5f * A::STRAT_AEROSOL_WIDTH_KM));
-        g.strat_center_km = atmo.strat_aerosol_height_km;
-        g.strat_width_km = A::STRAT_AEROSOL_WIDTH_KM;
-        g.strat_g = A::STRAT_AEROSOL_G;
-        g.bottom_radius_km = A::PLANET_RADIUS_KM;
-        g.top_radius_km = A::PLANET_RADIUS_KM + A::ATMOSPHERE_HEIGHT_KM;
-
-        const double PI_D = 3.14159265358979323846;
-        const double DEG = PI_D / 180.0;
-        const double lat = C::LATITUDE_DEG * DEG;
-        const double rotation = ((double)cel.time_of_day - 12.0) * 15.0 * DEG;
-        const double ch = std::cos(rotation), sh = std::sin(rotation);
-        const double cp = std::cos(lat), sp = std::sin(lat);
-        const dmat3 hour(ch, -sh, 0.0, sh, ch, 0.0, 0.0, 0.0, 1.0);
-        const dmat3 local(0.0, cp, sp, 1.0, 0.0, 0.0, 0.0, sp, -cp);
-        const dmat3 eq_to_world = local * hour;
-        auto radec = [](double p_ra, double p_dec) { return dvec3(std::cos(p_dec) * std::cos(p_ra), std::cos(p_dec) * std::sin(p_ra), std::sin(p_dec)); };
-        const dvec3 sun = normalize(eq_to_world * radec(0.0, C::SUN_DECLINATION_DEG * DEG));
-        const dvec3 moon = normalize(eq_to_world * radec(PI_D, (-C::SUN_DECLINATION_DEG + C::MOON_OFFSET_DEG) * DEG));
-        const dvec3 pole = eq_to_world * dvec3(0.0, 0.0, 1.0);
-        const double phase_angle = PI_D - std::acos(clamp(dot(sun, moon), -1.0, 1.0));
-        const double phase_deg = phase_angle / DEG;
-        const double moon_mag = -12.73 + 0.026 * phase_deg + 4e-9 * std::pow(phase_deg, 4.0);
-        const float moon_lux = (float)(2.54e-6 * std::pow(10.0, -0.4 * moon_mag));
-
-        g.world_to_celestial = mat4(transpose(mat3(eq_to_world)));
-        g.sun_direction = vec3(sun);
-        g.sun_cos_angular_radius = std::cos(C::SUN_ANGULAR_RADIUS);
-        g.sun_illuminance = vec3(C::SUN_ILLUMINANCE_LUX);
-        g.moon_direction = vec3(moon);
-        g.moon_cos_angular_radius = std::cos(C::MOON_ANGULAR_RADIUS);
-        g.moon_illuminance = vec3(moon_lux);
-        g.moon_up = normalize(vec3(pole - moon * dot(pole, moon)));
-        g.moon_phase_angle = (float)phase_angle;
-
-        const vec3 cam_km = vec3(frame.camera.position) * 0.001f;
-        const float altitude = max(cam_km.y + atmo.sea_level_offset_km, 0.001f);
-        g.observer_km = vec3(cam_km.x, A::PLANET_RADIUS_KM + altitude, cam_km.z);
-        g.altitude_km = altitude;
-        g.night_luminance = A::NIGHT_LUMINANCE;
-        g.star_brightness = cel.star_brightness;
-        g.star_density = cel.star_density;
-        g.moon_disk_brightness = C::MOON_DISK_BRIGHTNESS;
-        g.sun_angular_radius = C::SUN_ANGULAR_RADIUS;
-        g.moon_angular_radius = C::MOON_ANGULAR_RADIUS;
-        {
-            const double r = (double)A::PLANET_RADIUS_KM + altitude;
-            const double rg = A::PLANET_RADIUS_KM;
-            const double v_horizon = std::sqrt(std::max(r * r - rg * rg, 0.0));
-            const double beta = std::acos(clamp(v_horizon / r, -1.0, 1.0));
-            g.skyview_beta = (float)beta;
-            g.skyview_zenith_horizon = (float)(PI_D - beta);
-            g.horizon_mu = (float)-std::sqrt(std::max(1.0 - (rg / r) * (rg / r), 0.0));
-        }
-
-        g.sky_mode = (uint32_t)env.sky_mode;
-        g.background_radiance = env.sky_mode == SkyMode::SOLID_COLOR ? env.background_color * env.background_intensity : vec3(0.0f);
-
-        if (env.sky_mode == SkyMode::ATMOSPHERE) {
-            frame.directional[0] = _directional_pack(g.sun_direction, g.sun_illuminance, C::SUN_ANGULAR_RADIUS);
-            frame.directional[1] = _directional_pack(g.moon_direction, g.moon_illuminance, C::MOON_ANGULAR_RADIUS);
-            frame.directional_count = MAX_DIRECTIONAL_LIGHTS;
-
-            const float sun_altitude_deg = (float)(std::asin(clamp(sun.y, -1.0, 1.0)) / DEG);
-            frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(_cycle_ev100(sun_altitude_deg)));
-        } else {
-            frame.directional[0] = {};
-            frame.directional[1] = {};
-            frame.directional_count = 0;
-            frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
-        }
+        frame.directional[0] = _directional_pack(normalize(-EnvironmentSettings::SUN_DIRECTION), vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX), EnvironmentSettings::SUN_ANGULAR_RADIUS);
+        frame.directional[1] = {};
+        frame.directional_count = 1;
+        frame.sky_radiance = env.sky_color * env.sky_intensity;
+        frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
 
     r_view.camera_cut_pending = false;
@@ -743,10 +621,6 @@ void Renderer::_frame_upload(RenderView& r_view)
     drivers::DeviceDriverVulkan::Buffer& cb = r_view.camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));
     dd->buffer_flush(cb, 0, sizeof(CameraUniform));
-
-    drivers::DeviceDriverVulkan::Buffer& ab = r_view.atmosphere_buffers[current_frame];
-    dd->buffer_update(ab, &frame.atmosphere, sizeof(GpuAtmosphere));
-    dd->buffer_flush(ab, 0, sizeof(GpuAtmosphere));
 }
 
 Error Renderer::acquire_frame()
@@ -836,7 +710,6 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
     graph.import_image("HiZ", &r_view.hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true, true);
 
     graph.import_buffer("Camera", &r_view.camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
-    graph.import_buffer("Atmosphere", &r_view.atmosphere_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &r_view.instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &r_view.transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);

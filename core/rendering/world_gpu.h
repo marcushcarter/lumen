@@ -10,13 +10,6 @@ static constexpr uint32_t MAX_INSTANCES = 64u * 1024;
 static constexpr uint32_t MAX_CLUSTER_REFS = (1u << 22) - 1;
 static constexpr uint32_t MAX_LIGHTS = 16u * 1024;
 static constexpr uint32_t MAX_DIRECTIONAL_LIGHTS = 2;
-static constexpr uint32_t MAX_VISIBLE_LIGHTS = 4096;
-static constexpr uint32_t LIGHT_ZBIN_COUNT = 1024;
-static constexpr uint32_t LIGHT_TILE_SIZE = 8;
-static constexpr uint32_t LIGHT_TILE_MIN_LIGHTS = 32;
-static constexpr uint32_t LIGHT_TILE_WORDS = MAX_VISIBLE_LIGHTS / 32;
-static constexpr uint64_t LIGHT_CULL_ZBINS_OFFSET = 16 + 2 * LIGHT_ZBIN_COUNT * sizeof(uint32_t);
-static constexpr uint64_t LIGHT_CULL_DATA_SIZE = LIGHT_CULL_ZBINS_OFFSET + LIGHT_ZBIN_COUNT * 2 * sizeof(uint32_t);
 
 struct CameraUniform
 {
@@ -109,48 +102,6 @@ struct GpuLight
     float inv_cone_range;
     uint32_t shadow_id;
     uint32_t fade;
-};
-
-struct GpuAtmosphere
-{
-    mat4 world_to_celestial;
-    vec3 rayleigh_scattering;
-    float rayleigh_density_scale;
-    vec3 mie_scattering;
-    float mie_density_scale;
-    vec3 mie_extinction;
-    float mie_g;
-    vec3 ozone_absorption;
-    float ozone_center_km;
-    vec3 ground_albedo;
-    float ozone_width_km;
-    vec3 sun_direction;
-    float sun_cos_angular_radius;
-    vec3 sun_illuminance;
-    float bottom_radius_km;
-    vec3 moon_direction;
-    float moon_cos_angular_radius;
-    vec3 moon_illuminance;
-    float top_radius_km;
-    vec3 moon_up;
-    float moon_phase_angle;
-    vec3 observer_km;
-    float altitude_km;
-    float night_luminance;
-    float star_brightness;
-    float star_density;
-    float moon_disk_brightness;
-    vec3 strat_scattering;
-    float strat_center_km;
-    float strat_width_km;
-    float strat_g;
-    float sun_angular_radius;
-    float moon_angular_radius;
-    float skyview_zenith_horizon;
-    float skyview_beta;
-    float horizon_mu;
-    vec3 background_radiance;
-    uint32_t sky_mode;
 };
 
 struct IndirectDispatch { uint32_t x, y, z; };

@@ -33,7 +33,6 @@ struct ThumbnailCache
     static constexpr float CAMERA_YAW_DEG = 35.0f;
     static constexpr float CAMERA_PITCH_DEG = 20.0f;
     static constexpr float FRAME_MARGIN = 1.05f;
-    static constexpr float TIME_OF_DAY = 12.0f;
 
     enum class JobState : uint8_t { NONE, PREPARED, RENDERING };
     enum class Readiness : uint8_t { READY, WAIT, FAIL };

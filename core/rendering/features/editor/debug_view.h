@@ -25,8 +25,6 @@ enum class DebugViewOp : uint32_t {
     METALLIC,
     MATERIAL_AO,
     SHADING_MODEL,
-    LIGHT_COMPLEXITY,
-    LIGHT_CULL_COST,
     EMISSIVE,
 };
 
@@ -36,7 +34,6 @@ enum class DebugViewInputs : uint32_t {
     VISBUF = 1u << 1,
     DEPTH = 1u << 2,
     GEOMETRY = 1u << 3,
-    LIGHTS = 1u << 4,
 };
 
 constexpr DebugViewInputs operator|(DebugViewInputs a, DebugViewInputs b) { return (DebugViewInputs)((uint32_t)a | (uint32_t)b); }
@@ -61,7 +58,6 @@ struct DebugView
 static constexpr DebugViewCategory DV_CAT_CLUSTERS = { ICON_FA_CUBES, "Cluster Visualization" };
 static constexpr DebugViewCategory DV_CAT_GEOMETRY = { ICON_FA_SHAPES, "Geometry Inspection" };
 static constexpr DebugViewCategory DV_CAT_BUFFERS = { ICON_FA_LAYER_GROUP, "Buffer Visualization" };
-static constexpr DebugViewCategory DV_CAT_LIGHTING = { ICON_FA_LIGHTBULB, "Lighting" };
 static constexpr DebugViewCategory DV_CAT_GI = { ICON_FA_SUN, "Radiance GI" };
 
 static constexpr DebugView DEBUG_VIEWS[] = {
@@ -99,12 +95,6 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     { nullptr, "Velocity", &DV_CAT_BUFFERS, "G_Motion", DebugViewOp::VELOCITY, DebugViewInputs::SOURCE },
     { nullptr, "Scene Depth", &DV_CAT_BUFFERS, "G_Depth", DebugViewOp::DEPTH, DebugViewInputs::SOURCE },
 
-    // lighting only
-    // direct only
-    // indirect only
-    { nullptr, "Light Complexity", &DV_CAT_LIGHTING, nullptr, DebugViewOp::LIGHT_COMPLEXITY, DebugViewInputs::DEPTH | DebugViewInputs::LIGHTS },
-    { nullptr, "Light Cull Cost", &DV_CAT_LIGHTING, nullptr, DebugViewOp::LIGHT_CULL_COST, DebugViewInputs::DEPTH | DebugViewInputs::LIGHTS },
-    // shadow cascades
 
     // gibs scene
     // surfels

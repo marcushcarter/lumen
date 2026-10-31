@@ -10,8 +10,6 @@ namespace lumen {
 
 struct AssetTab : EditorTab
 {
-    static constexpr float PREVIEW_TIME_OF_DAY = 12.0f;
-
     std::filesystem::path path;
     EditorLayout layout;
     OrbitCamera orbit;

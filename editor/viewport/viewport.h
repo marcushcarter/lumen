@@ -13,16 +13,7 @@ struct DebugViewCategory;
 
 struct Viewport
 {
-    struct TimePreset { const char* icon; const char* name; float time; };
-
     static constexpr float LOOK_CLICK_SLOP = 3.0f;
-    static constexpr TimePreset TIME_PRESETS[] = {
-        { ICON_FA_SUN, "Noon", 12.0f },
-        { ICON_FA_SUN, "Golden Hour", 18.25f },
-        { ICON_FA_MOON, "Midnight", 0.0f },
-        { ICON_FA_SUN, "Sunrise", 5.1f },
-        { ICON_FA_SUN, "Sunset", 18.9f },
-    };
 
     OverlayBar left_overlay;
     OverlayBar right_overlay;
@@ -43,7 +34,6 @@ struct Viewport
     bool allow_grid = true;
     bool allow_asset_drop = true;
     bool show_grid = true;
-    float* time_of_day = nullptr;
     bool fullscreen = false;
 
     bool looking = false;

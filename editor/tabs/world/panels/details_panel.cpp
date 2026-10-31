@@ -33,47 +33,15 @@ static void _accent_underline()
 void DetailsPanel::_draw_environment(EditorContext& ctx)
 {
     EnvironmentSettings& env = ctx.world->environment;
-    AtmosphereSettings& atmosphere = env.atmosphere;
-    CelestialSettings& celestial = env.celestial;
     ImGui::TextDisabled("Environment");
     ImGui::Spacing();
     ui_field_push_style();
     if (ui_category("Sky")) {
-        static const char* SKY_MODES[] = { "None", "Solid Color", "Atmosphere" };
-        int mode = (int)env.sky_mode;
-        if (ImGui::Combo("Mode", &mode, SKY_MODES, IM_ARRAYSIZE(SKY_MODES))) env.sky_mode = (SkyMode)mode;
-        if (env.sky_mode == SkyMode::SOLID_COLOR) {
-            ImGui::ColorEdit3("Color", &env.background_color.x);
-            ImGui::DragFloat("Intensity", &env.background_intensity, 1.0f, 0.0f, 100000.0f, "%.1f nits", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
-        }
-        if (env.sky_mode != SkyMode::ATMOSPHERE) {
-            ImGui::DragFloat("Exposure", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp);
-        }
+        ImGui::ColorEdit3("Color", &env.sky_color.x);
+        ImGui::DragFloat("Intensity", &env.sky_intensity, 1.0f, 0.0f, 100000.0f, "%.1f nits", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
     }
-    if (env.sky_mode != SkyMode::ATMOSPHERE) {
-        ui_field_pop_style();
-        return;
-    }
-    if (ui_category("Time")) {
-        ImGui::SliderFloat("Time of Day", &celestial.time_of_day, 0.0f, 24.0f, "%.2f h", ImGuiSliderFlags_AlwaysClamp);
-    }
-    if (ui_category("Aerosols")) {
-        ImGui::DragFloat("Turbidity", &atmosphere.mie_turbidity, 0.01f, 0.0f, 50.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Height", &atmosphere.mie_height_km, 0.01f, 0.1f, 10.0f, "%.2f km", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Anisotropy (g)", &atmosphere.mie_g, 0.0f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Albedo", &atmosphere.mie_albedo, 0.5f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Angstrom Exponent", &atmosphere.mie_angstrom, 0.0f, 2.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-    }
-    if (ui_category("Stratospheric Aerosols")) {
-        ImGui::SliderFloat("Optical Depth", &atmosphere.strat_aerosol_depth, 0.0f, 0.2f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Layer Height", &atmosphere.strat_aerosol_height_km, 12.0f, 30.0f, "%.1f km", ImGuiSliderFlags_AlwaysClamp);
-    }
-    if (ui_category("Stars")) {
-        ImGui::DragFloat("Brightness", &celestial.star_brightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::SliderFloat("Density", &celestial.star_density, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-    }
-    if (ui_category("World")) {
-        ImGui::DragFloat("Sea Level Offset", &atmosphere.sea_level_offset_km, 0.01f, -1.0f, 9.0f, "%.3f km", ImGuiSliderFlags_AlwaysClamp);
+    if (ui_category("Exposure")) {
+        ImGui::DragFloat("EV100", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
     ui_field_pop_style();
 }

@@ -129,12 +129,6 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
 
-        if ((d.inputs & DebugViewInputs::LIGHTS) && b.graph->buffer_resource("LightCullData")) {
-            b.read_buffer("LightCullData", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-            if (b.graph->buffer_resource("LightTileMasks")) b.read_buffer("LightTileMasks", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-            b.read_buffer("SortedLights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        }
-
         VkAccessFlags2 vp_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
         if (overdraw_active) vp_access |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
         b.write_image("Viewport", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, vp_access);
@@ -151,16 +145,12 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             VkDeviceAddress instances_addr;
             VkDeviceAddress geometry_addr;
             VkDeviceAddress transforms_addr;
-            VkDeviceAddress light_cull_addr;
-            VkDeviceAddress light_masks_addr;
-            VkDeviceAddress light_sorted_addr;
             uint32_t vis_index;
             uint32_t depth_index;
             uint32_t src_index;
             uint32_t out_slot;
             uint32_t op, width, height;
             float px_per_unit;
-            uint32_t has_local_lights;
         } pc{};
         pc.out_slot = out->bindless_storage;
         pc.op = (uint32_t)d.op;
@@ -186,18 +176,6 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             if (auto* r = cl.graph->buffer("Geometry")) pc.geometry_addr = r->device_address; else pc.op = INVALID_OP;
             if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else pc.op = INVALID_OP;
         }
-        if (d.inputs & DebugViewInputs::LIGHTS) {
-            auto* cull = cl.graph->buffer("LightCullData");
-            auto* masks = cl.graph->buffer("LightTileMasks");
-            auto* sorted = cl.graph->buffer("SortedLights");
-            pc.has_local_lights = cull && sorted ? 1u : 0u;
-            if (pc.has_local_lights) {
-                pc.light_cull_addr = cull->device_address;
-                pc.light_masks_addr = masks ? masks->device_address : 0;
-                pc.light_sorted_addr = sorted->device_address;
-            }
-        }
-
         uint32_t gx = (out->extent.width + 7) / 8;
         uint32_t gy = (out->extent.height + 7) / 8;
 

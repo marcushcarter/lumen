@@ -3,8 +3,6 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
-#extension GL_KHR_shader_subgroup_basic : require
-#extension GL_KHR_shader_subgroup_arithmetic : require
 
 #include "common/camera.glsl"
 #include "common/gbuffer.glsl"
@@ -15,116 +13,25 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
-layout(set = 0, binding = 2) uniform sampler u_samplers[];
-
-#include "common/atmosphere.glsl"
-#include "common/sky.glsl"
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
     LightBuffer lights;
-    LightCullData cull;
-    SortedLightBuffer sorted;
-    LightTileMaskBuffer masks;
-    AtmosphereBuffer atmosphere;
-    SkyLightingBuffer sky_lighting;
     ShadingTileBuffer tiles;
+    vec3 sky_radiance;
     uint depth_index;
-    uint albedo_index;
     uint normal_index;
-    uint material_index;
-    uint emissive_index;
     uint out_slot;
     uint width;
     uint height;
     uint directional_count;
-    uint transmittance_index;
-    uint aerial_index;
-    uint sampler_index;
-    uint skyview_index;
-    float sun_reject_cos;
-    float moon_reject_cos;
 } pc;
 
 const float PI = 3.14159265359;
-const uint LIGHTING_FLAG_LOCAL_LIGHTS = 1u << 16;
 const float HDR_MAX = 60000.0;
+const vec3 ALBEDO = vec3(1.0);
 
-uint directional_count() { return pc.directional_count & 0xFFFFu; }
-bool has_local_lights() { return (pc.directional_count & LIGHTING_FLAG_LOCAL_LIGHTS) != 0u; }
-
-layout(constant_id = 0) const uint LIGHT_MODE = 2u;
-layout(constant_id = 1) const uint TILE_TYPE = SHADING_TILE_MIXED;
-
-vec4 aerial_sample(vec2 p_uv, float p_dist_km) {
-    float s = sqrt(clamp(p_dist_km / AERIAL_MAX_KM, 0.0, 1.0)) * float(AERIAL_SLICES) - 0.5;
-    float s0 = floor(s);
-    float f = s - s0;
-    vec2 cuv = clamp(p_uv, vec2(0.5 / float(AERIAL_SIZE)), vec2(1.0 - 0.5 / float(AERIAL_SIZE)));
-    vec4 a = s0 < 0.0 ? vec4(0.0, 0.0, 0.0, 1.0) : atmo_lut(pc.aerial_index, vec2((s0 + cuv.x) / float(AERIAL_SLICES), cuv.y));
-    vec4 b = atmo_lut(pc.aerial_index, vec2((min(s0 + 1.0, float(AERIAL_SLICES) - 1.0) + cuv.x) / float(AERIAL_SLICES), cuv.y));
-    return mix(a, b, f);
-}
-
-float d_ggx(float p_n_h, float p_a2) {
-    float d = p_n_h * p_n_h * (p_a2 - 1.0) + 1.0;
-    return p_a2 / (PI * d * d);
-}
-
-float v_smith_ggx_correlated(float p_n_v, float p_n_l, float p_a2) {
-    float gv = p_n_l * sqrt(p_n_v * p_n_v * (1.0 - p_a2) + p_a2);
-    float gl = p_n_v * sqrt(p_n_l * p_n_l * (1.0 - p_a2) + p_a2);
-    return 0.5 / max(gv + gl, 1e-5);
-}
-
-vec3 f_schlick(float p_v_h, vec3 p_f0) {
-    float x = 1.0 - p_v_h;
-    float x2 = x * x;
-    return p_f0 + (1.0 - p_f0) * (x2 * x2 * x);
-}
-
-struct Surface {
-    vec3 n;
-    vec3 v;
-    vec3 r;
-    float n_v;
-    float a;
-    float a2;
-    vec3 f0;
-    vec3 diffuse_color;
-};
-
-vec3 shade_light(Surface p_s, vec3 p_l, vec3 p_l_spec, float p_spread, vec3 p_radiance) {
-    float n_l = clamp(dot(p_s.n, p_l), 0.0, 1.0);
-    float n_l_spec = clamp(dot(p_s.n, p_l_spec), 0.0, 1.0);
-    if (n_l <= 0.0 && n_l_spec <= 0.0) return vec3(0.0);
-
-    vec3 h = normalize(p_s.v + p_l_spec);
-    float n_h = clamp(dot(p_s.n, h), 0.0, 1.0);
-    float v_h = clamp(dot(p_s.v, h), 0.0, 1.0);
-    vec3 f = f_schlick(v_h, p_s.f0);
-
-    float a_wide = clamp(p_s.a + 0.5 * p_spread, 0.0, 1.0);
-    float energy = (p_s.a * p_s.a) / (a_wide * a_wide);
-
-    vec3 specular = d_ggx(n_h, p_s.a2) * v_smith_ggx_correlated(p_s.n_v, n_l_spec, p_s.a2) * f * energy * n_l_spec;
-    vec3 diffuse = p_s.diffuse_color / PI * (1.0 - f) * n_l;
-    return (diffuse + specular) * p_radiance;
-}
-
-vec3 shade_local(Surface p_s, GpuLight p_light, vec3 p_world_pos) {
-    vec3 to_light = p_light.position - p_world_pos;
-    float dist_sq = dot(to_light, to_light);
-    if (dist_sq >= p_light.range * p_light.range) return vec3(0.0);
-    float inv_dist = inversesqrt(max(dist_sq, 1e-8));
-    vec3 l = to_light * inv_dist;
-    float atten = light_range_falloff(dist_sq, p_light.range) * light_camera_fade(p_light, distance(p_light.position, pc.camera.position.xyz));
-    if (light_type(p_light) == LIGHT_TYPE_SPOT) atten *= light_spot_falloff(p_light, l);
-    if (atten <= 0.0) return vec3(0.0);
-    vec3 l_spec = p_light.source_radius > 0.0 ? light_sphere_specular_dir(to_light, p_s.r, p_light.source_radius) : l;
-    float spread = clamp(p_light.source_radius * inv_dist, 0.0, 1.0);
-    return shade_light(p_s, l, l_spec, spread, p_light.radiance * atten);
-}
+layout(constant_id = 0) const uint TILE_TYPE = SHADING_TILE_MIXED;
 
 void main() {
     const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -132,116 +39,22 @@ void main() {
     const uvec2 tile = shading_tile_unpack(pc.tiles.tiles[TILE_TYPE * pc.tiles.capacity + group]);
     ivec2 p = ivec2(tile * SHADING_TILE_SIZE + gl_LocalInvocationID.xy);
     if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
-    g_atmo = pc.atmosphere;
-    g_lut_sampler = pc.sampler_index;
-    g_transmittance_lut = pc.transmittance_index;
 
-    float depth = 0.0;
-    float roughness = 1.0, metallic = 0.0, ao = 1.0;
-    uint shading_model = SHADING_MODEL_SKY;
-    if (TILE_TYPE != SHADING_TILE_SKY) {
-        depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
-        if (TILE_TYPE != SHADING_TILE_MIXED || depth != 0.0) gbuffer_decode_material(texelFetch(u_textures[pc.material_index], p, 0), roughness, metallic, ao, shading_model);
-    }
-
-    vec2 ndc = (vec2(p) + 0.5) / vec2(pc.width, pc.height) * 2.0 - 1.0;
-    vec4 near_h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
-    vec3 view_dir = normalize(near_h.xyz / near_h.w - pc.camera.position.xyz);
-
-    if (TILE_TYPE == SHADING_TILE_SKY || (TILE_TYPE == SHADING_TILE_MIXED && shading_model == SHADING_MODEL_SKY)) {
-        vec3 sky = vec3(0.0);
-        if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) {
-            float pixel_angle = 2.0 * pc.camera.tan_half_fov_y / float(pc.height);
-            sky = sky_color(view_dir, pc.skyview_index, pixel_angle, pc.camera.pre_exposure, pc.sun_reject_cos, pc.moon_reject_cos) * pc.camera.pre_exposure;
-        } else if (g_atmo.sky_mode == SKY_MODE_SOLID_COLOR) {
-            sky = g_atmo.background_radiance * pc.camera.pre_exposure;
-        }
-        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(sky, vec3(HDR_MAX)), 1.0));
+    float depth = TILE_TYPE == SHADING_TILE_SKY ? 0.0 : texelFetch(u_textures[pc.depth_index], p, 0).r;
+    if (depth == 0.0) {
+        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(pc.sky_radiance * pc.camera.pre_exposure, vec3(HDR_MAX)), 1.0));
         return;
     }
 
-    float linear_depth = camera_linear_depth(pc.camera, depth);
-    vec3 world_pos = pc.camera.position.xyz + (near_h.xyz / near_h.w - pc.camera.position.xyz) * (linear_depth / pc.camera.near_z);
-
-    vec3 albedo;
-    uint flags;
-    gbuffer_decode_albedo(texelFetch(u_textures[pc.albedo_index], p, 0), albedo, flags);
-
-    if (TILE_TYPE == SHADING_TILE_UNLIT || (TILE_TYPE == SHADING_TILE_MIXED && shading_model == SHADING_MODEL_UNLIT)) {
-        vec3 unlit = albedo + texelFetch(u_textures[pc.emissive_index], p, 0).rgb * pc.camera.pre_exposure;
-        if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) {
-            vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
-            unlit = unlit * ap.a + ap.rgb;
-        }
-        imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(unlit, vec3(HDR_MAX)), 1.0));
-        return;
-    }
-
-    Surface s;
-    s.n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
-    s.v = -view_dir;
-    s.r = reflect(view_dir, s.n);
-    s.n_v = max(dot(s.n, s.v), 1e-4);
-    s.a = max(roughness * roughness, 0.002);
-    s.a2 = s.a * s.a;
-    s.f0 = mix(vec3(0.04), albedo, metallic);
-    s.diffuse_color = albedo * (1.0 - metallic);
+    vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
 
     vec3 direct = vec3(0.0);
-
-    vec3 pos_km = atmo_observer() + (world_pos - pc.camera.position.xyz) * 0.001;
-    for (uint i = 0u; i < directional_count(); i++) {
+    for (uint i = 0u; i < pc.directional_count; i++) {
         GpuLight light = pc.lights.data[i];
-        vec3 l = -light.direction;
-        direct += shade_light(s, l, l, 0.0, light.radiance * light_transmittance(pos_km, l));
+        direct += ALBEDO / PI * light.radiance * clamp(dot(n, -light.direction), 0.0, 1.0);
     }
+    vec3 ambient = ALBEDO * pc.sky_radiance;
 
-    uint count = (LIGHT_MODE != 0u && has_local_lights()) ? min(pc.cull.visible_count, MAX_VISIBLE_LIGHTS) : 0u;
-    if (count > 0u && (LIGHT_MODE == 1u || count <= LIGHT_TILE_MIN_LIGHTS)) {
-        uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, linear_depth)];
-        bool any_light = zb.x <= ~zb.y;
-        uint first = subgroupMin(any_light ? zb.x : 0xFFFFFFFFu);
-        uint last = subgroupMax(any_light ? ~zb.y : 0u);
-        for (uint i = first; i <= last && first != 0xFFFFFFFFu; i++) direct += shade_local(s, pc.sorted.data[i], world_pos);
-    } else if (LIGHT_MODE == 2u && count > 0u) {
-        uvec2 zb = pc.cull.zbins[light_zbin(pc.camera, linear_depth)];
-        uint first = zb.x;
-        uint last = ~zb.y;
-        bool any_light = first <= last;
-        uint word_first = subgroupMin(any_light ? first >> 5u : 0xFFFFFFFFu);
-        uint word_last = subgroupMax(any_light ? last >> 5u : 0u);
-
-        uint words = (count + 31u) / 32u;
-        uint tiles_x = (pc.width + LIGHT_TILE_SIZE - 1u) / LIGHT_TILE_SIZE;
-        uint tile_base = (uint(p.y) / LIGHT_TILE_SIZE * tiles_x + uint(p.x) / LIGHT_TILE_SIZE) * words;
-
-        for (uint w = word_first; w <= word_last && word_first != 0xFFFFFFFFu; w++) {
-            uint mask = 0u;
-            uint lo = w * 32u;
-            if (any_light && first <= lo + 31u && last >= lo) {
-                uint b0 = max(first, lo) - lo;
-                uint b1 = min(last, lo + 31u) - lo;
-                mask = pc.masks.data[tile_base + w] & ((0xFFFFFFFFu >> (31u - b1)) & (0xFFFFFFFFu << b0));
-            }
-            mask = subgroupOr(mask);
-            while (mask != 0u) {
-                uint bit = findLSB(mask);
-                mask &= mask - 1u;
-                direct += shade_local(s, pc.sorted.data[lo + bit], world_pos);
-            }
-        }
-    }
-
-    vec3 indirect = vec3(0.0);
-    if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) indirect = s.diffuse_color * sh_irradiance(pc.sky_lighting, s.n) * (ATMO_INV_PI * ao);
-    else if (g_atmo.sky_mode == SKY_MODE_SOLID_COLOR) indirect = s.diffuse_color * g_atmo.background_radiance * ao;
-
-    vec3 emissive = texelFetch(u_textures[pc.emissive_index], p, 0).rgb;
-    vec3 color = (direct + indirect + emissive) * pc.camera.pre_exposure;
-    if (g_atmo.sky_mode == SKY_MODE_ATMOSPHERE) {
-        vec4 ap = aerial_sample((vec2(p) + 0.5) / vec2(pc.width, pc.height), distance(world_pos, pc.camera.position.xyz) * 0.001);
-        color = color * ap.a + ap.rgb;
-    }
-
+    vec3 color = (direct + ambient) * pc.camera.pre_exposure;
     imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(color, vec3(HDR_MAX)), 1.0));
 }

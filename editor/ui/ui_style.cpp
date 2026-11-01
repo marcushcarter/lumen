@@ -180,6 +180,15 @@ void UiStyle::_build_components()
     project_manager.browse_width = 90.0f;
     project_manager.button_width = 120.0f;
 
+    // import_dialog.width = 440.0f;
+    // import_dialog.height = 560.0f;
+    // import_dialog.min_width = 360.0f;
+    // import_dialog.min_height = 320.0f;
+    // import_dialog.button_width = 96.0f;
+    import_dialog.width = project_manager.modal_width;
+    import_dialog.max_height_ratio = 0.85f;
+    import_dialog.button_width = project_manager.button_width;
+
     asset_browser.row_pad_y = space.sm;
     asset_browser.chevron_width = 18.0f;
     asset_browser.icon_gap = space.md;

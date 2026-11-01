@@ -10,6 +10,7 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/texture_viewer.h>
+#include <editor/assets/import/import_dialog.h>
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/panels/shared_panels.h>
 #include <editor/play/play_session.h>
@@ -66,6 +67,7 @@ struct EditorApplication : Application
     EditorFolders folders;
     EditorSelection selection;
     TextureViewer texture_viewer;
+    ImportDialog import_dialog;
     ThumbnailCache thumbnails;
     PlaySession play;
     PlaySession run;

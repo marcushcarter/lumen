@@ -56,7 +56,7 @@ bool ui_property_grid_begin(const char* p_id, float p_label_ratio = -1.0f);
 void ui_property(const char* p_label);
 void ui_property_grid_end();
 
-bool ui_category(const char* p_label, bool* r_remove = nullptr);
+bool ui_category(const char* p_label, bool* r_remove = nullptr, bool p_default_open = false);
 
 bool ui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p_count, float p_speed, const void* p_min = nullptr, const void* p_max = nullptr, const char* p_format = nullptr, ImGuiSliderFlags p_flags = 0);
 bool ui_drag_float3_axes(const char* p_label, float* r_values, float p_speed = 1.0f, const char* p_format = "%.3f");

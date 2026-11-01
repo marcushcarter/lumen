@@ -328,7 +328,7 @@ void ui_property_grid_end()
     ImGui::EndTable();
 }
 
-bool ui_category(const char* p_label, bool* r_remove)
+bool ui_category(const char* p_label, bool* r_remove, bool p_default_open)
 {
     if (r_remove) *r_remove = false;
     const UiStyle& ui = ui_style();
@@ -347,7 +347,7 @@ bool ui_category(const char* p_label, bool* r_remove)
     ImGui::PushID(p_label);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");
-    bool open = storage->GetBool(open_id, false);
+    bool open = storage->GetBool(open_id, p_default_open);
 
     const ImVec2 mouse = ImGui::GetMousePos();
     const bool in_row = ImGui::IsWindowHovered() && mouse.x >= min_x && mouse.x < max_x && mouse.y >= y0 && mouse.y < y1;

@@ -9,7 +9,7 @@
 #include <core/rendering/renderer.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <drivers/windows/dialogs_win32.h>
-#include <editor/assets/import/asset_import_any.h>
+#include <editor/assets/import/import_dialog.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/texture_viewer.h>
 #include <editor/assets/thumbnail_cache.h>
@@ -306,15 +306,15 @@ void ContentBrowserPanel::_import(EditorContext& ctx)
     std::error_code ec;
     if (selected_folder.empty() || !std::filesystem::exists(selected_folder, ec)) return;
     std::vector<std::wstring> files = drivers::Win32Dialogs::open_files(
-        L"All Supported\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
+        L"All Supported\0*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.fbx;*.gltf;*.glb;*.obj;*.dae;*.stl;*.ply;*.3ds;*.blend\0"
+        L"Models\0*.fbx;*.gltf;*.glb;*.obj;*.dae;*.stl;*.ply;*.3ds;*.blend\0"
         L"Images\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0"
         L"All Files\0*.*\0"
     );
     for (const std::wstring& f : files) {
         const std::filesystem::path source = f;
-        if (!asset_import_any(ctx, source, selected_folder)) log_write("Skipped unsupported import: %s", source.string().c_str());
+        if (!ctx.import_dialog->push(source, selected_folder)) log_write("Skipped unsupported import: %s", source.string().c_str());
     }
-    request_refresh();
 }
 
 void ContentBrowserPanel::_move_selection(const std::filesystem::path& p_dst)
@@ -901,7 +901,6 @@ void ContentBrowserPanel::draw_contents(EditorContext& ctx)
     ImGui::EndChild();
     _draw_footer();
     ImGui::EndChild();
-
 }
 
 }

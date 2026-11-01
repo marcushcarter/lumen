@@ -54,6 +54,8 @@ struct GeometryPool
     static constexpr uint32_t MAX_VERTS = 32u * 1024 * 1024;
     static constexpr uint32_t MAX_TRIS = 32u * 1024 * 1024;
     static constexpr uint32_t MAX_CLUSTERS = 4u * 1024 * 1024;
+    static constexpr uint32_t RASTER_CLUSTER_TRIS = 256;
+    static constexpr uint32_t RASTER_CLUSTER_VERTS = 256;
     static constexpr uint32_t MAX_GROUPS = 512u * 1024;
     static constexpr uint32_t MAX_SKIN_VERTS = 4u * 1024 * 1024;
     static constexpr uint32_t MAX_BVH_NODES = 8u * 1024 * 1024;

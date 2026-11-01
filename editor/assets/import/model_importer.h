@@ -18,6 +18,7 @@ struct ModelImporter
     static constexpr uint64_t MESH_COST_PER_TRI = 8;
 
     struct Settings {
+        std::wstring name;
         ModelImportMode mode = ModelImportMode::FULL;
         MeshCooker::CookSettings mesh_settings;
         TextureCooker::CookSettings texture_settings;

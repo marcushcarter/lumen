@@ -29,7 +29,10 @@ struct MeshCooker
 
     struct CookSettings {
         MeshDagLevel dag_level = MeshDagLevel::CLUSTERED_DAG;
+        vec3 translation = vec3(0.0f);
+        vec3 rotation = vec3(0.0f);
         float scale = 1.0f;
+        bool load_skeleton = true;
         uint32_t max_verts = 64;
         uint32_t max_tris = 64;
         uint32_t group_size = 8;

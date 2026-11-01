@@ -23,6 +23,7 @@ struct AssetImportTracker;
 struct AssetRegistry;
 struct EditorFolders;
 struct TextureViewer;
+struct ImportDialog;
 struct ThumbnailCache;
 
 struct EditorContext
@@ -49,6 +50,7 @@ struct EditorContext
     AssetRegistry* assets = nullptr;
     EditorFolders* folders = nullptr;
     TextureViewer* texture_viewer = nullptr;
+    ImportDialog* import_dialog = nullptr;
     ThumbnailCache* thumbnails = nullptr;
 
     std::function<void(const std::filesystem::path&)> open_project_callback;

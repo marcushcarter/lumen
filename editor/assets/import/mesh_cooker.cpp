@@ -12,6 +12,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/matrix3x3.h>
 #include <meshoptimizer.h>
+#include <glm/gtc/quaternion.hpp>
 #include <utils.h>
 #include <fstream>
 #include <sstream>
@@ -240,12 +241,27 @@ void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
     r_src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, p_lod0_tri_count });
 }
 
+static void _apply_import_transform(const MeshCooker::CookSettings& p_settings, std::vector<SrcVert>& r_verts, std::vector<SkinVertex>& r_skin)
+{
+    if (!p_settings.load_skeleton) r_skin.clear();
+    const bool rotate = p_settings.rotation != vec3(0.0f);
+    const mat3 rot = mat3_cast(quat(radians(p_settings.rotation)));
+    for (SrcVert& v : r_verts) {
+        v.p *= p_settings.scale;
+        if (rotate) {
+            v.p = rot * v.p;
+            v.n = rot * v.n;
+        }
+        v.p += p_settings.translation;
+    }
+}
+
 bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
-    if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
+    _apply_import_transform(p_settings, verts, skin);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -264,7 +280,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
-    if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
+    _apply_import_transform(p_settings, verts, skin);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -288,7 +304,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
-    if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
+    _apply_import_transform(p_settings, verts, skin);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -501,7 +517,10 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "type", static_cast<int64_t>(AssetType::MESH) } }},
         { "import", toml::table{
             { "source", p_job.source.generic_string() },
+            { "translation", toml::array{ p_job.settings.translation.x, p_job.settings.translation.y, p_job.settings.translation.z } },
+            { "rotation", toml::array{ p_job.settings.rotation.x, p_job.settings.rotation.y, p_job.settings.rotation.z } },
             { "scale", static_cast<double>(p_job.settings.scale) },
+            { "load_skeleton", p_job.settings.load_skeleton },
             { "dag_level", mesh_dag_level_name(p_job.settings.dag_level) },
             { "max_verts", static_cast<int64_t>(p_job.settings.max_verts) },
             { "max_tris", static_cast<int64_t>(p_job.settings.max_tris) },

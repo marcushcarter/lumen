@@ -215,9 +215,9 @@ struct ModelLocation
     std::filesystem::path lmesh;
 };
 
-static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, const std::filesystem::path& p_src)
+static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, const std::filesystem::path& p_src, const std::wstring& p_name)
 {
-    const std::wstring stem = p_src.stem().wstring();
+    const std::wstring stem = p_name.empty() ? p_src.stem().wstring() : p_name;
     const std::string source = p_src.generic_string();
     std::error_code ec;
     for (uint32_t i = 0;; ++i) {
@@ -335,7 +335,7 @@ Error ModelImporter::_import(const Job& p_job)
 
 void ModelImporter::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings)
 {
-    const ModelLocation loc = _model_location(p_dst_dir, p_src);
+    const ModelLocation loc = _model_location(p_dst_dir, p_src, p_settings.name);
 
     Job job;
     job.project = ctx.project;

@@ -10,6 +10,54 @@ namespace lumen {
 
 using Buffer = drivers::DeviceDriverVulkan::Buffer;
 
+// Asset clusters can be any size (a flat mesh is one cluster); raster clusters are capped by the 8-bit local indices.
+static const char* _split_clusters(const Cluster* p_src, uint32_t p_count, const uint32_t* p_idx, uint32_t p_index_count, uint32_t p_vertex_count, std::vector<Cluster>& r_out)
+{
+    std::vector<uint32_t> stamp(p_vertex_count, UINT32_MAX);
+    uint32_t chunk_id = 0;
+    r_out.clear();
+    r_out.reserve(p_count);
+    for (uint32_t ci = 0; ci < p_count; ci++) {
+        const Cluster& src = p_src[ci];
+        if ((uint64_t)src.index_base + src.index_count > p_index_count) return "cluster index range out of bounds";
+        if (src.index_base % 3 != 0 || src.index_count % 3 != 0) return "cluster index range not triangle aligned";
+        if (src.index_count / 3 <= GeometryPool::RASTER_CLUSTER_TRIS && src.index_count <= GeometryPool::RASTER_CLUSTER_VERTS) {
+            r_out.push_back(src);
+            continue;
+        }
+
+        Cluster chunk = src;
+        chunk.index_count = 0;
+        uint32_t chunk_verts = 0;
+        chunk_id++;
+        for (uint32_t i = 0; i < src.index_count; i += 3) {
+            uint32_t fresh = 0;
+            for (uint32_t k = 0; k < 3; k++) {
+                const uint32_t v = p_idx[src.index_base + i + k];
+                if (v >= p_vertex_count) return "index out of range";
+                if (stamp[v] != chunk_id) fresh++;
+            }
+            if (chunk.index_count / 3 + 1 > GeometryPool::RASTER_CLUSTER_TRIS || chunk_verts + fresh > GeometryPool::RASTER_CLUSTER_VERTS) {
+                r_out.push_back(chunk);
+                chunk.index_base += chunk.index_count;
+                chunk.index_count = 0;
+                chunk_verts = 0;
+                chunk_id++;
+            }
+            for (uint32_t k = 0; k < 3; k++) {
+                const uint32_t v = p_idx[src.index_base + i + k];
+                if (stamp[v] != chunk_id) {
+                    stamp[v] = chunk_id;
+                    chunk_verts++;
+                }
+            }
+            chunk.index_count += 3;
+        }
+        if (chunk.index_count) r_out.push_back(chunk);
+    }
+    return nullptr;
+}
+
 Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
 {
     using enum Error;
@@ -280,6 +328,13 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     if (ph.vertex_count == 0 || ph.index_count == 0 || ph.index_count % 3 != 0 || ph.tri_count != ph.index_count / 3) return fail("bad vertex/index counts");
     if (ph.slot_count == 0) return fail("mesh has no material slots");
 
+    std::vector<Cluster> src_clusters(ph.cluster_count);
+    std::memcpy(src_clusters.data(), bytes.data() + payload_off + vtx_bytes + idx_bytes + tri_bytes + slot_bytes, clus_bytes);
+    std::vector<Cluster> clusters;
+    const uint32_t* src_idx = reinterpret_cast<const uint32_t*>(bytes.data() + payload_off + vtx_bytes);
+    if (const char* why = _split_clusters(src_clusters.data(), ph.cluster_count, src_idx, ph.index_count, ph.vertex_count, clusters)) return fail(why);
+    const uint32_t cluster_count = (uint32_t)clusters.size();
+
     uint32_t id = INVALID_MESH;
     if (!free_meshes.empty()) id = free_meshes.back();
     else if (meshes.size() < MAX_MESHES) id = (uint32_t)meshes.size();
@@ -292,7 +347,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     MeshRanges r;
     r.vertex_count = ph.vertex_count;
     r.tri_count = ph.tri_count;
-    r.cluster_count = ph.cluster_count;
+    r.cluster_count = cluster_count;
     r.group_count = ph.group_count;
     r.skin_count = skinned ? ph.vertex_count : 0;
     r.bvh_count = ph.bvh_node_count;
@@ -338,7 +393,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     uint8_t* p_idx = p; p += idx_bytes;
     uint8_t* p_tri = p; p += tri_bytes;
     p += slot_bytes;
-    uint8_t* p_clus = p; p += clus_bytes;
+    p += clus_bytes;
     uint8_t* p_group = p; p += group_bytes;
     uint8_t* p_skin = p; p += skin_bytes;
     uint8_t* p_bvhn = p; p += bvhn_bytes;
@@ -357,8 +412,8 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         if (tri[i] >= ph.slot_count) bad = "triangle slot out of range";
     }
 
-    Cluster* clus = reinterpret_cast<Cluster*>(p_clus);
-    for (uint32_t i = 0; i < ph.cluster_count && !bad; i++) {
+    Cluster* clus = clusters.data();
+    for (uint32_t i = 0; i < cluster_count && !bad; i++) {
         Cluster& c = clus[i];
         if ((uint64_t)c.index_base + c.index_count > ph.index_count) bad = "cluster index range out of bounds";
         else if (c.self_group != CLUSTER_GROUP_NONE && c.self_group >= ph.group_count) bad = "cluster self_group out of range";
@@ -383,15 +438,15 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     }
 
     std::vector<uint32_t> meshlet_verts;
-    std::vector<uint32_t> cluster_vbase(ph.cluster_count);
-    std::vector<uint32_t> cluster_slots(ph.cluster_count, CLUSTER_SLOT_MIXED);
+    std::vector<uint32_t> cluster_vbase(cluster_count);
+    std::vector<uint32_t> cluster_slots(cluster_count, CLUSTER_SLOT_MIXED);
     std::vector<uint32_t> local_tris(ph.tri_count, 0u);
     uint32_t mesh_max_tris = 0;
     if (!bad) {
         std::vector<uint32_t> stamp(ph.vertex_count, UINT32_MAX);
         std::vector<uint8_t> local_of(ph.vertex_count, 0);
         meshlet_verts.reserve(ph.index_count / 2);
-        for (uint32_t ci = 0; ci < ph.cluster_count && !bad; ci++) {
+        for (uint32_t ci = 0; ci < cluster_count && !bad; ci++) {
             const Cluster& cl = clus[ci];
             const uint32_t first = cl.index_base - index_base;
             if (first % 3 != 0 || cl.index_count % 3 != 0) { bad = "cluster index range not triangle aligned"; break; }
@@ -405,7 +460,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
                     const uint32_t v = idx[first + i + k] - r.vertex;
                     if (stamp[v] != ci) {
                         const uint32_t n = (uint32_t)meshlet_verts.size() - vbase;
-                        if (n >= 256) { bad = "cluster has more than 256 unique vertices"; break; }
+                        if (n >= RASTER_CLUSTER_VERTS) { bad = "cluster has too many unique vertices"; break; }
                         stamp[v] = ci;
                         local_of[v] = (uint8_t)n;
                         meshlet_verts.push_back(v + r.vertex);
@@ -418,10 +473,10 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
             }
             cluster_slots[ci] = uniform_slot < LOCAL_TRI_SLOT_OVERFLOW ? uniform_slot : CLUSTER_SLOT_MIXED;
         }
-        if (mesh_max_tris > 256) bad = "cluster has more than 256 triangles";
+        if (mesh_max_tris > RASTER_CLUSTER_TRIS) bad = "cluster has too many triangles";
     }
     std::vector<uint8_t> cluster_vertices(meshlet_verts.size() * (sizeof(VertexPosition) + sizeof(VertexAttributes)));
-    std::vector<uint32_t> cluster_bounds((size_t)ph.cluster_count * 3, 0u);
+    std::vector<uint32_t> cluster_bounds((size_t)cluster_count * 3, 0u);
     if (!bad) {
         const VertexPosition* src_pos = reinterpret_cast<const VertexPosition*>(p_pos);
         const VertexAttributes* src_attr = reinterpret_cast<const VertexAttributes*>(p_attr);
@@ -431,8 +486,8 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
             std::memcpy(dst, &src_pos[v], sizeof(VertexPosition));
             std::memcpy(dst + sizeof(VertexPosition), &src_attr[v], sizeof(VertexAttributes));
         }
-        for (uint32_t ci = 0; ci < ph.cluster_count; ci++) {
-            const uint32_t end = ci + 1 < ph.cluster_count ? cluster_vbase[ci + 1] : (uint32_t)meshlet_verts.size();
+        for (uint32_t ci = 0; ci < cluster_count; ci++) {
+            const uint32_t end = ci + 1 < cluster_count ? cluster_vbase[ci + 1] : (uint32_t)meshlet_verts.size();
             u16vec3 lo(UINT16_MAX), hi(0);
             for (uint32_t i = cluster_vbase[ci]; i < end; i++) {
                 const u16vec3 q = src_pos[meshlet_verts[i] - r.vertex].position;
@@ -460,7 +515,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     m.vertex_base = r.vertex;
     m.vertex_count = ph.vertex_count;
     m.cluster_base = r.cluster_count ? r.cluster : 0;
-    m.cluster_count = ph.cluster_count;
+    m.cluster_count = cluster_count;
     m.slot_count = ph.slot_count;
     m.skin_base = skinned ? r.skin : UINT32_MAX;
     m.bvh_node_base = r.bvh_count ? r.bvh : 0;
@@ -480,7 +535,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     add(ArenaKind::VERTEX_ATTRIBUTES, r.vertex, p_attr, attr_bytes);
     add(ArenaKind::INDICES, r.tri, p_idx, idx_bytes);
     add(ArenaKind::TRI_SLOTS, r.tri, p_tri, tri_bytes);
-    add(ArenaKind::CLUSTERS, r.cluster, p_clus, clus_bytes);
+    add(ArenaKind::CLUSTERS, r.cluster, clusters.data(), clusters.size() * sizeof(Cluster));
     add(ArenaKind::GROUPS, r.group, p_group, group_bytes);
     add(ArenaKind::SKIN, r.skin, p_skin, skin_bytes);
     add(ArenaKind::BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
@@ -511,7 +566,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
     version++;
 
-    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, ph.cluster_count, ph.group_count, ph.bvh_node_count, id);
+    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, cluster_count, ph.group_count, ph.bvh_node_count, id);
     return id;
 }
 

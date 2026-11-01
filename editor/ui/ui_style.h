@@ -333,6 +333,15 @@ struct UiStyle
         float button_width;
     };
 
+    struct ImportDialog {
+        float width;
+        // float height;
+        // float min_width;
+        // float min_height;
+        float max_height_ratio;
+        float button_width;
+    };
+
     struct AssetBrowser {
         float row_pad_y;
         float chevron_width;
@@ -432,6 +441,7 @@ struct UiStyle
     Details details;
     ListRow list_row;
     ProjectManager project_manager;
+    ImportDialog import_dialog;
     AssetBrowser asset_browser;
     Profiler profiler;
     DataTable data_table;

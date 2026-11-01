@@ -91,6 +91,7 @@ Error EditorApplication::on_init()
     _ctx.assets = &assets;
     _ctx.folders = &folders;
     _ctx.texture_viewer = &texture_viewer;
+    _ctx.import_dialog = &import_dialog;
     _ctx.thumbnails = &thumbnails;
     _ctx.open_project_callback = [this](const std::filesystem::path& p_root) { open_project(p_root); };
     _ctx.close_project_callback = [this] { close_project(); };
@@ -154,6 +155,7 @@ void EditorApplication::on_update(float p_dt)
 
         tabs.update(ctx, p_dt);
         texture_viewer.draw(ctx);
+        import_dialog.draw(ctx);
         thumbnails.update(ctx);
         if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) tabs.active->save(ctx);
 
@@ -272,6 +274,7 @@ void EditorApplication::close_project()
         _save_project_state();
         _save_state();
         texture_viewer.close(ctx);
+        import_dialog.clear();
         tabs.clear(ctx);
         thumbnails.close(ctx);
         assets.close();

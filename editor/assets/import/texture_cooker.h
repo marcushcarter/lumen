@@ -19,11 +19,9 @@ struct TextureCooker
 
     struct CookSettings {
         TextureUsage usage = TextureUsage::COLOR;
-        // TextureQuality quality = TextureQuality::BEST;
-        TextureQuality quality = TextureQuality::FAST;
+        TextureQuality quality = TextureQuality::BEST;
         bool generate_mips = true;
-        // uint32_t max_size = 0;
-        uint32_t max_size = 1024;
+        uint32_t max_size = 0;
         bool flip_green = false;
         float alpha_cutoff = 0.0f;
         float rdo_lambda = 0.0f;

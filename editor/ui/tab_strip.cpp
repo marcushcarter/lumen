@@ -132,7 +132,7 @@ void TabStrip::_draw_label(ImVec2 p_a, ImVec2 p_b, const char* p_label, bool p_b
     ImGui::PopStyleColor();
 }
 
-bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, bool p_dirty)
+bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, bool p_dirty, ImU32 p_icon_color)
 {
     const UiStyle& ui = ui_style();
     const bool closable = p_close != nullptr;
@@ -178,10 +178,18 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     const char* end = ImGui::FindRenderedTextEnd(p_label);
     const ImVec2 ts = ImGui::CalcTextSize(p_label, end);
     const float pad = ImMax(ui.dock_tab.label_min_pad, ImFloor(ui.tab_strip.pad_x * scale));
-    const ImVec2 tmin(a.x + pad, ImFloor(a.y + (h - ts.y) * 0.5f));
+    ImVec2 tmin(a.x + pad, ImFloor(a.y + (h - ts.y) * 0.5f));
     const ImVec2 tmax(closable ? ca.x - ui.dock_tab.gap : b.x - pad * 0.5f, b.y);
+    const char* text = p_label;
+    // Icon glyphs are 3-byte private-use codepoints (U+E000..U+F8FF).
+    if (p_icon_color && end - p_label >= 3 && ((uint8_t)p_label[0] == 0xEE || (uint8_t)p_label[0] == 0xEF)) {
+        text = p_label + 3;
+        draw_list->AddText(tmin, p_icon_color, p_label, text);
+        tmin.x += ImGui::CalcTextSize(p_label, text).x;
+    }
+    const ImVec2 text_size = ImGui::CalcTextSize(text, end);
     ImGui::PushStyleColor(ImGuiCol_Text, (p_selected || hot) ? ui.color.text : ui.color.text_dim);
-    ImGui::RenderTextEllipsis(draw_list, tmin, tmax, tmax.x, p_label, end, &ts);
+    ImGui::RenderTextEllipsis(draw_list, tmin, tmax, tmax.x, text, end, &text_size);
     ImGui::PopStyleColor();
 
     const bool close_hot = close_hovered || close_held;

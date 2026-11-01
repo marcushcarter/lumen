@@ -109,6 +109,10 @@ struct UiStyle
         ImU32 notice;
         ImU32 favorite;
         ImU32 folder;
+        ImU32 asset_model;
+        ImU32 asset_mesh;
+        ImU32 asset_material;
+        ImU32 asset_texture;
 
         ImU32 overlay;
         ImU32 overlay_hover;

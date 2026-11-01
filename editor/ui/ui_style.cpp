@@ -298,6 +298,10 @@ void UiStyle::_build_colors()
     color.notice = IM_COL32(230, 140, 102, 255);
     color.favorite = IM_COL32(255, 180, 0, 255);
     color.folder = IM_COL32(224, 187, 88, 255);
+    color.asset_model = IM_COL32(86, 182, 230, 255);
+    color.asset_mesh = IM_COL32(64, 196, 196, 255);
+    color.asset_material = IM_COL32(112, 196, 92, 255);
+    color.asset_texture = IM_COL32(226, 96, 86, 255);
 
     color.overlay = IM_COL32(28, 28, 30, 130);
     color.overlay_hover = IM_COL32(60, 62, 66, 190);

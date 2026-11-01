@@ -11,7 +11,7 @@ namespace lumen {
 struct EditorContext;
 struct Project;
 
-struct ModelImporter
+struct ModelCooker
 {
     static constexpr float READ_END = 0.1f;
     static constexpr float SAVE_SHARE = 0.02f;

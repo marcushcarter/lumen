@@ -9,6 +9,7 @@
 #include <editor/export/project_exporter.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/model/model_tab.h>
+#include <editor/tabs/texture/texture_tab.h>
 #include <editor/tabs/world/panels/project_settings_panel.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
@@ -154,7 +155,7 @@ void EditorApplication::on_update(float p_dt)
         selection.prune(world, folders);
 
         tabs.update(ctx, p_dt);
-        texture_viewer.draw(ctx);
+        texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);
         thumbnails.update(ctx);
         if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) tabs.active->save(ctx);
@@ -273,7 +274,6 @@ void EditorApplication::close_project()
         EditorContext& ctx = _context();
         _save_project_state();
         _save_state();
-        texture_viewer.close(ctx);
         import_dialog.clear();
         tabs.clear(ctx);
         thumbnails.close(ctx);
@@ -313,6 +313,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::EDITOR_SETTINGS: return "editor_settings";
         case TabKind::MODEL: return "model";
         case TabKind::MATERIAL: return "material";
+        case TabKind::TEXTURE: return "texture";
     }
     return "world";
 }
@@ -323,6 +324,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "editor_settings") r_kind = TabKind::EDITOR_SETTINGS;
     else if (p_name == "model") r_kind = TabKind::MODEL;
     else if (p_name == "material") r_kind = TabKind::MATERIAL;
+    else if (p_name == "texture") r_kind = TabKind::TEXTURE;
     else return false;
     return true;
 }
@@ -351,6 +353,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
             case TabKind::MODEL: if (t.guid.valid()) opened = tabs.open<ModelTab>(t.guid); break;
             case TabKind::MATERIAL: if (t.guid.valid()) opened = tabs.open<MaterialTab>(t.guid); break;
+            case TabKind::TEXTURE: if (t.guid.valid()) opened = tabs.open<TextureTab>(t.guid); break;
         }
         if (opened && i == saved.active) active = opened;
     }

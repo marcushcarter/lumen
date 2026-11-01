@@ -19,7 +19,7 @@ struct WorldTab : EditorTab
     uint64_t selection_version = 0;
 
     void _draw_toolbar(EditorContext& ctx);
-    void _draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max);
+    float _draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max);
 
     Error initialize(SharedPanels& r_shared);
     void shutdown();
@@ -27,6 +27,7 @@ struct WorldTab : EditorTab
 
     const char* title() const override { return "World"; }
     bool closable() const override { return false; }
+    Error save(EditorContext& ctx) override;
     void on_update(EditorContext& ctx, float p_dt) override;
 };
 

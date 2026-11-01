@@ -15,6 +15,7 @@
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/model/model_tab.h>
+#include <editor/tabs/texture/texture_tab.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
@@ -313,7 +314,7 @@ void ContentBrowserPanel::_import(EditorContext& ctx)
     );
     for (const std::wstring& f : files) {
         const std::filesystem::path source = f;
-        if (!ctx.import_dialog->push(source, selected_folder)) log_write("Skipped unsupported import: %s", source.string().c_str());
+        if (!ctx.import_dialog->push(ctx, source, selected_folder)) log_write("Skipped unsupported import: %s", source.string().c_str());
     }
 }
 
@@ -708,7 +709,7 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
                         const AssetInfo info = read_asset_info(e.path);
                         if (info.valid() && info.type == AssetType::MATERIAL) ctx.tabs->open<MaterialTab>(info.guid)->path = e.path;
                     }
-                    if (r.activated && !e.is_dir && e.is_texture && ctx.texture_viewer && e.asset_type == AssetType::TEXTURE && e.guid.valid()) ctx.texture_viewer->open(e.guid);
+                    if (r.activated && !e.is_dir && e.is_texture && e.asset_type == AssetType::TEXTURE && e.guid.valid()) ctx.tabs->open<TextureTab>(e.guid)->path = e.path;
                     ImGui::PopID();
                 }
                 ImGui::SetCursorScreenPos(row_pos);

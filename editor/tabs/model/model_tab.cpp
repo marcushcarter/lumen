@@ -45,7 +45,7 @@ Error ModelTab::save(EditorContext& ctx)
 void ModelTab::on_update(EditorContext& ctx, float p_dt)
 {
     (void)p_dt;
-    layout.draw(ctx, nullptr);
+    _draw_layout(ctx);
     _update_orbit();
     _sync_preview(ctx);
     _refresh_stats(ctx);

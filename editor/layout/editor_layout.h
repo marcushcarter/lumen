@@ -52,6 +52,7 @@ struct EditorLayout
     Column right;
     std::vector<std::unique_ptr<Panel>> owned;
     std::vector<DockSlot> slots;
+    std::function<void(EditorContext&, ImVec2, ImVec2)> center;
 
     float split_left = DEFAULT_SPLIT_LEFT;
     float split_right = DEFAULT_SPLIT_RIGHT;
@@ -70,6 +71,7 @@ struct EditorLayout
     void _apply_center_delta(float p_delta, bool p_activated);
     void _end_drawer_drag();
     void _draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
+    void _draw_scene(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
     void _draw_column(EditorContext& ctx, Column& r_column, bool p_dragging, ImVec2 p_min, ImVec2 p_max);
     void _column_layout(Column& r_column, bool p_dragging, float p_col_h, bool& r_top, bool& r_bottom, float& r_top_h);
     CornerState _corner_splitter(const char* p_id, ImVec2 p_cross, bool p_h_left, ImVec2 p_v_min, ImVec2 p_v_max, ImVec2 p_h_min, ImVec2 p_h_max);

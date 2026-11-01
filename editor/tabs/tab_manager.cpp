@@ -68,7 +68,7 @@ void TabManager::draw_bar(ImVec2 p_min, ImVec2 p_max, float p_reserved_right, Im
         std::snprintf(label, sizeof(label), "%s###tab_%u_%016llx", t->title(), (unsigned)t->kind, (unsigned long long)t->guid.value);
 
         bool close_clicked = false;
-        if (strip.dock_tab(label, t == active, closable ? &close_clicked : nullptr, closable && t->dirty())) active = t;
+        if (strip.dock_tab(label, t == active, closable ? &close_clicked : nullptr, closable && t->dirty(), t->icon_color())) active = t;
         p_block(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         if (close_clicked) close(t->kind, t->guid);
     }

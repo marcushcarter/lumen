@@ -2,6 +2,7 @@
 #include <core/base/error.h>
 #include <core/assets/guid.h>
 #include <editor/application/editor_context.h>
+#include <imgui.h>
 #include <cstdint>
 
 namespace lumen {
@@ -9,7 +10,7 @@ namespace lumen {
 struct Camera;
 struct World;
 
-enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL };
+enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE };
 
 struct EditorTab
 {
@@ -23,6 +24,7 @@ struct EditorTab
     virtual ~EditorTab() = default;
 
     virtual const char* title() const = 0;
+    virtual ImU32 icon_color() const { return 0; }
     virtual bool closable() const { return true; }
     virtual bool dirty() const { return false; }
     virtual const Camera* camera() const { return nullptr; }

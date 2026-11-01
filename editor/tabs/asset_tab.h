@@ -23,6 +23,8 @@ struct AssetTab : EditorTab
     void _create_preview();
     void _update_orbit();
     void _refresh_title();
+    void _draw_layout(EditorContext& ctx);
+    virtual void _draw_toolbar(EditorContext& ctx);
 
     const Camera* camera() const override { return &orbit.camera; }
     const World* scene() const override { return &preview; }

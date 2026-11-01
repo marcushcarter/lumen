@@ -5,6 +5,7 @@
 #include <editor/panels/content_browser_panel.h>
 #include <editor/panels/shared_panels.h>
 #include <editor/tabs/tab_manager.h>
+#include <editor/ui/tab_toolbar.h>
 #include <cstdio>
 
 namespace lumen {
@@ -53,6 +54,19 @@ void AssetTab::_refresh_title()
     _title = _icon();
     _title += "  ";
     _title += path.stem().string();
+}
+
+void AssetTab::_draw_layout(EditorContext& ctx)
+{
+    layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
+}
+
+void AssetTab::_draw_toolbar(EditorContext& ctx)
+{
+    TabToolbar bar;
+    bar.begin();
+    bar.save(ctx, *this);
+    bar.end();
 }
 
 void AssetTab::destroy(EditorContext& ctx)

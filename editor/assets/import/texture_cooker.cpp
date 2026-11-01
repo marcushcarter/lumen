@@ -155,15 +155,17 @@ static void _apply_quality(rdo_bc::rdo_bc_params& r_p, TextureQuality p_quality)
 
 TextureUsage texture_usage_guess(const std::filesystem::path& p_src)
 {
-    std::string stem = p_src.stem().string();
-    std::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+    const std::string stem = p_src.stem().string();
     std::vector<std::string> tokens(1);
+    char prev = 0;
     for (char c : stem) {
         if (c == '_' || c == '-' || c == ' ' || c == '.') {
             if (!tokens.back().empty()) tokens.emplace_back();
         } else {
-            tokens.back() += c;
+            if (std::isupper((unsigned char)c) && std::islower((unsigned char)prev) && !tokens.back().empty()) tokens.emplace_back();
+            tokens.back() += (char)std::tolower((unsigned char)c);
         }
+        prev = c;
     }
     auto any = [&](std::initializer_list<const char*> p_words) {
         for (const std::string& t : tokens) for (const char* w : p_words) if (t == w) return true;
@@ -171,6 +173,7 @@ TextureUsage texture_usage_guess(const std::filesystem::path& p_src)
     };
     if (any({ "n", "nrm", "nor", "norm", "normal", "normals", "normalmap", "normalgl", "normaldx", "nrmgl", "nrmdx", "ddn" })) return TextureUsage::NORMAL;
     if (any({ "orm", "arm", "rough", "roughness", "metal", "metallic", "metalness", "ao", "occlusion", "ambientocclusion", "mask", "metallicroughness", "specular", "gloss", "glossiness" })) return TextureUsage::MASK;
+    if (any({ "height", "heightmap", "displacement", "disp", "bump", "depth" })) return TextureUsage::LINEAR;
     return TextureUsage::COLOR;
 }
 

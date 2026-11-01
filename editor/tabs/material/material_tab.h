@@ -1,6 +1,7 @@
 #pragma once
 #include <core/assets/lmaterial.h>
 #include <editor/tabs/asset_tab.h>
+#include <editor/ui/ui_style.h>
 #include <IconsFontAwesome6.h>
 
 namespace lumen {
@@ -15,6 +16,7 @@ struct MaterialTab : AssetTab
     bool _framed = false;
 
     const char* _icon() const override { return ICON; }
+    ImU32 icon_color() const override { return ui_style().color.asset_material; }
     void _frame_preview(EditorContext& ctx);
 
     const char* title() const override { return _title.empty() ? "Material" : _title.c_str(); }

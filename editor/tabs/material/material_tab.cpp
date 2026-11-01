@@ -51,7 +51,7 @@ Error MaterialTab::save(EditorContext& ctx)
 void MaterialTab::on_update(EditorContext& ctx, float p_dt)
 {
     (void)p_dt;
-    layout.draw(ctx, nullptr);
+    _draw_layout(ctx);
     _update_orbit();
     _frame_preview(ctx);
     orbit.update();

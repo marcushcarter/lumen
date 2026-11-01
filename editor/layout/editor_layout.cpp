@@ -176,12 +176,18 @@ void EditorLayout::_end_drawer_drag()
     center_split = drawer_drag_start;
 }
 
+void EditorLayout::_draw_scene(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
+{
+    if (center) center(ctx, p_min, p_max);
+    else viewport.draw(ctx, p_min, p_max);
+}
+
 void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
     const float gap = ui_style().dock.gap;
     const float w = p_max.x - p_min.x;
 
-    viewport.draw(ctx, p_min, ImVec2(p_max.x, p_min.y + ImMax(1.0f, scene_h)));
+    _draw_scene(ctx, p_min, ImVec2(p_max.x, p_min.y + ImMax(1.0f, scene_h)));
 
     if (!bottom.has_open()) return;
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h));
@@ -342,7 +348,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     const float body_y = p_toolbar ? origin.y + bar_h + gap : origin.y;
 
     if (viewport.fullscreen) {
-        viewport.draw(ctx, ImVec2(origin.x, body_y), end);
+        _draw_scene(ctx, ImVec2(origin.x, body_y), end);
         ImGui::End();
         return;
     }

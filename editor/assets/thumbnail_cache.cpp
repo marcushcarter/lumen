@@ -262,7 +262,9 @@ VkImageView ThumbnailCache::_texture_view(EditorContext& ctx, Guid p_guid)
     ci.image = image.image;
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = image.format;
-    ci.components = TextureViewer::swizzle(TextureViewer::Channel::RGB, channels);
+    const VkComponentSwizzle r = VK_COMPONENT_SWIZZLE_R;
+    const VkComponentSwizzle one = VK_COMPONENT_SWIZZLE_ONE;
+    ci.components = channels == 1 ? VkComponentMapping{ r, r, r, one } : VkComponentMapping{ r, VK_COMPONENT_SWIZZLE_G, one, one };
     ci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, image.mip_levels, 0, 1 };
     VkImageView view = VK_NULL_HANDLE;
     if (vkCreateImageView(dd->device, &ci, nullptr, &view) != VK_SUCCESS) return image.image_view;

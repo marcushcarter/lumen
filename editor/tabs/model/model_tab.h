@@ -2,6 +2,7 @@
 #include <core/assets/lmesh.h>
 #include <core/assets/lmodel.h>
 #include <editor/tabs/asset_tab.h>
+#include <editor/ui/ui_style.h>
 #include <IconsFontAwesome6.h>
 #include <filesystem>
 #include <vector>
@@ -26,6 +27,7 @@ struct ModelTab : AssetTab
     double _stats_poll = -1.0e9;
 
     const char* _icon() const override { return ICON; }
+    ImU32 icon_color() const override { return ui_style().color.asset_model; }
     void _sync_preview(EditorContext& ctx);
     void _refresh_stats(EditorContext& ctx);
 

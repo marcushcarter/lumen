@@ -1,6 +1,5 @@
 #pragma once
-#include <editor/assets/import/model_importer.h>
-#include <editor/assets/import/texture_cooker.h>
+#include <editor/assets/import/model_cooker.h>
 #include <filesystem>
 #include <deque>
 
@@ -21,8 +20,7 @@ struct ImportDialog
         std::filesystem::path dst_dir;
         ImportKind kind = ImportKind::NONE;
         char name[NAME_SIZE] = {};
-        TextureCooker::CookSettings texture;
-        ModelImporter::Settings model;
+        ModelCooker::Settings model;
     };
 
     std::deque<Pending> queue;
@@ -30,12 +28,11 @@ struct ImportDialog
     // bool _focus_pending = false;
     bool focus_name = false;
 
-    bool push(const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir);
+    bool push(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir);
     void clear();
     void draw(EditorContext& ctx);
     void _draw_header(Pending& r_pending);
-    void _draw_texture(TextureCooker::CookSettings& r_settings);
-    void _draw_model(ModelImporter::Settings& r_settings);
+    void _draw_model(ModelCooker::Settings& r_settings);
     // void _draw_footer(EditorContext& ctx, Pending& r_pending, bool p_closed);
     void _draw_footer(EditorContext& ctx, Pending& r_pending);
     void _start(EditorContext& ctx, Pending& r_pending);

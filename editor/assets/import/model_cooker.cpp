@@ -1,4 +1,4 @@
-#include <editor/assets/import/model_importer.h>
+#include <editor/assets/import/model_cooker.h>
 #include <editor/application/editor_context.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmodel.h>
@@ -58,12 +58,12 @@ static MapRef _resolve_mask(const aiMaterial* p_mat, const std::filesystem::path
         aiString ref;
         if (p_mat->GetTexture(type, 0, &ref) != AI_SUCCESS || ref.length == 0) continue;
         if (ref.C_Str()[0] == '*') {
-            log_write("ModelImporter: embedded textures in %s are not supported yet.", p_model.string().c_str());
+            log_write("ModelCooker: embedded textures in %s are not supported yet.", p_model.string().c_str());
             continue;
         }
         const std::filesystem::path path = _texture_path(p_source_dir, ref);
         if (path.empty()) {
-            log_write("ModelImporter: texture '%s' not found.", ref.C_Str());
+            log_write("ModelCooker: texture '%s' not found.", ref.C_Str());
             continue;
         }
         return { path, _alpha_cutoff(p_mat) };
@@ -76,7 +76,7 @@ static bool _same_texture(const TextureCooker::Job& p_job, const MapRef& p_ref)
     return p_job.source == p_ref.source;
 }
 
-static std::vector<TextureCooker::Job> _texture_jobs(const ModelImporter::Job& p_job, const std::vector<MapRef>& p_masks, std::vector<std::filesystem::path>& r_finals)
+static std::vector<TextureCooker::Job> _texture_jobs(const ModelCooker::Job& p_job, const std::vector<MapRef>& p_masks, std::vector<std::filesystem::path>& r_finals)
 {
     std::vector<TextureCooker::Job> jobs;
     std::vector<std::filesystem::path> used;
@@ -102,7 +102,7 @@ static std::vector<TextureCooker::Job> _texture_jobs(const ModelImporter::Job& p
         tex.settings.alpha_cutoff = r.alpha_cutoff;
         std::filesystem::path content_bin;
         if (AssetImportTracker::resolve_import(*p_job.project, AssetType::TEXTURE, dst, tex.guid, content_bin) != Error::OK) {
-            log_write("ModelImporter: '%s' exists and is not a texture.", dst.string().c_str());
+            log_write("ModelCooker: '%s' exists and is not a texture.", dst.string().c_str());
             continue;
         }
         const ImportSession::Staged staged = p_job.session->stage(*p_job.project, dst, tex.guid, true, false);
@@ -152,7 +152,7 @@ static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textur
     return m;
 }
 
-static std::vector<Guid> _import_materials(const ModelImporter::Job& p_job, const aiScene* p_scene, const std::vector<uint32_t>& p_slots, const std::vector<MapRef>& p_masks, const std::vector<TextureCooker::Job>& p_textures)
+static std::vector<Guid> _import_materials(const ModelCooker::Job& p_job, const aiScene* p_scene, const std::vector<uint32_t>& p_slots, const std::vector<MapRef>& p_masks, const std::vector<TextureCooker::Job>& p_textures)
 {
     struct Existing {
         Guid guid;
@@ -199,7 +199,7 @@ static std::vector<Guid> _import_materials(const ModelImporter::Job& p_job, cons
         m.import.source = source;
         m.import.name = original;
         if (m.save(p_job.session->stage(*p_job.project, dst, m.guid, false, false).asset) != Error::OK) {
-            log_write("ModelImporter: failed to write '%s'.", dst.string().c_str());
+            log_write("ModelCooker: failed to write '%s'.", dst.string().c_str());
             p_job.session->unstage(dst);
             continue;
         }
@@ -250,7 +250,7 @@ static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, con
     }
 }
 
-Error ModelImporter::_import(const Job& p_job)
+Error ModelCooker::_import(const Job& p_job)
 {
     using enum Error;
     ImportSession& session = *p_job.session;
@@ -264,7 +264,7 @@ Error ModelImporter::_import(const Job& p_job)
     const aiScene* scene = importer.ReadFile(p_job.source.string(), MeshCooker::import_flags());
     if (root.cancelled()) return CANCELED;
     if (!scene) {
-        log_write("ModelImporter: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
+        log_write("ModelCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return FAILED;
     }
 
@@ -308,7 +308,7 @@ Error ModelImporter::_import(const Job& p_job)
         const Error err = TextureCooker::_cook(tex);
         if (root.cancelled()) return CANCELED;
         if (err == OK) continue;
-        log_write("ModelImporter: failed to cook texture '%s'.", tex.source.string().c_str());
+        log_write("ModelCooker: failed to cook texture '%s'.", tex.source.string().c_str());
         session.unstage(texture_finals[i]);
         tex.guid = {};
     }
@@ -326,14 +326,14 @@ Error ModelImporter::_import(const Job& p_job)
     model.import.source = p_job.source.generic_string();
     model.import.mode = p_job.settings.mode;
     if (model.save(session.stage(*p_job.project, p_job.dst_lmodel, p_job.model_guid, false, true).asset) != OK) {
-        log_write("ModelImporter: failed to write '%s'.", p_job.dst_lmodel.string().c_str());
+        log_write("ModelCooker: failed to write '%s'.", p_job.dst_lmodel.string().c_str());
         return FAILED;
     }
     root.report(1.0f);
     return OK;
 }
 
-void ModelImporter::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings)
+void ModelCooker::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings)
 {
     const ModelLocation loc = _model_location(p_dst_dir, p_src, p_settings.name);
 
@@ -366,7 +366,7 @@ void ModelImporter::import_async(EditorContext& ctx, const std::filesystem::path
     if (!session) return;
     job.session = session.get();
     job_system().run_background_owned([job, session]{
-        session->finish(ModelImporter::_import(job));
+        session->finish(ModelCooker::_import(job));
     }, nullptr, "Model Import");
 }
 

@@ -46,11 +46,9 @@ void main() {
             uvec2 ref = pc.cluster_refs.data[ref_idx];
             Instance instance = pc.instances.data[ref.x];
             mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
-            Cluster cluster = pc.geometry.clusters.data[ref.y];
-
-            float scale = transform_max_scale(model);
-            vec3 center = (model * vec4(cluster.cull_sphere.xyz, 1.0)).xyz;
-            occluded = hiz_occluded(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, center, cluster.cull_sphere.w * scale);
+            vec3 box_min, box_extent;
+            cluster_box(pc.geometry, pc.geometry.meshes.data[instance.mesh_id], ref.y, box_min, box_extent);
+            occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, box_min, box_extent);
         }
     }
 

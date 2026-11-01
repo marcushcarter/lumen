@@ -13,6 +13,18 @@ enum class AlphaMode : uint8_t { NONE, MASKED, BLEND };
 const char* alpha_mode_name(AlphaMode p_mode);
 AlphaMode alpha_mode_from_name(const std::string& p_name, AlphaMode p_fallback);
 
+struct LMaterialPayloadHeader
+{
+    Guid mask_texture;
+    float alpha_cutoff;
+    uint8_t alpha_mode;
+    uint8_t two_sided;
+    uint8_t _pad[2];
+};
+
+static_assert(sizeof(LMaterialPayloadHeader) == 16, "LMaterialPayloadHeader layout changed");
+static_assert(std::is_trivially_copyable_v<LMaterialPayloadHeader>, "must be blittable");
+
 struct LMaterial
 {
     struct ImportRecord {
@@ -22,21 +34,13 @@ struct LMaterial
         bool operator==(const ImportRecord&) const = default;
     };
 
-    struct Cooked {
-        Guid mask_texture;
-        float alpha_cutoff;
-        uint8_t alpha_mode;
-        uint8_t two_sided;
-        uint8_t _pad[2];
-    };
-
     Guid guid;
 
     AlphaMode alpha_mode = AlphaMode::NONE;
     bool two_sided = false;
-    float alpha_cutoff = 0.5f;
     Guid mask_texture;
-
+    float alpha_cutoff = 0.5f;
+    
     ImportRecord import;
 
     Error load(const std::filesystem::path& p_path);
@@ -46,8 +50,5 @@ struct LMaterial
 
     bool operator==(const LMaterial&) const = default;
 };
-
-static_assert(sizeof(LMaterial::Cooked) == 16, "LMaterial::Cooked layout changed");
-static_assert(std::is_trivially_copyable_v<LMaterial::Cooked>);
 
 }

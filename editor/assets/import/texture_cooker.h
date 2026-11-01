@@ -12,6 +12,11 @@ TextureUsage texture_usage_guess(const std::filesystem::path& p_src);
 
 struct TextureCooker
 {
+    static constexpr float LOAD_SHARE = 0.08f;
+    static constexpr float MIPS_SHARE = 0.15f;
+    static constexpr float ENCODE_END = 0.97f;
+    static constexpr uint32_t ENCODE_STRIP_ROWS = 128;
+
     struct CookSettings {
         TextureUsage usage = TextureUsage::COLOR;
         // TextureQuality quality = TextureQuality::BEST;
@@ -31,10 +36,11 @@ struct TextureCooker
         std::filesystem::path content_bin;
         Guid guid;
         CookSettings settings;
-        std::shared_ptr<ImportControl> progress;
+        ImportStep step;
     };
 
     static Error _cook(const Job& p_job);
+    static uint64_t cost(const std::filesystem::path& p_src, const CookSettings& p_settings);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const CookSettings& p_settings = {});
 };

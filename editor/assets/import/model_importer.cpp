@@ -76,7 +76,7 @@ static bool _same_texture(const TextureCooker::Job& p_job, const MapRef& p_ref)
     return p_job.source == p_ref.source;
 }
 
-static std::vector<TextureCooker::Job> _texture_jobs(const ModelImporter::Job& p_job, const std::vector<MapRef>& p_masks)
+static std::vector<TextureCooker::Job> _texture_jobs(const ModelImporter::Job& p_job, const std::vector<MapRef>& p_masks, std::vector<std::filesystem::path>& r_finals)
 {
     std::vector<TextureCooker::Job> jobs;
     std::vector<std::filesystem::path> used;
@@ -100,13 +100,16 @@ static std::vector<TextureCooker::Job> _texture_jobs(const ModelImporter::Job& p
         tex.settings.usage = TextureUsage::COLOR;
         tex.settings.source_channel = -1;
         tex.settings.alpha_cutoff = r.alpha_cutoff;
-        if (AssetImportTracker::resolve_import(*p_job.project, AssetType::TEXTURE, dst, tex.guid, tex.content_bin) != Error::OK) {
+        std::filesystem::path content_bin;
+        if (AssetImportTracker::resolve_import(*p_job.project, AssetType::TEXTURE, dst, tex.guid, content_bin) != Error::OK) {
             log_write("ModelImporter: '%s' exists and is not a texture.", dst.string().c_str());
             continue;
         }
-        tex.progress = std::make_shared<ImportControl>();
-        if (p_job.progress) p_job.progress->push_child({ dst, tex.guid, tex.content_bin, tex.progress });
+        const ImportSession::Staged staged = p_job.session->stage(*p_job.project, dst, tex.guid, true, false);
+        tex.dst_ltexture = staged.asset;
+        tex.content_bin = staged.content_bin;
         jobs.push_back(std::move(tex));
+        r_finals.push_back(dst);
     }
     return jobs;
 }
@@ -129,6 +132,13 @@ static std::string _material_file_name(std::string p_name, uint32_t p_slot)
     while (!p_name.empty() && p_name.front() == ' ') p_name.erase(p_name.begin());
     if (p_name.empty()) p_name = "Material_" + std::to_string(p_slot);
     return p_name;
+}
+
+static uint64_t _scene_triangles(const aiScene* p_scene)
+{
+    uint64_t tris = 0;
+    for (uint32_t i = 0; i < p_scene->mNumMeshes; i++) tris += p_scene->mMeshes[i]->mNumFaces;
+    return tris;
 }
 
 static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textures, const aiMaterial* p_mat, const MapRef& p_mask)
@@ -181,15 +191,16 @@ static std::vector<Guid> _import_materials(const ModelImporter::Job& p_job, cons
         for (uint32_t i = 0;; ++i) {
             const std::string candidate = i == 0 ? name : name + " " + std::to_string(i);
             dst = p_job.dst_dir / std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(candidate.data()), candidate.size())).concat(".lmaterial");
-            if (!std::filesystem::exists(dst, ec)) break;
+            if (!std::filesystem::exists(dst, ec) && !p_job.session->staged_exists(dst)) break;
         }
 
         LMaterial m = _build_material(p_textures, mat, p_masks[s]);
         m.guid = Guid::generate();
         m.import.source = source;
         m.import.name = original;
-        if (m.save(dst) != Error::OK) {
+        if (m.save(p_job.session->stage(*p_job.project, dst, m.guid, false, false).asset) != Error::OK) {
             log_write("ModelImporter: failed to write '%s'.", dst.string().c_str());
+            p_job.session->unstage(dst);
             continue;
         }
         out[s] = m.guid;
@@ -242,9 +253,16 @@ static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, con
 Error ModelImporter::_import(const Job& p_job)
 {
     using enum Error;
+    ImportSession& session = *p_job.session;
+    const ImportStep root = session.step();
 
     Assimp::Importer importer;
+    // The importer owns and deletes its progress handler.
+    AssimpImportProgress* read_progress = new AssimpImportProgress();
+    read_progress->step = root.sub(0.0f, READ_END);
+    importer.SetProgressHandler(read_progress);
     const aiScene* scene = importer.ReadFile(p_job.source.string(), MeshCooker::import_flags());
+    if (root.cancelled()) return CANCELED;
     if (!scene) {
         log_write("ModelImporter: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return FAILED;
@@ -254,24 +272,45 @@ Error ModelImporter::_import(const Job& p_job)
     const std::vector<uint32_t> slots = MeshCooker::material_slots(scene);
     std::vector<MapRef> masks;
     std::vector<TextureCooker::Job> textures;
+    std::vector<std::filesystem::path> texture_finals;
     if (full) {
         const std::filesystem::path source_dir = p_job.source.parent_path();
         for (uint32_t index : slots) masks.push_back(_resolve_mask(scene->mMaterials[index], source_dir, p_job.source));
-        textures = _texture_jobs(p_job, masks);
+        textures = _texture_jobs(p_job, masks, texture_finals);
     }
+
+    // Bar shares come from rough relative costs: LOD-DAG build per triangle vs BC encode per texel.
+    std::vector<uint64_t> tex_cost(textures.size());
+    const uint64_t mesh_cost = std::max<uint64_t>(_scene_triangles(scene) * MESH_COST_PER_TRI, 1);
+    uint64_t total_cost = mesh_cost;
+    for (size_t i = 0; i < textures.size(); i++) total_cost += tex_cost[i] = TextureCooker::cost(textures[i].source, textures[i].settings);
+    const float work_span = 1.0f - READ_END - SAVE_SHARE;
+    float at = READ_END;
+    auto next_step = [&](uint64_t p_cost) {
+        const float from = at;
+        at += work_span * (float)((double)p_cost / (double)total_cost);
+        return root.sub(from, at);
+    };
 
     MeshCooker::Job mesh;
     mesh.source = p_job.source;
-    mesh.dst_lmesh = p_job.dst_lmesh;
-    mesh.content_bin = p_job.mesh_content_bin;
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
-    mesh.progress = p_job.progress;
-    if (MeshCooker::cook_scene(mesh, scene) != OK) return FAILED;
-    for (const TextureCooker::Job& tex : textures) {
-        if (TextureCooker::_cook(tex) == OK) continue;
+    const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, false);
+    mesh.dst_lmesh = mesh_staged.asset;
+    mesh.content_bin = mesh_staged.content_bin;
+    mesh.step = next_step(mesh_cost);
+    if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
+
+    for (size_t i = 0; i < textures.size(); i++) {
+        TextureCooker::Job& tex = textures[i];
+        tex.step = next_step(tex_cost[i]);
+        const Error err = TextureCooker::_cook(tex);
+        if (root.cancelled()) return CANCELED;
+        if (err == OK) continue;
         log_write("ModelImporter: failed to cook texture '%s'.", tex.source.string().c_str());
-        if (!tex.progress->cancel.load(std::memory_order_relaxed)) tex.progress->progress.store(1.0f, std::memory_order_relaxed);
+        session.unstage(texture_finals[i]);
+        tex.guid = {};
     }
 
     LModel model;
@@ -286,33 +325,28 @@ Error ModelImporter::_import(const Job& p_job)
     }
     model.import.source = p_job.source.generic_string();
     model.import.mode = p_job.settings.mode;
-    if (model.save(p_job.dst_lmodel) != OK) {
+    if (model.save(session.stage(*p_job.project, p_job.dst_lmodel, p_job.model_guid, false, true).asset) != OK) {
         log_write("ModelImporter: failed to write '%s'.", p_job.dst_lmodel.string().c_str());
         return FAILED;
     }
+    root.report(1.0f);
     return OK;
 }
 
 void ModelImporter::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings)
 {
     const ModelLocation loc = _model_location(p_dst_dir, p_src);
-    const std::filesystem::path& folder = loc.folder;
-    std::error_code dir_ec;
-    std::filesystem::create_directories(folder, dir_ec);
-    if (dir_ec) {
-        log_write("Model import failed: cannot create '%s'.", folder.string().c_str());
-        return;
-    }
 
     Job job;
     job.project = ctx.project;
     job.source = p_src;
-    job.dst_dir = folder;
+    job.dst_dir = loc.folder;
     job.settings = p_settings;
     job.dst_lmesh = loc.lmesh;
     job.dst_lmodel = loc.lmodel;
 
-    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::MESH, job.dst_lmesh, job.mesh_guid, job.mesh_content_bin) != Error::OK) {
+    std::filesystem::path mesh_content_bin;
+    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::MESH, job.dst_lmesh, job.mesh_guid, mesh_content_bin) != Error::OK) {
         log_write("Model import failed: %s", p_src.string().c_str());
         return;
     }
@@ -328,10 +362,11 @@ void ModelImporter::import_async(EditorContext& ctx, const std::filesystem::path
         job.model_guid = Guid::generate();
     }
 
-    job.progress = ctx.imports->add(job.dst_lmesh, job.mesh_guid, job.mesh_content_bin, nullptr, false);
-    ctx.imports->add(job.dst_lmodel, job.model_guid, {}, job.progress, true);
-    job_system().run_background_owned([job]{
-        if (ModelImporter::_import(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
+    std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, loc.folder);
+    if (!session) return;
+    job.session = session.get();
+    job_system().run_background_owned([job, session]{
+        session->finish(ModelImporter::_import(job));
     }, nullptr, "Model Import");
 }
 

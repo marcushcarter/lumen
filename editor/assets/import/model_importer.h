@@ -13,6 +13,10 @@ struct Project;
 
 struct ModelImporter
 {
+    static constexpr float READ_END = 0.1f;
+    static constexpr float SAVE_SHARE = 0.02f;
+    static constexpr uint64_t MESH_COST_PER_TRI = 8;
+
     struct Settings {
         ModelImportMode mode = ModelImportMode::FULL;
         MeshCooker::CookSettings mesh_settings;
@@ -25,11 +29,10 @@ struct ModelImporter
         std::filesystem::path dst_dir;
         std::filesystem::path dst_lmodel;
         std::filesystem::path dst_lmesh;
-        std::filesystem::path mesh_content_bin;
         Guid model_guid;
         Guid mesh_guid;
         Settings settings;
-        std::shared_ptr<ImportControl> progress;
+        ImportSession* session = nullptr;
     };
 
     static Error _import(const Job& p_job);

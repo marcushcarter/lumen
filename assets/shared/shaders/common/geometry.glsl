@@ -60,6 +60,7 @@ layout(buffer_reference, scalar) readonly buffer BVHNodeBuffer { BVHNode data[];
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
 layout(buffer_reference, scalar) readonly buffer UintBuffer { uint data[]; };
 layout(buffer_reference, scalar, buffer_reference_align = 16) readonly buffer ClusterVertexBuffer { uvec4 data[]; };
+layout(buffer_reference, scalar) readonly buffer ClusterBoundsBuffer { uvec3 data[]; };
 
 const uint LOCAL_TRI_SLOT_OVERFLOW = 255u;
 const uint CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
@@ -85,7 +86,16 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     ClusterVertexBuffer cluster_vertices; // per (cluster, local vertex): position (xy) + attributes (zw), contiguous per cluster
     MaterialBuffer materials; // indexed by slot_table entries, 0 = default material
     UintBuffer cluster_slots; // per cluster: the slot every triangle uses, CLUSTER_SLOT_MIXED if they differ
+    ClusterBoundsBuffer cluster_bounds; // per cluster: 16-bit mesh-space AABB, same quantization as vertex positions
 };
+
+void cluster_box(GeometryBuffer p_geometry, Mesh p_mesh, uint p_cluster, out vec3 r_min, out vec3 r_extent) {
+    const uvec3 q = p_geometry.cluster_bounds.data[p_cluster];
+    const vec3 lo = vec3(q.x & 0xFFFFu, q.x >> 16u, q.y & 0xFFFFu) / 65535.0;
+    const vec3 hi = vec3(q.y >> 16u, q.z & 0xFFFFu, q.z >> 16u) / 65535.0;
+    r_min = p_mesh.pos_min + lo * p_mesh.pos_extent;
+    r_extent = (hi - lo) * p_mesh.pos_extent;
+}
 
 uint slot_material(uint p_entry) { return p_entry & SLOT_MATERIAL_MASK; }
 uint slot_bin(uint p_entry) { return p_entry >> SLOT_BIN_SHIFT; }

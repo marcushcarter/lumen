@@ -3,7 +3,6 @@
 #include <core/assets/asset_common.h>
 #include <core/base/error.h>
 #include <filesystem>
-#include <unordered_map>
 #include <memory>
 #include <atomic>
 #include <mutex>
@@ -12,38 +11,55 @@
 namespace lumen {
 
 struct Project;
+struct ImportSession;
 
-struct ImportControl;
-
-struct ImportChild
+struct ImportStep
 {
-    std::filesystem::path dst;
-    Guid guid;
-    std::filesystem::path content_bin;
-    std::shared_ptr<ImportControl> control;
+    ImportSession* session = nullptr;
+    float base = 0.0f;
+    float span = 1.0f;
+
+    bool cancelled() const;
+    void report(float p_t) const;
+    ImportStep sub(float p_from, float p_to) const { return { session, base + span * p_from, span * (p_to - p_from) }; }
 };
 
-struct ImportControl
+struct ImportSession
 {
+    enum class State : uint8_t { RUNNING, DONE, FAILED };
+
+    struct Staged {
+        std::filesystem::path asset;
+        std::filesystem::path content_bin;
+    };
+
+    struct Output {
+        Staged staged;
+        std::filesystem::path asset;
+        std::filesystem::path content_bin;
+        Guid guid;
+        bool notify = false;
+    };
+
+    std::filesystem::path dst;
+    std::filesystem::path assets_dir;
+    std::filesystem::path staging;
     std::atomic<float> progress{ 0.0f };
     std::atomic<bool> cancel{ false };
-    std::mutex children_mutex;
-    std::vector<ImportChild> children;
+    std::atomic<State> state{ State::RUNNING };
+    std::mutex outputs_mutex;
+    std::vector<Output> outputs;
 
-    void push_child(ImportChild p_child) {
-        std::lock_guard lock(children_mutex);
-        children.push_back(std::move(p_child));
-    }
+    Staged stage(const Project& p_project, const std::filesystem::path& p_asset, Guid p_guid, bool p_content, bool p_notify);
+    void unstage(const std::filesystem::path& p_asset);
+    bool staged_exists(const std::filesystem::path& p_asset);
+    void finish(Error p_err) { state.store(p_err == Error::OK ? State::DONE : State::FAILED, std::memory_order_release); }
+    ImportStep step() { return { this, 0.0f, 1.0f }; }
 };
 
 struct AssetImportTracker
 {
-    struct Pending {
-        std::shared_ptr<ImportControl> progress;
-        Guid guid;
-        std::filesystem::path content_bin;
-        bool notify = true;
-    };
+    static constexpr const char* STAGING_DIR = "Import";
 
     struct Completed {
         Guid guid;
@@ -52,15 +68,20 @@ struct AssetImportTracker
         bool notify = true;
     };
 
-    std::unordered_map<std::filesystem::path, Pending> pending;
+    std::vector<std::shared_ptr<ImportSession>> sessions;
     std::vector<Completed> completed;
 
-    std::shared_ptr<ImportControl> add(const std::filesystem::path& p_dst, Guid p_guid, const std::filesystem::path& p_content_bin, std::shared_ptr<ImportControl> p_shared = nullptr, bool p_notify = true);
-    float progress(const std::filesystem::path& p_dst);
+    std::shared_ptr<ImportSession> begin(const Project& p_project, const std::filesystem::path& p_dst);
+    ImportSession* find(const std::filesystem::path& p_dst) const;
+    float progress(const std::filesystem::path& p_dst) const;
+    void cancel(const std::filesystem::path& p_dst);
+    bool busy() const { return !sessions.empty(); }
     void tick();
+    void _commit(ImportSession& r_session);
 
     std::vector<std::filesystem::path> pending_out(const std::filesystem::path& p_folder) const;
 
+    static void clear_staging(const Project& p_project);
     static Error resolve_import(const Project& p_project, AssetType p_type, const std::filesystem::path& p_dest, Guid& r_guid, std::filesystem::path& r_content_bin);
 };
 

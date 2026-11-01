@@ -240,7 +240,7 @@ void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
     r_src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, p_lod0_tri_count });
 }
 
-bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
+bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
@@ -248,6 +248,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
 
     _pack_vertices(verts, r_src);
+    p_step.report(MeshCooker::GATHER_SHARE);
     r_src.indices = std::move(indices);
     if (!skin.empty()) r_src.skin_vertices = std::move(skin);
 
@@ -258,7 +259,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     return true;
 }
 
-bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
+bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
@@ -266,6 +267,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
 
     _pack_vertices(verts, r_src);
+    p_step.report(MeshCooker::GATHER_SHARE);
     if (!skin.empty()) r_src.skin_vertices = std::move(skin);
 
     meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), verts.size());
@@ -279,7 +281,9 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     return true;
 }
 
-bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, MeshSource& r_src)
+static constexpr float DAG_LEVEL0_SHARE = 0.15f;
+
+bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
@@ -287,6 +291,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     if (p_settings.scale != 1.0f) for (SrcVert& v : verts) v.p *= p_settings.scale;
 
     _pack_vertices(verts, r_src);
+    p_step.report(MeshCooker::GATHER_SHARE);
     if (!skin.empty()) r_src.skin_vertices = std::move(skin);
 
     const float scale = meshopt_simplifyScale(&verts[0].p.x, verts.size(), sizeof(SrcVert));
@@ -299,6 +304,10 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     const uint32_t lod0_tri_count = (uint32_t)flat.size() / 3;
     std::vector<uint32_t> cur;
     for (uint32_t c = lvl0.first; c < lvl0.second; c++) cur.push_back(c);
+
+    const ImportStep dag_step = p_step.sub(MeshCooker::GATHER_SHARE, MeshCooker::BUILD_END);
+    const float lod0_clusters = (float)std::max<size_t>(cur.size(), 1);
+    dag_step.report(DAG_LEVEL0_SHARE);
 
     for (uint32_t L = 1; L < p_settings.max_levels && cur.size() > 1; L++) {
         const size_t cluster_count = cur.size();
@@ -330,7 +339,11 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
         std::vector<uint32_t> next;
         bool any_progress = false;
 
+        const float level_from = 1.0f - (float)cluster_count / lod0_clusters;
+        const float level_to = 1.0f - (float)cluster_count * 0.5f / lod0_clusters;
         for (size_t g = 0; g < group_count; g++) {
+            if (p_step.cancelled()) return false;
+            dag_step.report(DAG_LEVEL0_SHARE + (1.0f - DAG_LEVEL0_SHARE) * (level_from + (level_to - level_from) * (float)g / (float)group_count));
             std::vector<uint32_t> members;
             std::vector<uint32_t> gidx;
             std::vector<vec4> child_spheres;
@@ -403,41 +416,28 @@ std::vector<uint32_t> MeshCooker::material_slots(const aiScene* p_scene)
 
 unsigned MeshCooker::import_flags() { return aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality | aiProcess_FlipUVs; }
 
-Error MeshCooker::_cook(const Job& p_job)
-{
-    if (p_job.progress) p_job.progress->progress.store(0.0f, std::memory_order_relaxed);
-    Assimp::Importer importer;
-    const aiScene* scene = importer.ReadFile(p_job.source.string(), import_flags());
-    if (!scene) {
-        log_write("MeshCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
-        return Error::FAILED;
-    }
-    return cook_scene(p_job, scene);
-}
-
 Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
 {
     using enum Error;
 
-    auto report = [&](float v){ if (p_job.progress) p_job.progress->progress.store(v, std::memory_order_relaxed); };
+    const ImportStep& step = p_job.step;
     const aiScene* scene = p_scene;
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode || scene->mNumMeshes == 0) {
         log_write("MeshCooker: no usable scene in %s", p_job.source.string().c_str());
         return FAILED;
     }
 
-    report(0.3f);
-
     MeshSource src;
     bool ok = false;
     switch (p_job.settings.dag_level) {
-        case MeshDagLevel::FLAT: ok = _load_single_cluster(scene, p_job.settings, src); break;
-        case MeshDagLevel::CLUSTERED: ok = _load_clustered(scene, p_job.settings, src); break;
-        case MeshDagLevel::CLUSTERED_DAG: ok = _load_clustered_dag(scene, p_job.settings, src); break;
+        case MeshDagLevel::FLAT: ok = _load_single_cluster(scene, p_job.settings, step, src); break;
+        case MeshDagLevel::CLUSTERED: ok = _load_clustered(scene, p_job.settings, step, src); break;
+        case MeshDagLevel::CLUSTERED_DAG: ok = _load_clustered_dag(scene, p_job.settings, step, src); break;
     }
+    if (step.cancelled()) return CANCELED;
     if (!ok) { log_write("MeshCooker: %s produced no geometry", p_job.source.string().c_str()); return FAILED; }
 
-    report(0.8f);
+    step.report(BUILD_END);
 
     const bool skinned = !src.skin_vertices.empty();
 
@@ -494,8 +494,6 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     if (skin_bytes) f.write(reinterpret_cast<const char*>(src.skin_vertices.data()), skin_bytes);
     if (bvhn_bytes) f.write(reinterpret_cast<const char*>(src.bvh_nodes.data()), bvhn_bytes);
 
-    report(0.95f);
-
     toml::table tbl {
         { "asset", toml::table{
             { "version", static_cast<int64_t>(LASSET_VERSION) },
@@ -515,24 +513,8 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;
 
-    report(1.0f);
+    step.report(1.0f);
     return OK;
-}
-
-void MeshCooker::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const MeshCooker::CookSettings& p_settings)
-{
-    Job job;
-    job.source = p_src;
-    job.dst_lmesh = p_dst;
-    job.settings = p_settings;
-    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::MESH, p_dst, job.guid, job.content_bin) != Error::OK) {
-        log_write("Mesh import failed: %s", p_src.string().c_str());
-        return;
-    }
-    job.progress = ctx.imports->add(p_dst, job.guid, job.content_bin);
-    job_system().run_background_owned([job]{
-        if (MeshCooker::_cook(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
-    }, nullptr, "Mesh Import");
 }
 
 }

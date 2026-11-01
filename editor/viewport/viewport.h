@@ -22,7 +22,6 @@ struct Viewport
     drivers::CursorLockWin32 cursor_lock;
 
     int selected_view = 0;
-    float screen_percentage = 1.0f;
     float item_w = 240.0f;
     bool gizmo_world = true;
     bool popup_open_last_frame = false;

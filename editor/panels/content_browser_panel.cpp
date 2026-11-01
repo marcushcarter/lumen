@@ -505,6 +505,19 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_card(EditorContext& ctx, I
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     const ImVec2 p1(p0.x + size.x, p0.y + size.y);
 
+    const bool cancellable = p_progress >= 0.0f && p_progress < 1.0f;
+    const float cs = ImFloor(ImGui::GetFontSize() + ui.dock_tab.close_size_pad);
+    const ImVec2 ca(ImFloor(p1.x - cs - pad), ImFloor(p0.y + pad));
+    const ImVec2 cb(ca.x + cs, ca.y + cs);
+    bool close_hot = false;
+    if (cancellable) {
+        ImGui::SetCursorScreenPos(ca);
+        if (ImGui::InvisibleButton("##cancel_import", ImVec2(cs, cs))) cancel_request = p_path;
+        close_hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Cancel import");
+        ImGui::SetCursorScreenPos(p0);
+    }
+
     ImGui::SetNextItemAllowOverlap();
     result.clicked = ImGui::InvisibleButton("##card", size);
     const bool hovered = ImGui::IsItemHovered();
@@ -533,7 +546,8 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_card(EditorContext& ctx, I
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 bg = selected ? ImGui::GetColorU32(hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header) : hovered ? ui.color.field_hover : ui.color.field;
+    const bool hot = hovered || close_hot;
+    const ImU32 bg = selected ? ImGui::GetColorU32(hot ? ImGuiCol_HeaderHovered : ImGuiCol_Header) : hot ? ui.color.field_hover : ui.color.field;
     dl->AddRectFilled(p0, p1, bg);
 
     const ImVec2 thumb0 = p0;
@@ -576,6 +590,15 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_card(EditorContext& ctx, I
         if (w > 0.5f) dl->AddRectFilled(bar0, ImVec2(bar0.x + w, p1.y), ImGui::GetColorU32(ImGuiCol_Button));
     }
 
+    if (cancellable) {
+        const ImVec2 c(ca.x + cs * 0.5f, ca.y + cs * 0.5f);
+        const float r = ImFloor(cs * ui.dock_tab.close_glyph_scale) + 0.5f;
+        if (close_hot) dl->AddRectFilled(ca, cb, ui.color.line, ui.dock_tab.close_rounding);
+        const ImU32 xc = close_hot ? ui.color.text : ui.color.text_dim;
+        dl->AddLine(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), xc, ui.dock_tab.close_glyph_stroke);
+        dl->AddLine(ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), xc, ui.dock_tab.close_glyph_stroke);
+    }
+
     return result;
 }
 
@@ -601,7 +624,7 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
             if (query.empty() || dir->entries[k].lower_name.find(query) != std::string::npos) _visible.push_back(k);
         }
 
-        const bool importing = !ctx.imports->pending.empty();
+        const bool importing = ctx.imports->busy();
         std::vector<std::filesystem::path> pending;
         if (importing) {
             for (const std::filesystem::path& ppath : ctx.imports->pending_out(selected_folder)) {
@@ -639,8 +662,12 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
 
                     if (index >= (uint32_t)_visible.size()) {
                         const std::filesystem::path& ppath = pending[index - _visible.size()];
+                        const float pprogress = ctx.imports->progress(ppath);
+                        char ptype[32];
+                        snprintf(ptype, sizeof(ptype), "Importing %d%%", (int)(ImMax(pprogress, 0.0f) * 100.0f));
+                        const std::string pname = (ppath.has_extension() && ppath.extension() != ".ltexture" ? ppath.filename() : ppath.stem()).string();
                         ImGui::PushID((int)index);
-                        _card(ctx, 0, ICON_FA_FILE_IMPORT, ImGui::GetColorU32(ImGuiCol_TextDisabled), ppath.stem().string().c_str(), "Importing", ppath, ctx.imports->progress(ppath), true);
+                        _card(ctx, 0, ICON_FA_FILE_IMPORT, ImGui::GetColorU32(ImGuiCol_TextDisabled), pname.c_str(), ptype, ppath, pprogress, true);
                         ImGui::PopID();
                         continue;
                     }
@@ -710,6 +737,7 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
         }
 
         if (!cancel_request.empty()) {
+            ctx.imports->cancel(cancel_request);
             cancel_request.clear();
         }
 

@@ -12,6 +12,7 @@
 #include <vulkan/vulkan.h>
 #include <rdo_bc_encoder.h>
 #include <utils.h>
+#include <stb_image.h>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -177,11 +178,12 @@ Error TextureCooker::_cook(const Job& p_job)
 {
     using enum Error;
 
-    auto report = [&](float v){ if (p_job.progress) p_job.progress->progress.store(v, std::memory_order_relaxed); };
-    report(0.0f);
+    const ImportStep& step = p_job.step;
 
     auto img = ImageIO::load_from_file<uint8_t, 4>(p_job.source.wstring());
     if (!img.valid()) return FAILED;
+    step.report(LOAD_SHARE);
+    if (step.cancelled()) return CANCELED;
     const uint32_t width = static_cast<uint32_t>(img.width);
     const uint32_t height = static_cast<uint32_t>(img.height);
     uint8_t channels = static_cast<uint8_t>(img.source_channels);
@@ -239,33 +241,44 @@ Error TextureCooker::_cook(const Job& p_job)
     }
     const uint32_t mip_count = static_cast<uint32_t>(mips.size());
 
-    report(0.1f);
+    step.report(MIPS_SHARE);
+    if (step.cancelled()) return CANCELED;
+
+    uint64_t total_px = 0;
+    for (const auto& d : dims) total_px += (uint64_t)d.first * d.second;
+    uint64_t done_px = 0;
+    const ImportStep encode_step = step.sub(MIPS_SHARE, ENCODE_END);
+
+    rdo_bc::rdo_bc_params p;
+    p.m_dxgi_format = fmt.dxgi;
+    _apply_quality(p, cs.quality);
+    p.m_perceptual = fmt.srgb;
+    p.m_rdo_lambda = cs.rdo_lambda;
+    p.m_rdo_multithreading = true;
+    p.m_status_output = false;
+    if (fmt.bc45) { p.m_bc45_channel0 = 0; p.m_bc45_channel1 = 1; }
 
     std::vector<uint8_t> blocks;
     for (uint32_t m = 0; m < mip_count; ++m) {
         const uint32_t mw = dims[m].first, mh = dims[m].second;
-        utils::image_u8 src(mw, mh);
         const std::vector<uint8_t>& buf = mips[m];
-        for (uint32_t y = 0; y < mh; ++y) for (uint32_t x = 0; x < mw; ++x) {
-            const uint8_t* px = &buf[(static_cast<size_t>(y) * mw + x) * 4];
-            src(x, y) = utils::color_quad_u8(px[0], px[1], px[2], px[3]);
+        for (uint32_t y0 = 0; y0 < mh; y0 += ENCODE_STRIP_ROWS) {
+            const uint32_t sh = std::min(ENCODE_STRIP_ROWS, mh - y0);
+            utils::image_u8 src(mw, sh);
+            for (uint32_t y = 0; y < sh; ++y) for (uint32_t x = 0; x < mw; ++x) {
+                const uint8_t* px = &buf[(static_cast<size_t>(y0 + y) * mw + x) * 4];
+                src(x, y) = utils::color_quad_u8(px[0], px[1], px[2], px[3]);
+            }
+            rdo_bc::rdo_bc_encoder enc;
+            if (!enc.init(src, p)) return FAILED;
+            if (!enc.encode()) return FAILED;
+            const uint8_t* b = static_cast<const uint8_t*>(enc.get_blocks());
+            blocks.insert(blocks.end(), b, b + enc.get_total_blocks_size_in_bytes());
+
+            done_px += (uint64_t)mw * sh;
+            encode_step.report((float)((double)done_px / (double)total_px));
+            if (step.cancelled()) return CANCELED;
         }
-        rdo_bc::rdo_bc_params p;
-        p.m_dxgi_format = fmt.dxgi;
-        _apply_quality(p, cs.quality);
-        p.m_perceptual = fmt.srgb;
-        p.m_rdo_lambda = cs.rdo_lambda;
-        p.m_rdo_multithreading = true;
-        p.m_status_output = false;
-        if (fmt.bc45) { p.m_bc45_channel0 = 0; p.m_bc45_channel1 = 1; }
-
-        rdo_bc::rdo_bc_encoder enc;
-        if (!enc.init(src, p)) return FAILED;
-        if (!enc.encode()) return FAILED;
-        const uint8_t* b = static_cast<const uint8_t*>(enc.get_blocks());
-        blocks.insert(blocks.end(), b, b + enc.get_total_blocks_size_in_bytes());
-
-        report(0.1f + 0.8f * (float)(m + 1) / (float)mip_count);
     }
 
     LTexturePayloadHeader ph{};
@@ -293,8 +306,6 @@ Error TextureCooker::_cook(const Job& p_job)
     std::filesystem::create_directories(p_job.content_bin.parent_path(), ec);
     if (!write_file_atomic(p_job.content_bin, bin.data(), bin.size())) return FAILED;
 
-    report(0.95f);
-
     toml::table tbl {
         { "asset", toml::table{
             { "version", static_cast<int64_t>(LASSET_VERSION) },
@@ -321,23 +332,41 @@ Error TextureCooker::_cook(const Job& p_job)
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_ltexture, text.data(), text.size())) return FAILED;
 
-    report(1.0f);
+    step.report(1.0f);
     return OK;
+}
+
+uint64_t TextureCooker::cost(const std::filesystem::path& p_src, const CookSettings& p_settings)
+{
+    int w = 0, h = 0, c = 0;
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, p_src.wstring().c_str(), L"rb") != 0 || !f) return 1;
+    const bool ok = stbi_info_from_file(f, &w, &h, &c) != 0;
+    std::fclose(f);
+    if (!ok || w <= 0 || h <= 0) return 1;
+    uint64_t pw = (uint64_t)w, ph = (uint64_t)h;
+    while (p_settings.max_size > 0 && (pw > p_settings.max_size || ph > p_settings.max_size)) { pw = std::max<uint64_t>(pw / 2, 1); ph = std::max<uint64_t>(ph / 2, 1); }
+    return pw * ph * 4 / 3;
 }
 
 void TextureCooker::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const TextureCooker::CookSettings& p_settings)
 {
     Job job;
     job.source = p_src;
-    job.dst_ltexture = p_dst;
     job.settings = p_settings;
-    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::TEXTURE, p_dst, job.guid, job.content_bin) != Error::OK) {
+    std::filesystem::path content_bin;
+    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::TEXTURE, p_dst, job.guid, content_bin) != Error::OK) {
         log_write("Texture import failed: %s", p_src.string().c_str());
         return;
     }
-    job.progress = ctx.imports->add(p_dst, job.guid, job.content_bin);
-    job_system().run_background_owned([job]{
-        if (TextureCooker::_cook(job) != Error::OK && job.progress && !job.progress->cancel.load(std::memory_order_relaxed)) job.progress->progress.store(1.0f, std::memory_order_relaxed);
+    std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, p_dst);
+    if (!session) return;
+    const ImportSession::Staged staged = session->stage(*ctx.project, p_dst, job.guid, true, true);
+    job.dst_ltexture = staged.asset;
+    job.content_bin = staged.content_bin;
+    job.step = session->step();
+    job_system().run_background_owned([job, session]{
+        session->finish(TextureCooker::_cook(job));
     }, nullptr, "Texture Import");
 }
 

@@ -201,8 +201,8 @@ void Viewport::_draw_image(EditorContext& ctx)
     if (allow_outline && ctx.render_path && ctx.world && ctx.selection && ctx.render_path->outline.enabled && !ctx.selection->entities.empty()) _outline_rect(ctx, ctx.render_path->outline);
 
     if (!ImGui::IsAnyItemActive() && size.x >= 1.0f && size.y >= 1.0f) {
-        const uint32_t w = (uint32_t)ImClamp(size.x * screen_percentage, 1.0f, 8192.0f);
-        const uint32_t h = (uint32_t)ImClamp(size.y * screen_percentage, 1.0f, 8192.0f);
+        const uint32_t w = (uint32_t)ImClamp(size.x, 1.0f, 8192.0f);
+        const uint32_t h = (uint32_t)ImClamp(size.y, 1.0f, 8192.0f);
         ctx.renderer->request_size(w, h);
     }
 
@@ -255,8 +255,6 @@ void Viewport::_draw_image(EditorContext& ctx)
 
     left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
     if (left_overlay.begin_menu(ICON_FA_BARS)) {
-        float vp_res = screen_percentage * 100.0f;
-        if (ImGui::SliderFloat("Viewport Resolution", &vp_res, 25.0f, 100.0f, "%.0f%%")) screen_percentage = vp_res / 100.0f;
         float internal = ctx.renderer->main_view.render_scale * 100.0f;
         if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
         float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;

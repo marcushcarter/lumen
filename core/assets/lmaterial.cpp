@@ -107,30 +107,30 @@ Error LMaterial::load_cooked(const std::filesystem::path& p_path)
     using enum Error;
     LAssetHeader header{};
     std::vector<uint8_t> payload;
-    if (!read_cooked_asset(p_path, AssetType::MATERIAL, header, payload) || payload.size() != sizeof(Cooked)) return FAILED;
+    if (!read_cooked_asset(p_path, AssetType::MATERIAL, header, payload) || payload.size() != sizeof(LMaterialPayloadHeader)) return FAILED;
 
-    Cooked c;
-    std::memcpy(&c, payload.data(), sizeof(c));
-    if (c.alpha_mode > (uint8_t)AlphaMode::BLEND) return FAILED;
+    LMaterialPayloadHeader ph;
+    std::memcpy(&ph, payload.data(), sizeof(ph));
+    if (ph.alpha_mode > (uint8_t)AlphaMode::BLEND) return FAILED;
 
     *this = LMaterial{};
     guid = header.guid;
-    alpha_mode = (AlphaMode)c.alpha_mode;
-    two_sided = c.two_sided != 0;
-    alpha_cutoff = c.alpha_cutoff;
-    mask_texture = c.mask_texture;
+    alpha_mode = (AlphaMode)ph.alpha_mode;
+    two_sided = ph.two_sided != 0;
+    alpha_cutoff = ph.alpha_cutoff;
+    mask_texture = ph.mask_texture;
     return OK;
 }
 
 Error LMaterial::save_cooked(const std::filesystem::path& p_path) const
 {
     using enum Error;
-    Cooked c{};
-    c.mask_texture = mask_texture;
-    c.alpha_cutoff = alpha_cutoff;
-    c.alpha_mode = (uint8_t)alpha_mode;
-    c.two_sided = two_sided ? 1 : 0;
-    return write_cooked_asset(p_path, AssetType::MATERIAL, guid, &c, sizeof(c)) ? OK : FAILED;
+    LMaterialPayloadHeader ph{};
+    ph.mask_texture = mask_texture;
+    ph.alpha_cutoff = alpha_cutoff;
+    ph.alpha_mode = (uint8_t)alpha_mode;
+    ph.two_sided = two_sided ? 1 : 0;
+    return write_cooked_asset(p_path, AssetType::MATERIAL, guid, &ph, sizeof(ph)) ? OK : FAILED;
 }
 
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include <editor/assets/import/asset_import_tracker.h>
 #include <core/assets/lmesh.h>
+#include <assimp/ProgressHandler.hpp>
 #include <filesystem>
 #include <vector>
 
@@ -11,8 +12,21 @@ namespace lumen {
 struct Project;
 struct EditorContext;
 
+struct AssimpImportProgress : Assimp::ProgressHandler
+{
+    ImportStep step;
+
+    bool Update(float p_percentage) override {
+        if (p_percentage >= 0.0f) step.report(p_percentage);
+        return !step.cancelled();
+    }
+};
+
 struct MeshCooker
 {
+    static constexpr float GATHER_SHARE = 0.1f;
+    static constexpr float BUILD_END = 0.92f;
+
     struct CookSettings {
         MeshDagLevel dag_level = MeshDagLevel::CLUSTERED_DAG;
         float scale = 1.0f;
@@ -28,15 +42,12 @@ struct MeshCooker
         std::filesystem::path content_bin;
         Guid guid;
         CookSettings settings;
-        std::shared_ptr<ImportControl> progress;
+        ImportStep step;
     };
 
     static unsigned import_flags();
     static std::vector<uint32_t> material_slots(const aiScene* p_scene);
-    static Error _cook(const Job& p_job);
     static Error cook_scene(const Job& p_job, const aiScene* p_scene);
-
-    static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const CookSettings& p_settings = {});
 };
 
 }

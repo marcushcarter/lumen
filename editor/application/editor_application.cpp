@@ -237,6 +237,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     if (err != OK) project_unload();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    AssetImportTracker::clear_staging(project);
     assets.open(project.assets_dir);
     folders.clear();
     selection.clear();
@@ -383,11 +384,6 @@ void EditorApplication::_load_state()
     if (tbl.contains("layout")) {
         if (const toml::table* t = tbl["layout"].as_table()) _project_state_legacy.insert_or_assign("layout", *t);
         if (const toml::table* t = tbl["panels"].as_table()) _project_state_legacy.insert_or_assign("panels", *t);
-        if (auto sp = tbl.at_path("display.screen_percentage").value<double>()) {
-            toml::table viewport;
-            viewport.insert_or_assign("screen_percentage", *sp);
-            _project_state_legacy.insert_or_assign("viewport", std::move(viewport));
-        }
         if (const toml::table* t = tbl["project_tabs"].as_table()) _project_state_legacy.insert_or_assign("project_tabs", *t);
     }
 
@@ -498,9 +494,6 @@ toml::table EditorApplication::_project_state_write()
         panels.insert_or_assign(s.panel->layout_id, std::move(pt));
     }
 
-    toml::table viewport;
-    viewport.insert_or_assign("screen_percentage", (double)L.viewport.screen_percentage);
-
     toml::array open;
     int64_t active = 0;
     for (const EditorTab* t : tabs.tabs) {
@@ -517,7 +510,6 @@ toml::table EditorApplication::_project_state_write()
     toml::table root;
     root.insert_or_assign("layout", std::move(layout));
     root.insert_or_assign("panels", std::move(panels));
-    root.insert_or_assign("viewport", std::move(viewport));
     root.insert_or_assign("tabs", std::move(tabs_tbl));
     return root;
 }
@@ -573,10 +565,6 @@ void EditorApplication::_project_state_read(const toml::table& p_tbl)
             if (DockSlot* s = L.find(w->active_name.c_str())) w->active_name = s->panel->layout_id;
         }
     }
-
-    float& sp = world_tab.layout.viewport.screen_percentage;
-    sp = (float)tbl.at_path("viewport.screen_percentage").value_or((double)sp);
-    sp = sp < 0.01f ? 0.01f : (sp > 1.0f ? 1.0f : sp);
 
     _saved_tabs = {};
     if (const toml::table* tt = tbl.at_path("tabs").as_table()) {

@@ -6,6 +6,8 @@
 
 layout(set = 0, binding = 0) uniform texture2D u_hiz_textures[];
 
+const int HIZ_TEST_SPAN = 4;
+
 bool _hiz_rect_occluded(uint p_hiz, uint p_mips, vec2 p_screen, vec2 p_lo, vec2 p_hi, float p_nearest)
 {
     if (!(p_nearest < 1.0) || any(isnan(p_lo)) || any(isnan(p_hi)) || any(isinf(p_lo)) || any(isinf(p_hi))) return false;
@@ -17,8 +19,8 @@ bool _hiz_rect_occluded(uint p_hiz, uint p_mips, vec2 p_screen, vec2 p_lo, vec2 
     ivec2 t_hi = ivec2(px_hi) >> 1;
 
     int extent = max(t_hi.x - t_lo.x, t_hi.y - t_lo.y);
-    int mip = extent > 1 ? findMSB(extent - 1) : 0;
-    mip = min(mip, int(p_mips) - 1);
+    int mip = min(extent > 2 ? findMSB(extent - 1) - 1 : 0, int(p_mips) - 1);
+    while (mip < int(p_mips) - 1 && any(greaterThan((t_hi >> mip) - (t_lo >> mip), ivec2(HIZ_TEST_SPAN - 1)))) mip++;
 
     ivec2 size = textureSize(u_hiz_textures[p_hiz], mip);
     ivec2 a = clamp(t_lo >> mip, ivec2(0), size - 1);
@@ -29,27 +31,6 @@ bool _hiz_rect_occluded(uint p_hiz, uint p_mips, vec2 p_screen, vec2 p_lo, vec2 
         for (int x = a.x; x <= b.x; x++)
             d = min(d, texelFetch(u_hiz_textures[p_hiz], ivec2(x, y), mip).r);
     return p_nearest < d;
-}
-
-bool hiz_occluded(uint p_hiz, uint p_mips, vec2 p_screen, mat4 p_view_proj, vec3 p_center, float p_radius)
-{
-    vec4 c = p_view_proj * vec4(p_center, 1.0);
-    vec4 ax = p_view_proj[0] * p_radius;
-    vec4 ay = p_view_proj[1] * p_radius;
-    vec4 az = p_view_proj[2] * p_radius;
-
-    vec2 lo = vec2(1e30);
-    vec2 hi = vec2(-1e30);
-    float nearest = 0.0;
-    for (uint i = 0u; i < 8u; i++) {
-        vec4 p = c + (((i & 1u) != 0u) ? ax : -ax) + (((i & 2u) != 0u) ? ay : -ay) + (((i & 4u) != 0u) ? az : -az);
-        if (!(p.w > 1e-6)) return false;
-        vec3 ndc = p.xyz / p.w;
-        lo = min(lo, ndc.xy);
-        hi = max(hi, ndc.xy);
-        nearest = max(nearest, ndc.z);
-    }
-    return _hiz_rect_occluded(p_hiz, p_mips, p_screen, lo, hi, nearest);
 }
 
 bool hiz_occluded_box(uint p_hiz, uint p_mips, vec2 p_screen, mat4 p_view_proj, mat4 p_model, vec3 p_min, vec3 p_extent)

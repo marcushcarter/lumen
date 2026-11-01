@@ -30,6 +30,7 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     _arena_setup(ArenaKind::LOCAL_TRIANGLES, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_local_triangles");
     _arena_setup(ArenaKind::CLUSTER_VERTICES, sizeof(VertexPosition) + sizeof(VertexAttributes), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_cluster_vertices");
     _arena_setup(ArenaKind::CLUSTER_SLOTS, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_slots");
+    _arena_setup(ArenaKind::CLUSTER_BOUNDS, 3 * sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_bounds");
 
     address_buffers.resize(frame_count);
     for (Buffer& b : address_buffers) {
@@ -71,6 +72,7 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDevic
     a.cluster_vertices = _arena(ArenaKind::CLUSTER_VERTICES).buffer.device_address;
     a.materials = p_materials;
     a.cluster_slots = _arena(ArenaKind::CLUSTER_SLOTS).buffer.device_address;
+    a.cluster_bounds = _arena(ArenaKind::CLUSTER_BOUNDS).buffer.device_address;
 
     Buffer& b = address_buffers[p_slot];
     dd->buffer_update(b, &a, sizeof(a));
@@ -150,6 +152,7 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
     if (p_kind == ArenaKind::INDICES && _arena_grow(ArenaKind::LOCAL_TRIANGLES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_VERTEX_BASE, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_BOUNDS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::MESHLET_VERTICES && _arena_grow(ArenaKind::CLUSTER_VERTICES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (_arena_grow(p_kind, capacity, live) != Error::OK) return RangeAllocator::INVALID;
 
@@ -418,6 +421,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         if (mesh_max_tris > 256) bad = "cluster has more than 256 triangles";
     }
     std::vector<uint8_t> cluster_vertices(meshlet_verts.size() * (sizeof(VertexPosition) + sizeof(VertexAttributes)));
+    std::vector<uint32_t> cluster_bounds((size_t)ph.cluster_count * 3, 0u);
     if (!bad) {
         const VertexPosition* src_pos = reinterpret_cast<const VertexPosition*>(p_pos);
         const VertexAttributes* src_attr = reinterpret_cast<const VertexAttributes*>(p_attr);
@@ -426,6 +430,19 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
             uint8_t* dst = cluster_vertices.data() + i * (sizeof(VertexPosition) + sizeof(VertexAttributes));
             std::memcpy(dst, &src_pos[v], sizeof(VertexPosition));
             std::memcpy(dst + sizeof(VertexPosition), &src_attr[v], sizeof(VertexAttributes));
+        }
+        for (uint32_t ci = 0; ci < ph.cluster_count; ci++) {
+            const uint32_t end = ci + 1 < ph.cluster_count ? cluster_vbase[ci + 1] : (uint32_t)meshlet_verts.size();
+            u16vec3 lo(UINT16_MAX), hi(0);
+            for (uint32_t i = cluster_vbase[ci]; i < end; i++) {
+                const u16vec3 q = src_pos[meshlet_verts[i] - r.vertex].position;
+                lo = glm::min(lo, q);
+                hi = glm::max(hi, q);
+            }
+            if (end == cluster_vbase[ci]) lo = hi = u16vec3(0);
+            cluster_bounds[ci * 3 + 0] = (uint32_t)lo.x | ((uint32_t)lo.y << 16);
+            cluster_bounds[ci * 3 + 1] = (uint32_t)lo.z | ((uint32_t)hi.x << 16);
+            cluster_bounds[ci * 3 + 2] = (uint32_t)hi.y | ((uint32_t)hi.z << 16);
         }
     }
     if (!bad) {
@@ -471,6 +488,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     add(ArenaKind::MESHLET_VERTICES, r.meshlet_vertex, meshlet_verts.data(), meshlet_verts.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_VERTEX_BASE, r.cluster, cluster_vbase.data(), cluster_vbase.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_SLOTS, r.cluster, cluster_slots.data(), cluster_slots.size() * sizeof(uint32_t));
+    add(ArenaKind::CLUSTER_BOUNDS, r.cluster, cluster_bounds.data(), cluster_bounds.size() * sizeof(uint32_t));
     add(ArenaKind::LOCAL_TRIANGLES, r.tri, local_tris.data(), local_tris.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_VERTICES, r.meshlet_vertex, cluster_vertices.data(), cluster_vertices.size());
 

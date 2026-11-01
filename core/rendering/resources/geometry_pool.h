@@ -31,6 +31,7 @@ struct GeometryAddresses
     VkDeviceAddress cluster_vertices;
     VkDeviceAddress materials;
     VkDeviceAddress cluster_slots;
+    VkDeviceAddress cluster_bounds;
 };
 
 struct LMesh
@@ -77,6 +78,7 @@ struct GeometryPool
         LOCAL_TRIANGLES,
         CLUSTER_VERTICES,
         CLUSTER_SLOTS,
+        CLUSTER_BOUNDS,
         COUNT,
     };
 

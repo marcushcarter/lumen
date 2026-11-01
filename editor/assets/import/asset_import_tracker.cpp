@@ -1,41 +1,143 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <core/project/project.h>
+#include <algorithm>
 
 namespace lumen {
 
-std::shared_ptr<ImportControl> AssetImportTracker::add(const std::filesystem::path& p_dst, Guid p_guid, const std::filesystem::path& p_content_bin, std::shared_ptr<ImportControl> p_shared, bool p_notify)
+bool ImportStep::cancelled() const
 {
-    auto ctrl = p_shared ? std::move(p_shared) : std::make_shared<ImportControl>();
-    pending[p_dst] = Pending{ ctrl, p_guid, p_content_bin, p_notify };
-    return ctrl;
+    return session && session->cancel.load(std::memory_order_relaxed);
 }
 
-float AssetImportTracker::progress(const std::filesystem::path& p_dst)
+void ImportStep::report(float p_t) const
 {
-    auto it = pending.find(p_dst);
-    return it == pending.end() ? -1.0f : it->second.progress->progress.load(std::memory_order_relaxed);
+    if (!session) return;
+    const float v = base + span * std::clamp(p_t, 0.0f, 1.0f);
+    float cur = session->progress.load(std::memory_order_relaxed);
+    while (v > cur && !session->progress.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {}
+}
+
+ImportSession::Staged ImportSession::stage(const Project& p_project, const std::filesystem::path& p_asset, Guid p_guid, bool p_content, bool p_notify)
+{
+    Output o;
+    o.asset = p_asset;
+    o.guid = p_guid;
+    o.notify = p_notify;
+    o.staged.asset = staging / "assets" / p_asset.lexically_relative(assets_dir);
+    if (p_content) {
+        o.content_bin = p_project.content_path(p_guid);
+        o.staged.content_bin = staging / "content" / o.content_bin.filename();
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(o.staged.asset.parent_path(), ec);
+    if (p_content) std::filesystem::create_directories(o.staged.content_bin.parent_path(), ec);
+
+    std::lock_guard lock(outputs_mutex);
+    outputs.push_back(o);
+    return o.staged;
+}
+
+void ImportSession::unstage(const std::filesystem::path& p_asset)
+{
+    std::lock_guard lock(outputs_mutex);
+    std::erase_if(outputs, [&](const Output& o) { return o.asset == p_asset; });
+}
+
+bool ImportSession::staged_exists(const std::filesystem::path& p_asset)
+{
+    std::lock_guard lock(outputs_mutex);
+    return std::any_of(outputs.begin(), outputs.end(), [&](const Output& o) { return o.asset == p_asset; });
+}
+
+static bool _move_replace(const std::filesystem::path& p_from, const std::filesystem::path& p_to)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(p_to.parent_path(), ec);
+    std::filesystem::rename(p_from, p_to, ec);
+    if (!ec) return true;
+    ec.clear();
+    std::filesystem::remove(p_to, ec);
+    std::filesystem::rename(p_from, p_to, ec);
+    if (!ec) return true;
+    ec.clear();
+    if (!std::filesystem::copy_file(p_from, p_to, std::filesystem::copy_options::overwrite_existing, ec) || ec) return false;
+    std::filesystem::remove(p_from, ec);
+    return true;
+}
+
+std::shared_ptr<ImportSession> AssetImportTracker::begin(const Project& p_project, const std::filesystem::path& p_dst)
+{
+    if (find(p_dst)) {
+        log_write("Import: '%s' is already being imported.", p_dst.string().c_str());
+        return nullptr;
+    }
+    auto s = std::make_shared<ImportSession>();
+    s->dst = p_dst;
+    s->assets_dir = p_project.assets_dir;
+    s->staging = p_project.editor_dir / STAGING_DIR / Guid::generate().to_string();
+    sessions.push_back(s);
+    return s;
+}
+
+ImportSession* AssetImportTracker::find(const std::filesystem::path& p_dst) const
+{
+    for (const auto& s : sessions) {
+        if (s->dst == p_dst && !s->cancel.load(std::memory_order_relaxed)) return s.get();
+    }
+    return nullptr;
+}
+
+float AssetImportTracker::progress(const std::filesystem::path& p_dst) const
+{
+    const ImportSession* s = find(p_dst);
+    return s ? std::min(s->progress.load(std::memory_order_relaxed), 0.999f) : -1.0f;
+}
+
+void AssetImportTracker::cancel(const std::filesystem::path& p_dst)
+{
+    if (ImportSession* s = find(p_dst)) s->cancel.store(true, std::memory_order_relaxed);
+}
+
+void AssetImportTracker::_commit(ImportSession& r_session)
+{
+    for (const ImportSession::Output& o : r_session.outputs) {
+        if (!o.content_bin.empty() && !_move_replace(o.staged.content_bin, o.content_bin)) {
+            log_write("Import: failed to move '%s'; staged files kept in '%s'.", o.content_bin.string().c_str(), r_session.staging.string().c_str());
+            return;
+        }
+    }
+    for (const ImportSession::Output& o : r_session.outputs) {
+        if (!_move_replace(o.staged.asset, o.asset)) {
+            log_write("Import: failed to move '%s'; staged files kept in '%s'.", o.asset.string().c_str(), r_session.staging.string().c_str());
+            return;
+        }
+        completed.push_back({ o.guid, o.asset, o.content_bin, o.notify });
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(r_session.staging, ec);
 }
 
 void AssetImportTracker::tick()
 {
-    std::vector<ImportChild> children;
-    for (auto& [path, entry] : pending) {
-        ImportControl& ctrl = *entry.progress;
-        std::lock_guard lock(ctrl.children_mutex);
-        children.insert(children.end(), std::make_move_iterator(ctrl.children.begin()), std::make_move_iterator(ctrl.children.end()));
-        ctrl.children.clear();
-    }
-    for (ImportChild& c : children) pending[c.dst] = Pending{ std::move(c.control), c.guid, c.content_bin, false };
-
-    std::error_code ec;
-    for (auto it = pending.begin(); it != pending.end(); ) {
-        const float v = it->second.progress->progress.load(std::memory_order_relaxed);
-        if (v >= 1.0f && std::filesystem::exists(it->first, ec)) {
-            completed.push_back({ it->second.guid, it->first, it->second.content_bin, it->second.notify });
-            it = pending.erase(it);
-        } else {
+    for (auto it = sessions.begin(); it != sessions.end(); ) {
+        ImportSession& s = **it;
+        const ImportSession::State state = s.state.load(std::memory_order_acquire);
+        if (state == ImportSession::State::RUNNING) {
             ++it;
+            continue;
         }
+        if (s.cancel.load(std::memory_order_relaxed)) {
+            log_write("Import canceled: %s", s.dst.filename().string().c_str());
+        } else if (state == ImportSession::State::FAILED) {
+            log_write("Import failed: %s", s.dst.filename().string().c_str());
+        }
+        if (state == ImportSession::State::DONE && !s.cancel.load(std::memory_order_relaxed)) {
+            _commit(s);
+        } else {
+            std::error_code ec;
+            std::filesystem::remove_all(s.staging, ec);
+        }
+        it = sessions.erase(it);
     }
 }
 
@@ -43,12 +145,18 @@ std::vector<std::filesystem::path> AssetImportTracker::pending_out(const std::fi
 {
     std::vector<std::filesystem::path> out;
     std::error_code ec;
-    for (const auto& [path, cell] : pending) {
-        if (path.parent_path() != p_folder) continue;
-        if (std::filesystem::exists(path, ec)) continue;
-        out.push_back(path);
+    for (const auto& s : sessions) {
+        if (s->cancel.load(std::memory_order_relaxed) || s->dst.parent_path() != p_folder) continue;
+        if (std::filesystem::exists(s->dst, ec)) continue;
+        out.push_back(s->dst);
     }
     return out;
+}
+
+void AssetImportTracker::clear_staging(const Project& p_project)
+{
+    std::error_code ec;
+    std::filesystem::remove_all(p_project.editor_dir / STAGING_DIR, ec);
 }
 
 Error AssetImportTracker::resolve_import(const Project& p_project, AssetType p_type, const std::filesystem::path& p_dest, Guid& r_guid, std::filesystem::path& r_content_bin)

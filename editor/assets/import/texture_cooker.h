@@ -1,6 +1,7 @@
 #pragma once
 #include <editor/assets/import/asset_import_tracker.h>
 #include <core/assets/ltexture.h>
+#include <core/io/image_io.h>
 #include <filesystem>
 
 namespace lumen {
@@ -41,6 +42,10 @@ struct TextureCooker
     static uint64_t cost(const std::filesystem::path& p_src, const CookSettings& p_settings);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const CookSettings& p_settings = {});
+
+    // Reads a cooked texture back to straight RGBA8, from the smallest mip that's still at least
+    // p_min_side on its long edge (mip 0 if none is). r_srgb tells whether the pixels are sRGB.
+    static bool decode(const std::filesystem::path& p_content_bin, ImageData<uint8_t, 4>& r_image, bool& r_srgb, uint32_t p_min_side = UINT32_MAX);
 };
 
 }

@@ -135,4 +135,27 @@ bool Win32Dialogs::confirm(const wchar_t* p_title, const wchar_t* p_heading, con
     return button == IDOK;
 }
 
+bool Win32Dialogs::ask(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, const wchar_t* p_accept, const wchar_t* p_decline)
+{
+    constexpr int ACCEPT = 100;
+    constexpr int DECLINE = 101;
+    const TASKDIALOG_BUTTON buttons[] = { { ACCEPT, p_accept }, { DECLINE, p_decline } };
+
+    TASKDIALOGCONFIG config{};
+    config.cbSize = sizeof(config);
+    config.hwndParent = GetActiveWindow();
+    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.pButtons = buttons;
+    config.cButtons = 2;
+    config.nDefaultButton = DECLINE;
+    config.pszWindowTitle = p_title;
+    config.pszMainIcon = TD_WARNING_ICON;
+    config.pszMainInstruction = p_heading;
+    config.pszContent = p_body;
+
+    int button = DECLINE;
+    if (SUCCEEDED(TaskDialogIndirect(&config, &button, nullptr, nullptr))) return button == ACCEPT;
+    return MessageBoxW(config.hwndParent, p_body, p_title, MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND) == IDOK;
+}
+
 }

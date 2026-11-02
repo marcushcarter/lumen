@@ -43,6 +43,8 @@ static std::unique_ptr<lumen::Application> _create_application(const lumen::Laun
 
     auto game = std::make_unique<lumen::GameApplication>();
     game->project_root = p_args.project;
+    game->show_splash = !p_args.pie;
+    game->splash_title = info.window_title;
     return game;
 }
 

@@ -14,6 +14,7 @@ struct Win32Dialogs
 
     static bool warning(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, bool p_dont_show_option);
     static bool confirm(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body);
+    static bool ask(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, const wchar_t* p_accept, const wchar_t* p_decline);
 };
 
 }

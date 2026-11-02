@@ -6,6 +6,7 @@
 #include <core/version.h>
 #include <editor/assets/content_cooker.h>
 #include <editor/assets/import/icon_cooker.h>
+#include <editor/assets/import/splash_cooker.h>
 #include <editor/export/project_exporter.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/model/model_tab.h>
@@ -13,6 +14,7 @@
 #include <editor/tabs/world/panels/project_settings_panel.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
+#include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
@@ -32,13 +34,13 @@ Error EditorApplication::on_init()
     ui_style().build();
     ui_style().apply_to_imgui();
 
-    win32.window_set_custom_titlebar(true);
-    win32.window_set_title("Lumen Editor");
+    win32.window_set_custom_titlebar(main_window, true);
+    win32.window_set_title(main_window, "Lumen Editor");
 
     err = resources.initialize(dd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    err = win32.window_set_icon(EmbeddedResource::load_icon(L"LUMEN_ICON"));
+    err = win32.window_set_icon(main_window, EmbeddedResource::load_icon(L"LUMEN_ICON"));
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     ImGuiIO& io = ImGui::GetIO();
@@ -75,6 +77,7 @@ Error EditorApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     _ctx.win32 = &win32;
+    _ctx.main_window = &main_window;
     _ctx.imgui = &imgui;
     _ctx.git = &git;
     _ctx.renderer = &renderer;
@@ -116,7 +119,7 @@ Error EditorApplication::on_init()
     _load_state();
     settings.theme.apply();
 
-    if (win32.window_set_titlebar_color((COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg])) != OK) log_write("Editor: custom titlebar color unsupported (needs Windows 11).");
+    if (win32.window_set_titlebar_color(main_window, (COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg])) != OK) log_write("Editor: custom titlebar color unsupported (needs Windows 11).");
 
     return OK;
 }
@@ -194,8 +197,8 @@ void EditorApplication::on_background_tick()
     imports_notified = imports.completed.size();
     if (finished.empty()) return;
     const std::string message = finished.size() == 1 ? finished.front() + " finished importing." : std::to_string(finished.size()) + " assets finished importing.";
-    win32.notify("Import complete", message);
-    win32.window_flash();
+    win32.notify(main_window, "Import complete", message);
+    win32.window_flash(main_window);
 }
 
 void EditorApplication::_tick_imports()
@@ -218,7 +221,8 @@ void EditorApplication::_tick_imports()
                 if (const LTexture* old = renderer.textures.get(c.guid)) imgui.texture_cache.retire(old->image.image_view, renderer.frame_number, renderer.frame_count);
                 renderer.textures.unload(c.guid);
                 renderer.textures.load(c.guid, c.content_bin);
-                if (c.guid == project.settings.window_icon) IconCooker::cook_window_icon(project);
+                if (c.guid == project.settings.window_icon) IconCooker::cook_icon(project);
+                if (c.guid == project.settings.splash_image) SplashCooker::cook_splash(project);
                 break;
             case AssetType::MESH:
                 renderer.geometry.unload(c.guid);
@@ -259,16 +263,46 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     _tabs_signature = _tabs_hash();
     git.initialize(project.root);
 
+    // older builds cooked the icon and splash under other names; drop them so exports don't ship both
+    std::error_code legacy_ec;
+    std::filesystem::remove(project.root / "Data/Content/window_icon.ico", legacy_ec);
+    std::filesystem::remove(project.root / "Data/Content/splash.bin", legacy_ec);
+
     // the icon texture may have been reimported or the .ico deleted since the last session
-    if (project.settings.window_icon.valid() && IconCooker::stale(project.content_path(project.settings.window_icon), project.window_icon_path())) {
-        IconCooker::cook_window_icon(project);
+    if (project.settings.window_icon.valid() && IconCooker::stale(project.content_path(project.settings.window_icon), project.icon_path())) {
+        IconCooker::cook_icon(project);
+    }
+    if (project.settings.splash_image.valid() && IconCooker::stale(project.content_path(project.settings.splash_image), project.splash_path())) {
+        SplashCooker::cook_splash(project);
     }
 
     return OK;
 }
 
-void EditorApplication::close_project()
+bool EditorApplication::_confirm_cancel_imports(const wchar_t* p_action)
 {
+    // Imports belong to the open project, so leaving it can't let them finish in the background.
+    const uint32_t count = imports.active_count();
+    if (count > 0) {
+        const std::wstring heading = count == 1 ? L"1 item is still importing" : std::to_wstring(count) + L" items are still importing";
+        const std::wstring body = std::wstring(p_action) + L" will cancel every import in progress.";
+        if (!drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), body.c_str(), L"Cancel Imports", L"Keep Importing")) return false;
+        imports.cancel_all();
+    }
+    imports.wait_all();
+    imports.completed.clear();
+    imports_notified = 0;
+    return true;
+}
+
+bool EditorApplication::on_close_requested()
+{
+    return _confirm_cancel_imports(L"Closing the editor");
+}
+
+bool EditorApplication::close_project()
+{
+    if (!_confirm_cancel_imports(L"Closing the project")) return false;
     play.stop();
     pending_transition = [this]{
         EditorContext& ctx = _context();
@@ -283,6 +317,7 @@ void EditorApplication::close_project()
         project_unload();
     };
     render_path_request(new ProjectManagerRenderPath());
+    return true;
 }
 
 void EditorApplication::save_all()
@@ -297,8 +332,8 @@ void EditorApplication::save_all()
 void EditorApplication::reload_project(std::function<void()> p_while_closed)
 {
     if (!project.loaded() || !reopen_root.empty()) return;
+    if (!close_project()) return;
     reopen_root = project.root;
-    close_project();
     std::function<void()> close = std::move(pending_transition);
     pending_transition = [close = std::move(close), op = std::move(p_while_closed)] {
         close();
@@ -382,7 +417,7 @@ void EditorApplication::_load_state()
     settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
     settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
 
-    if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(*v);
+    if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(main_window, *v);
 
     // older builds kept the layout and every project's tabs here; hold on to them so each project
     // picks its state up the first time it's opened, the next save drops them from this file
@@ -408,7 +443,7 @@ void EditorApplication::_save_state()
     theme.insert_or_assign("use_system_accent", settings.theme.use_system_accent);
 
     toml::table window;
-    window.insert_or_assign("custom_titlebar", static_cast<bool>(win32.window.custom_titlebar));
+    window.insert_or_assign("custom_titlebar", win32.window_has_custom_titlebar(main_window));
 
     toml::table display;
     display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
@@ -589,7 +624,7 @@ void EditorApplication::_project_state_read(const toml::table& p_tbl)
 
 void EditorApplication::_titlebar_block(const TitlebarLayout& p_layout, ImVec2 p_min, ImVec2 p_max)
 {
-    win32.window_titlebar_add_rect(
+    win32.window_titlebar_add_rect(main_window,
         (long)(p_min.x - p_layout.origin.x), (long)(p_min.y - p_layout.origin.y),
         (long)(p_max.x - p_layout.origin.x), (long)(p_max.y - p_layout.origin.y)
     );
@@ -624,7 +659,7 @@ void EditorApplication::_draw_titlebar()
     L.btn_w = BTN_W;
     L.logo = H;
 
-    win32.window_titlebar_reset((int)H);
+    win32.window_titlebar_reset(main_window, (int)H);
 
     const float width = ImGui::GetWindowWidth();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -667,11 +702,11 @@ void EditorApplication::_titlebar_menus(const TitlebarLayout& p_layout)
 
     const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
     ImVec2 ts = ImGui::CalcTextSize(title.c_str());
-    float right_pad = win32.window.custom_titlebar ? (p_layout.width - p_layout.btn_w * 3.0f) : p_layout.width;
+    float right_pad = win32.window_has_custom_titlebar(main_window) ? (p_layout.width - p_layout.btn_w * 3.0f) : p_layout.width;
     float title_x = p_layout.origin.x + right_pad - ts.x - ui_style().titlebar.title_margin;
     dl->AddText(ImVec2(title_x, p_layout.origin.y + (p_layout.menu_h - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), title.c_str());
 
-    if (win32.window.custom_titlebar) _titlebar_caption_buttons(p_layout);
+    if (win32.window_has_custom_titlebar(main_window)) _titlebar_caption_buttons(p_layout);
 
     ImGui::EndMenuBar();
     ui_menu_pop_style();
@@ -720,13 +755,13 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout
     float x_close = btns_x + p_layout.btn_w * 2.0f;
 
     ctrl(x_min, 0, false);
-    ctrl(x_max, win32.window_is_maximized() ? 2 : 1, false);
+    ctrl(x_max, win32.window_is_maximized(main_window) ? 2 : 1, false);
     ctrl(x_close, 3, true);
 
     rmin = client_rect(x_min);
     rmax = client_rect(x_max);
     rclose = client_rect(x_close);
-    win32.window_titlebar_set_controls(rmin, rmax, rclose);
+    win32.window_titlebar_set_controls(main_window, rmin, rmax, rclose);
 }
 
 void EditorApplication::_titlebar_tabs(const TitlebarLayout& p_layout)
@@ -777,7 +812,7 @@ void EditorApplication::_titlebar_editor_menu()
         if (ImGui::MenuItem("Export Project...")) ProjectExporter::run_with_dialog(project);
         ImGui::Separator();
         if (ImGui::MenuItem("Exit")) close_project();
-        if (ImGui::MenuItem("Quit", "Alt+F4")) win32.window_request_close();
+        if (ImGui::MenuItem("Quit", "Alt+F4")) win32.window_request_close(main_window);
         ImGui::EndMenu();
     }
 

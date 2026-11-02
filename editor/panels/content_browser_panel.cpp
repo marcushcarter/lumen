@@ -527,12 +527,8 @@ ContentBrowserPanel::ItemResult ContentBrowserPanel::_card(EditorContext& ctx, I
     if (result.context && !selected && !p_importing) _select_only(p_path);
 
     ui_context_menu_push_style();
-    if (!renaming && ImGui::BeginPopupContextItem("##card_menu")) {
-        if (p_importing) {
-            if (ImGui::MenuItem("Cancel Import")) cancel_request = p_path;
-        } else {
-            _context_menu(ctx, &p_path);
-        }
+    if (!renaming && !p_importing && ImGui::BeginPopupContextItem("##card_menu")) {
+        _context_menu(ctx, &p_path);
         ImGui::EndPopup();
     }
     ui_context_menu_pop_style();

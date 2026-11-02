@@ -1,6 +1,8 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <core/project/project.h>
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 namespace lumen {
 
@@ -96,6 +98,28 @@ float AssetImportTracker::progress(const std::filesystem::path& p_dst) const
 void AssetImportTracker::cancel(const std::filesystem::path& p_dst)
 {
     if (ImportSession* s = find(p_dst)) s->cancel.store(true, std::memory_order_relaxed);
+}
+
+void AssetImportTracker::cancel_all()
+{
+    for (const auto& s : sessions) s->cancel.store(true, std::memory_order_relaxed);
+}
+
+void AssetImportTracker::wait_all()
+{
+    static constexpr auto POLL = std::chrono::milliseconds(5);
+    const auto running = [this] {
+        return std::any_of(sessions.begin(), sessions.end(), [](const auto& s) { return s->state.load(std::memory_order_acquire) == ImportSession::State::RUNNING; });
+    };
+    while (running()) std::this_thread::sleep_for(POLL);
+    tick();
+}
+
+uint32_t AssetImportTracker::active_count() const
+{
+    return (uint32_t)std::count_if(sessions.begin(), sessions.end(), [](const auto& s) {
+        return !s->cancel.load(std::memory_order_relaxed) && s->state.load(std::memory_order_acquire) == ImportSession::State::RUNNING;
+    });
 }
 
 void AssetImportTracker::_commit(ImportSession& r_session)

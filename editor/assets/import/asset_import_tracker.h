@@ -75,6 +75,9 @@ struct AssetImportTracker
     ImportSession* find(const std::filesystem::path& p_dst) const;
     float progress(const std::filesystem::path& p_dst) const;
     void cancel(const std::filesystem::path& p_dst);
+    void cancel_all();
+    void wait_all();
+    uint32_t active_count() const;
     bool busy() const { return !sessions.empty(); }
     void tick();
     void _commit(ImportSession& r_session);

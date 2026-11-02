@@ -30,36 +30,12 @@ namespace lumen {
 
 struct EditorApplication : Application
 {
-    /*******************/
-    /**** LIFECYCLE ****/
-    /*******************/
-
     static constexpr const char* FILE_EDITOR_STATE = "editor_state.cfg";
     static constexpr const char* FILE_PROJECT_STATE = "project_state.cfg";
 
     EditorSettings settings;
     EditorResources resources;
     EditorContext _ctx;
-
-    EditorContext& _context();
-
-    Error on_init() override;
-    void on_shutdown() override;
-    void on_update(float p_dt) override;
-    void on_background_tick() override;
-
-    bool wants_docking() const override { return true; }
-    bool wants_custom_titlebar() const override { return false; }
-    bool should_tick_game() const override { return false; }
-    bool loads_authoring_assets() const override { return true; }
-    VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
-    float fps_cap() const override { return (float)settings.fps_cap; }
-    BackgroundPolicy background_policy() const override { return { .render_unfocused = false, .housekeeping_ms = 1000 }; }
-    RenderPath* create_render_path() override { return new ProjectManagerRenderPath(); }
-
-    /*****************/
-    /**** PROJECT ****/
-    /*****************/
 
     ProjectManager project_manager;
     AssetImportTracker imports;
@@ -74,17 +50,6 @@ struct EditorApplication : Application
     drivers::GitDriver git;
     std::filesystem::path reopen_root;
     size_t imports_notified = 0;
-
-    void _tick_imports();
-
-    Error open_project(const std::filesystem::path& p_root);
-    void close_project();
-    void save_all();
-    void reload_project(std::function<void()> p_while_closed);
-
-    /**************/
-    /**** TABS ****/
-    /**************/
 
     struct SavedTab {
         TabKind kind = TabKind::WORLD;
@@ -102,15 +67,28 @@ struct EditorApplication : Application
     SavedTabs _saved_tabs;
     uint64_t _tabs_signature = 0;
 
-    uint64_t _tabs_hash() const;
-    void _restore_tabs();
-
-    /***************/
-    /**** STATE ****/
-    /***************/
-
     toml::table _project_state_default;
     toml::table _project_state_legacy;
+
+    EditorCamera editor_camera;
+
+    EditorContext& _context();
+
+    Error on_init() override;
+    void on_shutdown() override;
+    void on_update(float p_dt) override;
+    void on_background_tick() override;
+
+    void _tick_imports();
+    Error open_project(const std::filesystem::path& p_root);
+    bool close_project();
+    bool _confirm_cancel_imports(const wchar_t* p_action);
+    bool on_close_requested() override;
+    void save_all();
+    void reload_project(std::function<void()> p_while_closed);
+
+    uint64_t _tabs_hash() const;
+    void _restore_tabs();
 
     void _load_state();
     void _save_state();
@@ -119,19 +97,9 @@ struct EditorApplication : Application
     toml::table _project_state_write();
     void _project_state_read(const toml::table& p_tbl);
 
-    /****************/
-    /**** CAMERA ****/
-    /****************/
-
-    EditorCamera editor_camera;
-
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
     const World& render_world() const override;
-
-    /******************/
-    /**** TITLEBAR ****/
-    /******************/
 
     struct TitlebarLayout {
         ImVec2 origin;
@@ -151,6 +119,15 @@ struct EditorApplication : Application
     void _titlebar_editor_menu();
 
     void _draw_titlebar();
+
+    bool wants_docking() const override { return true; }
+    bool wants_custom_titlebar() const override { return false; }
+    bool should_tick_game() const override { return false; }
+    bool loads_authoring_assets() const override { return true; }
+    VsyncMode vsync_mode() const override { return project.loaded() ? settings.vsync_mode : VsyncMode::ON; }
+    float fps_cap() const override { return (float)settings.fps_cap; }
+    BackgroundPolicy background_policy() const override { return { .render_unfocused = false, .housekeeping_ms = 1000 }; }
+    RenderPath* create_render_path() override { return new ProjectManagerRenderPath(); }
 };
 
 }

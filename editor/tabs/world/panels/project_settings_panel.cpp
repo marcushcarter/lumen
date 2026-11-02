@@ -1,6 +1,7 @@
 #include <editor/tabs/world/panels/project_settings_panel.h>
 #include <editor/assets/asset_field.h>
 #include <editor/assets/import/icon_cooker.h>
+#include <editor/assets/import/splash_cooker.h>
 #include <editor/export/project_exporter.h>
 #include <core/project/project.h>
 #include <editor/ui/ui_widgets.h>
@@ -50,6 +51,8 @@ void ProjectSettingsPanel::draw_contents(EditorContext& ctx)
         commit = true;
     }
     const bool icon_changed = asset_field(ctx, "Texture", "###window_icon", s.window_icon, AssetType::TEXTURE);
+    const bool splash_changed = asset_field(ctx, "Splash Image", "###splash_image", s.splash_image, AssetType::TEXTURE);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Shown by the game while it loads. Leave empty for no splash.");
 
     ImGui::SeparatorText("Export");
     const std::string default_name = project.default_export_name();
@@ -66,7 +69,11 @@ void ProjectSettingsPanel::draw_contents(EditorContext& ctx)
 
     if (icon_changed) {
         commit = true;
-        if (IconCooker::cook_window_icon(project) != Error::OK) log_write("Project Settings: the window icon couldn't be cooked.");
+        if (IconCooker::cook_icon(project) != Error::OK) log_write("Project Settings: the window icon couldn't be cooked.");
+    }
+    if (splash_changed) {
+        commit = true;
+        if (SplashCooker::cook_splash(project) != Error::OK) log_write("Project Settings: the splash image couldn't be cooked.");
     }
     if (commit && project.save() != Error::OK) log_write("Project Settings: failed to save '%s'.", project.root.string().c_str());
 }

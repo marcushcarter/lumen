@@ -4,6 +4,8 @@
 #include <core/io/path.h>
 #include <core/project/project.h>
 #include <editor/assets/content_cooker.h>
+#include <editor/assets/import/icon_cooker.h>
+#include <editor/assets/import/splash_cooker.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <cstring>
 #include <fstream>
@@ -106,6 +108,9 @@ Error ProjectExporter::run(const Project& p_project, const std::filesystem::path
         log_write("Export: cooking failed, see the log above.");
         return FAILED;
     }
+    if (p_project.settings.splash_image.valid() && IconCooker::stale(p_project.content_path(p_project.settings.splash_image), p_project.splash_path()) && SplashCooker::cook_splash(p_project) != OK) {
+        log_write("Export: the splash image couldn't be cooked, exporting without it.");
+    }
 
     std::error_code ec;
     const std::filesystem::path out_data = out / Project::DIR_DATA;
@@ -131,7 +136,7 @@ Error ProjectExporter::run(const Project& p_project, const std::filesystem::path
         return FAILED;
     }
 
-    const std::filesystem::path icon = out / Project::FILE_WINDOW_ICON;
+    const std::filesystem::path icon = out / Project::FILE_ICON;
     if (std::filesystem::exists(icon, ec) && !_set_exe_icon(exe, icon)) {
         log_write("Export: couldn't set the executable icon from '%s'.", icon.string().c_str());
     }

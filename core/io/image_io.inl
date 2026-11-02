@@ -1,6 +1,7 @@
 #include <core/io/embedded_resource.h>
 #include <stb_image.h>
 #include <stb_image_write.h>
+#include <stb_image_resize2.h>
 #include <cstdio>
 #include <cstdlib>
 
@@ -9,6 +10,26 @@ namespace lumen {
 inline void ImageIO::_write_callback(void* p_context, void* p_data, int p_size)
 {
     std::fwrite(p_data, 1, static_cast<size_t>(p_size), static_cast<FILE*>(p_context));
+}
+
+inline void ImageIO::_write_vector_callback(void* p_context, void* p_data, int p_size)
+{
+    std::vector<uint8_t>& out = *static_cast<std::vector<uint8_t>*>(p_context);
+    const uint8_t* bytes = static_cast<const uint8_t*>(p_data);
+    out.insert(out.end(), bytes, bytes + p_size);
+}
+
+template<typename T, int Channels>
+ImageData<T, Channels> ImageIO::create(int p_width, int p_height)
+{
+    ImageData<T, Channels> image;
+    if (p_width <= 0 || p_height <= 0) return image;
+    image.pixels = static_cast<T*>(std::calloc((size_t)p_width * p_height * Channels, sizeof(T)));
+    if (!image.pixels) return image;
+    image.width = p_width;
+    image.height = p_height;
+    image.source_channels = Channels;
+    return image;
 }
 
 template<typename T, int Channels>
@@ -50,6 +71,29 @@ bool ImageIO::save_png(const std::wstring& p_path, const ImageData<T, Channels>&
     const int result = stbi_write_png_to_func(_write_callback, file, p_image.width, p_image.height, Channels, p_image.pixels, stride);
     fclose(file);
     return result != 0;
+}
+
+template<typename T, int Channels>
+bool ImageIO::encode_png(const ImageData<T, Channels>& p_image, std::vector<uint8_t>& r_png)
+{
+    r_png.clear();
+    if (!p_image.valid()) return false;
+    return stbi_write_png_to_func(_write_vector_callback, &r_png, p_image.width, p_image.height, Channels, p_image.pixels, p_image.width * Channels) != 0;
+}
+
+inline ImageData<uint8_t, 4> ImageIO::resize_rgba(const ImageData<uint8_t, 4>& p_image, int p_width, int p_height, bool p_srgb)
+{
+    ImageData<uint8_t, 4> out;
+    if (!p_image.valid() || p_width <= 0 || p_height <= 0) return out;
+    const int stride = p_image.width * 4;
+    out.pixels = p_srgb
+        ? stbir_resize_uint8_srgb(p_image.pixels, p_image.width, p_image.height, stride, nullptr, p_width, p_height, 0, STBIR_RGBA)
+        : stbir_resize_uint8_linear(p_image.pixels, p_image.width, p_image.height, stride, nullptr, p_width, p_height, 0, STBIR_RGBA);
+    if (!out.pixels) return out;
+    out.width = p_width;
+    out.height = p_height;
+    out.source_channels = 4;
+    return out;
 }
 
 }

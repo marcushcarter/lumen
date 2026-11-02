@@ -35,24 +35,14 @@ struct BackgroundPolicy
 
 struct Application
 {
-    /******************/
-    /**** PLATFORM ****/
-    /******************/
-
     drivers::WindowDriverWin32 win32;
+    drivers::WindowDriverWin32::Window main_window;
     drivers::ContextDriverVulkan cd;
     drivers::DeviceDriverVulkan dd;
     drivers::ImGuiDriver imgui;
 
     bool window_focused = true;
     bool window_visible = true;
-
-    void _update_window_state();
-    bool _should_render(const BackgroundPolicy& p_policy) const { return window_visible && (window_focused || p_policy.render_unfocused); }
-
-    /*******************/
-    /**** RENDERING ****/
-    /*******************/
 
     Renderer renderer;
     ProfilingSettings profiling;
@@ -61,49 +51,39 @@ struct Application
     std::function<void()> pending_transition;
     bool screenshot_reveal = true;
 
-    Error _apply_pending_render_path();
-    void render_path_request(RenderPath* p_next);
-    void screenshot_request();
-
-    /***************/
-    /**** SCENE ****/
-    /***************/
-
     World world;
     Project project;
     bool paused = false;
-
-    Error project_load(const std::filesystem::path& p_root);
-    void project_unload();
-
-    /***************/
-    /**** FRAME ****/
-    /***************/
 
     FrameStats frame_stats;
     FrameLimiter frame_limiter;
     std::chrono::steady_clock::time_point last_time;
     std::chrono::steady_clock::time_point background_last_tick;
 
-    Error _frame();
-    Error run();
-
-    /*******************/
-    /**** LIFECYCLE ****/
-    /*******************/
-
     Error _initialize(const ApplicationCreateInfo& p_create_info);
     Error initialize(const ApplicationCreateInfo& p_create_info);
     void shutdown();
     void report_fatal_error(Error p_error);
 
-    /***************/
-    /**** HOOKS ****/
-    /***************/
+    Error _frame();
+    void _update_window_state();
+    Error run();
+
+    Error project_load(const std::filesystem::path& p_root);
+    void project_unload();
+
+    Error _apply_pending_render_path();
+    void render_path_request(RenderPath* p_next);
+    void screenshot_request();
+
+    bool _should_render(const BackgroundPolicy& p_policy) const { return window_visible && (window_focused || p_policy.render_unfocused); }
 
     virtual Error on_init() = 0;
+    virtual void on_boot_status(const char* p_status, float p_from, float p_to) { (void)p_status; (void)p_from; (void)p_to; }
+    virtual void on_boot_finished() {}
     virtual void on_update(float p_dt) = 0;
     virtual void on_shutdown() = 0;
+    virtual bool on_close_requested() { return true; }
     virtual RenderPath* create_render_path() = 0;
 
     virtual bool wants_docking() const { return false; }

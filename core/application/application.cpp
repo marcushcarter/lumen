@@ -14,20 +14,33 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
 {
     using enum Error;
 
+    static constexpr float BOOT_GRAPHICS = 0.05f;
+    static constexpr float BOOT_SHADERS = 0.15f;
+    static constexpr float BOOT_ASSETS = 0.7f;
+
     Error err = win32.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    on_boot_status("Starting", 0.0f, BOOT_GRAPHICS);
 
-    err = win32.window_create(p_create_info.window_title, p_create_info.width, p_create_info.height, wants_custom_titlebar());
+    drivers::WindowDriverWin32::WindowCreateInfo window_ci;
+    window_ci.title = p_create_info.window_title;
+    window_ci.width = p_create_info.width;
+    window_ci.height = p_create_info.height;
+    window_ci.frame = wants_custom_titlebar() ? drivers::WindowDriverWin32::Frame::CUSTOM : drivers::WindowDriverWin32::Frame::SYSTEM;
+    window_ci.imgui = true;
+    window_ci.quit_on_destroy = true;
+    err = win32.window_create(main_window, window_ci);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    win32.window_bind();
-    win32.window_set_minimum_size(900, 600);
+    // win32.window_set_minimum_size(main_window, 900, 600);
 
-    err = cd.full_initialize_windows(win32.window.hwnd);
+    on_boot_status("Initializing graphics", BOOT_GRAPHICS, BOOT_SHADERS);
+    err = cd.full_initialize_windows(main_window.hwnd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = dd.initialize(cd, cd.optimal_device_index, 3);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    on_boot_status("Compiling shaders", BOOT_SHADERS, BOOT_ASSETS);
     err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
@@ -35,7 +48,7 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     drivers::ImGuiDriverCreateInfo imgui_ci{};
-    imgui_ci.hwnd = win32.window.hwnd;
+    imgui_ci.hwnd = main_window.hwnd;
     imgui_ci.instance = cd.instance;
     imgui_ci.physical_device = dd.physical_device;
     imgui_ci.device = dd.device;
@@ -54,14 +67,16 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     err = render_path->create_resources();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    on_boot_status("Loading assets", BOOT_ASSETS, 1.0f);
     err = on_init();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    frame_stats.initialize(win32.window.hwnd);
+    frame_stats.initialize(main_window.hwnd);
     err = frame_limiter.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    win32.window_show();
+    on_boot_finished();
+    win32.window_show(main_window);
     return OK;
 }
 
@@ -104,7 +119,7 @@ void Application::shutdown()
     dd.shutdown();
     cd.shutdown();
 
-    win32.window_free();
+    win32.window_free(main_window);
     win32.shutdown();
 
     frame_limiter.shutdown();
@@ -126,7 +141,7 @@ Error Application::_frame()
         return err;
     }
     cd.surface_set_vsync_mode(vsync_mode());
-    cd.surface_set_size(win32.window.width, win32.window.height);
+    cd.surface_set_size(main_window.width, main_window.height);
     const bool swapchain_ok = dd.swapchain_update() == OK;
     if (swapchain_ok) renderer.apply_pending_size();
     cpu.zone_end();
@@ -143,7 +158,7 @@ Error Application::_frame()
     last_time = now;
     if (delta > 0.25) delta = 0.25;
 
-    if (!win32.window_is_focused()) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    if (!win32.window_is_focused(main_window)) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 
     cpu.zone_begin("ImGui Begin");
     imgui.begin_frame(renderer.frame_number, renderer.frame_count, renderer.resize_epoch);
@@ -194,9 +209,9 @@ Error Application::_frame()
 
 void Application::_update_window_state()
 {
-    const bool focused = win32.window_is_focused();
-    const bool visible = win32.window_is_visible();
-    const bool focus_gained = win32.window_consume_focus_gained();
+    const bool focused = win32.window_is_focused(main_window);
+    const bool visible = win32.window_is_visible(main_window);
+    const bool focus_gained = win32.window_consume_focus_gained(main_window);
     const bool regained = (focused && !window_focused) || (visible && !window_visible) || (focus_gained && focused);
 
     if (regained) last_time = std::chrono::steady_clock::now();
@@ -217,11 +232,11 @@ Error Application::run()
     CpuProfiler& cpu = cpu_profiler();
     last_time = std::chrono::steady_clock::now();
     background_last_tick = last_time;
-    window_focused = win32.window_is_focused();
-    window_visible = win32.window_is_visible();
+    window_focused = win32.window_is_focused(main_window);
+    window_visible = win32.window_is_visible(main_window);
 
     Error err = OK;
-    while (!win32.window_should_close()) {
+    for (;;) {
         const BackgroundPolicy policy = background_policy();
 
         if (_should_render(policy)) {
@@ -239,7 +254,10 @@ Error Application::run()
             win32.wait_events(remaining.count() > 0 ? (uint32_t)remaining.count() : 0u);
             cpu.zone_end();
         }
-        if (win32.window_should_close()) break;
+        if (win32.window_should_close(main_window)) {
+            if (on_close_requested()) break;
+            win32.window_cancel_close(main_window);
+        }
 
         _update_window_state();
         if (!_should_render(policy)) {
@@ -250,7 +268,7 @@ Error Application::run()
             }
             continue;
         }
-        win32.window_consume_resized();
+        win32.window_consume_resized(main_window);
 
         err = _frame();
         if (err != OK) break;
@@ -284,13 +302,6 @@ void Application::report_fatal_error(Error p_error)
     Paths::reveal_in_explorer(file);
 }
 
-void Application::screenshot_request()
-{
-    if (!render_path) return;
-    render_path->screenshot.reveal = screenshot_reveal;
-    render_path->screenshot.requested = true;
-}
-
 Error Application::project_load(const std::filesystem::path &p_root)
 {
     using enum Error;
@@ -314,12 +325,6 @@ void Application::project_unload()
     world.unload();
     renderer.unload();
     project.unload();
-}
-
-void Application::render_path_request(RenderPath* p_next)
-{
-    delete pending_render_path;
-    pending_render_path = p_next;
 }
 
 Error Application::_apply_pending_render_path()
@@ -346,6 +351,19 @@ Error Application::_apply_pending_render_path()
     LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Application: render path create_resources failed.");
     dd.pipeline_cache_save();
     return OK;
+}
+
+void Application::render_path_request(RenderPath* p_next)
+{
+    delete pending_render_path;
+    pending_render_path = p_next;
+}
+
+void Application::screenshot_request()
+{
+    if (!render_path) return;
+    render_path->screenshot.reveal = screenshot_reveal;
+    render_path->screenshot.requested = true;
 }
 
 }

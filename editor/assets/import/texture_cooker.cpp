@@ -13,10 +13,13 @@
 #include <rdo_bc_encoder.h>
 #include <utils.h>
 #include <stb_image.h>
+#include <bc7decomp.h>
+#include <rgbcx.h>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <initializer_list>
+#include <iterator>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -371,6 +374,84 @@ void TextureCooker::import_async(EditorContext& ctx, const std::filesystem::path
     job_system().run_background_owned([job, session]{
         session->finish(TextureCooker::_cook(job));
     }, nullptr, "Texture Import");
+}
+
+
+static size_t _mip_bytes(uint32_t p_w, uint32_t p_h, uint32_t p_block_bytes)
+{
+    return (size_t)((p_w + 3) / 4) * ((p_h + 3) / 4) * p_block_bytes;
+}
+
+bool TextureCooker::decode(const std::filesystem::path& p_content_bin, ImageData<uint8_t, 4>& r_image, bool& r_srgb, uint32_t p_min_side)
+{
+    std::ifstream in(p_content_bin, std::ios::binary);
+    if (!in) return false;
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (bytes.size() < sizeof(LAssetHeader) + sizeof(LTexturePayloadHeader)) return false;
+
+    LAssetHeader ah;
+    LTexturePayloadHeader ph;
+    std::memcpy(&ah, bytes.data(), sizeof(ah));
+    std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
+    if (ah.magic != BCON_MAGIC || ah.type != AssetType::TEXTURE || ph.width == 0 || ph.height == 0) return false;
+
+    const VkFormat format = (VkFormat)ph.vk_format;
+    uint32_t block_bytes = 0;
+    switch (format) {
+        case VK_FORMAT_BC7_SRGB_BLOCK:
+        case VK_FORMAT_BC7_UNORM_BLOCK:
+        case VK_FORMAT_BC5_UNORM_BLOCK: block_bytes = 16; break;
+        case VK_FORMAT_BC4_UNORM_BLOCK: block_bytes = 8; break;
+        default: return false;
+    }
+
+    size_t offset = sizeof(ah) + sizeof(ph);
+    uint32_t w = ph.width;
+    uint32_t h = ph.height;
+    for (uint32_t mip = 0; mip + 1 < ph.mip_count; mip++) {
+        const uint32_t nw = std::max(w / 2, 1u);
+        const uint32_t nh = std::max(h / 2, 1u);
+        if (std::max(nw, nh) < p_min_side) break;
+        offset += _mip_bytes(w, h, block_bytes);
+        w = nw;
+        h = nh;
+    }
+    if (offset + _mip_bytes(w, h, block_bytes) > bytes.size()) return false;
+
+    r_image = ImageIO::create<uint8_t, 4>((int)w, (int)h);
+    if (!r_image.valid()) return false;
+    r_srgb = format == VK_FORMAT_BC7_SRGB_BLOCK;
+    const uint32_t blocks_x = (w + 3) / 4;
+    const uint32_t blocks_y = (h + 3) / 4;
+    for (uint32_t by = 0; by < blocks_y; by++) {
+        for (uint32_t bx = 0; bx < blocks_x; bx++) {
+            const uint8_t* block = bytes.data() + offset + ((size_t)by * blocks_x + bx) * block_bytes;
+            uint8_t px[16 * 4] = {};
+            if (format == VK_FORMAT_BC4_UNORM_BLOCK) {
+                rgbcx::unpack_bc4(block, px, 4);
+                for (uint32_t i = 0; i < 16; i++) {
+                    px[i * 4 + 1] = px[i * 4];
+                    px[i * 4 + 2] = px[i * 4];
+                    px[i * 4 + 3] = 255;
+                }
+            } else if (format == VK_FORMAT_BC5_UNORM_BLOCK) {
+                rgbcx::unpack_bc5(block, px, 0, 1, 4);
+                for (uint32_t i = 0; i < 16; i++) px[i * 4 + 3] = 255;
+            } else {
+                bc7decomp::unpack_bc7(block, reinterpret_cast<bc7decomp::color_rgba*>(px));
+            }
+
+            for (uint32_t ty = 0; ty < 4; ty++) {
+                for (uint32_t tx = 0; tx < 4; tx++) {
+                    const uint32_t x = bx * 4 + tx;
+                    const uint32_t y = by * 4 + ty;
+                    if (x >= w || y >= h) continue;
+                    std::memcpy(r_image.pixels + ((size_t)y * w + x) * 4, px + (ty * 4 + tx) * 4, 4);
+                }
+            }
+        }
+    }
+    return true;
 }
 
 }

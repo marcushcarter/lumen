@@ -18,7 +18,8 @@ struct Project
 
     static constexpr const char* FILE_NAME = "Data/project.config";
     static constexpr const char* FILE_ASSETDB = "Data/assetdb.bin";
-    static constexpr const char* FILE_WINDOW_ICON = "Data/Content/window_icon.ico";
+    static constexpr const char* FILE_ICON = "Data/Content/icon.ico";
+    static constexpr const char* FILE_SPLASH = "Data/Content/splash.png";
 
     static constexpr const char* DIR_DATA = "Data";
     static constexpr const char* DIR_ASSETS = "Data/Assets";
@@ -34,7 +35,8 @@ struct Project
     void _resolve_dirs(const std::filesystem::path& p_root);
     static Error _ensure_layout(const std::filesystem::path& p_root);
     std::filesystem::path content_path(Guid p_guid) const;
-    std::filesystem::path window_icon_path() const { return root / FILE_WINDOW_ICON; }
+    std::filesystem::path icon_path() const { return root / FILE_ICON; }
+    std::filesystem::path splash_path() const { return root / FILE_SPLASH; }
 
     /***************/
     /**** STATE ****/

@@ -13,7 +13,7 @@ namespace lumen {
 void EditorSettingsTab::_apply_theme(EditorContext& ctx)
 {
     ctx.settings->theme.apply();
-    ctx.win32->window_set_titlebar_color((COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]));
+    ctx.win32->window_set_titlebar_color(*ctx.main_window, (COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]));
 }
 
 void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
@@ -60,9 +60,9 @@ void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
     ImGui::EndDisabled();
     if (ImGui::Checkbox("Use system accent", &s.theme.use_system_accent)) theme_changed = true;
 
-    bool custom = ctx.win32->window.custom_titlebar;
+    bool custom = ctx.win32->window_has_custom_titlebar(*ctx.main_window);
     if (ImGui::Checkbox("Custom titlebar", &custom)) {
-        ctx.win32->window_set_custom_titlebar(custom);
+        ctx.win32->window_set_custom_titlebar(*ctx.main_window, custom);
         s.dirty = true;
     }
 

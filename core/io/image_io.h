@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace lumen {
 
@@ -18,6 +19,11 @@ struct ImageData
 struct ImageIO
 {
     static void _write_callback(void* p_context, void* p_data, int p_size);
+    static void _write_vector_callback(void* p_context, void* p_data, int p_size);
+
+    // Pixels come from malloc so free_image() releases them like stb's own.
+    template<typename T, int Channels>
+    static ImageData<T, Channels> create(int p_width, int p_height);
 
     template<typename T, int Channels>
     static ImageData<T, Channels> load_from_resource(const std::wstring& p_resource_name);
@@ -30,6 +36,12 @@ struct ImageIO
 
     template<typename T, int Channels>
     static bool save_png(const std::wstring& p_path, const ImageData<T, Channels>& p_image);
+
+    template<typename T, int Channels>
+    static bool encode_png(const ImageData<T, Channels>& p_image, std::vector<uint8_t>& r_png);
+
+    // Straight (non-premultiplied) RGBA; filters in linear light when p_srgb is set.
+    static ImageData<uint8_t, 4> resize_rgba(const ImageData<uint8_t, 4>& p_image, int p_width, int p_height, bool p_srgb);
 };
 
 }

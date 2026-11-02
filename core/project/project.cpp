@@ -77,6 +77,7 @@ Error Project::load(const std::filesystem::path& p_root, bool p_authoring)
     settings.width = tbl.at_path("window.width").value_or(settings.width);
     settings.height = tbl.at_path("window.height").value_or(settings.height);
     settings.window_icon = Guid::from_string(tbl.at_path("window.icon").value_or(std::string{}));
+    settings.splash_image = Guid::from_string(tbl.at_path("window.splash").value_or(std::string{}));
     settings.window_title = tbl.at_path("window.title").value_or(std::string{});
     settings.export_folder = tbl.at_path("export.folder").value_or(std::string{});
     settings.export_exe = tbl.at_path("export.exe").value_or(std::string{});
@@ -127,6 +128,7 @@ Error Project::save() const
     window.insert_or_assign("height", settings.height);
     window.insert_or_assign("title", settings.window_title);
     window.insert_or_assign("icon", !settings.window_icon.valid() ? std::string{} : settings.window_icon.to_string());
+    window.insert_or_assign("splash", !settings.splash_image.valid() ? std::string{} : settings.splash_image.to_string());
 
     toml::table export_tbl;
     export_tbl.insert_or_assign("folder", settings.export_folder);

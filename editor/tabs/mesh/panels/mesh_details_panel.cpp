@@ -1,5 +1,6 @@
 #include <editor/tabs/mesh/panels/mesh_details_panel.h>
 #include <editor/tabs/mesh/mesh_tab.h>
+#include <core/rendering/renderer.h>
 #include <core/base/strings.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/ui/ui_widgets.h>

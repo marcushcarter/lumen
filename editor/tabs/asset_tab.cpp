@@ -40,10 +40,10 @@ void AssetTab::_create_preview()
     preview.initialize();
     preview.load();
     _preview_model = Guid::generate();
-    const Entity e = preview.create();
-    preview.add<TransformComponent>(e);
-    preview.add<ModelComponent>(e, { _preview_model });
-    preview.add<StaticTag>(e);
+    _preview_entity = preview.create();
+    preview.add<TransformComponent>(_preview_entity);
+    preview.add<ModelComponent>(_preview_entity, { _preview_model });
+    preview.add<StaticTag>(_preview_entity);
 }
 
 void AssetTab::_update_orbit()
@@ -100,7 +100,6 @@ void AssetTab::_refresh_info(EditorContext& ctx)
     if (now - _info_poll < INFO_POLL_S) return;
     _info_poll = now;
 
-    // Imported assets ship their cooked bin; authored ones like materials ship the asset file itself.
     std::error_code ec;
     std::filesystem::path shipped = ctx.project ? ctx.project->content_path(guid) : std::filesystem::path();
     if (shipped.empty() || !std::filesystem::exists(shipped, ec)) shipped = path;

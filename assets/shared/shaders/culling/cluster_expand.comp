@@ -32,8 +32,9 @@ layout(push_constant) uniform Push {
     uint ref_capacity;
 } pc;
 
-bool _keep(Cluster cluster, mat4 model, float scale, vec3 cam, float ppu) {
+bool _keep(Cluster cluster, mat4 model, float scale, vec3 cam, float ppu, bool skinned) {
     if (!lod_selected(pc.geometry, cluster, model, scale, cam, ppu)) return false;
+    if (skinned) return true;
     vec3 center = (model * vec4(cluster.cull_sphere.xyz, 1.0)).xyz;
     float radius = cluster.cull_sphere.w * scale;
     if (frustum_cull_sphere(pc.camera, center, radius)) return false;
@@ -65,7 +66,7 @@ void main() {
 
         cluster_id = mesh.cluster_base + c;
         Cluster cl = pc.geometry.clusters.data[cluster_id];
-        keep = _keep(cl, model, scale, pc.camera.position.xyz, pc.px_per_unit);
+        keep = _keep(cl, model, scale, pc.camera.position.xyz, pc.px_per_unit, instance.skin_id != SKIN_NONE);
     }
 
     uvec4 ballot = subgroupBallot(keep);

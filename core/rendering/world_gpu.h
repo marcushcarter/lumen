@@ -8,6 +8,9 @@ using namespace glm;
 
 static constexpr uint32_t MAX_INSTANCES = 64u * 1024;
 static constexpr uint32_t MAX_CLUSTER_REFS = (1u << 22) - 1;
+static constexpr uint32_t MAX_SKINNED_INSTANCES = 4u * 1024;
+static constexpr uint32_t MAX_SKIN_JOINTS = 64u * 1024;
+static constexpr uint32_t SKIN_NONE = 0xFFFFFFFFu;
 
 struct CameraUniform
 {
@@ -21,6 +24,8 @@ struct CameraUniform
     float pre_exposure;
     mat4 inv_view_proj;
     vec4 jitter;
+    uint64_t skins;
+    uint64_t joints;
 };
 
 struct Instance
@@ -29,7 +34,24 @@ struct Instance
     uint32_t transform_id;
     uint32_t entity_id;
     uint32_t slot_base;
+    uint32_t skin_id = SKIN_NONE;
 };
+
+struct SkinInstance
+{
+    vec3 box_min;
+    uint32_t joint_base;
+    vec3 box_extent;
+    uint32_t joint_count;
+};
+static_assert(sizeof(SkinInstance) == 32, "SkinInstance layout changed");
+
+struct JointMatrices
+{
+    vec4 curr[3];
+    vec4 prev[3];
+};
+static_assert(sizeof(JointMatrices) == 96, "JointMatrices layout changed");
 
 struct Transform
 {

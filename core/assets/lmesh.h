@@ -44,6 +44,9 @@ struct VertexAttributes
 
 static_assert(sizeof(VertexPosition) == 8 && sizeof(VertexAttributes) == 8, "vertex streams must stay 8 B (one aligned 64-bit GPU load)");
 
+// SkinVertex indexes joints with uint8_t.
+static constexpr uint32_t MESH_MAX_JOINTS = 256;
+
 struct SkinVertex
 {
     u8vec4 joints;

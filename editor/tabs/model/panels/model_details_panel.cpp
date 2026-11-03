@@ -1,5 +1,6 @@
 #include <editor/tabs/model/panels/model_details_panel.h>
 #include <editor/tabs/model/model_tab.h>
+#include <core/rendering/renderer.h>
 #include <core/base/strings.h>
 #include <editor/assets/asset_field.h>
 #include <editor/assets/asset_registry.h>

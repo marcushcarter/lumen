@@ -4,7 +4,6 @@
 #include <core/io/file_io.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmesh.h>
-#include <core/assets/lskeleton.h>
 #include <core/project/project.h>
 #include <core/base/jobs.h>
 #include <drivers/toml/toml_helpers.h>
@@ -17,6 +16,7 @@
 #include <utils.h>
 #include <fstream>
 #include <sstream>
+#include <string>
 #include <vector>
 #include <utility>
 #include <algorithm>
@@ -58,7 +58,7 @@ static i16vec2 _oct_encode(vec3 n)
 
 static const SkinVertex SKIN_RIGID = { u8vec4(0), u8vec4(255, 0, 0, 0) };
 
-void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, const std::vector<uint32_t>& p_slot_of, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, std::vector<uint32_t>& r_vert_slots, const LSkeleton* p_skeleton)
+void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, const std::vector<uint32_t>& p_slot_of, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, std::vector<uint32_t>& r_vert_slots, std::vector<std::string>& r_joints)
 {
     const aiMatrix4x4 world = p_parent * p_node->mTransformation;
 
@@ -84,7 +84,7 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
         const uint32_t slot = mesh->mMaterialIndex < p_slot_of.size() ? p_slot_of[mesh->mMaterialIndex] : 0u;
         r_vert_slots.resize(r_verts.size(), slot);
 
-        const bool mesh_skinned = p_skeleton && mesh->mNumBones > 0;
+        const bool mesh_skinned = mesh->mNumBones > 0;
         if (mesh_skinned || !r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
 
         if (mesh_skinned) {
@@ -94,7 +94,9 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
 
             for (uint32_t b = 0; b < mesh->mNumBones; b++) {
                 const aiBone* bone = mesh->mBones[b];
-                const uint32_t joint = (uint32_t)std::max(p_skeleton->find(bone->mName.C_Str()), 0);
+                const std::string name = bone->mName.C_Str();
+                uint32_t joint = (uint32_t)(std::find(r_joints.begin(), r_joints.end(), name) - r_joints.begin());
+                if (joint == r_joints.size()) r_joints.push_back(name);
                 for (uint32_t w = 0; w < bone->mNumWeights; w++) {
                     const uint32_t vid = bone->mWeights[w].mVertexId;
                     const float weight = bone->mWeights[w].mWeight;
@@ -133,17 +135,22 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
     }
 
     for (uint32_t c = 0; c < p_node->mNumChildren; c++)
-        _gather_node(p_scene, p_node->mChildren[c], world, p_slot_of, r_verts, r_indices, r_skin, r_vert_slots, p_skeleton);
+        _gather_node(p_scene, p_node->mChildren[c], world, p_slot_of, r_verts, r_indices, r_skin, r_vert_slots, r_joints);
 }
 
-bool _gather_scene(const aiScene* p_scene, const LSkeleton* p_skeleton, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
+bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
 {
     const std::vector<uint32_t> slots = MeshCooker::material_slots(p_scene);
     std::vector<uint32_t> slot_of(p_scene->mNumMaterials, 0u);
     for (uint32_t s = 0; s < (uint32_t)slots.size(); ++s) slot_of[slots[s]] = s;
     r_src.slot_count = std::max(1u, (uint32_t)slots.size());
 
-    _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), slot_of, r_verts, r_indices, r_skin, r_src.vertex_slots, p_skeleton);
+    std::vector<std::string> joints;
+    _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), slot_of, r_verts, r_indices, r_skin, r_src.vertex_slots, joints);
+    if (joints.size() > MESH_MAX_JOINTS) {
+        log_write("MeshCooker: %zu bones is over the limit of %u, importing without skinning.", joints.size(), MESH_MAX_JOINTS);
+        r_skin.clear();
+    }
     if (!r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
     return !r_verts.empty() && !r_indices.empty();
 }
@@ -249,10 +256,10 @@ static void _apply_import_transform(const MeshCooker::CookSettings& p_settings, 
     }
 }
 
-bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const LSkeleton* p_skeleton, const ImportStep& p_step, MeshSource& r_src)
+bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
-    if (!_gather_scene(p_scene, p_skeleton, verts, indices, skin, r_src)) return false;
+    if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     _apply_import_transform(p_settings, verts, skin);
 
@@ -268,10 +275,10 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     return true;
 }
 
-bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const LSkeleton* p_skeleton, const ImportStep& p_step, MeshSource& r_src)
+bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
-    if (!_gather_scene(p_scene, p_skeleton, verts, indices, skin, r_src)) return false;
+    if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     _apply_import_transform(p_settings, verts, skin);
 
@@ -292,10 +299,10 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
 
 static constexpr float DAG_LEVEL0_SHARE = 0.15f;
 
-bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const LSkeleton* p_skeleton, const ImportStep& p_step, MeshSource& r_src)
+bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
-    if (!_gather_scene(p_scene, p_skeleton, verts, indices, skin, r_src)) return false;
+    if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     _apply_import_transform(p_settings, verts, skin);
 
@@ -439,9 +446,9 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     MeshSource src;
     bool ok = false;
     switch (p_job.settings.dag_level) {
-        case MeshDagLevel::FLAT: ok = _load_single_cluster(scene, p_job.settings, p_job.skeleton, step, src); break;
-        case MeshDagLevel::CLUSTERED: ok = _load_clustered(scene, p_job.settings, p_job.skeleton, step, src); break;
-        case MeshDagLevel::CLUSTERED_DAG: ok = _load_clustered_dag(scene, p_job.settings, p_job.skeleton, step, src); break;
+        case MeshDagLevel::FLAT: ok = _load_single_cluster(scene, p_job.settings, step, src); break;
+        case MeshDagLevel::CLUSTERED: ok = _load_clustered(scene, p_job.settings, step, src); break;
+        case MeshDagLevel::CLUSTERED_DAG: ok = _load_clustered_dag(scene, p_job.settings, step, src); break;
     }
     if (step.cancelled()) return CANCELED;
     if (!ok) { log_write("MeshCooker: %s produced no geometry", p_job.source.string().c_str()); return FAILED; }
@@ -522,7 +529,6 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
         { std::string(asset_type_section(AssetType::MESH)), toml::table{
             { "skinned", skinned } }},
     };
-    if (skinned) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("skeleton", p_job.skeleton->guid.to_string());
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;
 

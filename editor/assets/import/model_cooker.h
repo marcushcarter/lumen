@@ -30,10 +30,8 @@ struct ModelCooker
         std::filesystem::path dst_dir;
         std::filesystem::path dst_lmodel;
         std::filesystem::path dst_lmesh;
-        std::filesystem::path dst_lskeleton;
         Guid model_guid;
         Guid mesh_guid;
-        Guid skeleton_guid;
         Settings settings;
         ImportSession* session = nullptr;
     };

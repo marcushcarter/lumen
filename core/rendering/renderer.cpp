@@ -5,12 +5,14 @@
 #include <core/assets/asset_common.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
+#include <core/assets/lmesh.h>
 #include <core/io/embedded_resource.h>
 #include <core/base/cpu_profiler.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 
 namespace lumen {
@@ -28,11 +30,15 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
     r_view.instance_buffers.resize(frame_count);
     r_view.transform_buffers.resize(frame_count);
     r_view.camera_buffers.resize(frame_count);
+    r_view.skin_buffers.resize(frame_count);
+    r_view.joint_buffers.resize(frame_count);
 
     for (uint32_t i = 0; i < frame_count; i++) {
         r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         r_view.camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
+        r_view.skin_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_SKINNED_INSTANCES * sizeof(SkinInstance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "skins"});
+        r_view.joint_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_SKIN_JOINTS * sizeof(JointMatrices),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "joints"});
     }
 
     return OK;
@@ -44,10 +50,14 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
         dd->buffer_free(r_view.instance_buffers[i]);
         dd->buffer_free(r_view.transform_buffers[i]);
         dd->buffer_free(r_view.camera_buffers[i]);
+        dd->buffer_free(r_view.skin_buffers[i]);
+        dd->buffer_free(r_view.joint_buffers[i]);
     }
     r_view.instance_buffers.clear();
     r_view.transform_buffers.clear();
     r_view.camera_buffers.clear();
+    r_view.skin_buffers.clear();
+    r_view.joint_buffers.clear();
 }
 
 Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling)
@@ -360,6 +370,55 @@ static bool _model_sane(const mat4& p_m)
     return true;
 }
 
+static vec4 _matrix_row(const mat4& p_m, int p_row)
+{
+    return vec4(p_m[0][p_row], p_m[1][p_row], p_m[2][p_row], p_m[3][p_row]);
+}
+
+static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, bool p_continuous, const PoseComponent& p_pose, const LMesh& p_mesh, const std::vector<GeometryPool::JointBox>& p_boxes)
+{
+    const uint32_t joint_count = std::min<uint32_t>((uint32_t)p_pose.skin.size(), MESH_MAX_JOINTS);
+    if (joint_count == 0 || r_frame.skins_scratch.size() >= MAX_SKINNED_INSTANCES || r_frame.joints_scratch.size() + joint_count > MAX_SKIN_JOINTS) return SKIN_NONE;
+
+    const bool has_prev = p_continuous && r_cache.prev_skin.size() == joint_count;
+    const uint32_t joint_base = (uint32_t)r_frame.joints_scratch.size();
+    vec3 lo(FLT_MAX), hi(-FLT_MAX);
+    for (uint32_t j = 0; j < joint_count; j++) {
+        const mat4& m = p_pose.skin[j];
+        const mat4& pm = has_prev ? r_cache.prev_skin[j] : m;
+        JointMatrices jm;
+        for (int r = 0; r < 3; r++) {
+            jm.curr[r] = _matrix_row(m, r);
+            jm.prev[r] = _matrix_row(pm, r);
+        }
+        r_frame.joints_scratch.push_back(jm);
+
+        if (j >= p_boxes.size() || p_boxes[j].min.x > p_boxes[j].max.x) continue;
+        const vec3 half = (p_boxes[j].max - p_boxes[j].min) * 0.5f;
+        const vec3 center = vec3(m * vec4(p_boxes[j].min + half, 1.0f));
+        vec3 extent(0.0f);
+        for (int r = 0; r < 3; r++) extent[r] = std::abs(m[0][r]) * half.x + std::abs(m[1][r]) * half.y + std::abs(m[2][r]) * half.z;
+        lo = glm::min(lo, center - extent);
+        hi = glm::max(hi, center + extent);
+    }
+    if (lo.x > hi.x) {
+        lo = p_mesh.pos_min;
+        hi = p_mesh.pos_min + p_mesh.pos_extent;
+    }
+
+    vec3 box_lo = lo, box_hi = hi;
+    if (has_prev) {
+        box_lo = glm::min(box_lo, r_cache.prev_box_min);
+        box_hi = glm::max(box_hi, r_cache.prev_box_max);
+    }
+    r_cache.prev_box_min = lo;
+    r_cache.prev_box_max = hi;
+    r_cache.prev_skin.assign(p_pose.skin.begin(), p_pose.skin.begin() + joint_count);
+
+    r_frame.skins_scratch.push_back(SkinInstance{ box_lo, joint_base, box_hi - box_lo, joint_count });
+    return (uint32_t)r_frame.skins_scratch.size() - 1;
+}
+
 void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 {
     FrameData& frame = r_view.frame;
@@ -420,10 +479,15 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         if (!mesh) return;
         const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
         if (!_model_sane(model)) return;
-        const mat4 prev_mtx = cache.frame + 1 == frame_number ? cache.prev_mtx : model;
+        const bool continuous = cache.frame + 1 == frame_number;
+        const mat4 prev_mtx = continuous ? cache.prev_mtx : model;
         cache.prev_mtx = model;
         cache.frame = frame_number;
-        frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base });
+        Instance instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base };
+        const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
+        const std::vector<GeometryPool::JointBox>* boxes = geometry.joint_boxes(cache.mesh_index);
+        if (pose && boxes) instance.skin_id = _skin_add(frame, cache, continuous, *pose, *mesh, *boxes);
+        frame.instances_scratch.push_back(instance);
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
         frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
     });
@@ -531,6 +595,19 @@ void Renderer::_frame_upload(RenderView& r_view)
         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)dynamic_count * sizeof(Transform), t_off);
         dd->buffer_flush(tb, t_off, (VkDeviceSize)dynamic_count * sizeof(Transform));
     }
+
+    drivers::DeviceDriverVulkan::Buffer& sb = r_view.skin_buffers[current_frame];
+    drivers::DeviceDriverVulkan::Buffer& jb = r_view.joint_buffers[current_frame];
+    if (!frame.skins_scratch.empty()) {
+        const VkDeviceSize skin_bytes = (VkDeviceSize)frame.skins_scratch.size() * sizeof(SkinInstance);
+        const VkDeviceSize joint_bytes = (VkDeviceSize)frame.joints_scratch.size() * sizeof(JointMatrices);
+        dd->buffer_update(sb, frame.skins_scratch.data(), skin_bytes);
+        dd->buffer_flush(sb, 0, skin_bytes);
+        dd->buffer_update(jb, frame.joints_scratch.data(), joint_bytes);
+        dd->buffer_flush(jb, 0, joint_bytes);
+    }
+    frame.camera.skins = sb.device_address;
+    frame.camera.joints = jb.device_address;
 
     drivers::DeviceDriverVulkan::Buffer& cb = r_view.camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));

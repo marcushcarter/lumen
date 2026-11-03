@@ -6,6 +6,7 @@
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <cstdint>
+#include <functional>
 
 namespace lumen {
 
@@ -35,9 +36,13 @@ struct Viewport
     bool show_grid = true;
     bool fullscreen = false;
 
+    std::function<void(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size)> overlay;
+
     bool looking = false;
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
     float look_zoom = 0.0f;
+    bool look_clicked = false;
+    ImVec2 look_click_pos = ImVec2(0.0f, 0.0f);
     ImVec2 _look_press = ImVec2(0.0f, 0.0f);
     float _look_travel = 0.0f;
 

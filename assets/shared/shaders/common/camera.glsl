@@ -4,6 +4,8 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 
+#include "common/instances.glsl"
+
 layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     mat4 prev_view_proj;
     mat4 curr_view_proj;
@@ -15,6 +17,8 @@ layout(buffer_reference, scalar) readonly buffer CameraBuffer {
     float pre_exposure;
     mat4 inv_view_proj;
     vec4 jitter;
+    SkinInstanceBuffer skins;
+    JointBuffer joints;
 };
 
 bool frustum_cull_sphere(CameraBuffer p_camera, vec3 p_center, float p_radius) {

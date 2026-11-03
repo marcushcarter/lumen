@@ -12,6 +12,7 @@ Error World::initialize()
     component_register<TransformComponent>("Transform");
     component_register<ModelComponent>("Model");
     component_register<ModelGridComponent>("Model Grid");
+    component_register<PoseComponent>("Pose", false);
     component_register<StaticTag>("Static", false);
     component_register<EditorFolderComponent>("Folder", false);
     component_register<EditorHiddenTag>("Hidden", false);

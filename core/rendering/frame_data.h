@@ -38,6 +38,8 @@ struct FrameData
 {
     std::vector<Instance> instances_scratch;
     std::vector<Transform> transforms_scratch;
+    std::vector<SkinInstance> skins_scratch;
+    std::vector<JointMatrices> joints_scratch;
     uint32_t instance_count = 0;
     uint32_t cluster_ref_capacity = 0;
 
@@ -62,6 +64,9 @@ struct FrameData
         uint32_t slot_base = 0;
         Guid model;
         uint64_t model_version = UINT64_MAX;
+        std::vector<mat4> prev_skin;
+        vec3 prev_box_min = vec3(0.0f);
+        vec3 prev_box_max = vec3(0.0f);
     };
     std::vector<EntityCache> entity_cache;
 

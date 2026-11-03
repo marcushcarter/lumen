@@ -10,7 +10,6 @@ namespace lumen {
 
 using Buffer = drivers::DeviceDriverVulkan::Buffer;
 
-// Asset clusters can be any size (a flat mesh is one cluster); raster clusters are capped by the 8-bit local indices.
 static const char* _split_clusters(const Cluster* p_src, uint32_t p_count, const uint32_t* p_idx, uint32_t p_index_count, uint32_t p_vertex_count, std::vector<Cluster>& r_out)
 {
     std::vector<uint32_t> stamp(p_vertex_count, UINT32_MAX);
@@ -269,6 +268,7 @@ void GeometryPool::clear()
     meshes.clear();
     mesh_ranges.clear();
     mesh_guids.clear();
+    mesh_joint_boxes.clear();
     free_meshes.clear();
     by_guid.clear();
     _retired_meshes.clear();
@@ -304,7 +304,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     LAssetHeader ah{};
     std::memcpy(&ah, bytes.data(), sizeof(ah));
     if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) return fail("bad asset header");
-    if (ah.version != LMESH_VERSION && ah.version != LMESH_VERSION_SLOT_TABLE && ah.version != LMESH_VERSION_INTERLEAVED) return fail("unsupported mesh version");
+    if (!asset_version_supported(AssetType::MESH, ah.version)) return fail("unsupported mesh version");
     const bool interleaved = ah.version == LMESH_VERSION_INTERLEAVED;
     const bool legacy_slot_table = ah.version < LMESH_VERSION;
 
@@ -321,8 +321,8 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const size_t group_bytes = (size_t)ph.group_count * sizeof(ClusterGroup);
     const size_t skin_bytes = skinned ? (size_t)ph.vertex_count * sizeof(SkinVertex) : 0;
     const size_t bvhn_bytes = (size_t)ph.bvh_node_count * sizeof(BVHNode);
-
     const size_t payload_off = sizeof(ah) + sizeof(ph);
+
     const size_t blocks_size = (size_t)ah.payload_size - sizeof(ph);
     if (vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes != blocks_size || payload_off + blocks_size > bytes.size()) return fail("bad/truncated payload");
     if (ph.vertex_count == 0 || ph.index_count == 0 || ph.index_count % 3 != 0 || ph.tri_count != ph.index_count / 3) return fail("bad vertex/index counts");
@@ -349,7 +349,6 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     r.tri_count = ph.tri_count;
     r.cluster_count = cluster_count;
     r.group_count = ph.group_count;
-    r.skin_count = skinned ? ph.vertex_count : 0;
     r.bvh_count = ph.bvh_node_count;
 
     auto reserve = [&](uint32_t& r_offset, RangeAllocator& r_alloc, ArenaKind p_kind, uint32_t p_count) {
@@ -362,7 +361,6 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         reserve(r.tri, tri_alloc, ArenaKind::INDICES, r.tri_count) &&
         reserve(r.cluster, cluster_alloc, ArenaKind::CLUSTERS, r.cluster_count) &&
         reserve(r.group, group_alloc, ArenaKind::GROUPS, r.group_count) &&
-        reserve(r.skin, skin_alloc, ArenaKind::SKIN, r.skin_count) &&
         reserve(r.bvh, bvh_alloc, ArenaKind::BVH_NODES, r.bvh_count);
     if (!reserved) {
         _release(r);
@@ -500,9 +498,30 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
             cluster_bounds[ci * 3 + 2] = (uint32_t)hi.y | ((uint32_t)hi.z << 16);
         }
     }
+    
+    std::vector<SkinVertex> cluster_skin;
+    std::vector<JointBox> joint_boxes;
+    if (!bad && skinned) {
+        const SkinVertex* src_skin = reinterpret_cast<const SkinVertex*>(p_skin);
+        const VertexPosition* src_pos = reinterpret_cast<const VertexPosition*>(p_pos);
+        cluster_skin.resize(meshlet_verts.size());
+        for (size_t i = 0; i < meshlet_verts.size(); i++) cluster_skin[i] = src_skin[meshlet_verts[i] - r.vertex];
+        for (uint32_t v = 0; v < ph.vertex_count; v++) {
+            const vec3 pos = ph.pos_min + vec3(src_pos[v].position) / 65535.0f * ph.pos_extent;
+            for (int k = 0; k < 4; k++) {
+                if (src_skin[v].weights[k] == 0) continue;
+                const uint32_t j = src_skin[v].joints[k];
+                if (j >= joint_boxes.size()) joint_boxes.resize(j + 1);
+                joint_boxes[j].min = glm::min(joint_boxes[j].min, pos);
+                joint_boxes[j].max = glm::max(joint_boxes[j].max, pos);
+            }
+        }
+    }
     if (!bad) {
         r.meshlet_vertex_count = (uint32_t)meshlet_verts.size();
+        r.skin_count = skinned ? r.meshlet_vertex_count : 0;
         if (!reserve(r.meshlet_vertex, meshlet_vertex_alloc, ArenaKind::MESHLET_VERTICES, r.meshlet_vertex_count)) bad = "meshlet vertex arena exhausted";
+        else if (!reserve(r.skin, skin_alloc, ArenaKind::SKIN, r.skin_count)) bad = "skin arena exhausted";
         else for (uint32_t& b : cluster_vbase) b += r.meshlet_vertex;
     }
 
@@ -517,7 +536,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     m.cluster_base = r.cluster_count ? r.cluster : 0;
     m.cluster_count = cluster_count;
     m.slot_count = ph.slot_count;
-    m.skin_base = skinned ? r.skin : UINT32_MAX;
+    m.skin_base = skinned ? r.skin - r.meshlet_vertex : 0;
     m.bvh_node_base = r.bvh_count ? r.bvh : 0;
     m.bvh_node_count = ph.bvh_node_count;
     m.pos_min = ph.pos_min;
@@ -537,7 +556,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     add(ArenaKind::TRI_SLOTS, r.tri, p_tri, tri_bytes);
     add(ArenaKind::CLUSTERS, r.cluster, clusters.data(), clusters.size() * sizeof(Cluster));
     add(ArenaKind::GROUPS, r.group, p_group, group_bytes);
-    add(ArenaKind::SKIN, r.skin, p_skin, skin_bytes);
+    add(ArenaKind::SKIN, r.skin, cluster_skin.data(), cluster_skin.size() * sizeof(SkinVertex));
     add(ArenaKind::BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
     add(ArenaKind::MESHES, id, &m, sizeof(LMesh));
     add(ArenaKind::MESHLET_VERTICES, r.meshlet_vertex, meshlet_verts.data(), meshlet_verts.size() * sizeof(uint32_t));
@@ -556,11 +575,13 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         meshes.push_back(m);
         mesh_ranges.push_back(r);
         mesh_guids.push_back(p_guid);
+        mesh_joint_boxes.push_back(std::move(joint_boxes));
     } else {
         free_meshes.pop_back();
         meshes[id] = m;
         mesh_ranges[id] = r;
         mesh_guids[id] = p_guid;
+        mesh_joint_boxes[id] = std::move(joint_boxes);
     }
     by_guid.emplace(p_guid, id);
     max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
@@ -582,6 +603,7 @@ void GeometryPool::unload(Guid p_guid)
     meshes[id] = LMesh{};
     mesh_ranges[id] = MeshRanges{};
     mesh_guids[id] = Guid{};
+    mesh_joint_boxes[id].clear();
 }
 
 }

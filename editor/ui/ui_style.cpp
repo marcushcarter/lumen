@@ -314,7 +314,6 @@ void UiStyle::_build_colors()
     color.asset_mesh = IM_COL32(64, 196, 196, 255);
     color.asset_material = IM_COL32(112, 196, 92, 255);
     color.asset_texture = IM_COL32(226, 96, 86, 255);
-    color.asset_skeleton = IM_COL32(214, 206, 180, 255);
 
     color.overlay = IM_COL32(28, 28, 30, 130);
     color.overlay_hover = IM_COL32(60, 62, 66, 190);

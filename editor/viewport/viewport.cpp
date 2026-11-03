@@ -242,6 +242,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         look_click = allow_look && !gizmo_hot && image_clicked;
         look_hover = allow_look && image_hovered;
         if (allow_asset_drop) _asset_drop(ctx, pos, size);
+        if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.sunken);
@@ -329,6 +330,7 @@ void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 void Viewport::_update_look(bool p_start, ImVec2 p_center)
 {
     look_delta = ImVec2(0.0f, 0.0f);
+    look_clicked = false;
     if (!looking && p_start) {
         looking = true;
         _look_press = ImGui::GetMousePos();
@@ -341,6 +343,8 @@ void Viewport::_update_look(bool p_start, ImVec2 p_center)
         looking = false;
         if (_look_travel > LOOK_CLICK_SLOP) cursor_lock.end(p_center.x - _look_press.x, p_center.y - _look_press.y);
         else cursor_lock.end();
+        look_clicked = _look_travel <= LOOK_CLICK_SLOP;
+        look_click_pos = _look_press;
         return;
     }
     cursor_lock.take_delta(look_delta.x, look_delta.y);

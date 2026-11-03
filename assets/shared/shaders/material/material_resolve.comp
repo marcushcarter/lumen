@@ -14,6 +14,7 @@
 #include "common/gbuffer.glsl"
 #include "common/visbuffer.glsl"
 #include "common/shading_tiles.glsl"
+#include "common/skinning.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -59,6 +60,8 @@ struct Object {
     uint transform_id;
     uint slot_base;
     uint slot_count;
+    uint mesh_id;
+    uint skin_id;
 };
 
 struct Triangle {
@@ -69,6 +72,7 @@ struct Triangle {
     uvec2 a1;
     uvec2 a2;
     uint slot;
+    uvec3 cluster_vertex;
 };
 
 Object load_object(uint p_inst) {
@@ -76,6 +80,8 @@ Object load_object(uint p_inst) {
     const uint mesh_id = pc.instances.data[p_inst].mesh_id;
     o.transform_id = pc.instances.data[p_inst].transform_id;
     o.slot_base = pc.instances.data[p_inst].slot_base;
+    o.mesh_id = mesh_id;
+    o.skin_id = pc.instances.data[p_inst].skin_id;
     const mat4 mtx = pc.transforms.data[o.transform_id].curr_mtx;
     o.m0 = mtx[0].xyz;
     o.m1 = mtx[1].xyz;
@@ -95,9 +101,10 @@ Triangle load_triangle(uint p_cluster, uint p_tri, vec3 p_pos_min, vec3 p_pos_ex
     const uint tri_index = pc.geometry.clusters.data[p_cluster].index_base / 3u + p_tri;
     const uint lt = pc.geometry.local_triangles.data[tri_index];
     const uint vbase = pc.geometry.cluster_vertex_base.data[p_cluster];
-    const uvec4 q0 = pc.geometry.cluster_vertices.data[vbase + (lt & 0xFFu)];
-    const uvec4 q1 = pc.geometry.cluster_vertices.data[vbase + ((lt >> 8u) & 0xFFu)];
-    const uvec4 q2 = pc.geometry.cluster_vertices.data[vbase + ((lt >> 16u) & 0xFFu)];
+    t.cluster_vertex = uvec3(vbase + (lt & 0xFFu), vbase + ((lt >> 8u) & 0xFFu), vbase + ((lt >> 16u) & 0xFFu));
+    const uvec4 q0 = pc.geometry.cluster_vertices.data[t.cluster_vertex.x];
+    const uvec4 q1 = pc.geometry.cluster_vertices.data[t.cluster_vertex.y];
+    const uvec4 q2 = pc.geometry.cluster_vertices.data[t.cluster_vertex.z];
     t.l0 = p_pos_min + vertex_position_unorm(q0.xy) * p_pos_extent;
     t.l1 = p_pos_min + vertex_position_unorm(q1.xy) * p_pos_extent;
     t.l2 = p_pos_min + vertex_position_unorm(q2.xy) * p_pos_extent;
@@ -127,7 +134,32 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
 
     const uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(p_vis)];
     const Object o = load_object(ref.x);
-    const Triangle tri = load_triangle(ref.y, vis_triangle(p_vis), o.pos_min, o.pos_extent);
+    Triangle tri = load_triangle(ref.y, vis_triangle(p_vis), o.pos_min, o.pos_extent);
+
+    vec3 n0 = oct_decode_unnormalized(vertex_normal_oct(tri.a0));
+    vec3 n1 = oct_decode_unnormalized(vertex_normal_oct(tri.a1));
+    vec3 n2 = oct_decode_unnormalized(vertex_normal_oct(tri.a2));
+    vec3 prev0 = tri.l0, prev1 = tri.l1, prev2 = tri.l2;
+    if (o.skin_id != SKIN_NONE) {
+        const uint joint_base = pc.camera.skins.data[o.skin_id].joint_base;
+        const uvec2 s0 = skin_vertex(pc.geometry, o.mesh_id, tri.cluster_vertex.x);
+        const uvec2 s1 = skin_vertex(pc.geometry, o.mesh_id, tri.cluster_vertex.y);
+        const uvec2 s2 = skin_vertex(pc.geometry, o.mesh_id, tri.cluster_vertex.z);
+        const SkinRows k0 = skin_blend(pc.camera, joint_base, s0, SKIN_CURR);
+        const SkinRows k1 = skin_blend(pc.camera, joint_base, s1, SKIN_CURR);
+        const SkinRows k2 = skin_blend(pc.camera, joint_base, s2, SKIN_CURR);
+        if (p_motion) {
+            prev0 = skin_point(skin_blend(pc.camera, joint_base, s0, SKIN_PREV), tri.l0);
+            prev1 = skin_point(skin_blend(pc.camera, joint_base, s1, SKIN_PREV), tri.l1);
+            prev2 = skin_point(skin_blend(pc.camera, joint_base, s2, SKIN_PREV), tri.l2);
+        }
+        tri.l0 = skin_point(k0, tri.l0);
+        tri.l1 = skin_point(k1, tri.l1);
+        tri.l2 = skin_point(k2, tri.l2);
+        n0 = skin_direction(k0, n0);
+        n1 = skin_direction(k1, n1);
+        n2 = skin_direction(k2, n2);
+    }
 
     const vec3 cam = pc.camera.position.xyz;
     const vec3 p0 = object_to_world_rel(o, cam, tri.l0);
@@ -137,11 +169,11 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
     vec3 b;
     if (!ray_barycentrics(p_dir, p0, p1, p2, b)) return false;
 
-    const vec3 local_n = oct_decode_unnormalized(vertex_normal_oct(tri.a0)) * b.x + oct_decode_unnormalized(vertex_normal_oct(tri.a1)) * b.y + oct_decode_unnormalized(vertex_normal_oct(tri.a2)) * b.z;
+    const vec3 local_n = n0 * b.x + n1 * b.y + n2 * b.z;
     vec3 n = normalize(o.c0 * local_n.x + o.c1 * local_n.y + o.c2 * local_n.z);
 
     if (p_motion) {
-        const vec3 local = tri.l0 * b.x + tri.l1 * b.y + tri.l2 * b.z;
+        const vec3 local = prev0 * b.x + prev1 * b.y + prev2 * b.z;
         const vec4 prev_world = pc.transforms.data[o.transform_id].prev_mtx * vec4(local, 1.0);
         const vec4 prev_clip = pc.camera.prev_view_proj * prev_world;
         if (prev_clip.w > 0.0) r_s.motion = ((p_ndc - pc.camera.jitter.xy) - (prev_clip.xy / prev_clip.w - pc.camera.jitter.zw)) * 0.5;

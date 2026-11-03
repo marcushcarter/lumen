@@ -17,6 +17,7 @@ struct AssetTab : EditorTab
     OrbitCamera orbit;
     World preview;
     Guid _preview_model;
+    Entity _preview_entity;
     std::string _title;
 
     std::string source;

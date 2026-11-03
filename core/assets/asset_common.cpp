@@ -39,7 +39,6 @@ bool asset_version_supported(AssetType p_type, uint32_t p_version)
         case AssetType::TEXTURE: return p_version == LASSET_VERSION;
         case AssetType::MODEL: return p_version == LASSET_VERSION;
         case AssetType::MATERIAL: return p_version == LASSET_VERSION;
-        case AssetType::SKELETON: return p_version == LASSET_VERSION;
         default: return false;
     }
 }

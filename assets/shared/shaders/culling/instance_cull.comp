@@ -59,16 +59,25 @@ void main() {
         mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
         Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
 
-        vec3 center = (model * vec4(mesh.bounds_sphere.xyz, 1.0)).xyz;
+        vec3 box_min = mesh.pos_min;
+        vec3 box_extent = mesh.pos_extent;
+        vec4 sphere = mesh.bounds_sphere;
+        if (instance.skin_id != SKIN_NONE) {
+            box_min = pc.camera.skins.data[instance.skin_id].box_min;
+            box_extent = pc.camera.skins.data[instance.skin_id].box_extent;
+            sphere = vec4(box_min + box_extent * 0.5, length(box_extent) * 0.5);
+        }
+
+        vec3 center = (model * vec4(sphere.xyz, 1.0)).xyz;
         float scale = transform_max_scale(model);
-        float radius = mesh.bounds_sphere.w * scale;
+        float radius = sphere.w * scale;
 
         if (late) {
-            to_visible = pc.hiz_enabled == 0u || !hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, mesh.pos_min, mesh.pos_extent);
+            to_visible = pc.hiz_enabled == 0u || !hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, box_min, box_extent);
         } else if (!frustum_cull_sphere(pc.camera, center, radius) && !contribution_cull(center, radius)) {
             if (pc.hiz_enabled != 0u) {
                 mat4 prev_model = pc.transforms.data[instance.transform_id].prev_mtx;
-                to_occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, prev_model, mesh.pos_min, mesh.pos_extent);
+                to_occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, prev_model, box_min, box_extent);
             }
             to_visible = !to_occluded;
         }

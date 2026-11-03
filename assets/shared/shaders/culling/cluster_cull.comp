@@ -44,7 +44,7 @@ void main() {
         mat4 model = pc.transforms.data[instance.transform_id].prev_mtx;
         vec3 box_min, box_extent;
         cluster_box(pc.geometry, pc.geometry.meshes.data[instance.mesh_id], ref.y, box_min, box_extent);
-        occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, model, box_min, box_extent);
+        occluded = instance.skin_id == SKIN_NONE && hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, model, box_min, box_extent);
     }
 
     bool to_visible = valid && !occluded;

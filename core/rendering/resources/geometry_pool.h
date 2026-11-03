@@ -8,6 +8,7 @@
 #include <vector>
 #include <unordered_map>
 #include <filesystem>
+#include <cfloat>
 
 namespace lumen {
 
@@ -106,6 +107,11 @@ struct GeometryPool
         uint32_t meshlet_vertex = RangeAllocator::INVALID, meshlet_vertex_count = 0;
     };
 
+    struct JointBox {
+        vec3 min = vec3(FLT_MAX);
+        vec3 max = vec3(-FLT_MAX);
+    };
+
     struct RetiredMesh {
         uint64_t frame;
         uint32_t id;
@@ -138,6 +144,8 @@ struct GeometryPool
     std::vector<LMesh> meshes;
     std::vector<MeshRanges> mesh_ranges;
     std::vector<Guid> mesh_guids;
+    std::vector<std::vector<JointBox>> mesh_joint_boxes;
+
     std::vector<uint32_t> free_meshes;
     std::vector<RetiredMesh> _retired_meshes;
     std::vector<RetiredBuffer> _retired_buffers;
@@ -174,6 +182,10 @@ struct GeometryPool
 
     const LMesh* get(uint32_t p_id) const {
         return p_id < meshes.size() && mesh_guids[p_id].valid() ? &meshes[p_id] : nullptr;
+    }
+
+    const std::vector<JointBox>* joint_boxes(uint32_t p_id) const {
+        return get(p_id) && !mesh_joint_boxes[p_id].empty() ? &mesh_joint_boxes[p_id] : nullptr;
     }
 };
 

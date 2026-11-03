@@ -2,6 +2,7 @@
 #include <core/assets/guid.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <vector>
 
 namespace lumen {
 
@@ -32,6 +33,13 @@ struct ModelGridComponent
     Guid model;
     uvec3 count = uvec3(10, 1, 10);
     float spacing = 0.0f;
+};
+
+// One skinning matrix per skeleton joint, rest-pose mesh space to posed mesh space.
+// Only read for dynamic entities whose mesh is skinned.
+struct PoseComponent
+{
+    std::vector<mat4> skin;
 };
 
 struct StaticTag {};

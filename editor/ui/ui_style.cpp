@@ -185,6 +185,18 @@ void UiStyle::_build_components()
     // import_dialog.min_width = 360.0f;
     // import_dialog.min_height = 320.0f;
     // import_dialog.button_width = 96.0f;
+    settings.nav_width = 200.0f;
+    settings.nav_item_height = 28.0f;
+    settings.content_padding = space.huge;
+    settings.content_max_width = 720.0f;
+
+    asset_tooltip.thumbnail_size = 144.0f;
+    asset_picker.width = 320.0f;
+    asset_picker.max_height = 420.0f;
+    asset_picker.thumbnail_size = 32.0f;
+    asset_tooltip.thumbnail_rounding = 4.0f;
+    asset_tooltip.path_wrap_width = 280.0f;
+
     import_dialog.width = project_manager.modal_width;
     import_dialog.max_height_ratio = 0.85f;
     import_dialog.button_width = project_manager.button_width;

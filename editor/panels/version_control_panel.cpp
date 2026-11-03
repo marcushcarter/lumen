@@ -1,4 +1,4 @@
-#include <editor/tabs/world/panels/version_control_panel.h>
+#include <editor/panels/version_control_panel.h>
 #include <core/base/hash.h>
 #include <editor/application/editor_context.h>
 #include <editor/ui/ui_widgets.h>

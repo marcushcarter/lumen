@@ -9,8 +9,6 @@
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/world/panels/details_panel.h>
 #include <editor/tabs/world/panels/outliner_panel.h>
-#include <editor/tabs/world/panels/project_settings_panel.h>
-#include <editor/tabs/world/panels/version_control_panel.h>
 #include <editor/tabs/world/panels/world_settings_panel.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <IconsFontAwesome6.h>
@@ -26,8 +24,6 @@ Error WorldTab::initialize(SharedPanels& r_shared)
     layout.add_panel<OutlinerPanel>();
     details = layout.add_panel<DetailsPanel>();
     layout.add_panel<WorldSettingsPanel>();
-    layout.add_panel<VersionControlPanel>();
-    layout.add_panel<ProjectSettingsPanel>();
     for (auto& p : r_shared.panels) layout.add_shared(p.get());
     return OK;
 }
@@ -122,14 +118,12 @@ void WorldTab::_draw_toolbar(EditorContext& ctx)
     bar.save(ctx, *this);
     bar.gap();
     bar.x += _draw_play_controls(ctx, ImVec2(bar.x, bar.min.y), bar.inner_max());
-    bar.gap();
-    if (bar.button(ICON_FA_GEAR "  Settings")) ctx.tabs->open<EditorSettingsTab>();
     bar.end();
 }
 
 Error WorldTab::save(EditorContext& ctx)
 {
-    if (ctx.save_all_callback) ctx.save_all_callback();
+    (void)ctx;
     return Error::OK;
 }
 

@@ -1,5 +1,9 @@
 #include <editor/tabs/tab_manager.h>
 #include <editor/ui/tab_strip.h>
+#include <drivers/windows/dialogs_win32.h>
+#include <drivers/windows/window_driver_win32.h>
+#include <string>
+#include <string_view>
 #include <cstdio>
 
 namespace lumen {
@@ -94,7 +98,6 @@ void TabManager::update(EditorContext& ctx, float p_dt)
 
     _resolve_active();
     if (active) active->on_update(ctx, p_dt);
-    _draw_confirm(ctx);
 }
 
 void TabManager::_process_closes(EditorContext& ctx)
@@ -107,49 +110,34 @@ void TabManager::_process_closes(EditorContext& ctx)
 
         if (!r.force && t->dirty()) {
             active = t;
-            if (!_confirm_open) {
-                _confirm = r;
-                _confirm_open = true;
-            }
-            continue;
+            if (!_confirm_discard(*t)) continue;
         }
         _remove_at(ctx, i);
     }
     close_requests.clear();
 }
 
-void TabManager::_draw_confirm(EditorContext& ctx)
+bool TabManager::_confirm_discard(const EditorTab& p_tab)
 {
-    if (!_confirm_open) return;
-    EditorTab* t = find(_confirm.kind, _confirm.guid);
-    if (!t || !t->dirty()) {
-        _confirm_open = false;
-        return;
+    std::string_view name = p_tab.title();
+    if (const size_t gap = name.find("  "); gap != std::string_view::npos) name.remove_prefix(gap + 2);
+    const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(name) + L"' has unsaved changes";
+    return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Closing it will discard them. Save first with Ctrl+S to keep them.", L"Close Without Saving", L"Cancel");
+}
+
+bool TabManager::confirm_discard_all() const
+{
+    uint32_t count = 0;
+    const EditorTab* only = nullptr;
+    for (const EditorTab* t : tabs) {
+        if (!t->dirty()) continue;
+        count++;
+        only = t;
     }
-
-    const char* id = "Unsaved Changes###tab_close_confirm";
-    if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) return;
-
-    ImGui::Text("Save changes to '%s' before closing?", t->title());
-    ImGui::Spacing();
-
-    enum class Choice { NONE, SAVE, DISCARD, CANCEL };
-    Choice choice = Choice::NONE;
-    if (ImGui::Button("Save")) choice = Choice::SAVE;
-    ImGui::SameLine();
-    if (ImGui::Button("Don't Save")) choice = Choice::DISCARD;
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) choice = Choice::CANCEL;
-
-    if (choice != Choice::NONE) {
-        ImGui::CloseCurrentPopup();
-        _confirm_open = false;
-    }
-    if (choice == Choice::SAVE && t->save(ctx) == Error::OK) close(t->kind, t->guid, true);
-    if (choice == Choice::DISCARD) close(t->kind, t->guid, true);
-    ImGui::EndPopup();
+    if (count == 0) return true;
+    if (count == 1) return _confirm_discard(*only);
+    const std::wstring heading = std::to_wstring(count) + L" tabs have unsaved changes";
+    return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Closing will discard them. Save first with Ctrl+Shift+S to keep them.", L"Close Without Saving", L"Cancel");
 }
 
 void TabManager::_remove_at(EditorContext& ctx, size_t p_index)

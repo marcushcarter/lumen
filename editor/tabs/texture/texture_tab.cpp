@@ -100,7 +100,6 @@ void TextureTab::_read_info()
     try { tbl = toml::parse_file(path.string()); }
     catch (const toml::parse_error&) { return; }
     usage = tbl[asset_type_section(AssetType::TEXTURE)]["usage"].value_or(std::string());
-    source = tbl["import"]["source"].value_or(std::string());
 }
 
 void TextureTab::_draw_toolbar(EditorContext& ctx)

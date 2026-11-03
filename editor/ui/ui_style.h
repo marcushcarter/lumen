@@ -337,6 +337,25 @@ struct UiStyle
         float button_width;
     };
 
+    struct Settings {
+        float nav_width;
+        float nav_item_height;
+        float content_padding;
+        float content_max_width;
+    };
+
+    struct AssetPicker {
+        float width;
+        float max_height;
+        float thumbnail_size;
+    };
+
+    struct AssetTooltip {
+        float thumbnail_size;
+        float thumbnail_rounding;
+        float path_wrap_width;
+    };
+
     struct ImportDialog {
         float width;
         // float height;
@@ -445,6 +464,9 @@ struct UiStyle
     Details details;
     ListRow list_row;
     ProjectManager project_manager;
+    Settings settings;
+    AssetTooltip asset_tooltip;
+    AssetPicker asset_picker;
     ImportDialog import_dialog;
     AssetBrowser asset_browser;
     Profiler profiler;

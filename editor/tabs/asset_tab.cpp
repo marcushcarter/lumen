@@ -1,11 +1,14 @@
 #include <editor/tabs/asset_tab.h>
 #include <core/rendering/renderer.h>
+#include <core/project/project.h>
 #include <core/world/components.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/panels/content_browser_panel.h>
 #include <editor/panels/shared_panels.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/ui/tab_toolbar.h>
+#include <imgui.h>
+#include <toml++/toml.hpp>
 #include <cstdio>
 
 namespace lumen {
@@ -29,7 +32,7 @@ void AssetTab::_create_layout(EditorContext& ctx, const char* p_host_prefix)
     layout.viewport.allow_gizmo = false;
     layout.viewport.allow_look = true;
     layout.viewport.allow_asset_drop = false;
-    layout.add_shared(ctx.shared_panels->content_browser);
+    for (auto& p : ctx.shared_panels->panels) layout.add_shared(p.get());
 }
 
 void AssetTab::_create_preview()
@@ -88,6 +91,30 @@ void AssetTab::on_tick(EditorContext& ctx)
         path = e->path;
     }
     _refresh_title();
+    _refresh_info(ctx);
+}
+
+void AssetTab::_refresh_info(EditorContext& ctx)
+{
+    const double now = ImGui::GetTime();
+    if (now - _info_poll < INFO_POLL_S) return;
+    _info_poll = now;
+
+    // Imported assets ship their cooked bin; authored ones like materials ship the asset file itself.
+    std::error_code ec;
+    std::filesystem::path shipped = ctx.project ? ctx.project->content_path(guid) : std::filesystem::path();
+    if (shipped.empty() || !std::filesystem::exists(shipped, ec)) shipped = path;
+    const std::filesystem::file_time_type t = std::filesystem::last_write_time(shipped, ec);
+    if (ec || t == _info_time) return;
+    _info_time = t;
+
+    const uintmax_t size = std::filesystem::file_size(shipped, ec);
+    disk_size = ec ? 0 : (uint64_t)size;
+
+    toml::table tbl;
+    try { tbl = toml::parse_file(path.string()); }
+    catch (const toml::parse_error&) { return; }
+    source = tbl["import"]["source"].value_or(std::string());
 }
 
 }

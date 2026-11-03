@@ -10,6 +10,8 @@ namespace lumen {
 
 struct AssetTab : EditorTab
 {
+    static constexpr double INFO_POLL_S = 1.0;
+
     std::filesystem::path path;
     EditorLayout layout;
     OrbitCamera orbit;
@@ -17,8 +19,14 @@ struct AssetTab : EditorTab
     Guid _preview_model;
     std::string _title;
 
+    std::string source;
+    uint64_t disk_size = 0;
+    std::filesystem::file_time_type _info_time{};
+    double _info_poll = -1.0e9;
+
     virtual const char* _icon() const = 0;
     bool _resolve_path(EditorContext& ctx);
+    void _refresh_info(EditorContext& ctx);
     void _create_layout(EditorContext& ctx, const char* p_host_prefix);
     void _create_preview();
     void _update_orbit();

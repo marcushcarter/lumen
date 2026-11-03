@@ -32,6 +32,7 @@ struct EditorApplication : Application
 {
     static constexpr const char* FILE_EDITOR_STATE = "editor_state.cfg";
     static constexpr const char* FILE_PROJECT_STATE = "project_state.cfg";
+    static constexpr const char* FILE_LOADING_MARKER = "project_loading.lock";
 
     EditorSettings settings;
     EditorResources resources;
@@ -49,6 +50,8 @@ struct EditorApplication : Application
     PlaySession run;
     drivers::GitDriver git;
     std::filesystem::path reopen_root;
+    std::filesystem::path session_project;
+    bool loading_marker = false;
     size_t imports_notified = 0;
 
     struct SavedTab {
@@ -91,6 +94,10 @@ struct EditorApplication : Application
     void _restore_tabs();
 
     void _load_state();
+    bool _any_dirty() const;
+    void _queue_last_project(const std::filesystem::path& p_last);
+    void _write_loading_marker(const std::filesystem::path& p_root);
+    void _clear_loading_marker();
     void _save_state();
     void _load_project_state();
     void _save_project_state();

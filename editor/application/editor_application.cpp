@@ -11,7 +11,8 @@
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/texture/texture_tab.h>
-#include <editor/tabs/world/panels/project_settings_panel.h>
+#include <editor/tabs/settings/project_settings_tab.h>
+#include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <drivers/windows/dialogs_win32.h>
@@ -153,6 +154,7 @@ void EditorApplication::on_update(float p_dt)
 
     EditorContext& ctx = _context();
     if (project.loaded()) {
+        if (loading_marker && !pending_render_path) _clear_loading_marker();
         _tick_imports();
         assets.tick();
         selection.prune(world, folders);
@@ -162,6 +164,7 @@ void EditorApplication::on_update(float p_dt)
         import_dialog.draw(ctx);
         thumbnails.update(ctx);
         if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) tabs.active->save(ctx);
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();
 
         const uint64_t signature = _tabs_hash();
         if (signature != _tabs_signature) {
@@ -240,9 +243,14 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 {
     using enum Error;
 
+    _write_loading_marker(p_root);
     Error err = project_load(p_root);
-    if (err != OK) project_unload();
+    if (err != OK) {
+        project_unload();
+        _clear_loading_marker();
+    }
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    session_project = project.root;
 
     AssetImportTracker::clear_staging(project);
     assets.open(project.assets_dir);
@@ -263,12 +271,10 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     _tabs_signature = _tabs_hash();
     git.initialize(project.root);
 
-    // older builds cooked the icon and splash under other names; drop them so exports don't ship both
     std::error_code legacy_ec;
     std::filesystem::remove(project.root / "Data/Content/window_icon.ico", legacy_ec);
     std::filesystem::remove(project.root / "Data/Content/splash.bin", legacy_ec);
 
-    // the icon texture may have been reimported or the .ico deleted since the last session
     if (project.settings.window_icon.valid() && IconCooker::stale(project.content_path(project.settings.window_icon), project.icon_path())) {
         IconCooker::cook_icon(project);
     }
@@ -281,7 +287,6 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 
 bool EditorApplication::_confirm_cancel_imports(const wchar_t* p_action)
 {
-    // Imports belong to the open project, so leaving it can't let them finish in the background.
     const uint32_t count = imports.active_count();
     if (count > 0) {
         const std::wstring heading = count == 1 ? L"1 item is still importing" : std::to_wstring(count) + L" items are still importing";
@@ -297,12 +302,13 @@ bool EditorApplication::_confirm_cancel_imports(const wchar_t* p_action)
 
 bool EditorApplication::on_close_requested()
 {
-    return _confirm_cancel_imports(L"Closing the editor");
+    return tabs.confirm_discard_all() && _confirm_cancel_imports(L"Closing the editor");
 }
 
 bool EditorApplication::close_project()
 {
-    if (!_confirm_cancel_imports(L"Closing the project")) return false;
+    if (!tabs.confirm_discard_all() || !_confirm_cancel_imports(L"Closing the project")) return false;
+    session_project.clear();
     play.stop();
     pending_transition = [this]{
         EditorContext& ctx = _context();
@@ -326,7 +332,14 @@ void EditorApplication::save_all()
     for (EditorTab* t : tabs.tabs) {
         if (t->dirty()) t->save(ctx);
     }
-    project.save();
+}
+
+bool EditorApplication::_any_dirty() const
+{
+    for (const EditorTab* t : tabs.tabs) {
+        if (t->dirty()) return true;
+    }
+    return false;
 }
 
 void EditorApplication::reload_project(std::function<void()> p_while_closed)
@@ -349,6 +362,8 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::MODEL: return "model";
         case TabKind::MATERIAL: return "material";
         case TabKind::TEXTURE: return "texture";
+        case TabKind::MESH: return "mesh";
+        case TabKind::PROJECT_SETTINGS: return "project_settings";
     }
     return "world";
 }
@@ -360,6 +375,8 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "model") r_kind = TabKind::MODEL;
     else if (p_name == "material") r_kind = TabKind::MATERIAL;
     else if (p_name == "texture") r_kind = TabKind::TEXTURE;
+    else if (p_name == "mesh") r_kind = TabKind::MESH;
+    else if (p_name == "project_settings") r_kind = TabKind::PROJECT_SETTINGS;
     else return false;
     return true;
 }
@@ -389,10 +406,45 @@ void EditorApplication::_restore_tabs()
             case TabKind::MODEL: if (t.guid.valid()) opened = tabs.open<ModelTab>(t.guid); break;
             case TabKind::MATERIAL: if (t.guid.valid()) opened = tabs.open<MaterialTab>(t.guid); break;
             case TabKind::TEXTURE: if (t.guid.valid()) opened = tabs.open<TextureTab>(t.guid); break;
+            case TabKind::MESH: if (t.guid.valid()) opened = tabs.open<MeshTab>(t.guid); break;
+            case TabKind::PROJECT_SETTINGS: opened = tabs.open<ProjectSettingsTab>(); break;
         }
         if (opened && i == saved.active) active = opened;
     }
     tabs.focus(active);
+}
+
+void EditorApplication::_queue_last_project(const std::filesystem::path& p_last)
+{
+    if (p_last.empty() || !settings.reopen_last_project) return;
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+        log_write("Editor: Shift held, not reopening '%s'.", p_last.string().c_str());
+        return;
+    }
+    std::error_code ec;
+    if (std::filesystem::exists(Paths::roaming_data() / FILE_LOADING_MARKER, ec)) {
+        log_write("Editor: '%s' didn't finish opening last time, showing the project manager.", p_last.string().c_str());
+        std::filesystem::remove(Paths::roaming_data() / FILE_LOADING_MARKER, ec);
+        return;
+    }
+    if (!std::filesystem::exists(p_last / Project::FILE_NAME, ec)) {
+        log_write("Editor: last project '%s' is gone, showing the project manager.", p_last.string().c_str());
+        return;
+    }
+    reopen_root = p_last;
+}
+
+void EditorApplication::_write_loading_marker(const std::filesystem::path& p_root)
+{
+    const std::string root = p_root.generic_string();
+    loading_marker = write_file_atomic(Paths::roaming_data() / FILE_LOADING_MARKER, root.data(), root.size());
+}
+
+void EditorApplication::_clear_loading_marker()
+{
+    std::error_code ec;
+    std::filesystem::remove(Paths::roaming_data() / FILE_LOADING_MARKER, ec);
+    loading_marker = false;
 }
 
 void EditorApplication::_load_state()
@@ -419,8 +471,9 @@ void EditorApplication::_load_state()
 
     if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(main_window, *v);
 
-    // older builds kept the layout and every project's tabs here; hold on to them so each project
-    // picks its state up the first time it's opened, the next save drops them from this file
+    settings.reopen_last_project = tbl.at_path("session.reopen_last_project").value_or(settings.reopen_last_project);
+    _queue_last_project(std::filesystem::path(tbl.at_path("session.last_project").value_or(std::string{})));
+
     _project_state_legacy.clear();
     if (tbl.contains("layout")) {
         if (const toml::table* t = tbl["layout"].as_table()) _project_state_legacy.insert_or_assign("layout", *t);
@@ -449,7 +502,12 @@ void EditorApplication::_save_state()
     display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
     display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
 
+    toml::table session;
+    session.insert_or_assign("reopen_last_project", settings.reopen_last_project);
+    session.insert_or_assign("last_project", session_project.generic_string());
+
     toml::table root;
+    root.insert_or_assign("session", std::move(session));
     root.insert_or_assign("theme", std::move(theme));
     root.insert_or_assign("window", std::move(window));
     root.insert_or_assign("display", std::move(display));
@@ -487,8 +545,6 @@ void EditorApplication::_load_project_state()
         found = true;
     }
 
-    // always start from the defaults so a project never inherits the previous one's layout,
-    // then let whatever the file has override them
     _project_state_read(_project_state_default);
     if (found) _project_state_read(parsed);
 }
@@ -583,7 +639,6 @@ void EditorApplication::_project_state_read(const toml::table& p_tbl)
 
         if (const toml::table* pans = tbl.at_path("panels").as_table()) {
             for (DockSlot& s : L.slots) {
-                // older files keyed panels by their full title, icon included
                 const char* key = pans->contains(s.panel->layout_id) ? s.panel->layout_id : s.panel->title;
                 if (!pans->contains(key)) continue;
                 auto pv = (*pans)[key];
@@ -794,10 +849,8 @@ void EditorApplication::_titlebar_editor_menu()
     if (ImGui::BeginMenu("File")) {
         // if (ImGui::MenuItem("Save Current Scene")) {}
         // if (ImGui::MenuItem("Save Current Scene As")) {}
-        // if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) {
-            // tabs.active->save(_context());
-        // }
-        // if (ImGui::MenuItem("Save All")) project.save();
+        if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) tabs.active->save(_context());
+        if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, _any_dirty())) save_all();
         // if (ImGui::MenuItem("Choose Files to Save")) {}
 
         // ImGui::Separator();
@@ -830,10 +883,7 @@ void EditorApplication::_titlebar_editor_menu()
         // ImGui::EndDisabled();
         // ImGui::Separator();
         if (ImGui::MenuItem("Editor Settings")) tabs.open<EditorSettingsTab>();
-        if (ImGui::MenuItem("Project Settings")) {
-            world_tab.layout.open<ProjectSettingsPanel>();
-            tabs.focus(&world_tab);
-        }
+        if (ImGui::MenuItem("Project Settings")) tabs.open<ProjectSettingsTab>();
         if (ImGui::MenuItem("Open Editor Data Folder")) Paths::reveal_in_explorer(Paths::roaming_data());
         ImGui::EndMenu();
     }

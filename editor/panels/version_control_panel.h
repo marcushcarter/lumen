@@ -64,7 +64,8 @@ struct VersionControlPanel : Panel
     bool download_pending = false;
 
     const char* name() const override { return ICON_FA_CODE_BRANCH "  Version Control"; }
-    DockZone default_zone() const override { return DockZone::RIGHT_BOTTOM; }
+    DockZone default_zone() const override { return DockZone::LEFT_TOP; }
+    bool default_open() const override { return false; }
     ImGuiWindowFlags window_flags() const override { return ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; }
     ImVec2 window_padding() const override { return ui_style().outliner.padding; }
     void draw_contents(EditorContext& ctx) override;

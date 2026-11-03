@@ -9,6 +9,7 @@ struct ContentBrowserPanel;
 struct GpuProfilerPanel;
 struct MemoryPanel;
 struct OutputPanel;
+struct VersionControlPanel;
 
 struct SharedPanels
 {
@@ -17,6 +18,7 @@ struct SharedPanels
     GpuProfilerPanel* gpu_profiler = nullptr;
     MemoryPanel* memory = nullptr;
     OutputPanel* output = nullptr;
+    VersionControlPanel* version_control = nullptr;
 
     void initialize();
     void shutdown();

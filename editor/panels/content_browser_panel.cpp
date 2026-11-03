@@ -14,6 +14,7 @@
 #include <editor/assets/texture_viewer.h>
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/tabs/material/material_tab.h>
+#include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/texture/texture_tab.h>
 #include <editor/tabs/tab_manager.h>
@@ -81,7 +82,7 @@ void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r
         e.lower_name = str_lowered(e.path.filename().string());
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
-        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? ICON_FA_CUBE : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : ICON_FA_FILE;
+        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? MeshTab::ICON : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : ICON_FA_FILE;
         if (e.is_dir) r_dir.subdirs.push_back(e.path);
         r_dir.entries.push_back(std::move(e));
     }
@@ -700,6 +701,10 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
                     if (r.activated && !e.is_dir && e.path.extension() == ".lmodel") {
                         const AssetInfo info = read_asset_info(e.path);
                         if (info.valid() && info.type == AssetType::MODEL) ctx.tabs->open<ModelTab>(info.guid)->path = e.path;
+                    }
+                    if (r.activated && !e.is_dir && e.path.extension() == ".lmesh") {
+                        const AssetInfo info = read_asset_info(e.path);
+                        if (info.valid() && info.type == AssetType::MESH) ctx.tabs->open<MeshTab>(info.guid)->path = e.path;
                     }
                     if (r.activated && !e.is_dir && e.path.extension() == ".lmaterial") {
                         const AssetInfo info = read_asset_info(e.path);

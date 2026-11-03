@@ -28,7 +28,6 @@ struct TextureTab : AssetTab
     float zoom = 1.0f;
     ImVec2 pan = ImVec2(0.0f, 0.0f);
     std::string usage;
-    std::string source;
 
     bool _fit_pending = true;
     VkImage _image = VK_NULL_HANDLE;

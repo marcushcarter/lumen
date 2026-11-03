@@ -277,21 +277,21 @@ void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
 {
     const UiStyle& ui = ui_style();
     const char* console_label = ICON_FA_TERMINAL "  Cmd";
-    float natural = 0.0f;
+    DockSlot* output = find<OutputPanel>();
+    float natural = output ? TabStrip::natural_width(console_label) : 0.0f;
     for (const DockSlot& s : slots) if (s.panel->in_footer()) natural += TabStrip::natural_width(s.panel->title);
 
-    const float console_chrome = ImGui::CalcTextSize(console_label).x + ui.console_bar.pad * 3.0f;
+    const float console_chrome = ui.console_bar.pad * 2.0f;
     const float free_w = (p_max.x - p_min.x) - natural - console_chrome;
     const float field_w = ImClamp(free_w, ui.console_bar.field_min_width, ui.console_bar.field_width);
 
     TabStrip strip;
     strip.begin("##footer", p_min, p_max, TabStrip::Edge::BOTTOM, natural, console_chrome + field_w);
     for (DockSlot& s : slots) {
-        if (!s.panel->in_footer() || !strip.button(s.panel->title, s.open)) continue;
-        if (s.open) s.open = false;
-        else open_panel(s);
+        if (s.panel->in_footer() && strip.button(s.panel->title, s.open)) open_panel(s);
     }
-    if (strip.console_field("##console_cmd", console_label, "Enter Console Command", console_buffer, sizeof(console_buffer), field_w)) {
+    if (output && strip.button(console_label, output->open)) open_panel(*output);
+    if (strip.console_field("##console_cmd", "Enter Console Command", console_buffer, sizeof(console_buffer), field_w)) {
         console_submit(console_buffer);
         console_buffer[0] = '\0';
     }

@@ -230,16 +230,11 @@ bool TabStrip::trailing_button(const char* p_icon)
     return pressed;
 }
 
-bool TabStrip::console_field(const char* p_id, const char* p_label, const char* p_hint, char* p_buf, size_t p_size, float p_field_width)
+bool TabStrip::console_field(const char* p_id, const char* p_hint, char* p_buf, size_t p_size, float p_field_width)
 {
     const UiStyle& ui = ui_style();
     const float h = max.y - min.y;
-    float x = cursor_x + ui.console_bar.pad;
-
-    const char* end = ImGui::FindRenderedTextEnd(p_label);
-    const ImVec2 ls = ImGui::CalcTextSize(p_label, end);
-    draw_list->AddText(ImVec2(x, ImFloor(min.y + (h - ls.y) * 0.5f)), ui.color.text_dim, p_label, end);
-    x += ls.x + ui.console_bar.pad;
+    const float x = cursor_x + ui.console_bar.pad;
 
     ImGui::SetCursorScreenPos(ImVec2(x, ImFloor(min.y + (h - ImGui::GetFrameHeight()) * 0.5f)));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui.console_bar.rounding);

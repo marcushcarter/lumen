@@ -32,7 +32,7 @@ struct TabStrip
     bool button(const char* p_label, bool p_on);
     bool dock_tab(const char* p_label, bool p_selected, bool* p_close, bool p_dirty = false, ImU32 p_icon_color = 0);
     bool trailing_button(const char* p_icon);
-    bool console_field(const char* p_id, const char* p_label, const char* p_hint, char* p_buf, size_t p_size, float p_field_width);
+    bool console_field(const char* p_id, const char* p_hint, char* p_buf, size_t p_size, float p_field_width);
     void scrollable(float& r_scroll, bool p_reveal, float p_lead);
     void end();
 

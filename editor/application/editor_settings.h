@@ -37,6 +37,7 @@ struct EditorSettings
     Theme theme;
     VsyncMode vsync_mode = VsyncMode::FAST;
     int fps_cap = 120;
+    bool reopen_last_project = true;
     bool dirty = false;
 };
 

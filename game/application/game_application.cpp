@@ -64,11 +64,9 @@ void GameApplication::_open_splash()
     if (!show_splash) return;
     show_splash = false;
     if (_resolve_project_root() != Error::OK) return;
-    // No cooked splash means the project has none.
     ImageData<uint8_t, 4> image = ImageIO::load_from_file<uint8_t, 4>((project_root / Project::FILE_SPLASH).wstring());
     if (!image.valid()) return;
 
-    // GDI wants BGRA.
     std::vector<uint32_t> bgra((size_t)image.width * image.height);
     for (size_t i = 0; i < bgra.size(); i++) {
         const uint8_t* s = image.pixels + i * 4;

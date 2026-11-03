@@ -7,6 +7,7 @@
 #include <core/assets/guid.h>
 #include <core/world/world.h>
 #include <core/world/camera.h>
+#include <editor/assets/rig_preview.h>
 #include <core/base/error.h>
 #include <core/base/jobs.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
@@ -56,6 +57,8 @@ struct ThumbnailCache
         Guid mesh;
         std::vector<Guid> materials;
         std::vector<Guid> textures;
+        std::vector<vec3> bones;
+        std::vector<int32_t> bone_parents;
         JobState state = JobState::NONE;
         uint64_t frame = 0;
         uint64_t ticket = 0;
@@ -89,6 +92,9 @@ struct ThumbnailCache
     Entity entity = ENTITY_NULL;
     Guid preview_sphere;
     Guid preview_mesh;
+    RigPreview rig;
+    std::unordered_map<Guid, Guid> skeleton_meshes;
+    uint64_t skeleton_meshes_version = UINT64_MAX;
 
     std::vector<Retired> retired;
     std::vector<std::unique_ptr<PendingWrite>> writes;
@@ -117,6 +123,9 @@ struct ThumbnailCache
     void _retire_view(EditorContext& ctx, VkImageView p_view);
 
     bool _resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job);
+    Guid _skeleton_mesh(EditorContext& ctx, Guid p_skeleton);
+    bool _skeleton_bones(EditorContext& ctx, Job& r_job, bool p_has_mesh, vec3& r_center, float& r_radius);
+    void _draw_bones(const Job& p_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     const LModel* _parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);

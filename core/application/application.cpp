@@ -169,6 +169,10 @@ Error Application::_frame()
     renderer.set_camera(active_camera());
     cpu.zone_end();
 
+    cpu.zone_begin("Poses");
+    poses.update(world, renderer);
+    cpu.zone_end();
+
     cpu.zone_begin("Frame Build");
     err = renderer.begin_frame(render_world());
     cpu.zone_end();

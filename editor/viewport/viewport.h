@@ -37,6 +37,7 @@ struct Viewport
     bool fullscreen = false;
 
     std::function<void(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size)> overlay;
+    std::function<void(OverlayBar& r_bar)> overlay_controls;
 
     bool looking = false;
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);

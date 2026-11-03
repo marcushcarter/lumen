@@ -45,6 +45,7 @@ struct MeshCooker
         std::filesystem::path content_bin;
         Guid guid;
         CookSettings settings;
+        Guid skeleton;
         ImportStep step;
     };
 

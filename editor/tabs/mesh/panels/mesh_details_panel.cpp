@@ -2,6 +2,7 @@
 #include <editor/tabs/mesh/mesh_tab.h>
 #include <core/rendering/renderer.h>
 #include <core/base/strings.h>
+#include <editor/assets/asset_field.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/ui/ui_widgets.h>
 #include <imgui.h>
@@ -37,11 +38,18 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::PopTextWrapPos();
     }
 
+    RigPreview& rig = tab->rig_preview;
+    if (rig.skinned) {
+        asset_field(ctx, "Skeleton", "###mesh_skeleton", rig.skeleton, AssetType::SKELETON);
+        if (rig.missing_joints) ImGui::TextColored(ui_vec4(ui_style().color.warning), "%u of %u joints aren't in this skeleton", rig.missing_joints, (uint32_t)rig.rig.joints.size());
+    }
+
     const LMeshStats& s = tab->mesh_stats;
     char buf[32];
     ImGui::Text("Vertices: %s", _count(s.vertices, buf, sizeof(buf)));
     ImGui::Text("Triangles: %s", _count(s.triangles, buf, sizeof(buf)));
     ImGui::Text("Material Slots: %u", s.slots);
+    if (s.joints) ImGui::Text("Joints: %u", s.joints);
     ImGui::Text("Clusters: %s", _count(s.clusters, buf, sizeof(buf)));
     ImGui::Text("Cluster Vertices: %s", _count(s.cluster_vertices, buf, sizeof(buf)));
     ImGui::Text("Cluster Triangles: %s", _count(s.cluster_triangles, buf, sizeof(buf)));

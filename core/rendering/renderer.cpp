@@ -170,6 +170,9 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
             case AssetType::MESH:
                 geometry.load(ah.guid, path);
                 break;
+            case AssetType::SKELETON:
+                skeletons.load(ah.guid, path);
+                break;
             case AssetType::MODEL: {
                 if (authoring) break;
                 LModel model;
@@ -195,6 +198,7 @@ void Renderer::unload()
     textures.clear();
     models.clear();
     materials.clear();
+    skeletons.clear();
     geometry.free();
     _view_reset(main_view);
     for (RenderView* v : views) _view_reset(*v);
@@ -375,14 +379,13 @@ static vec4 _matrix_row(const mat4& p_m, int p_row)
     return vec4(p_m[0][p_row], p_m[1][p_row], p_m[2][p_row], p_m[3][p_row]);
 }
 
-static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, bool p_continuous, const PoseComponent& p_pose, const LMesh& p_mesh, const std::vector<GeometryPool::JointBox>& p_boxes)
+static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, bool p_continuous, const PoseComponent& p_pose, const GeometryPool& p_geometry, uint32_t p_mesh_index)
 {
     const uint32_t joint_count = std::min<uint32_t>((uint32_t)p_pose.skin.size(), MESH_MAX_JOINTS);
     if (joint_count == 0 || r_frame.skins_scratch.size() >= MAX_SKINNED_INSTANCES || r_frame.joints_scratch.size() + joint_count > MAX_SKIN_JOINTS) return SKIN_NONE;
 
     const bool has_prev = p_continuous && r_cache.prev_skin.size() == joint_count;
     const uint32_t joint_base = (uint32_t)r_frame.joints_scratch.size();
-    vec3 lo(FLT_MAX), hi(-FLT_MAX);
     for (uint32_t j = 0; j < joint_count; j++) {
         const mat4& m = p_pose.skin[j];
         const mat4& pm = has_prev ? r_cache.prev_skin[j] : m;
@@ -392,19 +395,9 @@ static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, b
             jm.prev[r] = _matrix_row(pm, r);
         }
         r_frame.joints_scratch.push_back(jm);
-
-        if (j >= p_boxes.size() || p_boxes[j].min.x > p_boxes[j].max.x) continue;
-        const vec3 half = (p_boxes[j].max - p_boxes[j].min) * 0.5f;
-        const vec3 center = vec3(m * vec4(p_boxes[j].min + half, 1.0f));
-        vec3 extent(0.0f);
-        for (int r = 0; r < 3; r++) extent[r] = std::abs(m[0][r]) * half.x + std::abs(m[1][r]) * half.y + std::abs(m[2][r]) * half.z;
-        lo = glm::min(lo, center - extent);
-        hi = glm::max(hi, center + extent);
     }
-    if (lo.x > hi.x) {
-        lo = p_mesh.pos_min;
-        hi = p_mesh.pos_min + p_mesh.pos_extent;
-    }
+    vec3 lo, hi;
+    p_geometry.posed_box(p_mesh_index, p_pose.skin.data(), joint_count, lo, hi);
 
     vec3 box_lo = lo, box_hi = hi;
     if (has_prev) {
@@ -485,8 +478,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         cache.frame = frame_number;
         Instance instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base };
         const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
-        const std::vector<GeometryPool::JointBox>* boxes = geometry.joint_boxes(cache.mesh_index);
-        if (pose && boxes) instance.skin_id = _skin_add(frame, cache, continuous, *pose, *mesh, *boxes);
+        if (pose && geometry.joint_boxes(cache.mesh_index)) instance.skin_id = _skin_add(frame, cache, continuous, *pose, geometry, cache.mesh_index);
         frame.instances_scratch.push_back(instance);
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
         frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);

@@ -12,6 +12,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/matrix3x3.h>
 #include <meshoptimizer.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <utils.h>
 #include <fstream>
@@ -36,6 +37,8 @@ struct MeshSource
     uint32_t slot_count = 0;
     std::vector<uint32_t> vertex_slots;
     std::vector<SkinVertex> skin_vertices;
+    std::vector<std::string> joints;
+    std::vector<mat4> inverse_binds;
     std::vector<Cluster> clusters;
     std::vector<ClusterGroup> groups;
     std::vector<BVHNode> bvh_nodes;
@@ -58,7 +61,12 @@ static i16vec2 _oct_encode(vec3 n)
 
 static const SkinVertex SKIN_RIGID = { u8vec4(0), u8vec4(255, 0, 0, 0) };
 
-void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, const std::vector<uint32_t>& p_slot_of, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, std::vector<uint32_t>& r_vert_slots, std::vector<std::string>& r_joints)
+static mat4 _to_glm(const aiMatrix4x4& m)
+{
+    return mat4(m.a1, m.b1, m.c1, m.d1, m.a2, m.b2, m.c2, m.d2, m.a3, m.b3, m.c3, m.d3, m.a4, m.b4, m.c4, m.d4);
+}
+
+void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x4& p_parent, const std::vector<uint32_t>& p_slot_of, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, std::vector<uint32_t>& r_vert_slots, MeshSource& r_src)
 {
     const aiMatrix4x4 world = p_parent * p_node->mTransformation;
 
@@ -95,8 +103,11 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
             for (uint32_t b = 0; b < mesh->mNumBones; b++) {
                 const aiBone* bone = mesh->mBones[b];
                 const std::string name = bone->mName.C_Str();
-                uint32_t joint = (uint32_t)(std::find(r_joints.begin(), r_joints.end(), name) - r_joints.begin());
-                if (joint == r_joints.size()) r_joints.push_back(name);
+                const uint32_t joint = (uint32_t)(std::find(r_src.joints.begin(), r_src.joints.end(), name) - r_src.joints.begin());
+                if (joint == r_src.joints.size()) {
+                    r_src.joints.push_back(name);
+                    r_src.inverse_binds.push_back(_to_glm(bone->mOffsetMatrix) * inverse(_to_glm(world)));
+                }
                 for (uint32_t w = 0; w < bone->mNumWeights; w++) {
                     const uint32_t vid = bone->mWeights[w].mVertexId;
                     const float weight = bone->mWeights[w].mWeight;
@@ -135,7 +146,7 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
     }
 
     for (uint32_t c = 0; c < p_node->mNumChildren; c++)
-        _gather_node(p_scene, p_node->mChildren[c], world, p_slot_of, r_verts, r_indices, r_skin, r_vert_slots, r_joints);
+        _gather_node(p_scene, p_node->mChildren[c], world, p_slot_of, r_verts, r_indices, r_skin, r_vert_slots, r_src);
 }
 
 bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
@@ -145,10 +156,9 @@ bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::v
     for (uint32_t s = 0; s < (uint32_t)slots.size(); ++s) slot_of[slots[s]] = s;
     r_src.slot_count = std::max(1u, (uint32_t)slots.size());
 
-    std::vector<std::string> joints;
-    _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), slot_of, r_verts, r_indices, r_skin, r_src.vertex_slots, joints);
-    if (joints.size() > MESH_MAX_JOINTS) {
-        log_write("MeshCooker: %zu bones is over the limit of %u, importing without skinning.", joints.size(), MESH_MAX_JOINTS);
+    _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), slot_of, r_verts, r_indices, r_skin, r_src.vertex_slots, r_src);
+    if (r_src.joints.size() > MESH_MAX_JOINTS) {
+        log_write("MeshCooker: %zu bones is over the limit of %u, importing without skinning.", r_src.joints.size(), MESH_MAX_JOINTS);
         r_skin.clear();
     }
     if (!r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
@@ -241,9 +251,16 @@ void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
     r_src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, p_lod0_tri_count });
 }
 
-static void _apply_import_transform(const MeshCooker::CookSettings& p_settings, std::vector<SrcVert>& r_verts, std::vector<SkinVertex>& r_skin)
+static void _apply_import_transform(const MeshCooker::CookSettings& p_settings, std::vector<SrcVert>& r_verts, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
 {
     if (!p_settings.load_skeleton) r_skin.clear();
+    if (r_skin.empty()) {
+        r_src.joints.clear();
+        r_src.inverse_binds.clear();
+    }
+    const mat4 import = translate(mat4(1.0f), p_settings.translation) * mat4_cast(quat(radians(p_settings.rotation))) * glm::scale(mat4(1.0f), vec3(p_settings.scale));
+    const mat4 import_inv = inverse(import);
+    for (mat4& b : r_src.inverse_binds) b = b * import_inv;
     const bool rotate = p_settings.rotation != vec3(0.0f);
     const mat3 rot = mat3_cast(quat(radians(p_settings.rotation)));
     for (SrcVert& v : r_verts) {
@@ -261,7 +278,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
-    _apply_import_transform(p_settings, verts, skin);
+    _apply_import_transform(p_settings, verts, skin, r_src);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -280,7 +297,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
-    _apply_import_transform(p_settings, verts, skin);
+    _apply_import_transform(p_settings, verts, skin, r_src);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -304,7 +321,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     std::vector<SrcVert> verts; std::vector<uint32_t> indices; std::vector<SkinVertex> skin;
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
-    _apply_import_transform(p_settings, verts, skin);
+    _apply_import_transform(p_settings, verts, skin, r_src);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -486,6 +503,15 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     const size_t clus_bytes = src.clusters.size() * sizeof(Cluster);
     const size_t group_bytes = src.groups.size() * sizeof(ClusterGroup);
     const size_t skin_bytes = src.skin_vertices.size() * sizeof(SkinVertex);
+
+    std::string rig_names;
+    for (const std::string& n : src.joints) {
+        rig_names.append(n);
+        rig_names.push_back('\0');
+    }
+    rig_names.resize((rig_names.size() + LMESH_RIG_ALIGN - 1) / LMESH_RIG_ALIGN * LMESH_RIG_ALIGN, '\0');
+    const LMeshRigHeader rig{ p_job.skeleton, (uint32_t)src.joints.size(), (uint32_t)rig_names.size() };
+    const size_t rig_bytes = skinned ? lmesh_rig_bytes(rig) : 0;
     const size_t bvhn_bytes = src.bvh_nodes.size() * sizeof(BVHNode);
 
     LAssetHeader ah{};
@@ -493,7 +519,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     ah.version = LMESH_VERSION;
     ah.guid = p_job.guid;
     ah.type = AssetType::MESH;
-    ah.payload_size = (uint32_t)(sizeof(ph) + vtx_bytes + idx_bytes + tri_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
+    ah.payload_size = (uint32_t)(sizeof(ph) + rig_bytes + vtx_bytes + idx_bytes + tri_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
 
     std::error_code ec;
     std::filesystem::create_directories(p_job.content_bin.parent_path(), ec);
@@ -501,6 +527,11 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     if (!f) { return FAILED; }
     f.write(reinterpret_cast<const char*>(&ah), sizeof(ah));
     f.write(reinterpret_cast<const char*>(&ph), sizeof(ph));
+    if (skinned) {
+        f.write(reinterpret_cast<const char*>(&rig), sizeof(rig));
+        f.write(reinterpret_cast<const char*>(src.inverse_binds.data()), src.inverse_binds.size() * sizeof(mat4));
+        f.write(rig_names.data(), rig_names.size());
+    }
     f.write(reinterpret_cast<const char*>(positions.data()), pos_bytes);
     f.write(reinterpret_cast<const char*>(attributes.data()), attr_bytes);
     f.write(reinterpret_cast<const char*>(src.indices.data()), idx_bytes);
@@ -529,6 +560,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
         { std::string(asset_type_section(AssetType::MESH)), toml::table{
             { "skinned", skinned } }},
     };
+    if (skinned) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("skeleton", p_job.skeleton.to_string());
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;
 

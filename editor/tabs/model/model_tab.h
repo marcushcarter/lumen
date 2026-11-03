@@ -1,6 +1,7 @@
 #pragma once
 #include <core/assets/lmesh.h>
 #include <core/assets/lmodel.h>
+#include <editor/assets/rig_preview.h>
 #include <editor/tabs/asset_tab.h>
 #include <editor/ui/ui_style.h>
 #include <IconsFontAwesome6.h>
@@ -20,6 +21,9 @@ struct ModelTab : AssetTab
     Guid _preview_mesh;
     std::vector<Guid> _preview_materials;
     Guid _framed_mesh;
+    RigPreview rig_preview;
+    uint64_t _framed_version = 0;
+    uint64_t _applied_version = 0;
 
     LMeshStats mesh_stats;
     Guid _stats_mesh;

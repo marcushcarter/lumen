@@ -113,6 +113,7 @@ struct UiStyle
         ImU32 asset_mesh;
         ImU32 asset_material;
         ImU32 asset_texture;
+        ImU32 asset_skeleton;
 
         ImU32 overlay;
         ImU32 overlay_hover;
@@ -356,6 +357,11 @@ struct UiStyle
         float path_wrap_width;
     };
 
+    struct Bones {
+        float joint_radius;
+        float bone_thickness;
+    };
+
     struct ImportDialog {
         float width;
         // float height;
@@ -467,6 +473,7 @@ struct UiStyle
     Settings settings;
     AssetTooltip asset_tooltip;
     AssetPicker asset_picker;
+    Bones bones;
     ImportDialog import_dialog;
     AssetBrowser asset_browser;
     Profiler profiler;

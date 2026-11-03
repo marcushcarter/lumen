@@ -27,6 +27,13 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::PopTextWrapPos();
     }
 
+    const RigPreview& rig = tab->rig_preview;
+    if (rig.skinned) {
+        const AssetRegistry::Entry* skeleton = ctx.assets ? ctx.assets->find(rig.skeleton) : nullptr;
+        ImGui::Text("Skeleton: %s", skeleton ? skeleton->name.c_str() : "None");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set on the mesh");
+    }
+
     ImGui::Text("Triangles: %llu", (unsigned long long)tab->mesh_stats.triangles);
     ImGui::Text("Material Slots: %u", tab->mesh_stats.slots);
 

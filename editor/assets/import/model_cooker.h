@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <memory>
 
+struct aiScene;
+
 namespace lumen {
 
 struct EditorContext;
@@ -37,6 +39,7 @@ struct ModelCooker
     };
 
     static Error _import(const Job& p_job);
+    static Guid _import_skeleton(const Job& p_job, const aiScene* p_scene);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings = {});
 };

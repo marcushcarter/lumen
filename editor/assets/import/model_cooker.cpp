@@ -1,5 +1,6 @@
 #include <editor/assets/import/model_cooker.h>
 #include <editor/application/editor_context.h>
+#include <editor/assets/import/skeleton_cooker.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/lmaterial.h>
@@ -246,6 +247,35 @@ static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, con
     }
 }
 
+Guid ModelCooker::_import_skeleton(const Job& p_job, const aiScene* p_scene)
+{
+    LSkeleton skeleton;
+    if (!p_job.settings.mesh_settings.load_skeleton || !SkeletonCooker::build(p_scene, p_job.settings.mesh_settings, skeleton)) return {};
+
+    std::filesystem::path dst = p_job.dst_dir / std::filesystem::path(p_job.dst_lmesh.stem().wstring() + L".lskeleton");
+    const SkeletonCooker::Match match = SkeletonCooker::find_matching(*p_job.project, skeleton.fingerprint());
+    if (match.guid.valid()) {
+        if (match.source != p_job.source.generic_string()) return match.guid;
+        dst = match.path;
+    }
+
+    std::filesystem::path content_bin;
+    if (AssetImportTracker::resolve_import(*p_job.project, AssetType::SKELETON, dst, skeleton.guid, content_bin) != Error::OK) {
+        log_write("ModelCooker: '%s' exists and is not a skeleton.", dst.string().c_str());
+        return {};
+    }
+    const ImportSession::Staged staged = p_job.session->stage(*p_job.project, dst, skeleton.guid, true, false);
+    SkeletonCooker::Job job;
+    job.source = p_job.source;
+    job.dst_lskeleton = staged.asset;
+    job.content_bin = staged.content_bin;
+    if (SkeletonCooker::cook(job, skeleton) != Error::OK) {
+        p_job.session->unstage(dst);
+        return {};
+    }
+    return skeleton.guid;
+}
+
 Error ModelCooker::_import(const Job& p_job)
 {
     using enum Error;
@@ -288,6 +318,7 @@ Error ModelCooker::_import(const Job& p_job)
 
     MeshCooker::Job mesh;
     mesh.source = p_job.source;
+    mesh.skeleton = _import_skeleton(p_job, scene);
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
     const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, false);

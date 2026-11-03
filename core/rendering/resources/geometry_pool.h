@@ -3,6 +3,7 @@
 #include <core/assets/guid.h>
 #include <core/base/error.h>
 #include <core/base/range_allocator.h>
+#include <core/assets/lmesh.h>
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <vector>
@@ -145,6 +146,7 @@ struct GeometryPool
     std::vector<MeshRanges> mesh_ranges;
     std::vector<Guid> mesh_guids;
     std::vector<std::vector<JointBox>> mesh_joint_boxes;
+    std::vector<LMeshRig> mesh_rigs;
 
     std::vector<uint32_t> free_meshes;
     std::vector<RetiredMesh> _retired_meshes;
@@ -183,6 +185,19 @@ struct GeometryPool
     const LMesh* get(uint32_t p_id) const {
         return p_id < meshes.size() && mesh_guids[p_id].valid() ? &meshes[p_id] : nullptr;
     }
+
+    const LMeshRig* rig(uint32_t p_id) const {
+        return get(p_id) && !mesh_rigs[p_id].joints.empty() ? &mesh_rigs[p_id] : nullptr;
+    }
+
+    void set_skeleton(Guid p_mesh, Guid p_skeleton) {
+        const uint32_t id = find(p_mesh);
+        if (!get(id)) return;
+        mesh_rigs[id].skeleton = p_skeleton;
+        version++;
+    }
+
+    void posed_box(uint32_t p_id, const mat4* p_skin, uint32_t p_count, vec3& r_min, vec3& r_max) const;
 
     const std::vector<JointBox>* joint_boxes(uint32_t p_id) const {
         return get(p_id) && !mesh_joint_boxes[p_id].empty() ? &mesh_joint_boxes[p_id] : nullptr;

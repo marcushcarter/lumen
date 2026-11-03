@@ -2,6 +2,7 @@
 #include <core/base/error.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
+#include <core/world/components.h>
 #include <editor/tabs/model/panels/model_details_panel.h>
 #include <imgui.h>
 
@@ -20,8 +21,12 @@ Error ModelTab::create(EditorContext& ctx)
 
     _create_layout(ctx, "ModelHost");
     layout.add_panel<ModelDetailsPanel>()->tab = this;
+    layout.viewport.overlay = [this](ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size) { rig_preview.draw_bones(p_draw_list, p_pos, p_size, orbit.camera); };
+    layout.viewport.overlay_controls = [this](OverlayBar& r_bar) { rig_preview.draw_controls(r_bar); };
 
     _create_preview();
+    preview.remove<StaticTag>(_preview_entity);
+    preview.add<PoseComponent>(_preview_entity);
     _preview_mesh = model.mesh;
     _preview_materials = model.materials;
     ctx.renderer->models.set(_preview_model, _preview_mesh, _preview_materials);
@@ -47,6 +52,11 @@ void ModelTab::on_update(EditorContext& ctx, float p_dt)
     (void)p_dt;
     _draw_layout(ctx);
     _update_orbit();
+    rig_preview.refresh(ctx, model.mesh, false);
+    if (rig_preview.version != _applied_version) {
+        rig_preview.apply(preview, _preview_entity);
+        _applied_version = rig_preview.version;
+    }
     _sync_preview(ctx);
     _refresh_stats(ctx);
     orbit.update();
@@ -84,11 +94,13 @@ void ModelTab::_sync_preview(EditorContext& ctx)
         _preview_materials = model.materials;
         ctx.renderer->models.set(_preview_model, _preview_mesh, _preview_materials);
     }
-    if (_framed_mesh == _preview_mesh) return;
-    if (const LMesh* mesh = ctx.renderer->geometry.get(ctx.renderer->geometry.find(_preview_mesh))) {
-        orbit.frame(glm::vec3(mesh->bounds_sphere), mesh->bounds_sphere.w);
-        _framed_mesh = _preview_mesh;
-    }
+    if (_framed_mesh == _preview_mesh && _framed_version == rig_preview.version) return;
+    vec3 center;
+    float radius;
+    if (!rig_preview.bounds(ctx.renderer->geometry, _preview_mesh, center, radius)) return;
+    orbit.frame(center, radius);
+    _framed_mesh = _preview_mesh;
+    _framed_version = rig_preview.version;
 }
 
 }

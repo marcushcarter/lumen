@@ -6,6 +6,10 @@
 #include <core/base/hash.h>
 #include <core/rendering/renderer.h>
 #include <core/assets/lmesh.h>
+#include <core/assets/lskeleton.h>
+#include <editor/ui/ui_style.h>
+#include <toml++/toml.hpp>
+#include <cfloat>
 #include <core/world/components.h>
 #include <core/project/project.h>
 #include <core/io/image_io.h>
@@ -125,7 +129,7 @@ Error ThumbnailCache::_ensure_view(EditorContext& ctx)
     entity = world.create();
     world.add<TransformComponent>(entity);
     world.add<ModelComponent>(entity, { preview_sphere });
-    world.add<StaticTag>(entity);
+    world.add<PoseComponent>(entity);
     return OK;
 }
 
@@ -317,6 +321,12 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
     uint64_t key = _mix(_mix(_mix(0, VERSION), (uint64_t)p_type), p_guid.value);
     key = _mix(key, LMESH_VERSION);
 
+    auto add_rig = [&](Guid p_mesh) {
+        LMeshRig mesh_rig;
+        if (!lmesh_read_rig(_content_file(ctx, p_mesh), mesh_rig) || !mesh_rig.skeleton.valid()) return;
+        key = _mix(_mix(key, mesh_rig.skeleton.value), _stamp(_content_file(ctx, mesh_rig.skeleton)));
+    };
+
     auto add_material = [&](Guid p_material) {
         uint64_t stamp = STAMP_MISSING;
         const LMaterial* m = _parsed_material(ctx, p_material, stamp);
@@ -335,6 +345,7 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             const uint64_t stamp = _stamp(_content_file(ctx, p_guid));
             if (stamp == STAMP_MISSING) return false;
             key = _mix(key, stamp);
+            add_rig(p_guid);
             r_job.model = preview_mesh;
             r_job.mesh = p_guid;
         } break;
@@ -352,6 +363,7 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             const LModel* m = _parsed_model(ctx, p_guid, stamp);
             if (!m || !m->mesh.valid()) return false;
             key = _mix(_mix(_mix(key, stamp), m->mesh.value), _stamp(_content_file(ctx, m->mesh)));
+            add_rig(m->mesh);
             r_job.model = p_guid;
             r_job.mesh = m->mesh;
             r_job.materials = m->materials;
@@ -360,6 +372,13 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
                 if (m->materials[i].valid()) add_material(m->materials[i]);
             }
         } break;
+        case AssetType::SKELETON: {
+            const uint64_t stamp = _stamp(_content_file(ctx, p_guid));
+            if (stamp == STAMP_MISSING) return false;
+            r_job.model = preview_mesh;
+            r_job.mesh = _skeleton_mesh(ctx, p_guid);
+            key = _mix(_mix(_mix(key, stamp), r_job.mesh.value), _stamp(_content_file(ctx, r_job.mesh)));
+        } break;
         default:
             return false;
     }
@@ -367,11 +386,113 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
     return true;
 }
 
+Guid ThumbnailCache::_skeleton_mesh(EditorContext& ctx, Guid p_skeleton)
+{
+    if (!ctx.assets) return {};
+    if (skeleton_meshes_version != ctx.assets->version) {
+        skeleton_meshes_version = ctx.assets->version;
+        skeleton_meshes.clear();
+        for (const auto& [guid, e] : ctx.assets->entries) {
+            if (e.type != AssetType::MESH) continue;
+            toml::table tbl;
+            try { tbl = toml::parse_file(e.path.string()); }
+            catch (const toml::parse_error&) { continue; }
+            const Guid skeleton = Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["skeleton"].value_or(std::string()));
+            if (skeleton.valid()) skeleton_meshes.try_emplace(skeleton, guid);
+        }
+    }
+    auto it = skeleton_meshes.find(p_skeleton);
+    return it == skeleton_meshes.end() ? Guid{} : it->second;
+}
+
+bool ThumbnailCache::_skeleton_bones(EditorContext& ctx, Job& r_job, bool p_has_mesh, vec3& r_center, float& r_radius)
+{
+    LSkeleton skeleton;
+    if (skeleton.load_cooked(_content_file(ctx, r_job.guid)) != Error::OK || skeleton.joint_count() == 0) return false;
+    std::vector<mat4> global(skeleton.joint_count());
+    skeleton.globals(skeleton.rest.data(), global.data());
+
+    r_job.bones.resize(global.size());
+    for (size_t i = 0; i < global.size(); ++i) r_job.bones[i] = vec3(global[i][3]);
+    r_job.bone_parents = skeleton.parents;
+
+    if (!p_has_mesh) {
+        vec3 lo(FLT_MAX), hi(-FLT_MAX);
+        for (const vec3& p : r_job.bones) {
+            lo = glm::min(lo, p);
+            hi = glm::max(hi, p);
+        }
+        r_center = (lo + hi) * 0.5f;
+        r_radius = length(hi - lo) * 0.5f;
+    }
+    for (const vec3& p : r_job.bones) {
+        const float d = length(p - r_center);
+        if (d <= r_radius) continue;
+        const float grown = (r_radius + d) * 0.5f;
+        r_center += (p - r_center) * ((grown - r_radius) / d);
+        r_radius = grown;
+    }
+    r_radius = std::max(r_radius, 0.01f);
+    return true;
+}
+
+static void _plot(std::vector<uint8_t>& r_pixels, int p_x, int p_y, ImU32 p_color, float p_coverage)
+{
+    const int size = (int)ThumbnailCache::OUTPUT_SIZE;
+    if (p_x < 0 || p_y < 0 || p_x >= size || p_y >= size || p_coverage <= 0.0f) return;
+    uint8_t* px = r_pixels.data() + ((size_t)p_y * size + p_x) * 4;
+    const float a = std::min(p_coverage, 1.0f);
+    for (int c = 0; c < 3; c++) {
+        const float src = (float)((p_color >> (8 * c)) & 0xFF);
+        px[c] = (uint8_t)(px[c] + (src - px[c]) * a + 0.5f);
+    }
+}
+
+static void _disk(std::vector<uint8_t>& r_pixels, vec2 p_center, float p_radius, ImU32 p_color)
+{
+    const int x0 = (int)std::floor(p_center.x - p_radius - 1.0f);
+    const int y0 = (int)std::floor(p_center.y - p_radius - 1.0f);
+    const int x1 = (int)std::ceil(p_center.x + p_radius + 1.0f);
+    const int y1 = (int)std::ceil(p_center.y + p_radius + 1.0f);
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) _plot(r_pixels, x, y, p_color, p_radius + 0.5f - length(vec2(x + 0.5f, y + 0.5f) - p_center));
+    }
+}
+
+void ThumbnailCache::_draw_bones(const Job& p_job)
+{
+    const UiStyle& ui = ui_style();
+    const float size = (float)OUTPUT_SIZE;
+    const mat4 view_proj = p_job.camera.proj(1.0f) * p_job.camera.view();
+    std::vector<vec2> screen(p_job.bones.size());
+    std::vector<uint8_t> visible(p_job.bones.size(), 0);
+    for (size_t i = 0; i < p_job.bones.size(); ++i) {
+        const vec4 clip = view_proj * vec4(p_job.bones[i], 1.0f);
+        if (clip.w <= p_job.camera.near_z) continue;
+        screen[i] = vec2((clip.x / clip.w * 0.5f + 0.5f) * size, (0.5f - clip.y / clip.w * 0.5f) * size);
+        visible[i] = 1;
+    }
+
+    const float line_radius = ui.bones.bone_thickness * 0.5f;
+    for (size_t i = 0; i < screen.size(); ++i) {
+        const int32_t parent = p_job.bone_parents[i];
+        if (!visible[i] || parent == SKELETON_NO_JOINT || !visible[parent]) continue;
+        const vec2 a = screen[parent];
+        const vec2 b = screen[i];
+        const int steps = std::max(1, (int)std::ceil(length(b - a) * 2.0f));
+        for (int s = 0; s <= steps; s++) _disk(pixels, mix(a, b, (float)s / (float)steps), line_radius, ui.color.asset_skeleton);
+    }
+    for (size_t i = 0; i < screen.size(); ++i) {
+        if (visible[i]) _disk(pixels, screen[i], ui.bones.joint_radius * 0.6f, ui.color.asset_skeleton);
+    }
+}
+
 ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& p_job)
 {
     using enum Readiness;
     Renderer& r = *ctx.renderer;
 
+    if (p_job.type == AssetType::SKELETON && !p_job.mesh.valid()) return READY;
     if (p_job.mesh == BuiltinMeshes::SPHERE) {
         if (!BuiltinMeshes::ensure_sphere()) return FAIL;
         r.geometry.load(BuiltinMeshes::SPHERE, BuiltinMeshes::sphere_bin());
@@ -422,7 +543,7 @@ VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_typ
 {
     if (!p_guid.valid() || !ctx.renderer) return VK_NULL_HANDLE;
     if (p_type == AssetType::TEXTURE) return _texture_view(ctx, p_guid);
-    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL) return VK_NULL_HANDLE;
+    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON) return VK_NULL_HANDLE;
     Entry& e = entries[p_guid];
     if (e.type != p_type) {
         e.type = p_type;
@@ -498,15 +619,25 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         }
         if (_ensure_view(ctx) != Error::OK) return;
 
-        const LMesh* mesh = r.geometry.get(r.geometry.find(next.mesh));
+        rig.invalidate();
+        rig.refresh(ctx, next.mesh, false);
+        rig.apply(world, entity);
+        vec3 center(0.0f);
+        float bounds_radius = 0.0f;
+        const bool has_mesh = rig.bounds(r.geometry, next.mesh, center, bounds_radius);
+        if (next.type == AssetType::SKELETON) {
+            if (!_skeleton_bones(ctx, next, has_mesh, center, bounds_radius)) continue;
+        } else if (!has_mesh) {
+            continue;
+        }
         const float fov = glm::radians(CAMERA_FOV_DEG);
-        const float radius = std::max(mesh->bounds_sphere.w, 0.001f);
+        const float radius = std::max(bounds_radius, 0.001f);
         const float distance = radius / std::sin(fov * 0.5f) * FRAME_MARGIN;
         const float yaw = glm::radians(CAMERA_YAW_DEG);
         const float pitch = glm::radians(CAMERA_PITCH_DEG);
         const glm::vec3 offset(std::cos(pitch) * std::sin(yaw), std::sin(pitch), std::cos(pitch) * std::cos(yaw));
         next.camera.fov_y = fov;
-        next.camera.position = glm::vec3(mesh->bounds_sphere) + offset * distance;
+        next.camera.position = center + offset * distance;
         next.camera.rotation = glm::quatLookAt(-offset, glm::vec3(0.0f, 1.0f, 0.0f));
         next.camera.near_z = std::max(distance - radius * 1.5f, distance * 0.01f);
         next.camera.far_z = distance + radius * 2.0f;
@@ -546,6 +677,7 @@ void ThumbnailCache::_finish(EditorContext& ctx)
     auto it = entries.find(done.guid);
     if (it == entries.end()) return;
     Entry& e = it->second;
+    if (!done.bones.empty()) _draw_bones(done);
 
     _swap_image(ctx, e, dd->image_create_texture(pixels.data(), OUTPUT_SIZE, OUTPUT_SIZE, "thumbnail"), done.key);
     if (dir.empty()) return;

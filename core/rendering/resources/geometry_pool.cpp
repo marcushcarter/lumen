@@ -269,6 +269,7 @@ void GeometryPool::clear()
     mesh_ranges.clear();
     mesh_guids.clear();
     mesh_joint_boxes.clear();
+    mesh_rigs.clear();
     free_meshes.clear();
     by_guid.clear();
     _retired_meshes.clear();
@@ -306,7 +307,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) return fail("bad asset header");
     if (!asset_version_supported(AssetType::MESH, ah.version)) return fail("unsupported mesh version");
     const bool interleaved = ah.version == LMESH_VERSION_INTERLEAVED;
-    const bool legacy_slot_table = ah.version < LMESH_VERSION;
+    const bool legacy_slot_table = ah.version < LMESH_VERSION_NO_RIG;
 
     LMeshPayloadHeader ph{};
     std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
@@ -321,9 +322,19 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const size_t group_bytes = (size_t)ph.group_count * sizeof(ClusterGroup);
     const size_t skin_bytes = skinned ? (size_t)ph.vertex_count * sizeof(SkinVertex) : 0;
     const size_t bvhn_bytes = (size_t)ph.bvh_node_count * sizeof(BVHNode);
-    const size_t payload_off = sizeof(ah) + sizeof(ph);
+    size_t rig_bytes = 0;
+    LMeshRig rig;
+    if (skinned && ah.version >= LMESH_VERSION) {
+        const size_t at = sizeof(ah) + sizeof(ph);
+        if (at > bytes.size() || !lmesh_parse_rig(bytes.data() + at, bytes.size() - at, rig)) return fail("bad rig");
+        LMeshRigHeader rh{};
+        std::memcpy(&rh, bytes.data() + at, sizeof(rh));
+        rig_bytes = lmesh_rig_bytes(rh);
+    }
+    const size_t payload_off = sizeof(ah) + sizeof(ph) + rig_bytes;
 
-    const size_t blocks_size = (size_t)ah.payload_size - sizeof(ph);
+    if (ah.payload_size < sizeof(ph) + rig_bytes) return fail("payload_size underflow");
+    const size_t blocks_size = (size_t)ah.payload_size - sizeof(ph) - rig_bytes;
     if (vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes != blocks_size || payload_off + blocks_size > bytes.size()) return fail("bad/truncated payload");
     if (ph.vertex_count == 0 || ph.index_count == 0 || ph.index_count % 3 != 0 || ph.tri_count != ph.index_count / 3) return fail("bad vertex/index counts");
     if (ph.slot_count == 0) return fail("mesh has no material slots");
@@ -576,12 +587,14 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         mesh_ranges.push_back(r);
         mesh_guids.push_back(p_guid);
         mesh_joint_boxes.push_back(std::move(joint_boxes));
+        mesh_rigs.push_back(std::move(rig));
     } else {
         free_meshes.pop_back();
         meshes[id] = m;
         mesh_ranges[id] = r;
         mesh_guids[id] = p_guid;
         mesh_joint_boxes[id] = std::move(joint_boxes);
+        mesh_rigs[id] = std::move(rig);
     }
     by_guid.emplace(p_guid, id);
     max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
@@ -604,6 +617,35 @@ void GeometryPool::unload(Guid p_guid)
     mesh_ranges[id] = MeshRanges{};
     mesh_guids[id] = Guid{};
     mesh_joint_boxes[id].clear();
+    mesh_rigs[id] = {};
+}
+
+void GeometryPool::posed_box(uint32_t p_id, const mat4* p_skin, uint32_t p_count, vec3& r_min, vec3& r_max) const
+{
+    const LMesh* mesh = get(p_id);
+    r_min = vec3(0.0f);
+    r_max = vec3(0.0f);
+    if (!mesh) return;
+    r_min = mesh->pos_min;
+    r_max = mesh->pos_min + mesh->pos_extent;
+    const std::vector<JointBox>* boxes = joint_boxes(p_id);
+    if (!boxes || p_count == 0) return;
+
+    vec3 lo(FLT_MAX), hi(-FLT_MAX);
+    for (uint32_t j = 0; j < p_count && j < boxes->size(); j++) {
+        const JointBox& b = (*boxes)[j];
+        if (b.min.x > b.max.x) continue;
+        const mat4& m = p_skin[j];
+        const vec3 half = (b.max - b.min) * 0.5f;
+        const vec3 center = vec3(m * vec4(b.min + half, 1.0f));
+        vec3 extent(0.0f);
+        for (int r = 0; r < 3; r++) extent[r] = std::abs(m[0][r]) * half.x + std::abs(m[1][r]) * half.y + std::abs(m[2][r]) * half.z;
+        lo = glm::min(lo, center - extent);
+        hi = glm::max(hi, center + extent);
+    }
+    if (lo.x > hi.x) return;
+    r_min = lo;
+    r_max = hi;
 }
 
 }

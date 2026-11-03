@@ -231,6 +231,9 @@ void EditorApplication::_tick_imports()
                 renderer.geometry.unload(c.guid);
                 renderer.geometry.load(c.guid, c.content_bin);
                 break;
+            case AssetType::SKELETON:
+                renderer.skeletons.load(c.guid, c.content_bin);
+                break;
             default:
                 break;
         }

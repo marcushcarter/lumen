@@ -4,6 +4,7 @@
 #include <drivers/vulkan/context_driver_vulkan.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <core/rendering/renderer.h>
+#include <core/animation/pose_system.h>
 #include <core/project/project.h>
 #include <core/world/world.h>
 #include <core/base/jobs.h>
@@ -52,6 +53,7 @@ struct Application
     bool screenshot_reveal = true;
 
     World world;
+    PoseSystem poses;
     Project project;
     bool paused = false;
 

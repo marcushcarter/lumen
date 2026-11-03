@@ -27,6 +27,7 @@ ImU32 asset_type_color(AssetType p_type)
         case AssetType::MESH: return ui.color.asset_mesh;
         case AssetType::MODEL: return ui.color.asset_model;
         case AssetType::MATERIAL: return ui.color.asset_material;
+        case AssetType::SKELETON: return ui.color.asset_skeleton;
         default: return ImGui::GetColorU32(ImGuiCol_TextDisabled);
     }
 }
@@ -38,6 +39,7 @@ const char* asset_type_label(AssetType p_type)
         case AssetType::MESH: return "Mesh";
         case AssetType::MODEL: return "Model";
         case AssetType::MATERIAL: return "Material";
+        case AssetType::SKELETON: return "Skeleton";
         default: return "Asset";
     }
 }

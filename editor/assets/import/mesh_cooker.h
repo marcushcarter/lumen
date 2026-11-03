@@ -11,6 +11,7 @@ namespace lumen {
 
 struct Project;
 struct EditorContext;
+struct LSkeleton;
 
 struct AssimpImportProgress : Assimp::ProgressHandler
 {
@@ -45,6 +46,7 @@ struct MeshCooker
         std::filesystem::path content_bin;
         Guid guid;
         CookSettings settings;
+        const LSkeleton* skeleton = nullptr;
         ImportStep step;
     };
 

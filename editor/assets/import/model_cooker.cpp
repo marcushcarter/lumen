@@ -1,5 +1,6 @@
 #include <editor/assets/import/model_cooker.h>
 #include <editor/application/editor_context.h>
+#include <editor/assets/import/skeleton_cooker.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/lmaterial.h>
@@ -9,6 +10,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/material.h>
+#include <toml++/toml.hpp>
 #include <algorithm>
 #include <cstring>
 #include <initializer_list>
@@ -17,11 +19,7 @@
 
 namespace lumen {
 
-struct MapRef
-{
-    std::filesystem::path source;
-    float alpha_cutoff = 0.0f;
-};
+struct MapRef { std::filesystem::path source; float alpha_cutoff = 0.0f; };
 
 static std::filesystem::path _texture_path(const std::filesystem::path& p_source_dir, const aiString& p_ref)
 {
@@ -213,6 +211,7 @@ struct ModelLocation
     std::filesystem::path folder;
     std::filesystem::path lmodel;
     std::filesystem::path lmesh;
+    std::filesystem::path lskeleton;
 };
 
 static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, const std::filesystem::path& p_src, const std::wstring& p_name)
@@ -225,6 +224,7 @@ static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, con
         loc.folder = p_dst_dir / (i == 0 ? stem : stem + L" " + std::to_wstring(i));
         loc.lmodel = loc.folder / (stem + L".lmodel");
         loc.lmesh = loc.folder / (stem + L".lmesh");
+        loc.lskeleton = loc.folder / (stem + L".lskeleton");
         if (!std::filesystem::exists(loc.folder, ec)) return loc;
 
         LModel existing;
@@ -246,6 +246,15 @@ static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, con
                 break;
             }
         }
+        for (auto it = std::filesystem::directory_iterator(loc.folder, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+            if (it->path().extension() != ".lskeleton") continue;
+            toml::table tbl;
+            try { tbl = toml::parse_file(it->path().string()); }
+            catch (const toml::parse_error&) { continue; }
+            if (tbl["import"]["source"].value_or(std::string{}) != source) continue;
+            loc.lskeleton = it->path();
+            break;
+        }
         return loc;
     }
 }
@@ -257,7 +266,6 @@ Error ModelCooker::_import(const Job& p_job)
     const ImportStep root = session.step();
 
     Assimp::Importer importer;
-    // The importer owns and deletes its progress handler.
     AssimpImportProgress* read_progress = new AssimpImportProgress();
     read_progress->step = root.sub(0.0f, READ_END);
     importer.SetProgressHandler(read_progress);
@@ -279,7 +287,6 @@ Error ModelCooker::_import(const Job& p_job)
         textures = _texture_jobs(p_job, masks, texture_finals);
     }
 
-    // Bar shares come from rough relative costs: LOD-DAG build per triangle vs BC encode per texel.
     std::vector<uint64_t> tex_cost(textures.size());
     const uint64_t mesh_cost = std::max<uint64_t>(_scene_triangles(scene) * MESH_COST_PER_TRI, 1);
     uint64_t total_cost = mesh_cost;
@@ -292,8 +299,21 @@ Error ModelCooker::_import(const Job& p_job)
         return root.sub(from, at);
     };
 
+    LSkeleton skeleton;
+    const bool skinned = p_job.settings.mesh_settings.load_skeleton && SkeletonCooker::build(scene, p_job.settings.mesh_settings, skeleton);
+    if (skinned) {
+        skeleton.guid = p_job.skeleton_guid;
+        const ImportSession::Staged staged = session.stage(*p_job.project, p_job.dst_lskeleton, p_job.skeleton_guid, true, false);
+        SkeletonCooker::Job skel;
+        skel.source = p_job.source;
+        skel.dst_lskeleton = staged.asset;
+        skel.content_bin = staged.content_bin;
+        if (const Error err = SkeletonCooker::cook(skel, skeleton); err != OK) return err;
+    }
+
     MeshCooker::Job mesh;
     mesh.source = p_job.source;
+    mesh.skeleton = skinned ? &skeleton : nullptr;
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
     const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, false);
@@ -344,10 +364,16 @@ void ModelCooker::import_async(EditorContext& ctx, const std::filesystem::path& 
     job.settings = p_settings;
     job.dst_lmesh = loc.lmesh;
     job.dst_lmodel = loc.lmodel;
+    job.dst_lskeleton = loc.lskeleton;
 
     std::filesystem::path mesh_content_bin;
     if (AssetImportTracker::resolve_import(*ctx.project, AssetType::MESH, job.dst_lmesh, job.mesh_guid, mesh_content_bin) != Error::OK) {
         log_write("Model import failed: %s", p_src.string().c_str());
+        return;
+    }
+    std::filesystem::path skeleton_content_bin;
+    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::SKELETON, job.dst_lskeleton, job.skeleton_guid, skeleton_content_bin) != Error::OK) {
+        log_write("Model import failed: '%s' exists and is not a skeleton.", job.dst_lskeleton.string().c_str());
         return;
     }
     std::error_code ec;

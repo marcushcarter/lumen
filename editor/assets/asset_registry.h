@@ -19,7 +19,6 @@ struct AssetRegistry
     std::unordered_map<Guid, Entry> entries;
     std::filesystem::path root;
     bool dirty = false;
-    uint64_t version = 0;
 
     void open(const std::filesystem::path& p_root) { root = p_root; dirty = true; }
     void close() { entries.clear(); root.clear(); dirty = false; }

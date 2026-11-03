@@ -8,7 +8,6 @@
 #include <core/assets/lmesh.h>
 #include <core/assets/lskeleton.h>
 #include <editor/ui/ui_style.h>
-#include <toml++/toml.hpp>
 #include <cfloat>
 #include <core/world/components.h>
 #include <core/project/project.h>
@@ -376,8 +375,7 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             const uint64_t stamp = _stamp(_content_file(ctx, p_guid));
             if (stamp == STAMP_MISSING) return false;
             r_job.model = preview_mesh;
-            r_job.mesh = _skeleton_mesh(ctx, p_guid);
-            key = _mix(_mix(_mix(key, stamp), r_job.mesh.value), _stamp(_content_file(ctx, r_job.mesh)));
+            key = _mix(key, stamp);
         } break;
         default:
             return false;
@@ -386,26 +384,7 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
     return true;
 }
 
-Guid ThumbnailCache::_skeleton_mesh(EditorContext& ctx, Guid p_skeleton)
-{
-    if (!ctx.assets) return {};
-    if (skeleton_meshes_version != ctx.assets->version) {
-        skeleton_meshes_version = ctx.assets->version;
-        skeleton_meshes.clear();
-        for (const auto& [guid, e] : ctx.assets->entries) {
-            if (e.type != AssetType::MESH) continue;
-            toml::table tbl;
-            try { tbl = toml::parse_file(e.path.string()); }
-            catch (const toml::parse_error&) { continue; }
-            const Guid skeleton = Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["skeleton"].value_or(std::string()));
-            if (skeleton.valid()) skeleton_meshes.try_emplace(skeleton, guid);
-        }
-    }
-    auto it = skeleton_meshes.find(p_skeleton);
-    return it == skeleton_meshes.end() ? Guid{} : it->second;
-}
-
-bool ThumbnailCache::_skeleton_bones(EditorContext& ctx, Job& r_job, bool p_has_mesh, vec3& r_center, float& r_radius)
+bool ThumbnailCache::_skeleton_bones(EditorContext& ctx, Job& r_job, vec3& r_center, float& r_radius)
 {
     LSkeleton skeleton;
     if (skeleton.load_cooked(_content_file(ctx, r_job.guid)) != Error::OK || skeleton.joint_count() == 0) return false;
@@ -416,23 +395,13 @@ bool ThumbnailCache::_skeleton_bones(EditorContext& ctx, Job& r_job, bool p_has_
     for (size_t i = 0; i < global.size(); ++i) r_job.bones[i] = vec3(global[i][3]);
     r_job.bone_parents = skeleton.parents;
 
-    if (!p_has_mesh) {
-        vec3 lo(FLT_MAX), hi(-FLT_MAX);
-        for (const vec3& p : r_job.bones) {
-            lo = glm::min(lo, p);
-            hi = glm::max(hi, p);
-        }
-        r_center = (lo + hi) * 0.5f;
-        r_radius = length(hi - lo) * 0.5f;
-    }
+    vec3 lo(FLT_MAX), hi(-FLT_MAX);
     for (const vec3& p : r_job.bones) {
-        const float d = length(p - r_center);
-        if (d <= r_radius) continue;
-        const float grown = (r_radius + d) * 0.5f;
-        r_center += (p - r_center) * ((grown - r_radius) / d);
-        r_radius = grown;
+        lo = glm::min(lo, p);
+        hi = glm::max(hi, p);
     }
-    r_radius = std::max(r_radius, 0.01f);
+    r_center = (lo + hi) * 0.5f;
+    r_radius = std::max(length(hi - lo) * 0.5f, 0.01f);
     return true;
 }
 
@@ -473,7 +442,7 @@ void ThumbnailCache::_draw_bones(const Job& p_job)
         visible[i] = 1;
     }
 
-    const float line_radius = ui.bones.bone_thickness * 0.5f;
+    const float line_radius = ui.bones.bone_thickness;
     for (size_t i = 0; i < screen.size(); ++i) {
         const int32_t parent = p_job.bone_parents[i];
         if (!visible[i] || parent == SKELETON_NO_JOINT || !visible[parent]) continue;
@@ -483,7 +452,7 @@ void ThumbnailCache::_draw_bones(const Job& p_job)
         for (int s = 0; s <= steps; s++) _disk(pixels, mix(a, b, (float)s / (float)steps), line_radius, ui.color.asset_skeleton);
     }
     for (size_t i = 0; i < screen.size(); ++i) {
-        if (visible[i]) _disk(pixels, screen[i], ui.bones.joint_radius * 0.6f, ui.color.asset_skeleton);
+        if (visible[i]) _disk(pixels, screen[i], ui.bones.joint_radius, ui.color.asset_skeleton);
     }
 }
 
@@ -492,7 +461,7 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
     using enum Readiness;
     Renderer& r = *ctx.renderer;
 
-    if (p_job.type == AssetType::SKELETON && !p_job.mesh.valid()) return READY;
+    if (p_job.type == AssetType::SKELETON) return READY;
     if (p_job.mesh == BuiltinMeshes::SPHERE) {
         if (!BuiltinMeshes::ensure_sphere()) return FAIL;
         r.geometry.load(BuiltinMeshes::SPHERE, BuiltinMeshes::sphere_bin());
@@ -626,7 +595,7 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         float bounds_radius = 0.0f;
         const bool has_mesh = rig.bounds(r.geometry, next.mesh, center, bounds_radius);
         if (next.type == AssetType::SKELETON) {
-            if (!_skeleton_bones(ctx, next, has_mesh, center, bounds_radius)) continue;
+            if (!_skeleton_bones(ctx, next, center, bounds_radius)) continue;
         } else if (!has_mesh) {
             continue;
         }

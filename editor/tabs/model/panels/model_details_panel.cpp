@@ -41,10 +41,6 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
         asset_field(ctx, "Mesh", "###model_mesh", tab->model.mesh, AssetType::MESH);
     }
 
-    if (ui_category("Skeleton")) {
-
-    }
-
     if (ui_category("Materials")) {
         std::vector<Guid>& mats = tab->model.materials;
         const uint32_t count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());

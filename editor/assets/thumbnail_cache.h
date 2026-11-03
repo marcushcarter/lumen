@@ -93,8 +93,6 @@ struct ThumbnailCache
     Guid preview_sphere;
     Guid preview_mesh;
     RigPreview rig;
-    std::unordered_map<Guid, Guid> skeleton_meshes;
-    uint64_t skeleton_meshes_version = UINT64_MAX;
 
     std::vector<Retired> retired;
     std::vector<std::unique_ptr<PendingWrite>> writes;
@@ -123,8 +121,7 @@ struct ThumbnailCache
     void _retire_view(EditorContext& ctx, VkImageView p_view);
 
     bool _resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job);
-    Guid _skeleton_mesh(EditorContext& ctx, Guid p_skeleton);
-    bool _skeleton_bones(EditorContext& ctx, Job& r_job, bool p_has_mesh, vec3& r_center, float& r_radius);
+    bool _skeleton_bones(EditorContext& ctx, Job& r_job, vec3& r_center, float& r_radius);
     void _draw_bones(const Job& p_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);

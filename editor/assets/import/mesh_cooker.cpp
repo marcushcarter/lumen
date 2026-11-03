@@ -149,6 +149,38 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
         _gather_node(p_scene, p_node->mChildren[c], world, p_slot_of, r_verts, r_indices, r_skin, r_vert_slots, r_src);
 }
 
+static bool _near(const mat4& p_a, const mat4& p_b, float p_eps)
+{
+    for (int c = 0; c < 4; c++) {
+        for (int r = 0; r < 4; r++) {
+            if (std::abs(p_a[c][r] - p_b[c][r]) > p_eps) return false;
+        }
+    }
+    return true;
+}
+
+static void _fix_bind_space(const aiScene* p_scene, MeshSource& r_src)
+{
+    if (r_src.joints.empty()) return;
+    std::vector<mat4> rest(r_src.joints.size());
+    for (size_t j = 0; j < r_src.joints.size(); j++) {
+        const aiNode* node = p_scene->mRootNode->FindNode(r_src.joints[j].c_str());
+        if (!node) return;
+        mat4 m(1.0f);
+        for (const aiNode* n = node; n; n = n->mParent) m = _to_glm(n->mTransformation) * m;
+        rest[j] = m * r_src.inverse_binds[j];
+    }
+    const mat4 offset = rest[0];
+    const float eps = 1e-3f * std::max(1.0f, length(vec3(offset[3])));
+    if (_near(offset, mat4(1.0f), eps)) return;
+    for (const mat4& m : rest) {
+        if (!_near(m, offset, eps)) return;
+    }
+    const mat4 fix = inverse(offset);
+    for (mat4& b : r_src.inverse_binds) b = b * fix;
+    log_write("MeshCooker: bind pose was in a different space than the skeleton, rebased onto the rest pose.");
+}
+
 bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::vector<uint32_t>& r_indices, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
 {
     const std::vector<uint32_t> slots = MeshCooker::material_slots(p_scene);
@@ -161,7 +193,10 @@ bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::v
         log_write("MeshCooker: %zu bones is over the limit of %u, importing without skinning.", r_src.joints.size(), MESH_MAX_JOINTS);
         r_skin.clear();
     }
-    if (!r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
+    if (!r_skin.empty()) {
+        r_skin.resize(r_verts.size(), SKIN_RIGID);
+        _fix_bind_space(p_scene, r_src);
+    }
     return !r_verts.empty() && !r_indices.empty();
 }
 

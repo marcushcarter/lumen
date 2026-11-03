@@ -6,7 +6,6 @@ namespace lumen {
 void AssetRegistry::_rebuild()
 {
     dirty = false;
-    version++;
     entries.clear();
     if (root.empty()) return;
 

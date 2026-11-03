@@ -31,6 +31,15 @@ static std::filesystem::path _texture_path(const std::filesystem::path& p_source
     return std::filesystem::exists(flat, ec) ? flat : std::filesystem::path{};
 }
 
+static void _fbx_to_meters(const aiScene* p_scene)
+{
+    float unit_cm = 0.0f;
+    if (!p_scene->mMetaData || !p_scene->mMetaData->Get("UnitScaleFactor", unit_cm) || unit_cm <= 0.0f) return;
+    aiMatrix4x4 to_meters;
+    aiMatrix4x4::Scaling(aiVector3D(unit_cm * 0.01f), to_meters);
+    p_scene->mRootNode->mTransformation = to_meters * p_scene->mRootNode->mTransformation;
+}
+
 static AlphaMode _alpha_mode(const aiMaterial* p_mat)
 {
     aiString mode;
@@ -292,6 +301,7 @@ Error ModelCooker::_import(const Job& p_job)
         log_write("ModelCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return FAILED;
     }
+    _fbx_to_meters(scene);
 
     const bool full = p_job.settings.mode == ModelImportMode::FULL;
     const std::vector<uint32_t> slots = MeshCooker::material_slots(scene);

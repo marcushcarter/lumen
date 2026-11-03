@@ -114,6 +114,7 @@ struct UiStyle
         ImU32 asset_material;
         ImU32 asset_texture;
         ImU32 asset_skeleton;
+        ImU32 asset_animation;
 
         ImU32 overlay;
         ImU32 overlay_hover;

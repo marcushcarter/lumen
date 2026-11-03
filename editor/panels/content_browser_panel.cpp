@@ -13,6 +13,7 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/texture_viewer.h>
 #include <editor/assets/thumbnail_cache.h>
+#include <editor/tabs/animation/animation_tab.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/tabs/model/model_tab.h>
@@ -44,6 +45,7 @@ static std::string _type_name(std::string p_ext)
     if (p_ext == ".lmodel") return "Model";
     if (p_ext == ".lmaterial") return "Material";
     if (p_ext == ".lskeleton") return "Skeleton";
+    if (p_ext == ".lanim") return "Animation";
     if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
     for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
     return p_ext;
@@ -83,7 +85,7 @@ void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r
         e.lower_name = str_lowered(e.path.filename().string());
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
-        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? MeshTab::ICON : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : e.path.extension() == ".lskeleton" ? ICON_FA_BONE : ICON_FA_FILE;
+        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? MeshTab::ICON : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : e.path.extension() == ".lskeleton" ? ICON_FA_BONE : e.path.extension() == ".lanim" ? AnimationTab::ICON : ICON_FA_FILE;
         if (e.is_dir) r_dir.subdirs.push_back(e.path);
         r_dir.entries.push_back(std::move(e));
     }
@@ -199,7 +201,7 @@ void ContentBrowserPanel::_delete_folder(EditorContext& ctx, const std::filesyst
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton") _delete_content(ctx, it->path());
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton" || ext == ".lanim") _delete_content(ctx, it->path());
     }
     Paths::remove_to_recycle(p_folder);
 }
@@ -707,6 +709,10 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
                     if (r.activated && !e.is_dir && e.path.extension() == ".lmesh") {
                         const AssetInfo info = read_asset_info(e.path);
                         if (info.valid() && info.type == AssetType::MESH) ctx.tabs->open<MeshTab>(info.guid)->path = e.path;
+                    }
+                    if (r.activated && !e.is_dir && e.path.extension() == ".lanim") {
+                        const AssetInfo info = read_asset_info(e.path);
+                        if (info.valid() && info.type == AssetType::ANIMATION) ctx.tabs->open<AnimationTab>(info.guid)->path = e.path;
                     }
                     if (r.activated && !e.is_dir && e.path.extension() == ".lmaterial") {
                         const AssetInfo info = read_asset_info(e.path);

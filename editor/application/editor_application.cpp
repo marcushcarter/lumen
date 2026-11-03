@@ -13,6 +13,7 @@
 #include <editor/tabs/texture/texture_tab.h>
 #include <editor/tabs/settings/project_settings_tab.h>
 #include <editor/tabs/mesh/mesh_tab.h>
+#include <editor/tabs/animation/animation_tab.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <drivers/windows/dialogs_win32.h>
@@ -367,6 +368,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::TEXTURE: return "texture";
         case TabKind::MESH: return "mesh";
         case TabKind::PROJECT_SETTINGS: return "project_settings";
+        case TabKind::ANIMATION: return "animation";
     }
     return "world";
 }
@@ -380,6 +382,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "texture") r_kind = TabKind::TEXTURE;
     else if (p_name == "mesh") r_kind = TabKind::MESH;
     else if (p_name == "project_settings") r_kind = TabKind::PROJECT_SETTINGS;
+    else if (p_name == "animation") r_kind = TabKind::ANIMATION;
     else return false;
     return true;
 }
@@ -411,6 +414,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::TEXTURE: if (t.guid.valid()) opened = tabs.open<TextureTab>(t.guid); break;
             case TabKind::MESH: if (t.guid.valid()) opened = tabs.open<MeshTab>(t.guid); break;
             case TabKind::PROJECT_SETTINGS: opened = tabs.open<ProjectSettingsTab>(); break;
+            case TabKind::ANIMATION: if (t.guid.valid()) opened = tabs.open<AnimationTab>(t.guid); break;
         }
         if (opened && i == saved.active) active = opened;
     }

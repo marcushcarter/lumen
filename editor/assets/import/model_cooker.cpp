@@ -1,5 +1,6 @@
 #include <editor/assets/import/model_cooker.h>
 #include <editor/application/editor_context.h>
+#include <editor/assets/import/animation_cooker.h>
 #include <editor/assets/import/skeleton_cooker.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmodel.h>
@@ -7,6 +8,7 @@
 #include <core/project/project.h>
 #include <core/base/jobs.h>
 #include <core/base/error.h>
+#include <assimp/config.h>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/material.h>
@@ -14,6 +16,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <string>
+#include <toml++/toml.hpp>
 #include <vector>
 
 namespace lumen {
@@ -129,13 +132,19 @@ static Guid _texture_guid(const std::vector<TextureCooker::Job>& p_jobs, const M
     return {};
 }
 
-static std::string _material_file_name(std::string p_name, uint32_t p_slot)
+static std::string _file_safe(std::string p_name)
 {
     for (char& c : p_name) {
         if ((unsigned char)c < 32 || std::strchr("<>:\"/\\|?*", c)) c = '_';
     }
     while (!p_name.empty() && (p_name.back() == ' ' || p_name.back() == '.')) p_name.pop_back();
     while (!p_name.empty() && p_name.front() == ' ') p_name.erase(p_name.begin());
+    return p_name;
+}
+
+static std::string _material_file_name(std::string p_name, uint32_t p_slot)
+{
+    p_name = _file_safe(std::move(p_name));
     if (p_name.empty()) p_name = "Material_" + std::to_string(p_slot);
     return p_name;
 }
@@ -285,6 +294,58 @@ Guid ModelCooker::_import_skeleton(const Job& p_job, const aiScene* p_scene)
     return skeleton.guid;
 }
 
+uint32_t ModelCooker::_import_animations(const Job& p_job, const aiScene* p_scene, const std::filesystem::path& p_dir, Guid p_skeleton, bool p_notify)
+{
+    LSkeleton built;
+    const bool known = p_skeleton.valid() && SkeletonCooker::build(p_scene, p_job.settings.mesh_settings, built);
+    const std::wstring stem = p_job.settings.name.empty() ? p_job.source.stem().wstring() : p_job.settings.name;
+    uint32_t imported = 0;
+    for (uint32_t a = 0; a < p_scene->mNumAnimations; a++) {
+        if (p_job.session->step().cancelled()) break;
+        const aiAnimation* anim = p_scene->mAnimations[a];
+        LSkeleton found;
+        const LSkeleton* skeleton = known ? &built : nullptr;
+        Guid skeleton_guid = known ? p_skeleton : Guid{};
+        if (!skeleton) {
+            skeleton_guid = AnimationCooker::find_skeleton(*p_job.project, anim, found);
+            if (skeleton_guid.valid()) skeleton = &found;
+        }
+
+        LAnimation clip;
+        if (!AnimationCooker::build(p_scene, anim, p_job.settings.mesh_settings, skeleton, clip)) {
+            log_write("ModelCooker: animation '%s' has no usable tracks.", anim->mName.C_Str());
+            continue;
+        }
+        clip.skeleton = skeleton_guid;
+        if (!skeleton_guid.valid()) log_write("ModelCooker: no skeleton matches the bones of animation '%s'. Import the character first.", anim->mName.C_Str());
+
+        const std::wstring suffix = std::filesystem::path((const char8_t*)_file_safe(anim->mName.C_Str()).c_str()).wstring();
+        const std::filesystem::path dst = p_dir / ((p_scene->mNumAnimations > 1 && !suffix.empty() ? stem + L"_" + suffix : stem) + L".lanim");
+        AnimationCooker::Job job;
+        job.source = p_job.source;
+        job.clip = anim->mName.C_Str();
+        std::error_code ec;
+        if (std::filesystem::exists(dst, ec)) {
+            try { job.loop = toml::parse_file(dst.string())[asset_type_section(AssetType::ANIMATION)]["loop"].value_or(true); }
+            catch (const toml::parse_error&) {}
+        }
+        std::filesystem::path content_bin;
+        if (AssetImportTracker::resolve_import(*p_job.project, AssetType::ANIMATION, dst, clip.guid, content_bin) != Error::OK) {
+            log_write("ModelCooker: '%s' exists and is not an animation.", dst.string().c_str());
+            continue;
+        }
+        const ImportSession::Staged staged = p_job.session->stage(*p_job.project, dst, clip.guid, true, p_notify);
+        job.dst_lanim = staged.asset;
+        job.content_bin = staged.content_bin;
+        if (AnimationCooker::cook(job, clip) != Error::OK) {
+            p_job.session->unstage(dst);
+            continue;
+        }
+        imported++;
+    }
+    return imported;
+}
+
 Error ModelCooker::_import(const Job& p_job)
 {
     using enum Error;
@@ -295,6 +356,7 @@ Error ModelCooker::_import(const Job& p_job)
     AssimpImportProgress* read_progress = new AssimpImportProgress();
     read_progress->step = root.sub(0.0f, READ_END);
     importer.SetProgressHandler(read_progress);
+    importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
     const aiScene* scene = importer.ReadFile(p_job.source.string(), MeshCooker::import_flags());
     if (root.cancelled()) return CANCELED;
     if (!scene) {
@@ -302,6 +364,12 @@ Error ModelCooker::_import(const Job& p_job)
         return FAILED;
     }
     _fbx_to_meters(scene);
+    if (scene->mNumMeshes == 0 && scene->mNumAnimations > 0) {
+        const uint32_t imported = _import_animations(p_job, scene, p_job.anim_dir, {}, true);
+        if (root.cancelled()) return CANCELED;
+        root.report(1.0f);
+        return imported ? OK : FAILED;
+    }
 
     const bool full = p_job.settings.mode == ModelImportMode::FULL;
     const std::vector<uint32_t> slots = MeshCooker::material_slots(scene);
@@ -336,6 +404,7 @@ Error ModelCooker::_import(const Job& p_job)
     mesh.content_bin = mesh_staged.content_bin;
     mesh.step = next_step(mesh_cost);
     if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
+    _import_animations(p_job, scene, p_job.dst_dir, mesh.skeleton, false);
 
     for (size_t i = 0; i < textures.size(); i++) {
         TextureCooker::Job& tex = textures[i];
@@ -376,6 +445,7 @@ void ModelCooker::import_async(EditorContext& ctx, const std::filesystem::path& 
     job.project = ctx.project;
     job.source = p_src;
     job.dst_dir = loc.folder;
+    job.anim_dir = p_dst_dir;
     job.settings = p_settings;
     job.dst_lmesh = loc.lmesh;
     job.dst_lmodel = loc.lmodel;

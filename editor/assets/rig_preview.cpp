@@ -59,6 +59,13 @@ void RigPreview::_load_skeleton(EditorContext& ctx)
     }
 }
 
+void RigPreview::pose(const JointTransform* p_local)
+{
+    if (_global.empty()) return;
+    _skeleton.globals(p_local, _global.data());
+    rig_skin(_global, rig, _map, _skin);
+}
+
 void RigPreview::apply(World& r_world, Entity p_entity) const
 {
     PoseComponent* pose = r_world.try_get<PoseComponent>(p_entity);

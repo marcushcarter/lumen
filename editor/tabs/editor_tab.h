@@ -10,7 +10,7 @@ namespace lumen {
 struct Camera;
 struct World;
 
-enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, PROJECT_SETTINGS };
+enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, PROJECT_SETTINGS, ANIMATION };
 
 struct EditorTab
 {

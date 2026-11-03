@@ -30,6 +30,7 @@ struct ModelCooker
         const Project* project = nullptr;
         std::filesystem::path source;
         std::filesystem::path dst_dir;
+        std::filesystem::path anim_dir;
         std::filesystem::path dst_lmodel;
         std::filesystem::path dst_lmesh;
         Guid model_guid;
@@ -40,6 +41,7 @@ struct ModelCooker
 
     static Error _import(const Job& p_job);
     static Guid _import_skeleton(const Job& p_job, const aiScene* p_scene);
+    static uint32_t _import_animations(const Job& p_job, const aiScene* p_scene, const std::filesystem::path& p_dir, Guid p_skeleton, bool p_notify);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings = {});
 };

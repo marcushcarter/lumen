@@ -36,6 +36,8 @@ struct RigPreview
 
     void refresh(EditorContext& ctx, Guid p_mesh, bool p_keep_skeleton);
     void invalidate() { _mesh = Guid{}; }
+    const LSkeleton& skeleton_data() const { return _skeleton; }
+    void pose(const JointTransform* p_local);
     void apply(World& r_world, Entity p_entity) const;
     void draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera) const;
     void draw_controls(OverlayBar& r_bar);

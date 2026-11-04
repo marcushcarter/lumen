@@ -30,7 +30,7 @@ Error AnimationTab::create(EditorContext& ctx)
     preview_mesh = Guid::from_string(section["preview_mesh"].value_or(std::string()));
 
     _poll_clip(ctx, true);
-    if (!preview_mesh.valid()) preview_mesh = _find_preview_mesh(ctx);
+    if (!preview_mesh.valid()) preview_mesh = RigPreview::find_mesh(ctx, clip.skeleton);
     saved_loop = loop;
     saved_preview_mesh = preview_mesh;
 
@@ -114,19 +114,6 @@ void AnimationTab::_poll_clip(EditorContext& ctx, bool p_force)
     }
     player.time = std::min(player.time, clip.duration);
     _mapped_version = UINT64_MAX;
-}
-
-Guid AnimationTab::_find_preview_mesh(EditorContext& ctx) const
-{
-    if (!clip.skeleton.valid() || !ctx.assets) return {};
-    for (const auto& [mesh, e] : ctx.assets->entries) {
-        if (e.type != AssetType::MESH) continue;
-        toml::table tbl;
-        try { tbl = toml::parse_file(e.path.string()); }
-        catch (const toml::parse_error&) { continue; }
-        if (Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["skeleton"].value_or(std::string())) == clip.skeleton) return mesh;
-    }
-    return {};
 }
 
 void AnimationTab::_sync_preview(EditorContext& ctx)

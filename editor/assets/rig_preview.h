@@ -43,6 +43,8 @@ struct RigPreview
     void draw_controls(OverlayBar& r_bar);
     bool bounds(const GeometryPool& p_geometry, Guid p_mesh, vec3& r_center, float& r_radius) const;
     void _load_skeleton(EditorContext& ctx);
+
+    static Guid find_mesh(EditorContext& ctx, Guid p_skeleton);
 };
 
 }

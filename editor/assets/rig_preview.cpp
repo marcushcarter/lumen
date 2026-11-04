@@ -5,6 +5,9 @@
 #include <core/world/camera.h>
 #include <core/world/components.h>
 #include <editor/application/editor_context.h>
+#include <editor/assets/asset_registry.h>
+#include <core/assets/asset_common.h>
+#include <toml++/toml.hpp>
 #include <editor/ui/ui_style.h>
 #include <editor/viewport/overlay_bar.h>
 #include <IconsFontAwesome6.h>
@@ -57,6 +60,19 @@ void RigPreview::_load_skeleton(EditorContext& ctx)
     for (int32_t s : _map) {
         if (s == SKELETON_NO_JOINT) missing_joints++;
     }
+}
+
+Guid RigPreview::find_mesh(EditorContext& ctx, Guid p_skeleton)
+{
+    if (!p_skeleton.valid() || !ctx.assets) return {};
+    for (const auto& [mesh, e] : ctx.assets->entries) {
+        if (e.type != AssetType::MESH) continue;
+        toml::table tbl;
+        try { tbl = toml::parse_file(e.path.string()); }
+        catch (const toml::parse_error&) { continue; }
+        if (Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["skeleton"].value_or(std::string())) == p_skeleton) return mesh;
+    }
+    return {};
 }
 
 void RigPreview::pose(const JointTransform* p_local)

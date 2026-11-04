@@ -2,6 +2,8 @@
 #include <editor/assets/texture_viewer.h>
 #include <editor/assets/builtin_meshes.h>
 #include <editor/assets/asset_registry.h>
+#include <core/animation/clip_player.h>
+#include <toml++/toml.hpp>
 #include <editor/application/editor_context.h>
 #include <core/base/hash.h>
 #include <core/rendering/renderer.h>
@@ -299,6 +301,40 @@ const LMaterial* ThumbnailCache::_parsed_material(EditorContext& ctx, Guid p_gui
     return p.material.guid == p_guid ? &p.material : nullptr;
 }
 
+const ThumbnailCache::ParsedAnimation* ThumbnailCache::_parsed_animation(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp)
+{
+    const std::filesystem::path file = _asset_file(ctx, p_guid);
+    const uint64_t asset_stamp = _stamp(file);
+    const uint64_t clip_stamp = _stamp(_content_file(ctx, p_guid));
+    if (asset_stamp == STAMP_MISSING || clip_stamp == STAMP_MISSING) return nullptr;
+    r_stamp = _mix(asset_stamp, clip_stamp);
+    ParsedAnimation& p = animations[p_guid];
+    if (p.stamp != r_stamp) {
+        p.stamp = r_stamp;
+        p.mesh = {};
+        if (p.clip.load_cooked(_content_file(ctx, p_guid)) != Error::OK) p.clip = LAnimation{};
+        toml::table tbl;
+        try { tbl = toml::parse_file(file.string()); }
+        catch (const toml::parse_error&) {}
+        p.mesh = Guid::from_string(tbl[asset_type_section(AssetType::ANIMATION)]["preview_mesh"].value_or(std::string()));
+        if (!p.mesh.valid()) p.mesh = RigPreview::find_mesh(ctx, p.clip.skeleton);
+    }
+    return p.clip.frame_count && p.mesh.valid() ? &p : nullptr;
+}
+
+void ThumbnailCache::_pose_animation(Guid p_guid)
+{
+    auto it = animations.find(p_guid);
+    const LSkeleton& skeleton = rig.skeleton_data();
+    if (it == animations.end() || skeleton.joint_count() == 0) return;
+    const LAnimation& clip = it->second.clip;
+    std::vector<int32_t> map;
+    clip_track_map(skeleton, clip, map);
+    std::vector<JointTransform> local = skeleton.rest;
+    clip_sample(clip, map, clip.duration * ANIMATION_POSE_FRACTION, local.data());
+    rig.pose(local.data());
+}
+
 const LModel* ThumbnailCache::_parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp)
 {
     const std::filesystem::path file = _asset_file(ctx, p_guid);
@@ -376,6 +412,17 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             if (stamp == STAMP_MISSING) return false;
             r_job.model = preview_mesh;
             key = _mix(key, stamp);
+        } break;
+        case AssetType::ANIMATION: {
+            uint64_t stamp = STAMP_MISSING;
+            const ParsedAnimation* a = _parsed_animation(ctx, p_guid, stamp);
+            if (!a) return false;
+            const uint64_t mesh_stamp = _stamp(_content_file(ctx, a->mesh));
+            if (mesh_stamp == STAMP_MISSING) return false;
+            key = _mix(_mix(_mix(_mix(key, stamp), a->mesh.value), mesh_stamp), (uint64_t)(ANIMATION_POSE_FRACTION * 1000.0f));
+            add_rig(a->mesh);
+            r_job.model = preview_mesh;
+            r_job.mesh = a->mesh;
         } break;
         default:
             return false;
@@ -512,7 +559,7 @@ VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_typ
 {
     if (!p_guid.valid() || !ctx.renderer) return VK_NULL_HANDLE;
     if (p_type == AssetType::TEXTURE) return _texture_view(ctx, p_guid);
-    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON) return VK_NULL_HANDLE;
+    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON && p_type != AssetType::ANIMATION) return VK_NULL_HANDLE;
     Entry& e = entries[p_guid];
     if (e.type != p_type) {
         e.type = p_type;
@@ -590,6 +637,7 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
 
         rig.invalidate();
         rig.refresh(ctx, next.mesh, false);
+        if (next.type == AssetType::ANIMATION) _pose_animation(next.guid);
         rig.apply(world, entity);
         vec3 center(0.0f);
         float bounds_radius = 0.0f;

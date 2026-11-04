@@ -2,6 +2,7 @@
 #include <core/rendering/render_view.h>
 #include <core/rendering/render_path/thumbnail_render_path.h>
 #include <core/assets/asset_common.h>
+#include <core/assets/lanim.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/guid.h>
@@ -34,6 +35,7 @@ struct ThumbnailCache
     static constexpr float CAMERA_YAW_DEG = 35.0f;
     static constexpr float CAMERA_PITCH_DEG = 20.0f;
     static constexpr float FRAME_MARGIN = 1.05f;
+    static constexpr float ANIMATION_POSE_FRACTION = 0.3f;
 
     enum class JobState : uint8_t { NONE, PREPARED, RENDERING };
     enum class Readiness : uint8_t { READY, WAIT, FAIL };
@@ -67,6 +69,7 @@ struct ThumbnailCache
 
     struct ParsedMaterial { uint64_t stamp = 0; LMaterial material; };
     struct ParsedModel { uint64_t stamp = 0; LModel model; };
+    struct ParsedAnimation { uint64_t stamp = 0; LAnimation clip; Guid mesh; };
     struct Retired { drivers::DeviceDriverVulkan::Image image; uint64_t frame = 0; };
     struct PendingWrite { JobCounter counter; bool ok = false; };
     struct TextureView { VkImage image = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE; };
@@ -81,6 +84,7 @@ struct ThumbnailCache
     std::unordered_map<Guid, Entry> entries;
     std::unordered_map<Guid, ParsedMaterial> materials;
     std::unordered_map<Guid, ParsedModel> models;
+    std::unordered_map<Guid, ParsedAnimation> animations;
     std::deque<Guid> queue;
     Job job;
     uint64_t ticket_serial = 0;
@@ -126,6 +130,8 @@ struct ThumbnailCache
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     const LModel* _parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
+    const ParsedAnimation* _parsed_animation(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
+    void _pose_animation(Guid p_guid);
     std::filesystem::path _asset_file(EditorContext& ctx, Guid p_guid) const;
     std::filesystem::path _content_file(EditorContext& ctx, Guid p_guid) const;
 };

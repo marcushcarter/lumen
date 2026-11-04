@@ -36,7 +36,6 @@ struct AnimationTab : AssetTab
     const char* _icon() const override { return ICON; }
     ImU32 icon_color() const override { return ui_style().color.asset_animation; }
     void _poll_clip(EditorContext& ctx, bool p_force);
-    Guid _find_preview_mesh(EditorContext& ctx) const;
     void _sync_preview(EditorContext& ctx);
     void _pose();
 

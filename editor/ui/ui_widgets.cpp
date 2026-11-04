@@ -187,6 +187,26 @@ void ui_section_gap()
     ImGui::Dummy(ImVec2(0, gap));
 }
 
+void ui_section_label(const char* p_label)
+{
+    ImGui::Dummy(ImVec2(0, ui_style().property.section_gap));
+    ImGui::TextDisabled("%s", p_label);
+}
+
+void ui_warning(const char* p_fmt, ...)
+{
+    char text[512];
+    va_list args;
+    va_start(args, p_fmt);
+    std::vsnprintf(text, sizeof(text), p_fmt, args);
+    va_end(args);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(ui_style().color.warning));
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::Text(ICON_FA_TRIANGLE_EXCLAMATION "  %s", text);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+}
+
 void ui_property_row(const char* p_name, const char* p_fmt, ...)
 {
     ImGui::TextUnformatted(p_name);

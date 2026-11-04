@@ -89,9 +89,20 @@ void AssetTab::on_tick(EditorContext& ctx)
             return;
         }
         path = e->path;
+        char guid_text[Guid::BUFFER];
+        guid.to_chars(guid_text);
+        _tooltip = e->asset_path + "\n" + guid_text;
     }
     _refresh_title();
     _refresh_info(ctx);
+}
+
+void AssetTab::draw_import() const
+{
+    ImGui::TextUnformatted("Source:");
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("%s", source.empty() ? "Unknown" : source.c_str());
+    ImGui::PopTextWrapPos();
 }
 
 void AssetTab::_refresh_info(EditorContext& ctx)

@@ -29,6 +29,7 @@ ImU32 asset_type_color(AssetType p_type)
         case AssetType::MATERIAL: return ui.color.asset_material;
         case AssetType::SKELETON: return ui.color.asset_skeleton;
         case AssetType::ANIMATION: return ui.color.asset_animation;
+        case AssetType::BLEND_SPACE: return ui.color.asset_blend_space;
         default: return ImGui::GetColorU32(ImGuiCol_TextDisabled);
     }
 }
@@ -42,6 +43,7 @@ const char* asset_type_label(AssetType p_type)
         case AssetType::MATERIAL: return "Material";
         case AssetType::SKELETON: return "Skeleton";
         case AssetType::ANIMATION: return "Animation";
+        case AssetType::BLEND_SPACE: return "Blend Space";
         default: return "Asset";
     }
 }
@@ -146,9 +148,11 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
     const AssetRegistry::Entry* asset = ctx.assets ? ctx.assets->find(r_guid) : nullptr;
 
     ImGui::PushID(p_id);
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s:", p_label);
-    ImGui::SameLine();
+    if (p_label && p_label[0]) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s:", p_label);
+        ImGui::SameLine();
+    }
 
     char label[160];
     if (asset) {

@@ -13,6 +13,9 @@ struct TextureDetailsPanel : Panel
     const char* name() const override { return ICON_FA_IMAGE "  Texture"; }
     DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
     bool pinned() const override { return true; }
+
+    void _draw_stats(EditorContext& ctx);
+    void _draw_warnings(EditorContext& ctx);
     void draw_contents(EditorContext& ctx) override;
 };
 

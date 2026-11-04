@@ -67,4 +67,20 @@ const char* fmt_bytes(uint64_t p_bytes)
     return buf;
 }
 
+const char* fmt_count(uint64_t p_value)
+{
+    thread_local char pool[8][32];
+    thread_local uint32_t next = 0;
+    char* buf = pool[next++ & 7];
+    char raw[24];
+    const int n = std::snprintf(raw, sizeof(raw), "%llu", (unsigned long long)p_value);
+    size_t o = 0;
+    for (int i = 0; i < n; ++i) {
+        if (i > 0 && (n - i) % 3 == 0) buf[o++] = ',';
+        buf[o++] = raw[i];
+    }
+    buf[o] = '\0';
+    return buf;
+}
+
 }

@@ -1,9 +1,6 @@
 #include <editor/tabs/model/panels/model_details_panel.h>
 #include <editor/tabs/model/model_tab.h>
-#include <core/rendering/renderer.h>
-#include <core/base/strings.h>
 #include <editor/assets/asset_field.h>
-#include <editor/assets/asset_registry.h>
 #include <editor/ui/ui_widgets.h>
 #include <imgui.h>
 #include <algorithm>
@@ -12,54 +9,58 @@
 
 namespace lumen {
 
+void ModelDetailsPanel::_draw_materials(EditorContext& ctx)
+{
+    std::vector<Guid>& mats = tab->model.materials;
+    const uint32_t count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());
+    if (count == 0) ImGui::TextDisabled("No material slots");
+    bool changed = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        char id[32];
+        std::snprintf(id, sizeof(id), "###model_material_%u", i);
+        char slot[32];
+        std::snprintf(slot, sizeof(slot), i < tab->mesh_stats.slots ? "Slot %u" : "Slot %u (unused)", i);
+        Guid m = i < mats.size() ? mats[i] : Guid{};
+        if (asset_field(ctx, slot, id, m, AssetType::MATERIAL)) {
+            if (i >= mats.size()) mats.resize(i + 1);
+            mats[i] = m;
+            changed = true;
+        }
+    }
+    while (changed && !mats.empty() && !mats.back().valid()) mats.pop_back();
+}
+
+void ModelDetailsPanel::_draw_warnings(EditorContext& ctx)
+{
+    (void)ctx;
+    const LModel& m = tab->model;
+    const uint32_t slots = tab->mesh_stats.slots;
+    uint32_t empty = 0;
+    for (uint32_t i = 0; i < slots; ++i) {
+        if (i >= m.materials.size() || !m.materials[i].valid()) empty++;
+    }
+    const bool unused = m.materials.size() > slots && m.mesh.valid();
+    if (m.mesh.valid() && !empty && !unused) return;
+
+    if (!m.mesh.valid()) ui_warning("No mesh assigned");
+    if (empty) ui_warning("%u of %u material slots are empty", empty, slots);
+    if (unused) ui_warning("Materials past slot %u aren't used by this mesh", slots - 1);
+}
+
 void ModelDetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (!tab) return;
+    LModel& m = tab->model;
+    ui_field_push_style();
 
-    const AssetRegistry::Entry* e = ctx.assets ? ctx.assets->find(tab->guid) : nullptr;
-    ImGui::Text("Name: %s", e ? e->name.c_str() : "None");
-    ImGui::Text("Path: %s", e ? e->asset_path.c_str() : "-");
-    if (tab->disk_size) ImGui::Text("Disk Size: %s", fmt_bytes(tab->disk_size));
-    if (!tab->source.empty()) {
-        ImGui::TextUnformatted("Source:");
-        ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextDisabled("%s", tab->source.c_str());
-        ImGui::PopTextWrapPos();
-    }
+    asset_field(ctx, "Mesh", "###model_mesh", m.mesh, AssetType::MESH);
 
-    const RigPreview& rig = tab->rig_preview;
-    if (rig.skinned) {
-        const AssetRegistry::Entry* skeleton = ctx.assets ? ctx.assets->find(rig.skeleton) : nullptr;
-        ImGui::Text("Skeleton: %s", skeleton ? skeleton->name.c_str() : "None");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set on the mesh");
-    }
+    char header[48];
+    std::snprintf(header, sizeof(header), "Materials (%u)###materials", std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)m.materials.size()));
+    if (ui_category(header, nullptr, true)) _draw_materials(ctx);
 
-    ImGui::Text("Triangles: %llu", (unsigned long long)tab->mesh_stats.triangles);
-    ImGui::Text("Material Slots: %u", tab->mesh_stats.slots);
-
-    if (ui_category("Mesh")) {
-        asset_field(ctx, "Mesh", "###model_mesh", tab->model.mesh, AssetType::MESH);
-    }
-
-    if (ui_category("Materials")) {
-        std::vector<Guid>& mats = tab->model.materials;
-        const uint32_t count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());
-        if (count == 0) ImGui::TextDisabled("No material slots");
-        bool changed = false;
-        for (uint32_t i = 0; i < count; ++i) {
-            char id[32];
-            std::snprintf(id, sizeof(id), "###model_material_%u", i);
-            char slot[32];
-            std::snprintf(slot, sizeof(slot), i < tab->mesh_stats.slots ? "Slot %u" : "Slot %u (unused)", i);
-            Guid m = i < mats.size() ? mats[i] : Guid{};
-            if (asset_field(ctx, slot, id, m, AssetType::MATERIAL)) {
-                if (i >= mats.size()) mats.resize(i + 1);
-                mats[i] = m;
-                changed = true;
-            }
-        }
-        while (changed && !mats.empty() && !mats.back().valid()) mats.pop_back();
-    }
+    _draw_warnings(ctx);
+    ui_field_pop_style();
 }
 
 }

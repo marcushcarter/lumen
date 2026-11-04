@@ -92,13 +92,15 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PushID(active ? active->panel->layout_id : "##empty");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->panel->window_padding() : ui.dock.panel_padding);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, ui.dock.panel_scrollbar);
-    const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, active ? active->panel->window_flags() : ImGuiWindowFlags_NoScrollbar);
-    ImGui::PopStyleVar(2);
+    const ImGuiWindowFlags flags = (active ? active->panel->window_flags() : 0) | ImGuiWindowFlags_NoScrollbar;
+    const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, flags);
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor();
     if (visible) {
         if (active) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.0f);
             active->panel->draw_contents(ctx);
+            ImGui::PopStyleVar();
         } else {
             const ImVec2 wp = ImGui::GetWindowPos();
             const ImVec2 ws = ImGui::GetWindowSize();

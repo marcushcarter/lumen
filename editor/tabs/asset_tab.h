@@ -22,6 +22,7 @@ struct AssetTab : EditorTab
 
     std::string source;
     uint64_t disk_size = 0;
+    std::string _tooltip;
     std::filesystem::file_time_type _info_time{};
     double _info_poll = -1.0e9;
 
@@ -34,6 +35,9 @@ struct AssetTab : EditorTab
     void _refresh_title();
     void _draw_layout(EditorContext& ctx);
     virtual void _draw_toolbar(EditorContext& ctx);
+    void draw_import() const;
+
+    const char* tooltip() const override { return _tooltip.empty() ? nullptr : _tooltip.c_str(); }
 
     const Camera* camera() const override { return &orbit.camera; }
     const World* scene() const override { return &preview; }

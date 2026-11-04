@@ -115,6 +115,7 @@ struct UiStyle
         ImU32 asset_texture;
         ImU32 asset_skeleton;
         ImU32 asset_animation;
+        ImU32 asset_blend_space;
 
         ImU32 overlay;
         ImU32 overlay_hover;
@@ -182,7 +183,6 @@ struct UiStyle
     struct Dock {
         float gap;
         ImVec2 panel_padding;
-        float panel_scrollbar;
         ImVec2 drawer_padding;
         float drop_outline;
         float edge_target_size;

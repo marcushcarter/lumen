@@ -10,7 +10,7 @@ namespace lumen {
 struct Camera;
 struct World;
 
-enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, PROJECT_SETTINGS, ANIMATION };
+enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, PROJECT_SETTINGS, ANIMATION, BLEND_SPACE };
 
 struct EditorTab
 {
@@ -25,6 +25,7 @@ struct EditorTab
 
     virtual const char* title() const = 0;
     virtual ImU32 icon_color() const { return 0; }
+    virtual const char* tooltip() const { return nullptr; }
     virtual bool closable() const { return true; }
     virtual bool dirty() const { return false; }
     virtual const Camera* camera() const { return nullptr; }

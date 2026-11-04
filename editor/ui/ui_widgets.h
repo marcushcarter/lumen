@@ -38,6 +38,8 @@ void ui_link(const char* p_label, const char* p_url);
 
 void ui_spacing();
 void ui_section_gap();
+void ui_section_label(const char* p_label);
+void ui_warning(_Printf_format_string_ const char* p_fmt, ...);
 
 void ui_property_row(const char* p_name, _Printf_format_string_ const char* p_fmt, ...);
 void ui_property_row_value_aligned(const char* p_name, _Printf_format_string_ const char* p_fmt, ...);

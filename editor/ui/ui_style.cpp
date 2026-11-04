@@ -52,7 +52,6 @@ void UiStyle::_build_components()
 
     dock.gap = space.sm;
     dock.panel_padding = ImVec2(space.xl, space.lg);
-    dock.panel_scrollbar = space.xl;
     dock.drawer_padding = ImVec2(space.lg, space.lg);
     dock.drop_outline = stroke.thick;
     dock.edge_target_size = 40.0f;
@@ -318,6 +317,7 @@ void UiStyle::_build_colors()
     color.asset_texture = IM_COL32(226, 96, 86, 255);
     color.asset_skeleton = IM_COL32(214, 206, 180, 255);
     color.asset_animation = IM_COL32(186, 132, 232, 255);
+    color.asset_blend_space = IM_COL32(232, 132, 190, 255);
 
     color.overlay = IM_COL32(28, 28, 30, 130);
     color.overlay_hover = IM_COL32(60, 62, 66, 190);

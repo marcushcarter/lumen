@@ -1,4 +1,5 @@
 #pragma once
+#include <core/animation/anim_eval.h>
 #include <core/assets/lanim.h>
 #include <core/assets/lblendspace.h>
 #include <core/assets/loverlay.h>
@@ -33,11 +34,8 @@ struct AnimPreview
     std::unordered_map<Guid, LoadedClip> _clips;
     std::unordered_map<Guid, LoadedAsset<LBlendSpace>> _spaces;
     std::unordered_map<Guid, LoadedAsset<LOverlay>> _overlays;
-    std::vector<float> _durations;
+    AnimEvaluator evaluator;
     std::vector<float> _mask;
-    std::vector<std::vector<JointTransform>> _sample_poses;
-    std::vector<JointTransform> _layer;
-    std::vector<JointTransform> _reference;
 
     const LoadedClip* clip(EditorContext& ctx, const RigPreview& p_rig, Guid p_guid);
     const LBlendSpace* blend_space(EditorContext& ctx, Guid p_guid);

@@ -42,6 +42,7 @@ Error GameApplication::on_init()
     err = project_load(project_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     _load_world();
+    if (!live_pipe.empty()) live.connect(live_pipe);
 
     win32.window_set_title(main_window, project.window_title());
     win32.window_set_size(main_window, project.settings.width, project.settings.height);
@@ -104,6 +105,7 @@ void GameApplication::_check_splash_close()
 void GameApplication::on_update(float p_dt)
 {
     (void)p_dt;
+    live.tick(world);
     renderer.request_size(main_window.width, main_window.height);
 
     if (frame_stats.frame_avg > 0.0f && frame_stats.frame_avg != title_frame_avg) {
@@ -128,6 +130,7 @@ void GameApplication::update_camera(float )
 
 void GameApplication::on_shutdown()
 {
+    live.close();
     splash.close();
 }
 

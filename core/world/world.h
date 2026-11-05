@@ -43,6 +43,7 @@ struct ComponentInfo
     bool addable;
     bool (*has)(const World& p_world, Entity p_entity);
     void (*add_default)(World& p_world, Entity p_entity);
+    void (*remove)(World& p_world, Entity p_entity) = nullptr;
     const char* key = nullptr;
     bool editor_only = false;
     void (*serialize)(World& r_world, Entity p_entity, Archive& r_archive) = nullptr;
@@ -100,7 +101,7 @@ struct World
     void component_register(const char* p_name, bool p_addable = true) {
         LUMEN_ERR_FAIL_COND(_iterating != 0);
         (void)registry.storage<T>();
-        components.push_back({ p_name, p_addable, [](const World& p_world, Entity p_entity) { return p_world.has<T>(p_entity); }, [](World& p_world, Entity p_entity) { p_world.add<T>(p_entity); } });
+        components.push_back({ p_name, p_addable, [](const World& p_world, Entity p_entity) { return p_world.has<T>(p_entity); }, [](World& p_world, Entity p_entity) { p_world.add<T>(p_entity); }, [](World& p_world, Entity p_entity) { p_world.remove<T>(p_entity); } });
     }
 
     template <typename T>

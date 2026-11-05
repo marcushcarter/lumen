@@ -10,6 +10,7 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <sstream>
 
 namespace lumen {
@@ -136,13 +137,81 @@ static void _serialize_folder(Archive& a, WorldFolder& r_folder)
     a.field("expanded", r_folder.expanded);
 }
 
+static void _write_entity(World& r_world, Entity p_entity, toml::table& r_table)
+{
+    r_table.insert_or_assign(WorldFile::KEY_GUID, r_world.try_get<EntityIdComponent>(p_entity)->guid.to_string());
+    toml::array tags;
+    for (const ComponentInfo& info : r_world.components) {
+        if (!info.key || !info.has(r_world, p_entity)) continue;
+        toml::table c;
+        TomlWriter writer(c);
+        info.serialize(r_world, p_entity, writer);
+        if (c.empty()) tags.push_back(std::string(info.key));
+        else r_table.insert_or_assign(info.key, std::move(c));
+    }
+    if (!tags.empty()) r_table.insert_or_assign(WorldFile::KEY_TAGS, std::move(tags));
+}
+
+static bool _tagged(const toml::array* p_tags, const char* p_key)
+{
+    if (!p_tags) return false;
+    for (const toml::node& tag : *p_tags) {
+        if (tag.value<std::string>() == p_key) return true;
+    }
+    return false;
+}
+
+static void _read_entity(World& r_world, Entity p_entity, const toml::table& p_table, bool p_editor, bool p_replace)
+{
+    const toml::array* tags = p_table.get_as<toml::array>(WorldFile::KEY_TAGS);
+    for (const ComponentInfo& info : r_world.components) {
+        if (!info.key || (info.editor_only && !p_editor)) continue;
+        if (const toml::table* c = p_table.get_as<toml::table>(info.key)) {
+            info.add_default(r_world, p_entity);
+            TomlReader reader(*c);
+            info.serialize(r_world, p_entity, reader);
+        } else if (_tagged(tags, info.key)) {
+            if (!info.has(r_world, p_entity)) info.add_default(r_world, p_entity);
+        } else if (p_replace && info.has(r_world, p_entity)) {
+            info.remove(r_world, p_entity);
+        }
+    }
+}
+
+static uint64_t _hash_entity(World& r_world, Entity p_entity, HashWriter& r_writer)
+{
+    r_writer._value(r_world.try_get<EntityIdComponent>(p_entity)->guid.value);
+    for (const ComponentInfo& info : r_world.components) {
+        if (!info.key || !info.has(r_world, p_entity)) continue;
+        r_writer._key(info.key);
+        info.serialize(r_world, p_entity, r_writer);
+    }
+    return r_writer.hash;
+}
+
+static std::string _text(const toml::table& p_table)
+{
+    std::ostringstream ss;
+    ss << p_table;
+    return ss.str();
+}
+
+static bool _parse(std::string_view p_text, toml::table& r_table, const char* p_what)
+{
+    try { r_table = toml::parse(p_text); }
+    catch (const toml::parse_error& e) {
+        log_write("World File: failed to parse %s (%s).", p_what, std::string(e.description()).c_str());
+        return false;
+    }
+    return true;
+}
+
 /****************/
 /**** PUBLIC ****/
 /****************/
 
-Error WorldFile::write(const std::filesystem::path& p_path, World& r_world, const WorldFile& p_file)
+std::string WorldFile::write_text(World& r_world, const WorldFile& p_file)
 {
-    using enum Error;
     toml::table section;
 
     toml::table environment;
@@ -164,17 +233,7 @@ Error WorldFile::write(const std::filesystem::path& p_path, World& r_world, cons
     toml::array list;
     for (Entity e : entities) {
         toml::table t;
-        t.insert_or_assign(KEY_GUID, r_world.try_get<EntityIdComponent>(e)->guid.to_string());
-        toml::array tags;
-        for (const ComponentInfo& info : r_world.components) {
-            if (!info.key || !info.has(r_world, e)) continue;
-            toml::table c;
-            TomlWriter writer(c);
-            info.serialize(r_world, e, writer);
-            if (c.empty()) tags.push_back(std::string(info.key));
-            else t.insert_or_assign(info.key, std::move(c));
-        }
-        if (!tags.empty()) t.insert_or_assign(KEY_TAGS, std::move(tags));
+        _write_entity(r_world, e, t);
         list.push_back(std::move(t));
     }
     section.insert_or_assign(KEY_ENTITIES, std::move(list));
@@ -186,20 +245,19 @@ Error WorldFile::write(const std::filesystem::path& p_path, World& r_world, cons
             { "type", static_cast<int64_t>(AssetType::WORLD) } }},
         { std::string(SECTION), std::move(section) },
     };
-    std::ostringstream ss;
-    ss << tbl;
-    return write_file_atomic(p_path, ss.str()) ? OK : FAILED;
+    return _text(tbl);
 }
 
-Error WorldFile::read(const std::filesystem::path& p_path, World& r_world, bool p_editor, WorldFile& r_file)
+Error WorldFile::write(const std::filesystem::path& p_path, World& r_world, const WorldFile& p_file)
+{
+    return write_file_atomic(p_path, write_text(r_world, p_file)) ? Error::OK : Error::FAILED;
+}
+
+Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_editor, WorldFile& r_file)
 {
     using enum Error;
     toml::table tbl;
-    try { tbl = toml::parse_file(p_path.string()); }
-    catch (const toml::parse_error& e) {
-        log_write("World File: failed to parse '%s' (%s).", p_path.string().c_str(), std::string(e.description()).c_str());
-        return FAILED;
-    }
+    if (!_parse(p_text, tbl, "a world")) return FAILED;
     auto asset = tbl["asset"];
     if (asset_type_from_u32((uint32_t)asset["type"].value_or<int64_t>(0)) != AssetType::WORLD) return FAILED;
 
@@ -235,23 +293,22 @@ Error WorldFile::read(const std::filesystem::path& p_path, World& r_world, bool 
             guid = Guid::generate();
             renamed++;
         }
-        const Entity e = r_world.create_persistent(guid);
-        const toml::array* tags = t->get_as<toml::array>(KEY_TAGS);
-        for (const ComponentInfo& info : r_world.components) {
-            if (!info.key || (info.editor_only && !p_editor)) continue;
-            if (const toml::table* c = t->get_as<toml::table>(info.key)) {
-                info.add_default(r_world, e);
-                TomlReader reader(*c);
-                info.serialize(r_world, e, reader);
-            } else if (tags) {
-                for (const toml::node& tag : *tags) {
-                    if (tag.value<std::string>() == info.key) info.add_default(r_world, e);
-                }
-            }
-        }
+        _read_entity(r_world, r_world.create_persistent(guid), *t, p_editor, false);
     }
-    if (renamed) log_write("World File: %u entities in '%s' had a missing or duplicate guid and got a new one.", renamed, p_path.string().c_str());
+    if (renamed) log_write("World File: %u entities had a missing or duplicate guid and got a new one.", renamed);
     return OK;
+}
+
+Error WorldFile::read(const std::filesystem::path& p_path, World& r_world, bool p_editor, WorldFile& r_file)
+{
+    std::ifstream f(p_path, std::ios::binary);
+    if (!f) {
+        log_write("World File: couldn't open '%s'.", p_path.string().c_str());
+        return Error::FAILED;
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return read_text(ss.str(), r_world, p_editor, r_file);
 }
 
 uint64_t WorldFile::hash(World& r_world, const std::vector<WorldFolder>& p_folders)
@@ -262,14 +319,57 @@ uint64_t WorldFile::hash(World& r_world, const std::vector<WorldFolder>& p_folde
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);
-    for (Entity e : entities) {
-        writer._value(r_world.try_get<EntityIdComponent>(e)->guid.value);
-        for (const ComponentInfo& info : r_world.components) {
-            if (!info.key || !info.has(r_world, e)) continue;
-            writer._key(info.key);
-            info.serialize(r_world, e, writer);
-        }
-    }
+    for (Entity e : entities) _hash_entity(r_world, e, writer);
+    return writer.hash;
+}
+
+std::string WorldFile::entity_text(World& r_world, Entity p_entity)
+{
+    toml::table t;
+    _write_entity(r_world, p_entity, t);
+    return _text(t);
+}
+
+Error WorldFile::apply_entity_text(std::string_view p_text, World& r_world, bool p_editor)
+{
+    using enum Error;
+    toml::table t;
+    if (!_parse(p_text, t, "an entity")) return FAILED;
+    const Guid guid = Guid::from_string(t[KEY_GUID].value_or(std::string{}));
+    if (!guid.valid()) return FAILED;
+    Entity e = r_world.find(guid);
+    if (e == ENTITY_NULL) e = r_world.create_persistent(guid);
+    _read_entity(r_world, e, t, p_editor, true);
+    return OK;
+}
+
+uint64_t WorldFile::entity_hash(World& r_world, Entity p_entity)
+{
+    HashWriter writer;
+    return _hash_entity(r_world, p_entity, writer);
+}
+
+std::string WorldFile::environment_text(World& r_world)
+{
+    toml::table t;
+    TomlWriter writer(t);
+    serialize(writer, r_world.environment);
+    return _text(t);
+}
+
+Error WorldFile::apply_environment_text(std::string_view p_text, World& r_world)
+{
+    toml::table t;
+    if (!_parse(p_text, t, "the environment")) return Error::FAILED;
+    TomlReader reader(t);
+    serialize(reader, r_world.environment);
+    return Error::OK;
+}
+
+uint64_t WorldFile::environment_hash(World& r_world)
+{
+    HashWriter writer;
+    serialize(writer, r_world.environment);
     return writer.hash;
 }
 

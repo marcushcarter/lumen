@@ -19,6 +19,7 @@ LaunchArgs LaunchArgs::parse_command_line()
         else if (std::wcscmp(a, L"--pie") == 0) args.pie = true;
         else if (std::wcscmp(a, L"--project") == 0 && i + 1 < argc) args.project = argv[++i];
         else if (std::wcscmp(a, L"--world") == 0 && i + 1 < argc) args.world = argv[++i];
+        else if (std::wcscmp(a, L"--live") == 0 && i + 1 < argc) args.live = argv[++i];
     }
 
     LocalFree(argv);

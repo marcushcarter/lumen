@@ -1,6 +1,7 @@
 #pragma once
 #include <core/base/error.h>
 #include <filesystem>
+#include <string>
 #include <cstdint>
 
 namespace lumen {
@@ -30,7 +31,7 @@ struct PlaySession
 
     Error initialize();
     void shutdown();
-    Error launch(const std::filesystem::path& p_project_root, const std::filesystem::path& p_world = {});
+    Error launch(const std::filesystem::path& p_project_root, const std::filesystem::path& p_world = {}, const std::wstring& p_live = {});
     void relaunch(const std::filesystem::path& p_project_root);
     void stop();
     void poll();

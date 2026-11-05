@@ -14,6 +14,7 @@
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/panels/shared_panels.h>
 #include <editor/play/play_session.h>
+#include <editor/play/live_link.h>
 #include <editor/project_manager/project_manager.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <editor/tabs/tab_manager.h>
@@ -47,6 +48,7 @@ struct EditorApplication : Application
     ImportDialog import_dialog;
     ThumbnailCache thumbnails;
     PlaySession play;
+    LiveLink live;
     PlaySession run;
     drivers::GitDriver git;
     std::filesystem::path reopen_root;

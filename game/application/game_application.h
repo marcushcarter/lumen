@@ -2,6 +2,7 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/game_render_path.h>
 #include <game/application/boot_splash.h>
+#include <game/application/live_client.h>
 #include <filesystem>
 #include <string>
 
@@ -13,6 +14,8 @@ struct GameApplication : Application
 
     std::filesystem::path project_root;
     std::filesystem::path world_path;
+    std::wstring live_pipe;
+    LiveClient live;
     float title_frame_avg = 0.0f;
     
     bool show_splash = false;

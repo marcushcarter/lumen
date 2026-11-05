@@ -30,6 +30,7 @@ ImU32 asset_type_color(AssetType p_type)
         case AssetType::SKELETON: return ui.color.asset_skeleton;
         case AssetType::ANIMATION: return ui.color.asset_animation;
         case AssetType::BLEND_SPACE: return ui.color.asset_blend_space;
+        case AssetType::OVERLAY: return ui.color.asset_overlay;
         default: return ImGui::GetColorU32(ImGuiCol_TextDisabled);
     }
 }
@@ -44,6 +45,7 @@ const char* asset_type_label(AssetType p_type)
         case AssetType::SKELETON: return "Skeleton";
         case AssetType::ANIMATION: return "Animation";
         case AssetType::BLEND_SPACE: return "Blend Space";
+        case AssetType::OVERLAY: return "Overlay";
         default: return "Asset";
     }
 }

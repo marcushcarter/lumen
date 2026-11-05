@@ -1,13 +1,9 @@
 #include <editor/tabs/blend_space/blend_space_tab.h>
-#include <core/animation/blend_space.h>
-#include <core/animation/clip_player.h>
-#include <core/animation/pose_blend.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <core/world/components.h>
 #include <editor/tabs/blend_space/panels/blend_space_details_panel.h>
 #include <imgui.h>
-#include <cmath>
 
 namespace lumen {
 
@@ -66,47 +62,17 @@ void BlendSpaceTab::on_update(EditorContext& ctx, float p_dt)
 
 const BlendSpaceTab::LoadedClip* BlendSpaceTab::clip(EditorContext& ctx, Guid p_guid)
 {
-    if (!p_guid.valid() || !ctx.project) return nullptr;
-    LoadedClip& c = _clips[p_guid];
-    if (!c.failed && c.clip.frame_count == 0) {
-        c.failed = c.clip.load_cooked(ctx.project->content_path(p_guid)) != Error::OK || c.clip.frame_count == 0;
-        if (c.failed) log_write("Blend Space Tab: failed to load clip %s.", p_guid.to_string().c_str());
-    }
-    if (c.failed) return nullptr;
-    if (c.mapped_version != rig_preview.version) {
-        c.mapped_version = rig_preview.version;
-        clip_track_map(rig_preview.skeleton_data(), c.clip, c.map);
-    }
-    return &c;
+    return anim.clip(ctx, rig_preview, p_guid);
 }
 
 Guid BlendSpaceTab::preview_mesh(EditorContext& ctx)
 {
-    if (space.preview_mesh.valid()) return space.preview_mesh;
-    for (const BlendSample& s : space.samples) {
-        if (const LoadedClip* c = clip(ctx, s.clip)) {
-            if (const Guid mesh = RigPreview::find_mesh(ctx, c->clip.skeleton); mesh.valid()) return mesh;
-        }
-    }
-    return {};
+    return anim.blend_space_mesh(ctx, rig_preview, space);
 }
 
 void BlendSpaceTab::weights(EditorContext& ctx, float p_value, float p_direction, std::vector<float>& r_weights)
 {
-    std::vector<float> positions;
-    std::vector<float> directions;
-    std::vector<uint32_t> usable;
-    for (uint32_t i = 0; i < (uint32_t)space.samples.size(); i++) {
-        if (!clip(ctx, space.samples[i].clip)) continue;
-        positions.push_back(space.samples[i].position);
-        directions.push_back(space.samples[i].direction);
-        usable.push_back(i);
-    }
-    std::vector<float> w(positions.size());
-    if (space.kind == BlendSpaceKind::TWO_D) blend_space_polar_weights(positions.data(), directions.data(), (uint32_t)positions.size(), p_value, p_direction, w.data());
-    else blend_space_1d_weights(positions.data(), (uint32_t)positions.size(), p_value, w.data());
-    r_weights.assign(space.samples.size(), 0.0f);
-    for (size_t k = 0; k < usable.size(); k++) r_weights[usable[k]] = w[k];
+    anim.blend_weights(ctx, rig_preview, space, p_value, p_direction, r_weights);
 }
 
 void BlendSpaceTab::_sync_preview(EditorContext& ctx)
@@ -123,31 +89,15 @@ void BlendSpaceTab::_sync_preview(EditorContext& ctx)
 void BlendSpaceTab::_pose_preview(EditorContext& ctx, float p_dt)
 {
     const LSkeleton& skeleton = rig_preview.skeleton_data();
-    const uint32_t joints = skeleton.joint_count();
-    if (joints == 0) return;
+    if (skeleton.joint_count() == 0) return;
 
-    weights(ctx, preview_value, preview_direction, _weights);
-    std::vector<float> durations(space.samples.size(), 0.0f);
-    for (size_t i = 0; i < space.samples.size(); i++) {
-        if (const LoadedClip* c = clip(ctx, space.samples[i].clip)) durations[i] = c->clip.duration;
-    }
-    const float cycle = blend_cycle_duration(durations.data(), _weights.data(), (uint32_t)durations.size());
-    if (cycle <= 0.0f) return;
-    if (playing) phase += p_dt / cycle;
-    phase -= std::floor(phase);
-
-    std::vector<PoseInput> inputs;
-    _sample_poses.resize(space.samples.size());
-    for (size_t i = 0; i < space.samples.size(); i++) {
-        if (_weights[i] <= 0.0f) continue;
-        const LoadedClip* c = clip(ctx, space.samples[i].clip);
-        if (!c) continue;
-        _sample_poses[i] = skeleton.rest;
-        clip_sample(c->clip, c->map, phase * c->clip.duration, _sample_poses[i].data());
-        inputs.push_back({ _sample_poses[i].data(), _weights[i] });
-    }
+    const float advance = playing ? p_dt : 0.0f;
     _pose = skeleton.rest;
-    pose_blend(inputs.data(), (uint32_t)inputs.size(), joints, _pose.data());
+    if (!anim.blend_pose(ctx, rig_preview, space, preview_value, preview_direction, advance, phase, _pose.data())) return;
+    overlay_time += advance;
+    for (Guid g : preview_overlays) {
+        if (const LOverlay* o = anim.overlay(ctx, g)) anim.overlay_apply(ctx, rig_preview, *o, overlay_time, 1.0f, _pose.data());
+    }
     rig_preview.pose(_pose.data());
 }
 

@@ -318,6 +318,7 @@ void UiStyle::_build_colors()
     color.asset_skeleton = IM_COL32(214, 206, 180, 255);
     color.asset_animation = IM_COL32(186, 132, 232, 255);
     color.asset_blend_space = IM_COL32(232, 132, 190, 255);
+    color.asset_overlay = IM_COL32(236, 178, 84, 255);
 
     color.overlay = IM_COL32(28, 28, 30, 130);
     color.overlay_hover = IM_COL32(60, 62, 66, 190);

@@ -11,6 +11,7 @@
 #include <editor/ui/ui_style.h>
 #include <editor/viewport/overlay_bar.h>
 #include <IconsFontAwesome6.h>
+#include <imgui_internal.h>
 #include <cfloat>
 
 namespace lumen {
@@ -112,7 +113,7 @@ void RigPreview::draw_controls(OverlayBar& r_bar)
     if (ImGui::IsItemHovered()) ImGui::SetTooltip(show_bones ? "Hide bones" : "Show bones");
 }
 
-void RigPreview::draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera) const
+void RigPreview::draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera, const float* p_weights) const
 {
     if (!show_bones || _global.empty() || p_size.x < 1.0f || p_size.y < 1.0f) return;
 
@@ -125,13 +126,16 @@ void RigPreview::draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size
         return true;
     };
 
+    const ImVec4 off = ImGui::ColorConvertU32ToFloat4(ui.color.text_dim);
+    const ImVec4 on = ImGui::ColorConvertU32ToFloat4(ui.color.asset_overlay);
     for (size_t i = 0; i < _global.size(); ++i) {
         ImVec2 joint;
         if (!project(_global[i], joint)) continue;
+        const ImU32 color = p_weights ? ImGui::ColorConvertFloat4ToU32(ImLerp(off, on, p_weights[i])) : ui.color.asset_skeleton;
         const int32_t parent = _skeleton.parents[i];
         ImVec2 from;
-        if (parent != SKELETON_NO_JOINT && project(_global[parent], from)) p_draw_list->AddLine(from, joint, ui.color.asset_skeleton, ui.bones.bone_thickness);
-        p_draw_list->AddCircleFilled(joint, ui.bones.joint_radius, ui.color.asset_skeleton);
+        if (parent != SKELETON_NO_JOINT && project(_global[parent], from)) p_draw_list->AddLine(from, joint, color, ui.bones.bone_thickness);
+        p_draw_list->AddCircleFilled(joint, ui.bones.joint_radius, color);
     }
 }
 

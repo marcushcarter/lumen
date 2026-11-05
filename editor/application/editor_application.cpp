@@ -15,6 +15,7 @@
 #include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/tabs/animation/animation_tab.h>
 #include <editor/tabs/blend_space/blend_space_tab.h>
+#include <editor/tabs/overlay/overlay_tab.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <drivers/windows/dialogs_win32.h>
@@ -371,6 +372,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::PROJECT_SETTINGS: return "project_settings";
         case TabKind::ANIMATION: return "animation";
         case TabKind::BLEND_SPACE: return "blend_space";
+        case TabKind::OVERLAY: return "overlay";
     }
     return "world";
 }
@@ -386,6 +388,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "project_settings") r_kind = TabKind::PROJECT_SETTINGS;
     else if (p_name == "animation") r_kind = TabKind::ANIMATION;
     else if (p_name == "blend_space") r_kind = TabKind::BLEND_SPACE;
+    else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
     else return false;
     return true;
 }
@@ -419,6 +422,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::PROJECT_SETTINGS: opened = tabs.open<ProjectSettingsTab>(); break;
             case TabKind::ANIMATION: if (t.guid.valid()) opened = tabs.open<AnimationTab>(t.guid); break;
             case TabKind::BLEND_SPACE: if (t.guid.valid()) opened = tabs.open<BlendSpaceTab>(t.guid); break;
+            case TabKind::OVERLAY: if (t.guid.valid()) opened = tabs.open<OverlayTab>(t.guid); break;
         }
         if (opened && i == saved.active) active = opened;
     }

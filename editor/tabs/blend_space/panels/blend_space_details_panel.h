@@ -24,6 +24,7 @@ struct BlendSpaceDetailsPanel : Panel
     void _draw_pad(EditorContext& ctx);
     void _draw_samples(EditorContext& ctx);
     void _draw_selected(EditorContext& ctx);
+    void _draw_overlays(EditorContext& ctx);
     void _draw_warnings(EditorContext& ctx);
     void draw_contents(EditorContext& ctx) override;
 };

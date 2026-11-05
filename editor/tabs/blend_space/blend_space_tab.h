@@ -1,11 +1,10 @@
 #pragma once
-#include <core/assets/lanim.h>
 #include <core/assets/lblendspace.h>
+#include <editor/assets/anim_preview.h>
 #include <editor/assets/rig_preview.h>
 #include <editor/tabs/asset_tab.h>
 #include <editor/ui/ui_style.h>
 #include <IconsFontAwesome6.h>
-#include <unordered_map>
 #include <vector>
 
 namespace lumen {
@@ -15,25 +14,21 @@ struct BlendSpaceTab : AssetTab
     static constexpr TabKind KIND = TabKind::BLEND_SPACE;
     static constexpr const char* ICON = ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT;
 
-    struct LoadedClip {
-        LAnimation clip;
-        std::vector<int32_t> map;
-        uint64_t mapped_version = UINT64_MAX;
-        bool failed = false;
-    };
+    using LoadedClip = AnimPreview::LoadedClip;
 
     LBlendSpace space;
     LBlendSpace saved;
     RigPreview rig_preview;
+    AnimPreview anim;
+    std::vector<Guid> preview_overlays;
     float preview_value = 0.0f;
     float preview_direction = 0.0f;
     bool playing = true;
     float phase = 0.0f;
+    float overlay_time = 0.0f;
 
-    std::unordered_map<Guid, LoadedClip> _clips;
     std::vector<float> _weights;
     std::vector<JointTransform> _pose;
-    std::vector<std::vector<JointTransform>> _sample_poses;
     Guid _shown_mesh;
     bool _framed = false;
 

@@ -190,6 +190,25 @@ void BlendSpaceDetailsPanel::_draw_selected(EditorContext& ctx)
     }
 }
 
+void BlendSpaceDetailsPanel::_draw_overlays(EditorContext& ctx)
+{
+    std::vector<Guid>& overlays = tab->preview_overlays;
+    int32_t remove = -1;
+    for (int32_t i = 0; i < (int32_t)overlays.size(); i++) {
+        char id[32];
+        std::snprintf(id, sizeof(id), "###preview_overlay_%d", i);
+        char label[32];
+        std::snprintf(label, sizeof(label), "Overlay %d", i + 1);
+        if (asset_field(ctx, label, id, overlays[i], AssetType::OVERLAY) && !overlays[i].valid()) remove = i;
+    }
+    if (remove >= 0) overlays.erase(overlays.begin() + remove);
+
+    if (ImGui::Button(ICON_FA_PLUS " Add Overlay", ImVec2(-FLT_MIN, 0.0f))) ImGui::OpenPopup("##add_overlay");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Preview only, not saved with the blend space");
+    Guid picked;
+    if (asset_picker(ctx, "##add_overlay", picked, AssetType::OVERLAY) && picked.valid()) overlays.push_back(picked);
+}
+
 void BlendSpaceDetailsPanel::_draw_warnings(EditorContext& ctx)
 {
     const LBlendSpace& space = tab->space;
@@ -263,6 +282,8 @@ void BlendSpaceDetailsPanel::draw_contents(EditorContext& ctx)
     char header[48];
     std::snprintf(header, sizeof(header), "Samples (%zu)###samples", space.samples.size());
     if (ui_category(header, nullptr, true)) _draw_samples(ctx);
+    std::snprintf(header, sizeof(header), "Preview Overlays (%zu)###preview_overlays", tab->preview_overlays.size());
+    if (ui_category(header)) _draw_overlays(ctx);
 
     _draw_warnings(ctx);
     ui_field_pop_style();

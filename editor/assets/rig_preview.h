@@ -39,7 +39,7 @@ struct RigPreview
     const LSkeleton& skeleton_data() const { return _skeleton; }
     void pose(const JointTransform* p_local);
     void apply(World& r_world, Entity p_entity) const;
-    void draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera) const;
+    void draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera, const float* p_weights = nullptr) const;
     void draw_controls(OverlayBar& r_bar);
     bool bounds(const GeometryPool& p_geometry, Guid p_mesh, vec3& r_center, float& r_radius) const;
     void _load_skeleton(EditorContext& ctx);

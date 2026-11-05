@@ -161,7 +161,7 @@ static bool _tagged(const toml::array* p_tags, const char* p_key)
     return false;
 }
 
-static void _read_entity(World& r_world, Entity p_entity, const toml::table& p_table, bool p_editor, bool p_replace)
+static void _read_entity(World& r_world, Entity p_entity, const toml::table& p_table, bool p_editor)
 {
     const toml::array* tags = p_table.get_as<toml::array>(WorldFile::KEY_TAGS);
     for (const ComponentInfo& info : r_world.components) {
@@ -171,14 +171,12 @@ static void _read_entity(World& r_world, Entity p_entity, const toml::table& p_t
             TomlReader reader(*c);
             info.serialize(r_world, p_entity, reader);
         } else if (_tagged(tags, info.key)) {
-            if (!info.has(r_world, p_entity)) info.add_default(r_world, p_entity);
-        } else if (p_replace && info.has(r_world, p_entity)) {
-            info.remove(r_world, p_entity);
+            info.add_default(r_world, p_entity);
         }
     }
 }
 
-static uint64_t _hash_entity(World& r_world, Entity p_entity, HashWriter& r_writer)
+static void _hash_entity(World& r_world, Entity p_entity, HashWriter& r_writer)
 {
     r_writer._value(r_world.try_get<EntityIdComponent>(p_entity)->guid.value);
     for (const ComponentInfo& info : r_world.components) {
@@ -186,7 +184,6 @@ static uint64_t _hash_entity(World& r_world, Entity p_entity, HashWriter& r_writ
         r_writer._key(info.key);
         info.serialize(r_world, p_entity, r_writer);
     }
-    return r_writer.hash;
 }
 
 static std::string _text(const toml::table& p_table)
@@ -293,7 +290,7 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
             guid = Guid::generate();
             renamed++;
         }
-        _read_entity(r_world, r_world.create_persistent(guid), *t, p_editor, false);
+        _read_entity(r_world, r_world.create_persistent(guid), *t, p_editor);
     }
     if (renamed) log_write("World File: %u entities had a missing or duplicate guid and got a new one.", renamed);
     return OK;
@@ -320,56 +317,6 @@ uint64_t WorldFile::hash(World& r_world, const std::vector<WorldFolder>& p_folde
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);
     for (Entity e : entities) _hash_entity(r_world, e, writer);
-    return writer.hash;
-}
-
-std::string WorldFile::entity_text(World& r_world, Entity p_entity)
-{
-    toml::table t;
-    _write_entity(r_world, p_entity, t);
-    return _text(t);
-}
-
-Error WorldFile::apply_entity_text(std::string_view p_text, World& r_world, bool p_editor)
-{
-    using enum Error;
-    toml::table t;
-    if (!_parse(p_text, t, "an entity")) return FAILED;
-    const Guid guid = Guid::from_string(t[KEY_GUID].value_or(std::string{}));
-    if (!guid.valid()) return FAILED;
-    Entity e = r_world.find(guid);
-    if (e == ENTITY_NULL) e = r_world.create_persistent(guid);
-    _read_entity(r_world, e, t, p_editor, true);
-    return OK;
-}
-
-uint64_t WorldFile::entity_hash(World& r_world, Entity p_entity)
-{
-    HashWriter writer;
-    return _hash_entity(r_world, p_entity, writer);
-}
-
-std::string WorldFile::environment_text(World& r_world)
-{
-    toml::table t;
-    TomlWriter writer(t);
-    serialize(writer, r_world.environment);
-    return _text(t);
-}
-
-Error WorldFile::apply_environment_text(std::string_view p_text, World& r_world)
-{
-    toml::table t;
-    if (!_parse(p_text, t, "the environment")) return Error::FAILED;
-    TomlReader reader(t);
-    serialize(reader, r_world.environment);
-    return Error::OK;
-}
-
-uint64_t WorldFile::environment_hash(World& r_world)
-{
-    HashWriter writer;
-    serialize(writer, r_world.environment);
     return writer.hash;
 }
 

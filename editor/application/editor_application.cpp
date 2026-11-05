@@ -117,9 +117,7 @@ Error EditorApplication::on_init()
             return;
         }
         ContentCooker::cook(project);
-        const bool linked = live.open() == Error::OK;
-        if (linked) live.baseline(world, world_tab.guid);
-        if (play.launch(project.root, snapshot, linked ? live.name : std::wstring{}) != Error::OK) live.close();
+        play.launch(project.root, snapshot);
     };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
@@ -146,7 +144,6 @@ void EditorApplication::on_shutdown()
     texture_viewer.shutdown();
     thumbnails.shutdown(ctx);
 
-    live.close();
     play.shutdown();
     run.shutdown();
     git.shutdown();
@@ -164,7 +161,6 @@ void EditorApplication::on_update(float p_dt)
 {
     play.poll();
     run.poll();
-    if (live.is_open() && !play.is_running()) live.close();
     _draw_titlebar();
 
     EditorContext& ctx = _context();
@@ -175,7 +171,6 @@ void EditorApplication::on_update(float p_dt)
         selection.prune(world, folders);
 
         tabs.update(ctx, p_dt);
-        if (live.is_open()) live.tick(world, world_tab.guid, ImGui::GetTime());
         texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);
         thumbnails.update(ctx);

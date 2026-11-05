@@ -74,7 +74,7 @@ static BOOL CALLBACK _close_process_windows(HWND p_hwnd, LPARAM p_pid)
     return TRUE;
 }
 
-Error PlaySession::launch(const std::filesystem::path& p_project_root, const std::filesystem::path& p_world, const std::wstring& p_live)
+Error PlaySession::launch(const std::filesystem::path& p_project_root, const std::filesystem::path& p_world)
 {
     using enum Error;
     if (running) return OK;
@@ -94,11 +94,6 @@ Error PlaySession::launch(const std::filesystem::path& p_project_root, const std
     if (!p_world.empty()) {
         cmd += L" --world \"";
         cmd += p_world.wstring();
-        cmd += L"\"";
-    }
-    if (!p_live.empty()) {
-        cmd += L" --live \"";
-        cmd += p_live;
         cmd += L"\"";
     }
     std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());

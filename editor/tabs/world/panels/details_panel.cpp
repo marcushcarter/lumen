@@ -7,6 +7,7 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/asset_field.h>
 #include <editor/tabs/world/scene/editor_selection.h>
+#include <editor/tabs/world/world_tab.h>
 #include <core/rendering/world_gpu.h>
 #include <core/rendering/renderer.h>
 #include <core/world/world.h>
@@ -48,6 +49,10 @@ void DetailsPanel::_draw_environment(EditorContext& ctx)
 
 void DetailsPanel::draw_contents(EditorContext& ctx)
 {
+    if (ctx.world_tab && !ctx.world_tab->has_world()) {
+        ImGui::TextDisabled("No world open");
+        return;
+    }
     if (!ctx.world || !ctx.selection) return;
     World& world = *ctx.world;
     if (ctx.selection->environment) {

@@ -62,7 +62,7 @@ void TabManager::draw_bar(ImVec2 p_min, ImVec2 p_max, float p_reserved_right, Im
     ++_frame;
 
     float natural = 0.0f;
-    for (EditorTab* t : tabs) natural += TabStrip::dock_natural_width(t->title(), t->closable());
+    for (EditorTab* t : tabs) natural += TabStrip::dock_natural_width(t->title(), t->closable() || t->dirty());
 
     char label[192];
     TabStrip strip;
@@ -72,7 +72,7 @@ void TabManager::draw_bar(ImVec2 p_min, ImVec2 p_max, float p_reserved_right, Im
         std::snprintf(label, sizeof(label), "%s###tab_%u_%016llx", t->title(), (unsigned)t->kind, (unsigned long long)t->guid.value);
 
         bool close_clicked = false;
-        if (strip.dock_tab(label, t == active, closable ? &close_clicked : nullptr, closable && t->dirty(), t->icon_color())) active = t;
+        if (strip.dock_tab(label, t == active, closable ? &close_clicked : nullptr, t->dirty(), t->icon_color())) active = t;
         if (const char* tip = t->tooltip(); tip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", tip);
         p_block(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         if (close_clicked) close(t->kind, t->guid);

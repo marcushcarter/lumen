@@ -5,6 +5,7 @@
 #include <editor/ui/ui_widgets.h>
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
+#include <editor/tabs/world/world_tab.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
@@ -188,6 +189,10 @@ void OutlinerPanel::_emit(const EditorFolders& folders, uint32_t p_slot, uint16_
 
 void OutlinerPanel::draw_contents(EditorContext& ctx)
 {
+    if (ctx.world_tab && !ctx.world_tab->has_world()) {
+        ImGui::TextDisabled("No world open");
+        return;
+    }
     if (!ctx.world || !ctx.selection || !ctx.folders) return;
     World& world = *ctx.world;
     EditorFolders& folders = *ctx.folders;

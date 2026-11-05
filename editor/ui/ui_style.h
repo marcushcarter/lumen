@@ -117,6 +117,7 @@ struct UiStyle
         ImU32 asset_animation;
         ImU32 asset_blend_space;
         ImU32 asset_overlay;
+        ImU32 asset_world;
 
         ImU32 overlay;
         ImU32 overlay_hover;

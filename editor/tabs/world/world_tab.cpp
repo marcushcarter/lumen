@@ -5,6 +5,11 @@
 #include <editor/ui/ui_style.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <editor/panels/shared_panels.h>
+#include <editor/assets/asset_registry.h>
+#include <editor/tabs/world/scene/editor_folders.h>
+#include <core/world/world_file.h>
+#include <drivers/windows/dialogs_win32.h>
+#include <drivers/windows/window_driver_win32.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/world/panels/details_panel.h>
@@ -25,12 +30,145 @@ Error WorldTab::initialize(SharedPanels& r_shared)
     details = layout.add_panel<DetailsPanel>();
     layout.add_panel<WorldSettingsPanel>();
     for (auto& p : r_shared.panels) layout.add_shared(p.get());
+    layout.center = [this](EditorContext& r_ctx, ImVec2 p_min, ImVec2 p_max) {
+        if (has_world()) layout.viewport.draw(r_ctx, p_min, p_max);
+        else _draw_empty(p_min, p_max);
+    };
     return OK;
 }
 
 void WorldTab::shutdown()
 {
     layout.shutdown();
+}
+
+void WorldTab::open(Guid p_world)
+{
+    _pending = p_world;
+    _has_pending = true;
+}
+
+void WorldTab::reset()
+{
+    guid = Guid{};
+    _pending = Guid{};
+    _has_pending = false;
+    _hash = 0;
+    _saved_hash = 0;
+    _title.clear();
+    _tooltip.clear();
+}
+
+const std::filesystem::path* WorldTab::_path(EditorContext& ctx) const
+{
+    const AssetRegistry::Entry* e = ctx.assets ? ctx.assets->find(guid) : nullptr;
+    return e && e->type == AssetType::WORLD ? &e->path : nullptr;
+}
+
+uint64_t WorldTab::_compute_hash(EditorContext& ctx) const
+{
+    std::vector<WorldFolder> folders;
+    ctx.folders->to_file(folders);
+    return WorldFile::hash(*ctx.world, folders);
+}
+
+bool WorldTab::_confirm_discard() const
+{
+    std::string_view name = title();
+    if (const size_t gap = name.find("  "); gap != std::string_view::npos) name.remove_prefix(gap + 2);
+    const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(name) + L"' has unsaved changes";
+    return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Opening another world will discard them. Save first with Ctrl+S to keep them.", L"Discard Changes", L"Cancel");
+}
+
+void WorldTab::_unload(EditorContext& ctx)
+{
+    ctx.world->unload();
+    ctx.folders->clear();
+    ctx.selection->clear();
+    guid = Guid{};
+    _hash = _saved_hash = 0;
+}
+
+void WorldTab::_load(EditorContext& ctx, Guid p_world)
+{
+    const AssetRegistry::Entry* e = ctx.assets->find(p_world);
+    if (!e || e->type != AssetType::WORLD) {
+        log_write("World: no world with guid %s.", p_world.to_string().c_str());
+        return;
+    }
+    _unload(ctx);
+    WorldFile file;
+    if (WorldFile::read(e->path, *ctx.world, true, file) != Error::OK) {
+        log_write("World: failed to load '%s'.", e->path.string().c_str());
+        ctx.world->unload();
+        return;
+    }
+    ctx.folders->from_file(file.folders);
+    guid = p_world;
+    _hash = _saved_hash = _compute_hash(ctx);
+    _hash_poll = ImGui::GetTime();
+}
+
+Error WorldTab::write(EditorContext& ctx, const std::filesystem::path& p_path) const
+{
+    WorldFile file;
+    file.guid = guid;
+    ctx.folders->to_file(file.folders);
+    return WorldFile::write(p_path, *ctx.world, file);
+}
+
+void WorldTab::_draw_empty(ImVec2 p_min, ImVec2 p_max)
+{
+    const UiStyle& ui = ui_style();
+    const ImVec2 size(ImMax(p_max.x - p_min.x, 1.0f), ImMax(p_max.y - p_min.y, 1.0f));
+    ImGui::SetCursorScreenPos(p_min);
+    ImGui::InvisibleButton("##no_world", size);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p_min, p_max, ui.color.sunken);
+    const char* title = "No world open";
+    const char* hint_1 = "Create a world in the content browser (Add > World),";
+    const char* hint_2 = "or double-click one to open it.";
+    const float line = ImGui::GetTextLineHeightWithSpacing();
+    const float cx = (p_min.x + p_max.x) * 0.5f;
+    float y = ImFloor((p_min.y + p_max.y) * 0.5f - line * 1.5f);
+    auto centered = [&](const char* p_text, ImU32 p_color) {
+        dl->AddText(ImVec2(ImFloor(cx - ImGui::CalcTextSize(p_text).x * 0.5f), y), p_color, p_text);
+        y += line;
+    };
+    centered(title, ui.color.text);
+    y += ui.space.md;
+    centered(hint_1, ui.color.text_dim);
+    centered(hint_2, ui.color.text_dim);
+}
+
+void WorldTab::on_tick(EditorContext& ctx)
+{
+    if (!ctx.assets || ctx.assets->dirty) return;
+    if (_has_pending) {
+        _has_pending = false;
+        if (_pending != guid && (!dirty() || _confirm_discard())) _load(ctx, _pending);
+    }
+    if (has_world() && !_path(ctx)) _unload(ctx);
+
+    const double now = ImGui::GetTime();
+    if (has_world() && now - _hash_poll >= DIRTY_POLL_S) {
+        _hash_poll = now;
+        _hash = _compute_hash(ctx);
+    }
+
+    const AssetRegistry::Entry* e = ctx.assets->find(guid);
+    if (!e) {
+        _title.clear();
+        _tooltip.clear();
+        return;
+    }
+    _title = ICON;
+    _title += "  ";
+    _title += e->name;
+    char guid_text[Guid::BUFFER];
+    guid.to_chars(guid_text);
+    _tooltip = e->asset_path + "\n" + guid_text;
 }
 
 struct PlayButton
@@ -81,7 +219,7 @@ float WorldTab::_draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2
     const float y = box_min.y + ui.play.inset;
     float x = box_min.x + ui.play.inset;
 
-    PlayButton primary{ ICON_FA_PLAY "##primary", "Play", (bool)ctx.pie_toggle_play, ui.color.success };
+    PlayButton primary{ ICON_FA_PLAY "##primary", has_world() ? "Play" : "No world open", has_world() && (bool)ctx.pie_toggle_play, ui.color.success };
     if (playing && paused) primary = { ICON_FA_PLAY "##primary", "Resume", (bool)ctx.pie_toggle_pause, ui.color.success };
     else if (playing) primary = { ICON_FA_PAUSE "##primary", "Pause", (bool)ctx.pie_toggle_pause, ui.color.text };
     if (_play_button(primary, ImVec2(x, y), size, false)) {
@@ -115,7 +253,8 @@ void WorldTab::_draw_toolbar(EditorContext& ctx)
 {
     TabToolbar bar;
     bar.begin();
-    bar.save(ctx, *this);
+    if (has_world()) bar.save(ctx, *this);
+    else bar.button(ICON_FA_FLOPPY_DISK "  Save", "No world open", false, false);
     bar.gap();
     bar.x += _draw_play_controls(ctx, ImVec2(bar.x, bar.min.y), bar.inner_max());
     bar.end();
@@ -123,8 +262,16 @@ void WorldTab::_draw_toolbar(EditorContext& ctx)
 
 Error WorldTab::save(EditorContext& ctx)
 {
-    (void)ctx;
-    return Error::OK;
+    using enum Error;
+    if (!has_world()) return OK;
+    const std::filesystem::path* path = _path(ctx);
+    if (!path) return FAILED;
+    if (write(ctx, *path) != OK) {
+        log_write("World: failed to save '%s'.", path->string().c_str());
+        return FAILED;
+    }
+    _hash = _saved_hash = _compute_hash(ctx);
+    return OK;
 }
 
 void WorldTab::on_update(EditorContext& ctx, float p_dt)

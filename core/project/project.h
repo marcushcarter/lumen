@@ -20,6 +20,7 @@ struct Project
     static constexpr const char* FILE_ASSETDB = "Data/assetdb.bin";
     static constexpr const char* FILE_ICON = "Data/Content/icon.ico";
     static constexpr const char* FILE_SPLASH = "Data/Content/splash.png";
+    static constexpr const char* FILE_PLAY_WORLD = "Data/Editor/play_world.lworld";
 
     static constexpr const char* DIR_DATA = "Data";
     static constexpr const char* DIR_ASSETS = "Data/Assets";

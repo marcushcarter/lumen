@@ -136,8 +136,9 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
 {
     const UiStyle& ui = ui_style();
     const bool closable = p_close != nullptr;
-    const float cs = closable ? close_size() : 0.0f;
-    const float w = ImMax(ui.tab_strip.min_width + cs, ImFloor(dock_natural_width(p_label, closable) * scale) - ui.dock_tab.gap);
+    const bool slot = closable || p_dirty;
+    const float cs = slot ? close_size() : 0.0f;
+    const float w = ImMax(ui.tab_strip.min_width + cs, ImFloor(dock_natural_width(p_label, slot) * scale) - ui.dock_tab.gap);
     const ImVec2 a(cursor_x, min.y + ui.dock_tab.inset_top);
     const ImVec2 b(cursor_x + w, max.y);
     cursor_x += w + ui.dock_tab.gap;
@@ -179,9 +180,8 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     const ImVec2 ts = ImGui::CalcTextSize(p_label, end);
     const float pad = ImMax(ui.dock_tab.label_min_pad, ImFloor(ui.tab_strip.pad_x * scale));
     ImVec2 tmin(a.x + pad, ImFloor(a.y + (h - ts.y) * 0.5f));
-    const ImVec2 tmax(closable ? ca.x - ui.dock_tab.gap : b.x - pad * 0.5f, b.y);
+    const ImVec2 tmax(slot ? ca.x - ui.dock_tab.gap : b.x - pad * 0.5f, b.y);
     const char* text = p_label;
-    // Icon glyphs are 3-byte private-use codepoints (U+E000..U+F8FF).
     if (p_icon_color && end - p_label >= 3 && ((uint8_t)p_label[0] == 0xEE || (uint8_t)p_label[0] == 0xEF)) {
         text = p_label + 3;
         draw_list->AddText(tmin, p_icon_color, p_label, text);
@@ -195,7 +195,7 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     const bool close_hot = close_hovered || close_held;
     const ImVec2 c(ca.x + cs * 0.5f, ca.y + cs * 0.5f);
     const float r = ImFloor(cs * ui.dock_tab.close_glyph_scale) + 0.5f;
-    if (closable && p_dirty && !close_hot) {
+    if (p_dirty && !close_hot) {
         draw_list->AddCircleFilled(c, r, (p_selected || hot) ? ui.color.text : ui.color.text_dim);
     } else if (closable && (p_selected || hot)) {
         if (close_hot) draw_list->AddRectFilled(ca, cb, ui.color.line, ui.dock_tab.close_rounding);

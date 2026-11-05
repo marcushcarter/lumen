@@ -12,6 +12,7 @@ struct GameApplication : Application
     static constexpr DWORD SPLASH_FINISH_MS = 200;
 
     std::filesystem::path project_root;
+    std::filesystem::path world_path;
     float title_frame_avg = 0.0f;
     
     bool show_splash = false;
@@ -20,7 +21,7 @@ struct GameApplication : Application
 
     Camera orbit_camera;
 
-    void _spawn_test_model();
+    void _load_world();
 
     Error _resolve_project_root();
     void _check_splash_close();

@@ -108,8 +108,16 @@ Error EditorApplication::on_init()
     _ctx.pie_is_playing = [this] { return play.is_running(); };
     _ctx.pie_toggle_play = [this] {
         if (play.is_running()) { play.stop(); return; }
+        if (!world_tab.has_world()) return;
+        const std::filesystem::path snapshot = project.root / Project::FILE_PLAY_WORLD;
+        std::error_code ec;
+        std::filesystem::create_directories(snapshot.parent_path(), ec);
+        if (world_tab.write(_context(), snapshot) != Error::OK) {
+            log_write("Play: couldn't write the world snapshot '%s'.", snapshot.string().c_str());
+            return;
+        }
         ContentCooker::cook(project);
-        play.launch(project.root);
+        play.launch(project.root, snapshot);
     };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
@@ -270,6 +278,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     }
     EditorContext& ctx = _context();
     tabs.clear(ctx);
+    world_tab.reset();
     tabs.add(&world_tab, WorldTab::KIND);
     tabs.focus(&world_tab);
     _load_project_state();
@@ -322,6 +331,7 @@ bool EditorApplication::close_project()
         _save_state();
         import_dialog.clear();
         tabs.clear(ctx);
+        world_tab.reset();
         thumbnails.close(ctx);
         assets.close();
         folders.clear();
@@ -413,7 +423,10 @@ void EditorApplication::_restore_tabs()
         const SavedTab& t = saved.tabs[i];
         EditorTab* opened = nullptr;
         switch (t.kind) {
-            case TabKind::WORLD: opened = &world_tab; break;
+            case TabKind::WORLD:
+                world_tab.open(t.guid);
+                opened = &world_tab;
+                break;
             case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
             case TabKind::MODEL: if (t.guid.valid()) opened = tabs.open<ModelTab>(t.guid); break;
             case TabKind::MATERIAL: if (t.guid.valid()) opened = tabs.open<MaterialTab>(t.guid); break;

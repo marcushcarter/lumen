@@ -35,6 +35,7 @@ static constexpr Entity ENTITY_NULL = { Entity::INVALID_INDEX, 0 };
 template <typename... Xs> using Exclude = entt::exclude_t<Xs...>;
 
 struct World;
+struct Archive;
 
 struct ComponentInfo
 {
@@ -42,6 +43,9 @@ struct ComponentInfo
     bool addable;
     bool (*has)(const World& p_world, Entity p_entity);
     void (*add_default)(World& p_world, Entity p_entity);
+    const char* key = nullptr;
+    bool editor_only = false;
+    void (*serialize)(World& r_world, Entity p_entity, Archive& r_archive) = nullptr;
 };
 
 struct World
@@ -97,6 +101,23 @@ struct World
         LUMEN_ERR_FAIL_COND(_iterating != 0);
         (void)registry.storage<T>();
         components.push_back({ p_name, p_addable, [](const World& p_world, Entity p_entity) { return p_world.has<T>(p_entity); }, [](World& p_world, Entity p_entity) { p_world.add<T>(p_entity); } });
+    }
+
+    template <typename T>
+    void component_register_saved(const char* p_name, const char* p_key, bool p_addable = true, bool p_editor_only = false) {
+        component_register<T>(p_name, p_addable);
+        ComponentInfo& info = components.back();
+        info.key = p_key;
+        info.editor_only = p_editor_only;
+        info.serialize = [](World& r_world, Entity p_entity, Archive& r_archive) {
+            if constexpr (!std::is_empty_v<T>) {
+                if (T* c = r_world.try_get<T>(p_entity)) serialize(r_archive, *c);
+            } else {
+                (void)r_world;
+                (void)p_entity;
+                (void)r_archive;
+            }
+        };
     }
 
     template <typename T>

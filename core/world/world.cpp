@@ -1,5 +1,6 @@
 #include <core/world/world.h>
 #include <core/world/components.h>
+#include <core/world/component_serialize.h>
 
 namespace lumen {
 
@@ -8,14 +9,14 @@ Error World::initialize()
     using enum Error;
 
     component_register<EntityIdComponent>("Entity Id", false);
-    component_register<NameComponent>("Name", false);
-    component_register<TransformComponent>("Transform");
-    component_register<ModelComponent>("Model");
-    component_register<ModelGridComponent>("Model Grid");
+    component_register_saved<NameComponent>("Name", "name", false);
+    component_register_saved<TransformComponent>("Transform", "transform");
+    component_register_saved<ModelComponent>("Model", "model");
+    component_register_saved<ModelGridComponent>("Model Grid", "model_grid");
     component_register<PoseComponent>("Pose", false);
-    component_register<StaticTag>("Static", false);
-    component_register<EditorFolderComponent>("Folder", false);
-    component_register<EditorHiddenTag>("Hidden", false);
+    component_register_saved<StaticTag>("Static", "static", false);
+    component_register_saved<EditorFolderComponent>("Folder", "folder", false, true);
+    component_register_saved<EditorHiddenTag>("Hidden", "hidden", false, true);
 
     return OK;
 }

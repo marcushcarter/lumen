@@ -1,5 +1,6 @@
 #pragma once
 #include <core/world/world.h>
+#include <core/world/world_file.h>
 #include <core/assets/guid.h>
 #include <cstdint>
 #include <vector>
@@ -10,6 +11,7 @@ struct EditorFolders
 {
     static constexpr uint32_t ROOT = EditorFolderComponent::ROOT;
     static constexpr uint32_t MAX_NAME = 64;
+    static constexpr uint32_t MAX_FOLDERS = 1u << 16;
 
     struct Folder {
         Guid guid;
@@ -24,6 +26,8 @@ struct EditorFolders
     uint64_t version = 0;
 
     void clear();
+    void to_file(std::vector<WorldFolder>& r_folders) const;
+    void from_file(const std::vector<WorldFolder>& p_folders);
 
     bool valid(uint32_t p_folder) const { return p_folder < folders.size() && folders[p_folder].alive; }
     uint32_t create(const char* p_name, uint32_t p_parent);

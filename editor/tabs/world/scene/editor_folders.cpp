@@ -12,6 +12,42 @@ void EditorFolders::clear()
     version++;
 }
 
+void EditorFolders::to_file(std::vector<WorldFolder>& r_folders) const
+{
+    r_folders.clear();
+    for (uint32_t i = 0; i < (uint32_t)folders.size(); i++) {
+        const Folder& f = folders[i];
+        if (f.alive) r_folders.push_back({ i, f.guid, f.parent, f.name, f.expanded });
+    }
+}
+
+void EditorFolders::from_file(const std::vector<WorldFolder>& p_folders)
+{
+    clear();
+    for (const WorldFolder& w : p_folders) {
+        if (w.index >= MAX_FOLDERS) continue;
+        if (w.index >= folders.size()) folders.resize(w.index + 1);
+        Folder& f = folders[w.index];
+        f.guid = w.guid.valid() ? w.guid : Guid::generate();
+        f.parent = w.parent;
+        std::snprintf(f.name, MAX_NAME, "%s", w.name.c_str());
+        f.expanded = w.expanded;
+        f.alive = true;
+    }
+    for (uint32_t i = (uint32_t)folders.size(); i-- > 0;) {
+        if (!folders[i].alive) free_list.push_back(i);
+    }
+    const uint32_t count = (uint32_t)folders.size();
+    for (uint32_t i = 0; i < count; i++) {
+        if (!folders[i].alive || folders[i].parent == ROOT) continue;
+        uint32_t steps = 0;
+        uint32_t f = folders[i].parent;
+        while (f != ROOT && valid(f) && f != i && steps++ < count) f = folders[f].parent;
+        if (f != ROOT) folders[i].parent = ROOT;
+    }
+    version++;
+}
+
 uint32_t EditorFolders::create(const char* p_name, uint32_t p_parent)
 {
     if (p_parent != ROOT && !valid(p_parent)) p_parent = ROOT;

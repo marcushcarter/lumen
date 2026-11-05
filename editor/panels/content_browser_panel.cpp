@@ -3,6 +3,7 @@
 #include <core/assets/lmodel.h>
 #include <core/assets/lblendspace.h>
 #include <core/assets/loverlay.h>
+#include <core/assets/lworld.h>
 #include <core/base/error.h>
 #include <core/base/strings.h>
 #include <core/io/file_io.h>
@@ -21,6 +22,7 @@
 #include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/overlay/overlay_tab.h>
+#include <editor/tabs/world/world_tab.h>
 #include <editor/tabs/texture/texture_tab.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/ui/ui_style.h>
@@ -52,6 +54,7 @@ static std::string _type_name(std::string p_ext)
     if (p_ext == ".lanim") return "Animation";
     if (p_ext == ".lblendspace") return "Blend Space";
     if (p_ext == ".loverlay") return "Overlay";
+    if (p_ext == ".lworld") return "World";
     if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
     for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
     return p_ext;
@@ -91,7 +94,7 @@ void ContentBrowserPanel::_cache_scan(const std::filesystem::path& p_dir, Dir& r
         e.lower_name = str_lowered(e.path.filename().string());
         e.is_texture = !e.is_dir && e.path.extension() == ".ltexture";
         if (e.is_dir) e.type = "Folder";
-        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? MeshTab::ICON : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : e.path.extension() == ".lskeleton" ? ICON_FA_BONE : e.path.extension() == ".lanim" ? AnimationTab::ICON : e.path.extension() == ".lblendspace" ? BlendSpaceTab::ICON : e.path.extension() == ".loverlay" ? OverlayTab::ICON : ICON_FA_FILE;
+        e.icon = e.is_dir ? ICON_FA_FOLDER : e.is_texture ? ICON_FA_IMAGE : e.path.extension() == ".lmesh" ? MeshTab::ICON : e.path.extension() == ".lmodel" ? ModelTab::ICON : e.path.extension() == ".lmaterial" ? MaterialTab::ICON : e.path.extension() == ".lskeleton" ? ICON_FA_BONE : e.path.extension() == ".lanim" ? AnimationTab::ICON : e.path.extension() == ".lblendspace" ? BlendSpaceTab::ICON : e.path.extension() == ".loverlay" ? OverlayTab::ICON : e.path.extension() == ".lworld" ? ICON_FA_EARTH_AMERICAS : ICON_FA_FILE;
         if (e.is_dir) r_dir.subdirs.push_back(e.path);
         r_dir.entries.push_back(std::move(e));
     }
@@ -260,7 +263,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".loverlay";
+    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".loverlay" || ext == ".lworld";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -724,6 +727,13 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
                         const AssetInfo info = read_asset_info(e.path);
                         if (info.valid() && info.type == AssetType::BLEND_SPACE) ctx.tabs->open<BlendSpaceTab>(info.guid)->path = e.path;
                     }
+                    if (r.activated && !e.is_dir && e.path.extension() == ".lworld") {
+                        const AssetInfo info = read_asset_info(e.path);
+                        if (info.valid() && info.type == AssetType::WORLD && ctx.world_tab) {
+                            ctx.world_tab->open(info.guid);
+                            ctx.tabs->focus(ctx.world_tab);
+                        }
+                    }
                     if (r.activated && !e.is_dir && e.path.extension() == ".loverlay") {
                         const AssetInfo info = read_asset_info(e.path);
                         if (info.valid() && info.type == AssetType::OVERLAY) ctx.tabs->open<OverlayTab>(info.guid)->path = e.path;
@@ -792,6 +802,13 @@ void ContentBrowserPanel::_reset_root(const std::filesystem::path& p_root)
 
 void ContentBrowserPanel::_add_asset_menu(EditorContext& ctx)
 {
+    if (ImGui::MenuItem(ICON_FA_EARTH_AMERICAS "  World")) {
+        const std::filesystem::path path = _unique_path(_target_folder(ctx), "New World", ".lworld");
+        LWorld world;
+        world.guid = Guid::generate();
+        if (world.save(path) == Error::OK) _begin_new(path);
+        else log_write("Content Browser: failed to create '%s'.", path.string().c_str());
+    }
     if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) {
         const std::filesystem::path path = _unique_path(_target_folder(ctx), "New Model", ".lmodel");
         LModel model;

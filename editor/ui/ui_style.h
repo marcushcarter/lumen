@@ -273,6 +273,13 @@ struct UiStyle
         float rounding;
     };
 
+    struct Timeline {
+        float padding_x;
+        float gap;
+        float track_thickness;
+        float knob_radius;
+    };
+
     struct ViewMenuRow {
         float indicator_x;
         float indicator_radius;
@@ -468,6 +475,7 @@ struct UiStyle
     PlayControls play;
     Titlebar titlebar;
     Overlay overlay;
+    Timeline timeline;
     ViewMenuRow view_menu;
     Outliner outliner;
     Details details;

@@ -121,6 +121,11 @@ void UiStyle::_build_components()
     overlay.group_gap = 5.0f;
     overlay.rounding = radius.pill;
 
+    timeline.padding_x = space.md;
+    timeline.gap = space.lg;
+    timeline.track_thickness = stroke.thick;
+    timeline.knob_radius = 6.0f;
+
     view_menu.indicator_x = space.xxl;
     view_menu.indicator_radius = 5.0f;
     view_menu.indicator_dot_radius = 2.5f;

@@ -1,0 +1,43 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/shadow_cull.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(push_constant, scalar) uniform Push {
+    ShadowWorkList lists;
+    ShadowDrawArgs args;
+    uint cascades;
+    uint list_stride;
+    uint list_capacity;
+    uint cluster_capacity;
+    uint tri_capacity;
+    uint phase;
+} pc;
+
+uvec3 groups_2d(uint p_count) {
+    return uvec3(min(p_count, SHADOW_MAX_GROUPS), (p_count + SHADOW_MAX_GROUPS - 1u) / SHADOW_MAX_GROUPS, 1u);
+}
+
+void main() {
+    for (uint c = 0u; c < pc.cascades; c++) {
+        if (pc.phase == 0u) {
+            const uint h = c * pc.list_stride;
+            const uint count = min(pc.lists.data[h + SHADOW_LIST_COUNT], pc.list_capacity);
+            pc.lists.data[h + SHADOW_LIST_COUNT] = count;
+            const uvec3 g = groups_2d(count);
+            pc.lists.data[h + 0u] = g.x;
+            pc.lists.data[h + 1u] = g.y;
+            pc.lists.data[h + 2u] = g.z;
+        } else {
+            const uint a = c * SHADOW_ARGS_STRIDE;
+            pc.args.data[a] = min(pc.args.data[a], pc.tri_capacity * 3u);
+            const uvec3 g = groups_2d(min(pc.args.data[a + SHADOW_ARGS_CLUSTERS], pc.cluster_capacity));
+            pc.args.data[a + SHADOW_ARGS_BUILD + 0u] = g.x;
+            pc.args.data[a + SHADOW_ARGS_BUILD + 1u] = g.y;
+            pc.args.data[a + SHADOW_ARGS_BUILD + 2u] = g.z;
+        }
+    }
+}

@@ -37,6 +37,15 @@ struct RenderView
     std::vector<drivers::DeviceDriverVulkan::Buffer> skin_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> joint_buffers;
 
+    struct ShadowCache {
+        drivers::DeviceDriverVulkan::Image map;
+        mat4 view_proj = mat4(1.0f);
+        float texel = 0.0f;
+        uint64_t rendered_frame = 0;
+        bool valid = false;
+    };
+    ShadowCache shadow_cache[SHADOW_CASCADES];
+
     drivers::DeviceDriverVulkan::Image hiz_pyramid;
     std::vector<std::pair<uint64_t, drivers::DeviceDriverVulkan::Image>> hiz_retired;
 

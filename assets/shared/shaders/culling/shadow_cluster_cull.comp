@@ -1,0 +1,79 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+#include "common/geometry.glsl"
+#include "common/instances.glsl"
+#include "common/direct_light.glsl"
+#include "common/shadow_cull.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform Push {
+    GeometryBuffer geometry;
+    InstanceBuffer instances;
+    TransformBuffer transforms;
+    DirectLightBuffer direct_light;
+    ShadowWorkList lists;
+    ShadowClusterList clusters;
+    ShadowDrawArgs args;
+    uint cascade;
+    uint list_stride;
+    uint cluster_capacity;
+    float lod_texels;
+    float lod_min_error;
+} pc;
+
+const uint GROUP_NONE = 0xFFFFFFFFu;
+const float ERROR_MAX = 3.402823e38;
+
+void main() {
+    const uint list = pc.cascade * pc.list_stride;
+    const uint item = shadow_group_index();
+    if (item >= pc.lists.data[list + SHADOW_LIST_COUNT]) return;
+    const uint instance_id = pc.lists.data[list + SHADOW_LIST_HEADER + item * 2u];
+    const uint c = pc.lists.data[list + SHADOW_LIST_HEADER + item * 2u + 1u] + gl_LocalInvocationID.x;
+
+    const Instance instance = pc.instances.data[instance_id];
+    const Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
+    const uint cluster_id = mesh.cluster_base + c;
+
+    bool keep = false;
+    uint tris = 0u;
+    if (c < mesh.cluster_count) {
+        const mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
+        const float scale = transform_max_scale(model);
+        const float allowed = max(pc.direct_light.cascade_texel[pc.cascade] * pc.lod_texels, pc.lod_min_error);
+        const Cluster cluster = pc.geometry.clusters.data[cluster_id];
+        const float self_error = cluster.self_group == GROUP_NONE ? 0.0 : pc.geometry.groups.data[cluster.self_group].error * scale;
+        const float parent_error = cluster.parent_group == GROUP_NONE ? ERROR_MAX : pc.geometry.groups.data[cluster.parent_group].error * scale;
+        keep = self_error <= allowed && parent_error > allowed;
+        if (keep && instance.skin_id == SKIN_NONE) {
+            const vec3 center = (model * vec4(cluster.cull_sphere.xyz, 1.0)).xyz;
+            keep = !shadow_cull_sphere(pc.direct_light.cascade_view_proj[pc.cascade], center, cluster.cull_sphere.w * scale);
+        }
+        tris = cluster.index_count / 3u;
+    }
+
+    const uint args = pc.cascade * SHADOW_ARGS_STRIDE;
+    uvec4 ballot = subgroupBallot(keep);
+    const uint n = subgroupBallotBitCount(ballot);
+    uint slot_base = 0u;
+    if (n > 0u && subgroupElect()) slot_base = atomicAdd(pc.args.data[args + SHADOW_ARGS_CLUSTERS], n);
+    const uint slot = subgroupBroadcastFirst(slot_base) + subgroupBallotExclusiveBitCount(ballot);
+
+    const bool stored = keep && slot < pc.cluster_capacity;
+    const uint my_tris = stored ? tris : 0u;
+    const uint tri_offset = subgroupExclusiveAdd(my_tris);
+    const uint tri_total = subgroupAdd(my_tris);
+    uint tri_base = 0u;
+    if (tri_total > 0u && subgroupElect()) tri_base = atomicAdd(pc.args.data[args], tri_total * 3u) / 3u;
+    tri_base = subgroupBroadcastFirst(tri_base) + tri_offset;
+
+    if (stored) pc.clusters.data[pc.cascade * pc.cluster_capacity + slot] = uvec4(instance_id, cluster_id, tri_base, 0u);
+}

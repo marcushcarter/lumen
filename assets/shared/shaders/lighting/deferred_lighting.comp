@@ -3,6 +3,7 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_control_flow_attributes : require
 
 #include "common/camera.glsl"
 #include "common/direct_light.glsl"
@@ -13,6 +14,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
@@ -24,13 +26,72 @@ layout(push_constant, scalar) uniform Push {
     uint out_slot;
     uint width;
     uint height;
+    uint shadow_index[SHADOW_CASCADES];
+    uint shadow_sampler;
+    uint frame;
+    float shadow_softness;
+    float shadow_resolution[SHADOW_CASCADES];
 } pc;
 
 const float PI = 3.14159265359;
 const float HDR_MAX = 60000.0;
 const vec3 ALBEDO = vec3(1.0);
 
+const float SHADOW_MIN_FILTER_TEXELS = 1.5;
+const float SHADOW_NORMAL_BIAS_TEXELS = 2.0;
+const float SHADOW_DEPTH_EPSILON = 0.00005;
+const float SHADOW_BLEND = 0.25;
+
+const vec2 SHADOW_DISK[8] = vec2[](
+    vec2(0.2500, 0.0000), vec2(-0.3193, 0.2925), vec2(0.0489, -0.5569), vec2(0.4024, 0.5250),
+    vec2(-0.7390, -0.1305), vec2(0.6998, -0.4449), vec2(-0.2342, 0.8705), vec2(-0.4481, -0.8582));
+
 layout(constant_id = 0) const uint TILE_TYPE = SHADING_TILE_MIXED;
+
+float interleaved_gradient_noise(vec2 p_pixel) {
+    return fract(52.9829189 * fract(dot(p_pixel, vec2(0.06711056, 0.00583715))));
+}
+
+float shadow_tap(uint p_map, vec2 p_uv, float p_depth) {
+    return texture(sampler2DShadow(u_textures[p_map], u_samplers[pc.shadow_sampler]), vec3(p_uv, p_depth - SHADOW_DEPTH_EPSILON));
+}
+
+float shadow_pcf(uint p_map, vec2 p_uv, float p_depth, float p_radius_uv, mat2 p_rot) {
+    float early = 0.0;
+    early += shadow_tap(p_map, p_uv + p_rot * vec2(p_radius_uv, 0.0), p_depth);
+    early += shadow_tap(p_map, p_uv + p_rot * vec2(-p_radius_uv, 0.0), p_depth);
+    early += shadow_tap(p_map, p_uv + p_rot * vec2(0.0, p_radius_uv), p_depth);
+    early += shadow_tap(p_map, p_uv + p_rot * vec2(0.0, -p_radius_uv), p_depth);
+    if (early == 0.0 || early == 4.0) return early * 0.25;
+
+    float sum = early;
+    for (uint i = 0u; i < 8u; i++) sum += shadow_tap(p_map, p_uv + (p_rot * SHADOW_DISK[i]) * p_radius_uv, p_depth);
+    return sum / 12.0;
+}
+
+float sun_shadow(vec3 p_pos, vec3 p_normal, float p_ndl, vec2 p_pixel) {
+    const float t = 5.588238 * float(pc.frame & 63u);
+    const float noise = interleaved_gradient_noise(p_pixel + t);
+    const float angle = interleaved_gradient_noise(p_pixel.yx + vec2(17.0, 43.0) + t) * 2.0 * PI;
+    const vec2 cs = vec2(cos(angle), sin(angle));
+    const mat2 rot = mat2(cs.x, cs.y, -cs.y, cs.x);
+    [[unroll]] for (uint i = 0u; i < SHADOW_CASCADES; i++) {
+        if (i >= pc.direct_light.cascade_count || pc.shadow_index[i] == 0xFFFFFFFFu) return 1.0;
+        const float texel = pc.direct_light.cascade_texel[i];
+        const float radius_m = max(pc.shadow_softness, texel * SHADOW_MIN_FILTER_TEXELS);
+        const float radius_uv = radius_m / (texel * pc.shadow_resolution[i]);
+
+        const vec3 biased = p_pos + p_normal * texel * SHADOW_NORMAL_BIAS_TEXELS * (1.0 - p_ndl);
+        const vec4 clip = pc.direct_light.cascade_view_proj[i] * vec4(biased, 1.0);
+        const vec2 uv = clip.xy * 0.5 + 0.5;
+        const vec2 inner = min(uv, 1.0 - uv) - radius_uv;
+        const float edge = min(inner.x, inner.y);
+        if (edge <= 0.0 || clip.z < 0.0) continue;
+        if (noise > clamp(edge / SHADOW_BLEND, 0.0, 1.0)) continue;
+        return shadow_pcf(pc.shadow_index[i], uv, clip.z, radius_uv, rot);
+    }
+    return 1.0;
+}
 
 void main() {
     const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -46,8 +107,16 @@ void main() {
     }
 
     vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
+    const float ndl = clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
 
-    vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
+    float shadow = 0.0;
+    if (ndl > 0.0) {
+        const vec2 ndc = (vec2(p) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0;
+        const vec4 h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
+        shadow = sun_shadow(h.xyz / h.w, n, ndl, vec2(p));
+    }
+
+    vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * ndl * shadow;
     vec3 ambient = ALBEDO * pc.sky_radiance;
 
     vec3 color = (direct + ambient) * pc.camera.pre_exposure;

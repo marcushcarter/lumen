@@ -2950,12 +2950,14 @@ DeviceDriverVulkan::Pipeline DeviceDriverVulkan::_graphics_pipeline_create(const
 
     // ---- rasterizer ----
     VkPipelineRasterizationStateCreateInfo rasterizer{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
-    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.depthClampEnable = p_ci.depth_clamp && requested_device_features.depthClamp ? VK_TRUE : VK_FALSE;
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = p_ci.polygon_mode;
     rasterizer.cullMode = p_ci.cull_mode;
     rasterizer.frontFace = p_ci.front_face;
-    rasterizer.depthBiasEnable = VK_FALSE;
+    rasterizer.depthBiasEnable = p_ci.depth_bias_constant != 0.0f || p_ci.depth_bias_slope != 0.0f ? VK_TRUE : VK_FALSE;
+    rasterizer.depthBiasConstantFactor = p_ci.depth_bias_constant;
+    rasterizer.depthBiasSlopeFactor = p_ci.depth_bias_slope;
     rasterizer.lineWidth = 1.0f;
 
     // ---- multisample ----

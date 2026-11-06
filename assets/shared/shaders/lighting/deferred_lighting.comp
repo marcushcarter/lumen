@@ -5,6 +5,7 @@
 #extension GL_EXT_samplerless_texture_functions : require
 
 #include "common/camera.glsl"
+#include "common/direct_light.glsl"
 #include "common/gbuffer.glsl"
 #include "common/shading_tiles.glsl"
 
@@ -16,11 +17,10 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
     ShadingTileBuffer tiles;
+    DirectLightBuffer direct_light;
     vec3 sky_radiance;
     uint depth_index;
-    vec3 sun_direction;
     uint normal_index;
-    vec3 sun_illuminance;
     uint out_slot;
     uint width;
     uint height;
@@ -47,7 +47,7 @@ void main() {
 
     vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
 
-    vec3 direct = ALBEDO / PI * pc.sun_illuminance * clamp(dot(n, -pc.sun_direction), 0.0, 1.0);
+    vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
     vec3 ambient = ALBEDO * pc.sky_radiance;
 
     vec3 color = (direct + ambient) * pc.camera.pre_exposure;

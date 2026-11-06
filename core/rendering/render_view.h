@@ -33,6 +33,7 @@ struct RenderView
     std::vector<drivers::DeviceDriverVulkan::Buffer> instance_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> camera_buffers;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> direct_light_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> skin_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> joint_buffers;
 

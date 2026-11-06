@@ -28,6 +28,16 @@ struct CameraUniform
     uint64_t joints;
 };
 
+struct DirectLight
+{
+    vec3 direction;
+    float angular_radius;
+    vec3 illuminance;
+    float _pad;
+};
+
+static_assert(sizeof(DirectLight) == 32, "DirectLight layout changed");
+
 struct Instance
 {
     uint32_t mesh_id;

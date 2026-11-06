@@ -30,6 +30,7 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
     r_view.instance_buffers.resize(frame_count);
     r_view.transform_buffers.resize(frame_count);
     r_view.camera_buffers.resize(frame_count);
+    r_view.direct_light_buffers.resize(frame_count);
     r_view.skin_buffers.resize(frame_count);
     r_view.joint_buffers.resize(frame_count);
 
@@ -37,6 +38,7 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
         r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
         r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         r_view.camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
+        r_view.direct_light_buffers[i] = dd->buffer_create({.size = sizeof(DirectLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "direct_light"});
         r_view.skin_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_SKINNED_INSTANCES * sizeof(SkinInstance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "skins"});
         r_view.joint_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_SKIN_JOINTS * sizeof(JointMatrices),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "joints"});
     }
@@ -50,12 +52,14 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
         dd->buffer_free(r_view.instance_buffers[i]);
         dd->buffer_free(r_view.transform_buffers[i]);
         dd->buffer_free(r_view.camera_buffers[i]);
+        dd->buffer_free(r_view.direct_light_buffers[i]);
         dd->buffer_free(r_view.skin_buffers[i]);
         dd->buffer_free(r_view.joint_buffers[i]);
     }
     r_view.instance_buffers.clear();
     r_view.transform_buffers.clear();
     r_view.camera_buffers.clear();
+    r_view.direct_light_buffers.clear();
     r_view.skin_buffers.clear();
     r_view.joint_buffers.clear();
 }
@@ -549,8 +553,9 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     // Environment.
     {
         const EnvironmentSettings& env = p_world.environment;
-        frame.sun_direction = normalize(EnvironmentSettings::SUN_DIRECTION);
-        frame.sun_illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
+        frame.direct_light.direction = normalize(EnvironmentSettings::SUN_DIRECTION);
+        frame.direct_light.angular_radius = EnvironmentSettings::SUN_ANGULAR_RADIUS;
+        frame.direct_light.illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
         frame.sky_radiance = env.sky_color * env.sky_intensity;
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
@@ -604,6 +609,10 @@ void Renderer::_frame_upload(RenderView& r_view)
     drivers::DeviceDriverVulkan::Buffer& cb = r_view.camera_buffers[current_frame];
     dd->buffer_update(cb, &frame.camera, sizeof(CameraUniform));
     dd->buffer_flush(cb, 0, sizeof(CameraUniform));
+
+    drivers::DeviceDriverVulkan::Buffer& lb = r_view.direct_light_buffers[current_frame];
+    dd->buffer_update(lb, &frame.direct_light, sizeof(DirectLight));
+    dd->buffer_flush(lb, 0, sizeof(DirectLight));
 }
 
 Error Renderer::acquire_frame()
@@ -693,6 +702,7 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
     graph.import_image("HiZ", &r_view.hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true, true);
 
     graph.import_buffer("Camera", &r_view.camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("DirectLight", &r_view.direct_light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &r_view.instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &r_view.transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);

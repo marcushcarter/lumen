@@ -1,6 +1,5 @@
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_path/render_path.h>
-#include <core/rendering/features/shadow/shadow_feature.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
 #include <core/assets/asset_common.h>
@@ -44,21 +43,6 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
         r_view.joint_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_SKIN_JOINTS * sizeof(JointMatrices),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "joints"});
     }
 
-    static const char* SHADOW_NAMES[SHADOW_CASCADES] = { "sun_shadow_0", "sun_shadow_1" };
-    for (uint32_t c = 0; c < SHADOW_CASCADES; c++) {
-        drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
-        ci.format = VK_FORMAT_D16_UNORM;
-        ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        ci.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-        ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
-        ci.fixed_width = SHADOW_RESOLUTIONS[c];
-        ci.fixed_height = SHADOW_RESOLUTIONS[c];
-        ci.pool = dd->image_persistent_pool;
-        ci.name = SHADOW_NAMES[c];
-        r_view.shadow_cache[c] = {};
-        r_view.shadow_cache[c].map = dd->image_create_dedicated(ci, { SHADOW_RESOLUTIONS[c], SHADOW_RESOLUTIONS[c] });
-    }
-
     return OK;
 }
 
@@ -78,10 +62,6 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
     r_view.direct_light_buffers.clear();
     r_view.skin_buffers.clear();
     r_view.joint_buffers.clear();
-    for (RenderView::ShadowCache& s : r_view.shadow_cache) {
-        if (s.map.image) dd->image_free(s.map);
-        s = {};
-    }
 }
 
 Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSettings& p_profiling)
@@ -386,83 +366,6 @@ static float _halton(uint32_t p_index, uint32_t p_base)
     return r;
 }
 
-static void _sun_cascades(const Camera& p_camera, float p_aspect, DirectLight& r_light)
-{
-    const vec3 dir = r_light.direction;
-    const vec3 up = std::abs(dir.y) > 0.99f ? vec3(0.0f, 0.0f, 1.0f) : vec3(0.0f, 1.0f, 0.0f);
-    const mat4 light_view = lookAt(vec3(0.0f), dir, up);
-    const vec3 fwd = p_camera.forward();
-    const vec3 right = p_camera.right();
-    const vec3 cam_up = p_camera.up();
-    const float tan_y = std::tan(p_camera.fov_y * 0.5f);
-
-    r_light.cascade_count = SHADOW_CASCADES;
-    for (uint32_t i = 0; i < SHADOW_CASCADES; i++) {
-        vec3 corners[8];
-        vec3 center(0.0f);
-        for (uint32_t c = 0; c < 8; c++) {
-            const float d = c < 4 ? p_camera.near_z : SHADOW_SPLITS[i];
-            const float sx = (c & 1) ? 1.0f : -1.0f;
-            const float sy = (c & 2) ? 1.0f : -1.0f;
-            corners[c] = p_camera.position + fwd * d + right * (sx * d * tan_y * p_aspect) + cam_up * (sy * d * tan_y);
-            center += corners[c];
-        }
-        center /= 8.0f;
-        float radius = 0.0f;
-        for (const vec3& c : corners) radius = std::max(radius, length(c - center));
-        radius = std::ceil(radius * 16.0f) / 16.0f;
-
-        const float texel = 2.0f * radius / (float)SHADOW_RESOLUTIONS[i];
-        vec3 ls = vec3(light_view * vec4(center, 1.0f));
-        ls.x = std::floor(ls.x / texel) * texel;
-        ls.y = std::floor(ls.y / texel) * texel;
-        const float z_near = ls.z + radius + SHADOW_CASTER_REACH;
-        const float z_far = ls.z - radius;
-
-        mat4 proj(1.0f);
-        proj[0][0] = 1.0f / radius;
-        proj[1][1] = 1.0f / radius;
-        proj[2][2] = 1.0f / (z_near - z_far);
-        proj[3][0] = -ls.x / radius;
-        proj[3][1] = -ls.y / radius;
-        proj[3][2] = -z_far / (z_near - z_far);
-
-        r_light.cascade_view_proj[i] = proj * light_view;
-        r_light.cascade_splits[i] = SHADOW_SPLITS[i];
-        r_light.cascade_texel[i] = texel;
-    }
-}
-
-void Renderer::_shadow_cache_update(RenderView& r_view)
-{
-    FrameData& frame = r_view.frame;
-    DirectLight& light = frame.direct_light;
-
-    if (frame.instance_count == 0) {
-        light.cascade_count = 0;
-        for (uint32_t c = 0; c < SHADOW_CASCADES; c++) {
-            frame.shadow_render[c] = false;
-            r_view.shadow_cache[c].valid = false;
-        }
-        return;
-    }
-
-    for (uint32_t c = 0; c < SHADOW_CASCADES; c++) {
-        RenderView::ShadowCache& cache = r_view.shadow_cache[c];
-        const bool staggered = c > 0 && cache.valid && cache.rendered_frame + 1 == frame_number;
-        frame.shadow_render[c] = cache.map.image && !staggered;
-        if (frame.shadow_render[c]) {
-            cache.view_proj = light.cascade_view_proj[c];
-            cache.texel = light.cascade_texel[c];
-            cache.rendered_frame = frame_number;
-            cache.valid = true;
-        } else {
-            light.cascade_view_proj[c] = cache.view_proj;
-            light.cascade_texel[c] = cache.texel;
-        }
-    }
-}
-
 static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)
 {
     return (uint32_t)std::min<uint64_t>((uint64_t)p_a + p_b, MAX_CLUSTER_REFS);
@@ -653,9 +556,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.direct_light.direction = normalize(EnvironmentSettings::SUN_DIRECTION);
         frame.direct_light.angular_radius = EnvironmentSettings::SUN_ANGULAR_RADIUS;
         frame.direct_light.illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
-        const float aspect = frame.output_height ? (float)frame.output_width / (float)frame.output_height : 1.0f;
-        _sun_cascades(camera, aspect, frame.direct_light);
-        _shadow_cache_update(r_view);
         frame.sky_radiance = env.sky_color * env.sky_intensity;
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
@@ -800,9 +700,6 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
     RenderGraph& graph = r_view.graph;
     graph.begin(current_frame);
     graph.import_image("HiZ", &r_view.hiz_pyramid, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true, true);
-    for (uint32_t c = 0; c < SHADOW_CASCADES; c++) {
-        if (r_view.shadow_cache[c].map.image) graph.import_image(ShadowFeature::CASCADE_NAMES[c], &r_view.shadow_cache[c].map, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);
-    }
 
     graph.import_buffer("Camera", &r_view.camera_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("DirectLight", &r_view.direct_light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
@@ -818,7 +715,6 @@ void Renderer::_view_reset(RenderView& r_view)
     r_view.frame.static_insts.clear();
     r_view.hiz_reset_pending = true;
     r_view.camera_cut_pending = true;
-    for (RenderView::ShadowCache& s : r_view.shadow_cache) s.valid = false;
 }
 
 Error Renderer::view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height)

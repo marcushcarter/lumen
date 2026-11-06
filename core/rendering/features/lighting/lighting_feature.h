@@ -9,8 +9,6 @@ struct LightingFeature : Feature
 {
     RenderGraph::Pass lighting_pass;
     drivers::DeviceDriverVulkan::Pipeline lighting_pipes[SHADING_TILE_TYPES];
-    drivers::DeviceDriverVulkan::Sampler shadow_sampler;
-    uint32_t frame = 0;
 
     void _create_lighting_pass();
 

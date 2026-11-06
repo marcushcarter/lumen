@@ -97,7 +97,6 @@ struct Renderer
     bool frame_acquired = false;
 
     void _frame_build(RenderView& r_view, const World& p_world);
-    void _shadow_cache_update(RenderView& r_view);
     void _frame_upload(RenderView& r_view);
     void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }
     void camera_cut() { main_view.camera_cut_pending = true; }

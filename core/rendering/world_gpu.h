@@ -11,12 +11,6 @@ static constexpr uint32_t MAX_CLUSTER_REFS = (1u << 22) - 1;
 static constexpr uint32_t MAX_SKINNED_INSTANCES = 4u * 1024;
 static constexpr uint32_t MAX_SKIN_JOINTS = 64u * 1024;
 static constexpr uint32_t SKIN_NONE = 0xFFFFFFFFu;
-static constexpr uint32_t SHADOW_CASCADES = 2;
-static constexpr uint32_t SHADOW_RESOLUTIONS[SHADOW_CASCADES] = { 2048, 2048 };
-static constexpr float SHADOW_SPLITS[SHADOW_CASCADES] = { 8.0f, 80.0f };
-static constexpr float SHADOW_CASTER_REACH = 300.0f;
-static constexpr float SHADOW_SOFTNESS = 0.04f;
-
 struct CameraUniform
 {
     mat4 prev_view_proj;
@@ -38,12 +32,10 @@ struct DirectLight
     vec3 direction;
     float angular_radius;
     vec3 illuminance;
-    uint32_t cascade_count;
-    mat4 cascade_view_proj[SHADOW_CASCADES];
-    vec4 cascade_splits;
-    vec4 cascade_texel;
+    float _pad;
 };
-static_assert(sizeof(DirectLight) == 64 + 64 * SHADOW_CASCADES, "DirectLight layout changed");
+
+static_assert(sizeof(DirectLight) == 32, "DirectLight layout changed");
 
 struct Instance
 {

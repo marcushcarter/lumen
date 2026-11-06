@@ -43,8 +43,7 @@ struct FrameData
     uint32_t instance_count = 0;
     uint32_t cluster_ref_capacity = 0;
 
-    DirectLight direct_light{};
-    bool shadow_render[SHADOW_CASCADES] = {};
+    DirectLight direct_light{ vec3(0.0f, -1.0f, 0.0f), 0.0f, vec3(0.0f), 0.0f };
 
     float px_per_unit = 1.0f;
     bool hiz_history_valid = false;

@@ -488,9 +488,6 @@ struct DeviceDriverVulkan
         bool depth_test = false;
         bool depth_write = false;
         VkCompareOp depth_compare = VK_COMPARE_OP_LESS;
-        bool depth_clamp = false;
-        float depth_bias_constant = 0.0f;
-        float depth_bias_slope = 0.0f;
 
         std::vector<BlendMode> blend_modes;
         std::vector<VkPipelineColorBlendAttachmentState> blend_overrides;

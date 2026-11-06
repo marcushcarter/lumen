@@ -19,6 +19,7 @@ enum class AssetType : uint32_t {
     BLEND_SPACE,
     OVERLAY,
     WORLD,
+    TERRAIN,
 };
 
 inline constexpr uint32_t LASSET_VERSION = 1;
@@ -36,6 +37,7 @@ inline AssetType asset_type_from_u32(uint32_t p_v)
         case static_cast<uint32_t>(AssetType::BLEND_SPACE): return AssetType::BLEND_SPACE;
         case static_cast<uint32_t>(AssetType::OVERLAY): return AssetType::OVERLAY;
         case static_cast<uint32_t>(AssetType::WORLD): return AssetType::WORLD;
+        case static_cast<uint32_t>(AssetType::TERRAIN): return AssetType::TERRAIN;
         default: return AssetType::NONE;
     }
 }
@@ -52,6 +54,7 @@ inline std::string_view asset_type_section(AssetType p_type)
         case AssetType::BLEND_SPACE: return "blend_space";
         case AssetType::OVERLAY: return "overlay";
         case AssetType::WORLD: return "world";
+        case AssetType::TERRAIN: return "terrain";
         default: return "None";
     }
 }

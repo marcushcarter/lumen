@@ -15,6 +15,7 @@
 #include <editor/panels/shared_panels.h>
 #include <editor/play/play_session.h>
 #include <editor/project_manager/project_manager.h>
+#include <editor/tabs/content/content_tab.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/world/scene/editor_folders.h>
@@ -65,6 +66,7 @@ struct EditorApplication : Application
     };
 
     SharedPanels shared_panels;
+    ContentTab content_tab;
     WorldTab world_tab;
     TabManager tabs;
     SavedTabs _saved_tabs;

@@ -70,6 +70,8 @@ Error EditorApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     shared_panels.initialize();
     git.log_callback = [](const std::string& p_line) { log_write("[Git] %s", p_line.c_str()); };
+    err = content_tab.initialize(shared_panels);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = world_tab.initialize(shared_panels);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = play.initialize();
@@ -155,6 +157,7 @@ void EditorApplication::on_shutdown()
 
     project_manager.shutdown();
     world_tab.shutdown();
+    content_tab.shutdown();
     shared_panels.shutdown();
 }
 
@@ -280,8 +283,8 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     EditorContext& ctx = _context();
     tabs.clear(ctx);
     world_tab.reset();
-    tabs.add(&world_tab, WorldTab::KIND);
-    tabs.focus(&world_tab);
+    tabs.add(&content_tab, ContentTab::KIND);
+    tabs.focus(&content_tab);
     _load_project_state();
     _restore_tabs();
     _tabs_signature = _tabs_hash();
@@ -385,6 +388,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::BLEND_SPACE: return "blend_space";
         case TabKind::OVERLAY: return "overlay";
         case TabKind::TERRAIN: return "terrain";
+        case TabKind::CONTENT: return "content";
     }
     return "world";
 }
@@ -402,6 +406,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "blend_space") r_kind = TabKind::BLEND_SPACE;
     else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
     else if (p_name == "terrain") r_kind = TabKind::TERRAIN;
+    else if (p_name == "content") r_kind = TabKind::CONTENT;
     else return false;
     return true;
 }
@@ -421,15 +426,18 @@ void EditorApplication::_restore_tabs()
 {
     const SavedTabs& saved = _saved_tabs;
 
-    EditorTab* active = &world_tab;
+    EditorContext& ctx = _context();
+    EditorTab* active = &content_tab;
     for (uint32_t i = 0; i < (uint32_t)saved.tabs.size(); i++) {
         const SavedTab& t = saved.tabs[i];
         EditorTab* opened = nullptr;
         switch (t.kind) {
             case TabKind::WORLD:
-                world_tab.open(t.guid);
+                if (!t.guid.valid()) break;
+                world_tab.show(ctx, t.guid);
                 opened = &world_tab;
                 break;
+            case TabKind::CONTENT: opened = &content_tab; break;
             case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
             case TabKind::MODEL: if (t.guid.valid()) opened = tabs.open<ModelTab>(t.guid); break;
             case TabKind::MATERIAL: if (t.guid.valid()) opened = tabs.open<MaterialTab>(t.guid); break;
@@ -921,7 +929,8 @@ void EditorApplication::_titlebar_editor_menu()
     }
 
     if (ImGui::BeginMenu("Window")) {
-        world_tab.draw_menu();
+        if (tabs.active == &content_tab) content_tab.layout.draw_menu();
+        else world_tab.draw_menu();
         if (ImGui::BeginMenu("Display")) {
             int vsync = (int)settings.vsync_mode;
             if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, (int)std::size(VSYNC_MODE_NAMES))) {

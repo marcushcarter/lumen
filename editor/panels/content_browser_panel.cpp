@@ -733,8 +733,7 @@ void ContentBrowserPanel::_list_draw(EditorContext& ctx)
                     if (r.activated && !e.is_dir && e.path.extension() == ".lworld") {
                         const AssetInfo info = read_asset_info(e.path);
                         if (info.valid() && info.type == AssetType::WORLD && ctx.world_tab) {
-                            ctx.world_tab->open(info.guid);
-                            ctx.tabs->focus(ctx.world_tab);
+                            ctx.world_tab->show(ctx, info.guid);
                         }
                     }
                     if (r.activated && !e.is_dir && e.path.extension() == ".lterrain") {

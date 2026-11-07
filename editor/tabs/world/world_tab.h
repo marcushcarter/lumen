@@ -44,6 +44,7 @@ struct WorldTab : EditorTab
     void shutdown();
     void draw_menu();
     void open(Guid p_world);
+    void show(EditorContext& ctx, Guid p_world);
     void reset();
     bool has_world() const { return guid.valid(); }
     Error write(EditorContext& ctx, const std::filesystem::path& p_path) const;
@@ -51,9 +52,9 @@ struct WorldTab : EditorTab
     const char* title() const override { return _title.empty() ? ICON_FA_EARTH_AMERICAS "  World" : _title.c_str(); }
     ImU32 icon_color() const override { return has_world() ? ui_style().color.asset_world : ui_style().color.text_dim; }
     const char* tooltip() const override { return _tooltip.empty() ? nullptr : _tooltip.c_str(); }
-    bool closable() const override { return false; }
     bool dirty() const override { return has_world() && _hash != _saved_hash; }
     Error save(EditorContext& ctx) override;
+    void destroy(EditorContext& ctx) override;
     void on_tick(EditorContext& ctx) override;
     void on_update(EditorContext& ctx, float p_dt) override;
 };

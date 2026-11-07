@@ -147,8 +147,8 @@ void TabManager::_remove_at(EditorContext& ctx, size_t p_index)
     if (active == t) active = nullptr;
     tabs.erase(tabs.begin() + p_index);
 
-    if (!t->_owned) return;
     if (t->_created) t->destroy(ctx);
+    if (!t->_owned) return;
     for (size_t i = 0; i < _owned.size(); ++i) {
         if (_owned[i].get() == t) {
             _owned.erase(_owned.begin() + i);

@@ -19,6 +19,7 @@
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
 
 namespace lumen {
 
@@ -46,6 +47,24 @@ void WorldTab::open(Guid p_world)
 {
     _pending = p_world;
     _has_pending = true;
+}
+
+void WorldTab::show(EditorContext& ctx, Guid p_world)
+{
+    const auto& list = ctx.tabs->tabs;
+    if (std::find(list.begin(), list.end(), this) == list.end()) {
+        reset();
+        ctx.tabs->add(this, KIND);
+    }
+    open(p_world);
+    ctx.tabs->focus(this);
+}
+
+void WorldTab::destroy(EditorContext& ctx)
+{
+    layout.viewport.cursor_lock.end();
+    _unload(ctx);
+    reset();
 }
 
 void WorldTab::reset()
@@ -119,27 +138,7 @@ Error WorldTab::write(EditorContext& ctx, const std::filesystem::path& p_path) c
 
 void WorldTab::_draw_empty(ImVec2 p_min, ImVec2 p_max)
 {
-    const UiStyle& ui = ui_style();
-    const ImVec2 size(ImMax(p_max.x - p_min.x, 1.0f), ImMax(p_max.y - p_min.y, 1.0f));
-    ImGui::SetCursorScreenPos(p_min);
-    ImGui::InvisibleButton("##no_world", size);
-
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p_min, p_max, ui.color.sunken);
-    const char* title = "No world open";
-    const char* hint_1 = "Create a world in the content browser (Add > World),";
-    const char* hint_2 = "or double-click one to open it.";
-    const float line = ImGui::GetTextLineHeightWithSpacing();
-    const float cx = (p_min.x + p_max.x) * 0.5f;
-    float y = ImFloor((p_min.y + p_max.y) * 0.5f - line * 1.5f);
-    auto centered = [&](const char* p_text, ImU32 p_color) {
-        dl->AddText(ImVec2(ImFloor(cx - ImGui::CalcTextSize(p_text).x * 0.5f), y), p_color, p_text);
-        y += line;
-    };
-    centered(title, ui.color.text);
-    y += ui.space.md;
-    centered(hint_1, ui.color.text_dim);
-    centered(hint_2, ui.color.text_dim);
+    ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, ui_style().color.sunken);
 }
 
 void WorldTab::on_tick(EditorContext& ctx)
@@ -150,6 +149,10 @@ void WorldTab::on_tick(EditorContext& ctx)
         if (_pending != guid && (!dirty() || _confirm_discard())) _load(ctx, _pending);
     }
     if (has_world() && !_path(ctx)) _unload(ctx);
+    if (!has_world() && !_has_pending) {
+        ctx.tabs->close(KIND, guid, true);
+        return;
+    }
 
     const double now = ImGui::GetTime();
     if (has_world() && now - _hash_poll >= DIRTY_POLL_S) {

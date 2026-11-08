@@ -1,5 +1,6 @@
 #include <editor/layout/editor_layout.h>
-#include <editor/panels/output_panel.h>
+#include <core/base/console.h>
+#include <core/base/error.h>
 #include <editor/ui/tab_strip.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/ui/ui_style.h>
@@ -66,6 +67,10 @@ void EditorLayout::_uncollapse(DockZone p_zone)
     if ((p_zone == DockZone::RIGHT_TOP || p_zone == DockZone::RIGHT_BOTTOM) && right.collapsed) {
         right.collapsed = false;
         split_right = DEFAULT_SPLIT_RIGHT;
+    }
+    if (p_zone == DockZone::BOTTOM && bottom_collapsed) {
+        bottom_collapsed = false;
+        center_split = OPEN_SPLIT;
     }
 }
 
@@ -149,6 +154,12 @@ float EditorLayout::_layout_center(float p_top, float p_bottom)
     usable_h = ImMax(1.0f, h - ui_style().dock.gap);
     if (!bottom_was_open) center_split = OPEN_SPLIT;
     bottom_was_open = true;
+    if (bottom_collapsed) {
+        usable_h = h;
+        scene_h = h;
+        bottom_h = 0.0f;
+        return p_top + scene_h;
+    }
     const float min_r = 1.0f - MAX_DRAWER;
     float max_r = drawer_dragging ? 1.0f : 1.0f - MIN_DRAWER;
     if (max_r < min_r) max_r = min_r;
@@ -162,6 +173,10 @@ float EditorLayout::_layout_center(float p_top, float p_bottom)
 void EditorLayout::_apply_center_delta(float p_delta, bool p_activated)
 {
     if (p_activated) {
+        if (bottom_collapsed) {
+            bottom_collapsed = false;
+            center_split = 1.0f;
+        }
         drawer_dragging = true;
         drawer_drag_start = center_split;
     }
@@ -172,8 +187,8 @@ void EditorLayout::_end_drawer_drag()
 {
     drawer_dragging = false;
     if (1.0f - center_split >= MIN_DRAWER) return;
-    for (DockSlot* s : bottom.slots) s->open = false;
-    center_split = drawer_drag_start;
+    bottom_collapsed = true;
+    center_split = drawer_drag_start < 1.0f - MIN_DRAWER ? drawer_drag_start : OPEN_SPLIT;
 }
 
 void EditorLayout::_draw_scene(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
@@ -277,8 +292,7 @@ void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
 {
     const UiStyle& ui = ui_style();
     const char* console_label = ICON_FA_TERMINAL "  Cmd";
-    DockSlot* output = find<OutputPanel>();
-    float natural = output ? TabStrip::natural_width(console_label) : 0.0f;
+    float natural = TabStrip::natural_width(console_label);
     for (const DockSlot& s : slots) if (s.panel->in_footer()) natural += TabStrip::natural_width(s.panel->title);
 
     const float console_chrome = ui.console_bar.pad * 2.0f;
@@ -290,9 +304,10 @@ void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
     for (DockSlot& s : slots) {
         if (s.panel->in_footer() && strip.button(s.panel->title, s.open)) open_panel(s);
     }
-    if (output && strip.button(console_label, output->open)) open_panel(*output);
-    if (strip.console_field("##console_cmd", "Enter Console Command", console_buffer, sizeof(console_buffer), field_w)) {
-        console_submit(console_buffer);
+    strip.text(console_label);
+    if (strip.console_field("##console_cmd", "Enter Console Command", console_buffer, sizeof(console_buffer), field_w) && console_buffer[0] != '\0') {
+        log_write("> %s", console_buffer);
+        console_execute(console_buffer);
         console_buffer[0] = '\0';
     }
     strip.end();
@@ -458,7 +473,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
             _edge_target("##edge_right_top", ImVec2(end.x - margin - size, cy - half_gap - size), DockZone::RIGHT_TOP);
             _edge_target("##edge_right_bottom", ImVec2(end.x - margin - size, cy + half_gap), DockZone::RIGHT_BOTTOM);
         }
-        if (!bottom_open) _edge_target("##edge_bottom", ImVec2(ImFloor((cx0 + cx1 - size) * 0.5f), body_max_y - margin - size), DockZone::BOTTOM);
+        if (!bottom_open || bottom_collapsed) _edge_target("##edge_bottom", ImVec2(ImFloor((cx0 + cx1 - size) * 0.5f), body_max_y - margin - size), DockZone::BOTTOM);
     }
 
     _draw_footer(ImVec2(origin.x, footer_y), end);

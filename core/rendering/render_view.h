@@ -46,6 +46,7 @@ struct RenderView
     float lod_bias = 1.0f;
     bool camera_cut_pending = true;
     bool hiz_reset_pending = true;
+    bool scene_skipped = false;
 };
 
 }

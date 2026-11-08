@@ -10,6 +10,8 @@ struct ImGuiFeature : Feature
     const char* viewport_fallback = nullptr;
     RenderGraph::Pass ui_pass;
 
+    ImGuiFeature() { scene = false; }
+
     const char* viewport_image(RenderGraph& g) const;
     Error create_resources() override;
     void build(RenderGraph& g) override;

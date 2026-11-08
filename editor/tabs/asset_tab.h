@@ -41,6 +41,7 @@ struct AssetTab : EditorTab
 
     const Camera* camera() const override { return &orbit.camera; }
     const World* scene() const override { return &preview; }
+    bool shows_viewport() const override { return !layout.center; }
     void destroy(EditorContext& ctx) override;
     void on_tick(EditorContext& ctx) override;
 };

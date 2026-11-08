@@ -15,7 +15,7 @@
 #include <editor/panels/shared_panels.h>
 #include <editor/play/play_session.h>
 #include <editor/project_manager/project_manager.h>
-#include <editor/tabs/content/content_tab.h>
+#include <editor/tabs/asset_manager/asset_manager_tab.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/tabs/world/scene/editor_folders.h>
@@ -66,7 +66,7 @@ struct EditorApplication : Application
     };
 
     SharedPanels shared_panels;
-    ContentTab content_tab;
+    AssetManagerTab asset_manager_tab;
     WorldTab world_tab;
     TabManager tabs;
     SavedTabs _saved_tabs;
@@ -108,6 +108,7 @@ struct EditorApplication : Application
 
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
+    bool renders_scene() const override { return project.loaded() && tabs.active && tabs.active->shows_viewport(); }
     const World& render_world() const override;
 
     struct TitlebarLayout {
@@ -121,10 +122,12 @@ struct EditorApplication : Application
     };
 
     void _titlebar_block(const TitlebarLayout& p_layout, ImVec2 p_min, ImVec2 p_max);
-    void _titlebar_menus(const TitlebarLayout& p_layout);
+    void _titlebar_menus();
     void _titlebar_caption_buttons(const TitlebarLayout& p_layout);
     void _titlebar_tabs(const TitlebarLayout& p_layout);
     void _titlebar_logo(const TitlebarLayout& p_layout);
+    void _titlebar_info(const TitlebarLayout& p_layout);
+    float _titlebar_info_width() const;
     void _titlebar_editor_menu();
 
     void _draw_titlebar();

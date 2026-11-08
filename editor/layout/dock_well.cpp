@@ -56,14 +56,21 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImGui::PushID(to_string(zone));
 
     float natural = 0.0f;
-    for (DockSlot* s : slots) if (s->open) natural += TabStrip::dock_natural_width(s->panel->title, s->panel->closable() && !s->panel->pinned());
+    ImVector<float> naturals;
+    ImVector<float> mins;
+    for (DockSlot* s : slots) {
+        if (!s->open) continue;
+        const bool slot = s->panel->closable() && !s->panel->pinned();
+        naturals.push_back(TabStrip::dock_natural_width(s->panel->title, slot));
+        mins.push_back(TabStrip::dock_min_width(slot));
+        natural += naturals.back();
+    }
 
     DockSlot* closed = nullptr;
     TabStrip strip;
-    strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, ui.dock_tab.inset_x);
+    strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, ui.dock_tab.inset_x * 2.0f);
+    strip.fit(naturals, mins);
     strip.cursor_x += ui.dock_tab.inset_x;
-    strip.scrollable(tab_scroll, active_name != revealed_name, ui.dock_tab.inset_x);
-    revealed_name = active_name;
     for (DockSlot* s : slots) {
         if (!s->open) continue;
         Panel* p = s->panel;

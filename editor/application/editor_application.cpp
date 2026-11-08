@@ -70,7 +70,7 @@ Error EditorApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     shared_panels.initialize();
     git.log_callback = [](const std::string& p_line) { log_write("[Git] %s", p_line.c_str()); };
-    err = content_tab.initialize(shared_panels);
+    err = asset_manager_tab.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = world_tab.initialize(shared_panels);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -157,7 +157,7 @@ void EditorApplication::on_shutdown()
 
     project_manager.shutdown();
     world_tab.shutdown();
-    content_tab.shutdown();
+    asset_manager_tab.shutdown();
     shared_panels.shutdown();
 }
 
@@ -283,8 +283,8 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     EditorContext& ctx = _context();
     tabs.clear(ctx);
     world_tab.reset();
-    tabs.add(&content_tab, ContentTab::KIND);
-    tabs.focus(&content_tab);
+    tabs.add(&asset_manager_tab, AssetManagerTab::KIND);
+    tabs.focus(&asset_manager_tab);
     _load_project_state();
     _restore_tabs();
     _tabs_signature = _tabs_hash();
@@ -388,7 +388,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::BLEND_SPACE: return "blend_space";
         case TabKind::OVERLAY: return "overlay";
         case TabKind::TERRAIN: return "terrain";
-        case TabKind::CONTENT: return "content";
+        case TabKind::ASSET_MANAGER: return "asset_manager";
     }
     return "world";
 }
@@ -406,7 +406,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "blend_space") r_kind = TabKind::BLEND_SPACE;
     else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
     else if (p_name == "terrain") r_kind = TabKind::TERRAIN;
-    else if (p_name == "content") r_kind = TabKind::CONTENT;
+    else if (p_name == "asset_manager" || p_name == "content") r_kind = TabKind::ASSET_MANAGER;
     else return false;
     return true;
 }
@@ -427,7 +427,7 @@ void EditorApplication::_restore_tabs()
     const SavedTabs& saved = _saved_tabs;
 
     EditorContext& ctx = _context();
-    EditorTab* active = &content_tab;
+    EditorTab* active = &asset_manager_tab;
     for (uint32_t i = 0; i < (uint32_t)saved.tabs.size(); i++) {
         const SavedTab& t = saved.tabs[i];
         EditorTab* opened = nullptr;
@@ -437,7 +437,7 @@ void EditorApplication::_restore_tabs()
                 world_tab.show(ctx, t.guid);
                 opened = &world_tab;
                 break;
-            case TabKind::CONTENT: opened = &content_tab; break;
+            case TabKind::ASSET_MANAGER: opened = &asset_manager_tab; break;
             case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
             case TabKind::MODEL: if (t.guid.valid()) opened = tabs.open<ModelTab>(t.guid); break;
             case TabKind::MATERIAL: if (t.guid.valid()) opened = tabs.open<MaterialTab>(t.guid); break;
@@ -619,6 +619,7 @@ toml::table EditorApplication::_project_state_write()
     layout.insert_or_assign("center_split", (double)L.center_split);
     layout.insert_or_assign("left_collapsed", (bool)L.left.collapsed);
     layout.insert_or_assign("right_collapsed", (bool)L.right.collapsed);
+    layout.insert_or_assign("bottom_collapsed", (bool)L.bottom_collapsed);
     for (DockWell* w : L.wells()) {
         layout.insert_or_assign(std::string("active_") + to_string(w->zone), w->active_name);
     }
@@ -664,6 +665,7 @@ void EditorApplication::_project_state_read(const toml::table& p_tbl)
         L.right.split_y = (float)lv[legacy ? "split_y" : "right_split_y"].value_or((double)L.right.split_y);
         L.center_split = (float)lv["center_split"].value_or((double)L.center_split);
         L.right.collapsed = lv["right_collapsed"].value_or(L.right.collapsed);
+        L.bottom_collapsed = lv["bottom_collapsed"].value_or(L.bottom_collapsed);
         if (!legacy) {
             L.split_left = (float)lv["split_left"].value_or((double)L.split_left);
             L.left.split_y = (float)lv["left_split_y"].value_or((double)L.left.split_y);
@@ -728,83 +730,95 @@ void EditorApplication::_titlebar_block(const TitlebarLayout& p_layout, ImVec2 p
 void EditorApplication::_draw_titlebar()
 {
     const UiStyle& ui = ui_style();
-    const float TAB_H = ui.titlebar.tab_height;
-    const float BTN_W = ui.titlebar.caption_width;
+    const bool loaded = project.loaded();
+    const float TAB_H = ui.titlebar.tab_height + ui.titlebar.tab_top_space;
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ui.titlebar.menu_padding);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
-    const bool show_tabs = project.loaded();
     const float MENU_H = ImGui::GetFrameHeight();
-    const float H = MENU_H + TAB_H;
-
-    ImGuiWindowFlags flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-    if (!ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, H, flags)) {
-        ImGui::PopStyleVar(2);
-        ImGui::End();
-        return;
-    }
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
     TitlebarLayout L;
-    L.origin = ImGui::GetWindowPos();
-    L.width = ImGui::GetWindowWidth();
     L.menu_h = MENU_H;
-    L.bar_h = H;
-    L.tab_h = TAB_H;
-    L.btn_w = BTN_W;
-    L.logo = H;
+    L.bar_h = TAB_H;
+    L.tab_h = ui.titlebar.tab_height;
+    L.btn_w = ui.titlebar.caption_width;
+    L.logo = TAB_H;
 
-    win32.window_titlebar_reset(main_window, (int)H);
+    if (ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, TAB_H, flags)) {
+        L.origin = ImGui::GetWindowPos();
+        L.width = ImGui::GetWindowWidth();
 
-    const float width = ImGui::GetWindowWidth();
+        win32.window_titlebar_reset(main_window, (int)TAB_H);
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + TAB_H), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+        dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + TAB_H - ui.stroke.hairline), ImVec2(L.origin.x + L.width, L.origin.y + TAB_H), ui.color.line);
+
+        if (loaded) _titlebar_tabs(L);
+        _titlebar_logo(L);
+        _titlebar_info(L);
+        if (win32.window_has_custom_titlebar(main_window)) _titlebar_caption_buttons(L);
+    }
+    ImGui::End();
+
+    if (loaded) {
+        ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ui.color.panel);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.panel);
+        if (ImGui::BeginViewportSideBar("##LumenMenubar", ImGui::GetMainViewport(), ImGuiDir_Up, MENU_H, flags | ImGuiWindowFlags_MenuBar)) {
+            const ImVec2 o = ImGui::GetWindowPos();
+            const float w = ImGui::GetWindowWidth();
+            _titlebar_menus();
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(o.x, o.y + MENU_H - ui.stroke.hairline), ImVec2(o.x + w, o.y + MENU_H), ui.color.line);
+        }
+        ImGui::End();
+        ImGui::PopStyleColor(2);
+    }
+
+    ImGui::PopStyleVar(2);
+}
+
+void EditorApplication::_titlebar_menus()
+{
+    const UiStyle& ui = ui_style();
+    ui_menu_push_style();
+    ImGui::PushStyleColor(ImGuiCol_Header, ui.color.hover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui.color.hover);
+    if (ImGui::BeginMenuBar()) {
+        ImGui::SetCursorPosX(ui.titlebar.menu_offset_x);
+        _titlebar_editor_menu();
+        ImGui::EndMenuBar();
+    }
+    ImGui::PopStyleColor(2);
+    ui_menu_pop_style();
+}
+
+float EditorApplication::_titlebar_info_width() const
+{
+    const UiStyle& ui = ui_style();
+    const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
+    const float caption = win32.window_has_custom_titlebar(main_window) ? ui.titlebar.caption_width * 3.0f : 0.0f;
+    return caption + ui.titlebar.title_margin + ImGui::CalcTextSize(title.c_str()).x + ImGui::CalcTextSize("000.00 ms  0000 fps").x + ui.titlebar.stats_margin * 2.0f;
+}
+
+void EditorApplication::_titlebar_info(const TitlebarLayout& p_layout)
+{
+    const UiStyle& ui = ui_style();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + L.menu_h), ImVec2(L.origin.x + width, L.origin.y + H), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
-    dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + H - ui.stroke.hairline), ImVec2(L.origin.x + width, L.origin.y + H), ui.color.line);
 
-    _titlebar_menus(L);
-    if (show_tabs) _titlebar_tabs(L);
-    _titlebar_logo(L);
+    const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
+    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
+    const float right = p_layout.origin.x + p_layout.width - (win32.window_has_custom_titlebar(main_window) ? p_layout.btn_w * 3.0f : 0.0f);
+    const float title_x = right - ts.x - ui.titlebar.title_margin;
+    dl->AddText(ImVec2(title_x, p_layout.origin.y + (p_layout.bar_h - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), title.c_str());
 
     if (frame_stats.frame_avg > 0.0f) {
         char perf[48];
         std::snprintf(perf, sizeof(perf), "%.2f ms  %.0f fps", frame_stats.frame_avg, 1000.0f / frame_stats.frame_avg);
-        const ImVec2 ts = ImGui::CalcTextSize(perf);
-        const ImVec2 pos(L.origin.x + L.width - ts.x - ui.titlebar.stats_margin, L.origin.y + L.menu_h + (L.tab_h - ts.y) * 0.5f);
-        ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImGuiCol_TextDisabled), perf);
+        const ImVec2 ps = ImGui::CalcTextSize(perf);
+        dl->AddText(ImVec2(title_x - ui.titlebar.stats_margin - ps.x, p_layout.origin.y + (p_layout.bar_h - ps.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), perf);
     }
-
-    ImGui::End();
-    ImGui::PopStyleVar(2);
-}
-
-void EditorApplication::_titlebar_menus(const TitlebarLayout& p_layout)
-{
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    ui_menu_push_style();
-    if (!ImGui::BeginMenuBar()) {
-        ui_menu_pop_style();
-        return;
-    }
-
-    if (project.loaded()) {
-        ImGui::SetCursorPosX(p_layout.logo + ui_style().titlebar.menu_offset_x);
-        float menu_x0 = ImGui::GetCursorScreenPos().x;
-        _titlebar_editor_menu();
-        float menu_x1 = ImGui::GetCursorScreenPos().x;
-        if (menu_x1 > menu_x0) _titlebar_block(p_layout, ImVec2(menu_x0, p_layout.origin.y), ImVec2(menu_x1, p_layout.origin.y + p_layout.menu_h));
-    }
-
-    const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
-    ImVec2 ts = ImGui::CalcTextSize(title.c_str());
-    float right_pad = win32.window_has_custom_titlebar(main_window) ? (p_layout.width - p_layout.btn_w * 3.0f) : p_layout.width;
-    float title_x = p_layout.origin.x + right_pad - ts.x - ui_style().titlebar.title_margin;
-    dl->AddText(ImVec2(title_x, p_layout.origin.y + (p_layout.menu_h - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), title.c_str());
-
-    if (win32.window_has_custom_titlebar(main_window)) _titlebar_caption_buttons(p_layout);
-
-    ImGui::EndMenuBar();
-    ui_menu_pop_style();
 }
 
 void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout)
@@ -813,19 +827,20 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout
     const UiStyle& ui = ui_style();
 
     const float btns_x = p_layout.origin.x + p_layout.width - p_layout.btn_w * 3.0f;
-    fg->AddRectFilled(ImVec2(btns_x, p_layout.origin.y), ImVec2(btns_x + p_layout.btn_w * 3.0f, p_layout.origin.y + p_layout.menu_h), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+    const float fill_h = p_layout.bar_h - ui.stroke.hairline;
+    fg->AddRectFilled(ImVec2(btns_x, p_layout.origin.y), ImVec2(btns_x + p_layout.btn_w * 3.0f, p_layout.origin.y + fill_h), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
 
     RECT rmin, rmax, rclose;
     auto client_rect = [&](float x0) -> RECT {
-        return RECT{ (long)(x0 - p_layout.origin.x), (long)(p_layout.origin.y - p_layout.origin.y), (long)(x0 + p_layout.btn_w - p_layout.origin.x), (long)(p_layout.origin.y + p_layout.menu_h - p_layout.origin.y) };
+        return RECT{ (long)(x0 - p_layout.origin.x), (long)(p_layout.origin.y - p_layout.origin.y), (long)(x0 + p_layout.btn_w - p_layout.origin.x), (long)(p_layout.origin.y + p_layout.bar_h - p_layout.origin.y) };
     };
 
     ImVec2 mouse = ImGui::GetIO().MousePos;
     auto ctrl = [&](float x0, int glyph, bool danger) {
         ImVec2 p(x0, p_layout.origin.y);
-        bool hovered = mouse.x >= x0 && mouse.x < x0 + p_layout.btn_w && mouse.y >= p_layout.origin.y && mouse.y < p_layout.origin.y + p_layout.menu_h;
-        if (hovered) fg->AddRectFilled(p, ImVec2(p.x + p_layout.btn_w, p.y + p_layout.menu_h), danger ? ui.color.danger_strong : ui.color.hover);
-        ImVec2 c(p.x + p_layout.btn_w * 0.5f, p.y + p_layout.menu_h * 0.5f);
+        bool hovered = mouse.x >= x0 && mouse.x < x0 + p_layout.btn_w && mouse.y >= p_layout.origin.y && mouse.y < p_layout.origin.y + p_layout.bar_h;
+        if (hovered) fg->AddRectFilled(p, ImVec2(p.x + p_layout.btn_w, p.y + fill_h), danger ? ui.color.danger_strong : ui.color.hover);
+        ImVec2 c(p.x + p_layout.btn_w * 0.5f, p.y + p_layout.bar_h * 0.5f);
         ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
         const float s = ui.titlebar.caption_glyph;
         const float o = ui.titlebar.caption_glyph_offset;
@@ -862,10 +877,9 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout
 void EditorApplication::_titlebar_tabs(const TitlebarLayout& p_layout)
 {
     const UiStyle& ui = ui_style();
-    const ImVec2 min(p_layout.origin.x + p_layout.logo + ui.titlebar.menu_offset_x, p_layout.origin.y + p_layout.menu_h);
+    const ImVec2 min(p_layout.origin.x + p_layout.logo + ui.titlebar.menu_offset_x, p_layout.origin.y + ui.titlebar.tab_top_space);
     const ImVec2 max(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.bar_h);
-    const float stats_w = ImGui::CalcTextSize("000.00 ms  0000 fps").x + ui.titlebar.stats_margin * 2.0f;
-    tabs.draw_bar(min, max, stats_w, ImGui::GetColorU32(ImGuiCol_MenuBarBg), [&](ImVec2 p_min, ImVec2 p_max) { _titlebar_block(p_layout, p_min, p_max); });
+    tabs.draw_bar(min, max, _titlebar_info_width(), ImGui::GetColorU32(ImGuiCol_MenuBarBg), [&](ImVec2 p_min, ImVec2 p_max) { _titlebar_block(p_layout, p_min, p_max); });
 }
 
 void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
@@ -873,9 +887,10 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     const UiStyle& ui = ui_style();
-    const float m = ui.titlebar.logo_margin;
-    const ImVec2 mn(p_layout.origin.x + m, p_layout.origin.y + m);
-    const ImVec2 mx(p_layout.origin.x + p_layout.logo - m, p_layout.origin.y + p_layout.bar_h - m);
+    const float side = p_layout.bar_h - ui.titlebar.logo_margin * 2.0f;
+    const float area = p_layout.logo + ui.titlebar.menu_offset_x;
+    const ImVec2 mn(ImFloor(p_layout.origin.x + (area - side) * 0.5f), ImFloor(p_layout.origin.y + (p_layout.bar_h - side) * 0.5f));
+    const ImVec2 mx(mn.x + side, mn.y + side);
 
     VkDescriptorSet logo_set = imgui.texture_cache.get(resources.icon_image.image_view);
     dl->PushClipRect(p_layout.origin, ImVec2(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.bar_h), false);
@@ -929,8 +944,7 @@ void EditorApplication::_titlebar_editor_menu()
     }
 
     if (ImGui::BeginMenu("Window")) {
-        if (tabs.active == &content_tab) content_tab.layout.draw_menu();
-        else world_tab.draw_menu();
+        if (tabs.active != &asset_manager_tab) world_tab.draw_menu();
         if (ImGui::BeginMenu("Display")) {
             int vsync = (int)settings.vsync_mode;
             if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, (int)std::size(VSYNC_MODE_NAMES))) {

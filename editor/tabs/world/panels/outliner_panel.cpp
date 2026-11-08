@@ -22,12 +22,11 @@ namespace lumen {
 
 static bool _is_digit(char c) { return c >= '0' && c <= '9'; }
 
-static const char* _entity_type(const World& world, Entity p_entity, const char** r_icon)
+static const char* _entity_icon(const World& world, Entity p_entity)
 {
-    if (world.has<ModelGridComponent>(p_entity)) { *r_icon = ICON_FA_TABLE_CELLS; return "Model Grid"; }
-    if (world.has<ModelComponent>(p_entity)) { *r_icon = ICON_FA_CUBES; return world.has<StaticTag>(p_entity) ? "Static Model" : "Model"; }
-    *r_icon = ICON_FA_CIRCLE_DOT;
-    return "Entity";
+    if (world.has<ModelGridComponent>(p_entity)) return ICON_FA_TABLE_CELLS;
+    if (world.has<ModelComponent>(p_entity)) return ICON_FA_CUBES;
+    return ICON_FA_CIRCLE_DOT;
 }
 
 static void _entity_label(const char* p_name, Entity p_entity, char (&r_label)[96])
@@ -78,7 +77,7 @@ void OutlinerPanel::_refresh(const World& world, const EditorFolders& folders)
     const bool world_changed = world_version != world.structure_version;
     if (!user && !world_changed) return;
 
-    const bool order = user || entity_version != world.entity_version || (sort_column == SortColumn::TYPE && world_changed);
+    const bool order = user || entity_version != world.entity_version;
     const double now = ImGui::GetTime();
     if (!user && !expect_world_change && last_rebuild >= 0.0 && now - last_rebuild < WORLD_REFRESH_INTERVAL) return;
     expect_world_change = false;
@@ -103,12 +102,10 @@ void OutlinerPanel::_rebuild(const World& world, const EditorFolders& folders, b
         char label[96];
         world.view<EntityIdComponent>([&](Entity e, const EntityIdComponent&) {
             const NameComponent* n = world.try_get<NameComponent>(e);
-            const char* icon;
             Item it;
             it.slot = _slot(folders, folders.entity_folder(world, e));
             it.entity = e;
             it.name = n && n->name[0] ? n->name : nullptr;
-            it.type = _entity_type(world, e, &icon);
             it.match = true;
             if (filtering) {
                 _entity_label(it.name, e, label);
@@ -118,8 +115,7 @@ void OutlinerPanel::_rebuild(const World& world, const EditorFolders& folders, b
         });
         std::sort(items.begin(), items.end(), [&](const Item& a, const Item& b) {
             if (a.slot != b.slot) return a.slot < b.slot;
-            int c = sort_column == SortColumn::TYPE ? std::strcmp(a.type, b.type) : 0;
-            if (c == 0) c = _label_cmp(a, b);
+            const int c = _label_cmp(a, b);
             return sort_ascending ? c < 0 : c > 0;
         });
         for (Item& it : items) it.name = nullptr;
@@ -131,7 +127,7 @@ void OutlinerPanel::_rebuild(const World& world, const EditorFolders& folders, b
         for (uint32_t f = 0; f < folder_count; f++) {
             if (folders.folders[f].alive) folder_order.push_back(f);
         }
-        const bool folders_descending = sort_column == SortColumn::LABEL && !sort_ascending;
+        const bool folders_descending = !sort_ascending;
         std::sort(folder_order.begin(), folder_order.end(), [&](uint32_t a, uint32_t b) {
             const uint32_t pa = _slot(folders, folders.folders[a].parent);
             const uint32_t pb = _slot(folders, folders.folders[b].parent);
@@ -249,14 +245,13 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings;
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.cell_pad_x, style.row_pad_y));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, style.row_pad_y * 2.0f));
-    if (!ImGui::BeginTable("##outliner", 3, flags, ImVec2(0.0f, -p_footer_h))) {
+    if (!ImGui::BeginTable("##outliner", 2, flags, ImVec2(0.0f, -p_footer_h))) {
         ImGui::PopStyleVar(2);
         return;
     }
     ImGui::TableSetupScrollFreeze(0, world_expanded ? 3 : 2);
     ImGui::TableSetupColumn("##visibility", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, row_h);
-    ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, style.label_column_weight);
-    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoReorder, style.type_column_weight);
+    ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder);
 
     ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
     ImGui::TableSetColumnIndex(0);
@@ -264,10 +259,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     {
         ui_text_centered(ImGui::GetWindowDrawList(), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_EYE);
     }
-    for (int c = 1; c < 3; c++) {
-        ImGui::TableSetColumnIndex(c);
-        ImGui::TableHeader(ImGui::TableGetColumnName(c));
-    }
+    ImGui::TableSetColumnIndex(1);
+    ImGui::TableHeader(ImGui::TableGetColumnName(1));
 
     _draw_world_row(ctx, row_h);
     if (world_expanded) _draw_environment_row(ctx, row_h);
@@ -275,7 +268,6 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
             if (specs->SpecsCount > 0) {
-                sort_column = specs->Specs[0].ColumnIndex == 2 ? SortColumn::TYPE : SortColumn::LABEL;
                 sort_ascending = specs->Specs[0].SortDirection != ImGuiSortDirection_Descending;
             }
             specs->SpecsDirty = false;
@@ -344,15 +336,13 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
 
     char label[96];
     const char* icon;
-    const char* type;
     if (is_folder) {
         snprintf(label, sizeof(label), "%s", folders.folders[p_row.folder].name);
         icon = v_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
-        type = "Folder";
     } else {
         const NameComponent* n = world.try_get<NameComponent>(p_row.entity);
         _entity_label(n && n->name[0] ? n->name : nullptr, p_row.entity, label);
-        type = _entity_type(world, p_row.entity, &icon);
+        icon = _entity_icon(world, p_row.entity);
     }
 
     ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
@@ -441,9 +431,6 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
         ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(eye_pos.x + (eye_w - ts.x) * 0.5f), text_y), ImGui::GetColorU32(eye_hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), eye);
     }
 
-    ImGui::TableSetColumnIndex(2);
-    ImGui::GetWindowDrawList()->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), type);
-
     ImGui::PopID();
     ImGui::PopID();
 }
@@ -478,9 +465,6 @@ void OutlinerPanel::_draw_world_row(EditorContext& ctx, float p_row_h)
     dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), ui.color.folder, icon);
     x += icon_w + ui.outliner.icon_gap;
     dl->AddText(ImVec2(x, text_y), text_col, "World");
-
-    ImGui::TableSetColumnIndex(2);
-    dl->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), "Folder");
     ImGui::PopID();
 }
 
@@ -510,9 +494,6 @@ void OutlinerPanel::_draw_environment_row(EditorContext& ctx, float p_row_h)
     dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), text_col, ICON_FA_CLOUD_SUN);
     x += icon_w + ui.outliner.icon_gap;
     dl->AddText(ImVec2(x, text_y), text_col, "Environment");
-
-    ImGui::TableSetColumnIndex(2);
-    dl->AddText(ImVec2(ImGui::GetCursorScreenPos().x, text_y), ImGui::GetColorU32(ImGuiCol_TextDisabled), "Environment");
     ImGui::PopID();
 }
 

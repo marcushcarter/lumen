@@ -47,6 +47,7 @@ struct WorldTab : EditorTab
     void show(EditorContext& ctx, Guid p_world);
     void reset();
     bool has_world() const { return guid.valid(); }
+    bool shows_viewport() const override { return has_world(); }
     Error write(EditorContext& ctx, const std::filesystem::path& p_path) const;
 
     const char* title() const override { return _title.empty() ? ICON_FA_EARTH_AMERICAS "  World" : _title.c_str(); }

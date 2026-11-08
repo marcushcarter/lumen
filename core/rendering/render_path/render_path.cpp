@@ -52,10 +52,10 @@ void RenderPath::destroy_resources()
     created_count = 0;
 }
 
-void RenderPath::build(RenderGraph& g)
+void RenderPath::build(RenderGraph& g, bool p_scene)
 {
     for (Feature* f : features) {
-        if (f->enabled) f->build(g);
+        if (f->enabled && (p_scene || !f->scene)) f->build(g);
     }
     screenshot.build(g);
 }

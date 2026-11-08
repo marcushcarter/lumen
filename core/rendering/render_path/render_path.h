@@ -19,7 +19,7 @@ struct RenderPath
     virtual void _register_features() {}
     Error create_resources();
     void destroy_resources();
-    void build(RenderGraph& g);
+    void build(RenderGraph& g, bool p_scene = true);
 
     virtual ~RenderPath() = default;
 };

@@ -652,7 +652,7 @@ Error Renderer::acquire_frame()
     return OK;
 }
 
-Error Renderer::begin_frame(const World& p_world)
+Error Renderer::begin_frame(const World& p_world, bool p_scene)
 {
     using enum Error;
 
@@ -673,7 +673,16 @@ Error Renderer::begin_frame(const World& p_world)
     models.upload(current_frame);
     _queued_views.clear();
 
-    _view_begin(main_view, p_world);
+    if (p_scene) {
+        if (main_view.scene_skipped) {
+            _view_reset(main_view);
+            main_view.scene_skipped = false;
+        }
+        _view_begin(main_view, p_world);
+    } else {
+        main_view.scene_skipped = true;
+        main_view.graph.begin(current_frame);
+    }
     main_view.graph.import_image("Backbuffer", &sc.images[sc.image_index], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0, false, true);
 
     return OK;

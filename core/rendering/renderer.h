@@ -101,7 +101,7 @@ struct Renderer
     void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }
     void camera_cut() { main_view.camera_cut_pending = true; }
     Error acquire_frame();
-    Error begin_frame(const World& p_world);
+    Error begin_frame(const World& p_world, bool p_scene = true);
     Error compile();
     Error record();
     Error end_frame();

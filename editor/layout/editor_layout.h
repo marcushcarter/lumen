@@ -65,6 +65,7 @@ struct EditorLayout
     float drawer_drag_start = 1.0f;
     bool drawer_dragging = false;
     bool bottom_was_open = false;
+    bool bottom_collapsed = false;
     Drop pending_drop;
 
     float _layout_center(float p_top, float p_bottom);

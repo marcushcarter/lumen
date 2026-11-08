@@ -14,13 +14,14 @@ static void _overlay_push_style()
     ImGui::PushStyleColor(ImGuiCol_Button, ui.color.overlay);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.overlay_hover);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.overlay_active);
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32_WHITE);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui.overlay.rounding);
 }
 
 static void _overlay_pop_style()
 {
     ImGui::PopStyleVar(1);
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(4);
 }
 
 void OverlayBar::begin(ImVec2 p_origin, ImVec2 p_region, Align p_align, float p_margin, float p_spacing)
@@ -101,10 +102,11 @@ bool OverlayBar::combo(const char* p_id, const char* p_preview, float p_width)
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.overlay);
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ui.color.overlay_hover);
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ui.color.overlay_active);
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32_WHITE);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui.overlay.rounding);
     const bool open = ImGui::BeginCombo(p_id, p_preview, ImGuiComboFlags_HeightLargest);
     ImGui::PopStyleVar(1);
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(4);
     return open;
 }
 

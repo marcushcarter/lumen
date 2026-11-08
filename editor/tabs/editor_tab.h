@@ -10,7 +10,7 @@ namespace lumen {
 struct Camera;
 struct World;
 
-enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, PROJECT_SETTINGS, ANIMATION, BLEND_SPACE, OVERLAY, TERRAIN, CONTENT };
+enum class TabKind : uint8_t { WORLD, EDITOR_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, PROJECT_SETTINGS, ANIMATION, BLEND_SPACE, OVERLAY, TERRAIN, ASSET_MANAGER };
 
 struct EditorTab
 {
@@ -30,6 +30,7 @@ struct EditorTab
     virtual bool dirty() const { return false; }
     virtual const Camera* camera() const { return nullptr; }
     virtual const World* scene() const { return nullptr; }
+    virtual bool shows_viewport() const { return false; }
 
     virtual Error create(EditorContext& ctx) { (void)ctx; return Error::OK; }
     virtual void destroy(EditorContext& ctx) { (void)ctx; }

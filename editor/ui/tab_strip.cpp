@@ -34,6 +34,44 @@ float TabStrip::dock_natural_width(const char* p_label, bool p_closable)
     return text + ImGui::CalcTextSize(ui.dock_tab.label_trail).x + ui.tab_strip.pad_x + close_size() + ui.dock_tab.close_pad + ui.dock_tab.gap;
 }
 
+float TabStrip::dock_min_width(bool p_closable)
+{
+    const UiStyle& ui = ui_style();
+    return ui.tab_strip.min_width + (p_closable ? close_size() : 0.0f) + ui.dock_tab.gap;
+}
+
+void TabStrip::fit(const ImVector<float>& p_natural, const ImVector<float>& p_min)
+{
+    min_factor = 1.0f;
+    float total_natural = 0.0f;
+    float total_min = 0.0f;
+    for (int i = 0; i < p_natural.Size; ++i) {
+        total_natural += p_natural[i];
+        total_min += p_min[i];
+    }
+    if (total_natural <= avail) {
+        scale = 1.0f;
+        return;
+    }
+    if (total_min >= avail) {
+        scale = 0.0f;
+        min_factor = avail / ImMax(1.0f, total_min);
+        return;
+    }
+    scale = avail / total_natural;
+    for (int iter = 0; iter < p_natural.Size; ++iter) {
+        float pinned = 0.0f;
+        float free = 0.0f;
+        for (int i = 0; i < p_natural.Size; ++i) {
+            if (p_natural[i] * scale < p_min[i]) pinned += p_min[i];
+            else free += p_natural[i];
+        }
+        const float next = free > 0.0f ? (avail - pinned) / free : scale;
+        if (ImAbs(next - scale) < 1e-5f) break;
+        scale = next;
+    }
+}
+
 void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, float p_natural_total, float p_reserved_right, ImU32 p_bg)
 {
     const UiStyle& ui = ui_style();
@@ -48,8 +86,7 @@ void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, 
     natural_total = p_natural_total;
     avail = ImMax(1.0f, (max.x - min.x) - p_reserved_right);
     scale = (p_natural_total > avail) ? avail / p_natural_total : 1.0f;
-    scroll = nullptr;
-    reveal = false;
+    min_factor = 1.0f;
 
     const float line = ui.stroke.hairline;
     draw_list->AddRectFilled(min, max, background);
@@ -118,6 +155,15 @@ bool TabStrip::button(const char* p_label, bool p_on)
     return pressed;
 }
 
+void TabStrip::text(const char* p_label)
+{
+    const float w = ImMax(ui_style().tab_strip.min_width, ImFloor(natural_width(p_label) * scale));
+    const ImVec2 a(cursor_x, min.y);
+    const ImVec2 b(cursor_x + w, max.y);
+    cursor_x += w;
+    _draw_label(a, b, p_label, false);
+}
+
 void TabStrip::_draw_label(ImVec2 p_a, ImVec2 p_b, const char* p_label, bool p_bright)
 {
     const UiStyle& ui = ui_style();
@@ -138,16 +184,10 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     const bool closable = p_close != nullptr;
     const bool slot = closable || p_dirty;
     const float cs = slot ? close_size() : 0.0f;
-    const float w = ImMax(ui.tab_strip.min_width + cs, ImFloor(dock_natural_width(p_label, slot) * scale) - ui.dock_tab.gap);
+    const float w = ImMax(1.0f, ImMax(ImFloor(dock_min_width(slot) * min_factor), ImFloor(dock_natural_width(p_label, slot) * scale)) - ui.dock_tab.gap);
     const ImVec2 a(cursor_x, min.y + ui.dock_tab.inset_top);
     const ImVec2 b(cursor_x + w, max.y);
     cursor_x += w + ui.dock_tab.gap;
-    if (scroll && reveal && p_selected) {
-        const float left = min.x + ui.dock_tab.inset_x;
-        const float right = min.x + avail;
-        if (a.x < left) *scroll -= left - a.x;
-        else if (b.x > right) *scroll += b.x - right;
-    }
 
     const ImVec2 ca(ImFloor(b.x - ui.dock_tab.close_pad * 0.5f - cs), ImFloor(a.y + (b.y - a.y - cs) * 0.5f));
     const ImVec2 cb(ca.x + cs, ca.y + cs);
@@ -247,21 +287,6 @@ bool TabStrip::console_field(const char* p_id, const char* p_hint, char* p_buf, 
 
     cursor_x = x + p_field_width + ui.console_bar.pad;
     return submitted;
-}
-
-void TabStrip::scrollable(float& r_scroll, bool p_reveal, float p_lead)
-{
-    scale = 1.0f;
-    scroll = &r_scroll;
-    reveal = p_reveal;
-    const float overflow = ImMax(0.0f, natural_total + p_lead - avail);
-    if (overflow > 0.0f && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(min, max)) {
-        const ImGuiIO& io = ImGui::GetIO();
-        const float wheel = io.MouseWheelH != 0.0f ? -io.MouseWheelH : io.MouseWheel;
-        r_scroll -= wheel * ImGui::GetFontSize() * 3.0f;
-    }
-    r_scroll = ImClamp(r_scroll, 0.0f, overflow);
-    cursor_x -= r_scroll;
 }
 
 void TabStrip::end()

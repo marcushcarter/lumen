@@ -62,11 +62,19 @@ void TabManager::draw_bar(ImVec2 p_min, ImVec2 p_max, float p_reserved_right, Im
     ++_frame;
 
     float natural = 0.0f;
-    for (EditorTab* t : tabs) natural += TabStrip::dock_natural_width(t->title(), t->closable() || t->dirty());
+    ImVector<float> naturals;
+    ImVector<float> mins;
+    for (EditorTab* t : tabs) {
+        const bool slot = t->closable() || t->dirty();
+        naturals.push_back(TabStrip::dock_natural_width(t->title(), slot));
+        mins.push_back(TabStrip::dock_min_width(slot));
+        natural += naturals.back();
+    }
 
     char label[192];
     TabStrip strip;
     strip.begin("##titlebar_tabs", p_min, p_max, TabStrip::Edge::TOP, natural, p_reserved_right, p_bg);
+    strip.fit(naturals, mins);
     for (EditorTab* t : tabs) {
         const bool closable = t->closable();
         std::snprintf(label, sizeof(label), "%s###tab_%u_%016llx", t->title(), (unsigned)t->kind, (unsigned long long)t->guid.value);

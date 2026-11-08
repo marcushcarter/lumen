@@ -521,6 +521,24 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
             return HTCLIENT;
         }
 
+        case WM_GETTITLEBARINFOEX: {
+            if (!framed || !window->has_ctrls) break;
+            TITLEBARINFOEX* info = reinterpret_cast<TITLEBARINFOEX*>(p_lparam);
+            DefWindowProcW(p_hwnd, p_msg, p_wparam, p_lparam);
+            auto to_screen = [&](RECT r) {
+                MapWindowPoints(p_hwnd, HWND_DESKTOP, reinterpret_cast<POINT*>(&r), 2);
+                return r;
+            };
+            RECT client;
+            GetClientRect(p_hwnd, &client);
+            info->rcTitleBar = to_screen(RECT{ 0, 0, client.right, window->titlebar_height });
+            info->rgrect[2] = to_screen(window->ctrl_min);
+            info->rgrect[3] = to_screen(window->ctrl_max);
+            info->rgrect[5] = to_screen(window->ctrl_close);
+            info->rgstate[2] = info->rgstate[3] = info->rgstate[5] = 0;
+            return 0;
+        }
+
         case WM_GETMINMAXINFO: {
             if (window->min_width > 0 || window->min_height > 0) {
                 RECT r{ 0, 0, window->min_width, window->min_height };

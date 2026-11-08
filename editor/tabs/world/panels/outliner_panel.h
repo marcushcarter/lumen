@@ -17,7 +17,6 @@ struct OutlinerPanel : Panel
     static constexpr double WORLD_REFRESH_INTERVAL = 0.25;
 
     enum class RowKind : uint8_t { FOLDER, ENTITY };
-    enum class SortColumn : uint8_t { LABEL, TYPE };
 
     struct Row {
         Entity entity;
@@ -30,7 +29,6 @@ struct OutlinerPanel : Panel
         uint32_t slot;
         Entity entity;
         const char* name;
-        const char* type;
         bool match;
     };
 
@@ -52,7 +50,6 @@ struct OutlinerPanel : Panel
     bool expect_world_change = false;
 
     char filter[128] = {};
-    SortColumn sort_column = SortColumn::LABEL;
     bool sort_ascending = true;
 
     Entity last_primary = ENTITY_NULL;

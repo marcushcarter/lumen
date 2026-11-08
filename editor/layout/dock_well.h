@@ -22,8 +22,6 @@ struct DockWell
     std::vector<DockSlot*> slots;
     std::string active_name;
     Panel* dropped = nullptr;
-    float tab_scroll = 0.0f;
-    std::string revealed_name;
 
     bool has_open() const;
     void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);

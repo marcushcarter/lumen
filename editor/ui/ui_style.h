@@ -252,6 +252,7 @@ struct UiStyle
     struct Titlebar {
         ImVec2 menu_padding;
         float tab_height;
+        float tab_top_space;
         float tab_pad_x;
         float tab_rounding;
         float tab_inner_spacing;
@@ -302,8 +303,6 @@ struct UiStyle
         float arrow_scale;
         float arrow_offset_scale;
         ImVec2 padding;
-        float label_column_weight;
-        float type_column_weight;
     };
 
     struct Details {
@@ -396,10 +395,13 @@ struct UiStyle
         float splitter;
         float min_side;
         float divider_shadow;
+        float layout_flip_ratio;
         float card_width;
         float card_gap;
         float card_pad;
         float card_icon_scale;
+        float list_row_pad;
+        float list_icon_scale;
     };
 
     struct Profiler {

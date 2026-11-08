@@ -100,8 +100,9 @@ void UiStyle::_build_components()
     play.kebab_width = 14.0f;
     play.kebab_gap = space.sm;
 
-    titlebar.menu_padding = ImVec2(space.xxl, 7.0f);
+    titlebar.menu_padding = ImVec2(space.xxl, space.xs);
     titlebar.tab_height = 24.0f;
+    titlebar.tab_top_space = space.md;
     titlebar.tab_pad_x = 14.0f;
     titlebar.tab_rounding = radius.xl;
     titlebar.tab_inner_spacing = space.xxs;
@@ -110,7 +111,7 @@ void UiStyle::_build_components()
     titlebar.caption_glyph_offset = space.xxs;
     titlebar.caption_stroke = stroke.hairline;
     titlebar.caption_close_stroke = 1.2f;
-    titlebar.logo_margin = space.md;
+    titlebar.logo_margin = space.xs;
     titlebar.logo_rounding = radius.md;
     titlebar.menu_offset_x = space.md;
     titlebar.title_margin = space.xxxl;
@@ -144,8 +145,6 @@ void UiStyle::_build_components()
     outliner.arrow_scale = 0.7f;
     outliner.arrow_offset_scale = 0.15f;
     outliner.padding = ImVec2(0.0f, space.lg);
-    outliner.label_column_weight = 0.6f;
-    outliner.type_column_weight = 0.4f;
 
     details.header_pad_y = space.sm;
     details.header_indent = space.huge;
@@ -220,10 +219,13 @@ void UiStyle::_build_components()
     asset_browser.splitter = space.md;
     asset_browser.min_side = 120.0f;
     asset_browser.divider_shadow = space.huge;
+    asset_browser.layout_flip_ratio = 1.15f;
     asset_browser.card_width = 96.0f;
     asset_browser.card_gap = space.lg;
     asset_browser.card_pad = space.md;
     asset_browser.card_icon_scale = 2.5f;
+    asset_browser.list_row_pad = space.xs;
+    asset_browser.list_icon_scale = 0.62f;
 
     profiler.lane_gap = space.xs;
     profiler.section_height = 18.0f;

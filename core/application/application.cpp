@@ -164,22 +164,26 @@ Error Application::_frame()
     imgui.begin_frame(renderer.frame_number, renderer.frame_count, renderer.resize_epoch);
     cpu.zone_end();
 
+    const bool scene = renders_scene();
+
     cpu.zone_begin("Camera");
     update_camera((float)delta);
     renderer.set_camera(active_camera());
     cpu.zone_end();
 
-    cpu.zone_begin("Poses");
-    poses.update(world, renderer);
-    cpu.zone_end();
+    if (scene) {
+        cpu.zone_begin("Poses");
+        poses.update(world, renderer);
+        cpu.zone_end();
+    }
 
     cpu.zone_begin("Frame Build");
-    err = renderer.begin_frame(render_world());
+    err = renderer.begin_frame(render_world(), scene);
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Graph Build");
-    render_path->build(renderer.main_view.graph);
+    render_path->build(renderer.main_view.graph, scene);
     err = renderer.compile();
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Render graph compile failed (transient allocation).");

@@ -42,7 +42,7 @@ struct Viewport
     std::vector<Entity> _view_selection;
 
     std::function<void(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size)> overlay;
-    std::function<void(OverlayBar& r_bar)> overlay_controls;
+    std::function<void()> options_controls;
 
     bool looking = false;
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
@@ -52,13 +52,20 @@ struct Viewport
     ImVec2 _look_press = ImVec2(0.0f, 0.0f);
     float _look_travel = 0.0f;
 
+    int _header_frame = -1;
+    ImDrawFlags _corners = ImDrawFlags_RoundCornersAll;
+
     bool _view_item(const char* p_icon, const char* p_name, int p_id);
+    void _draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, float p_margin);
+    void _draw_options(EditorContext& ctx);
+    void _draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     void _draw_image(EditorContext& ctx);
     void _update_look(bool p_start, ImVec2 p_center);
     void _asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
 
+    void draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
     void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 };
 

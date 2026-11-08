@@ -1,6 +1,7 @@
 #include <editor/layout/editor_layout.h>
 #include <core/base/console.h>
 #include <core/base/error.h>
+#include <core/version.h>
 #include <editor/ui/tab_strip.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/ui/ui_style.h>
@@ -193,6 +194,23 @@ void EditorLayout::_end_drawer_drag()
 
 void EditorLayout::_draw_scene(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
+    if (_toolbar && *_toolbar) {
+        const UiStyle& ui = ui_style();
+        const float bar_h = ImMin(ui.header.height, ImMax(1.0f, p_max.y - p_min.y));
+        ImGui::SetCursorScreenPos(p_min);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.transparent);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::BeginChild("##topbar", ImVec2(ImMax(1.0f, p_max.x - p_min.x), bar_h), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        (*_toolbar)(ctx);
+        const ImVec2 hmin = ImGui::GetWindowPos();
+        const ImVec2 hmax(hmin.x + ImGui::GetWindowSize().x, hmin.y + ImGui::GetWindowSize().y);
+        if (!center && viewport_in_header) viewport.draw_header_controls(ctx, hmin, hmax);
+        ImGui::EndChild();
+        p_min.y += bar_h;
+        if (p_max.y - p_min.y < 1.0f) return;
+    }
     if (center) center(ctx, p_min, p_max);
     else viewport.draw(ctx, p_min, p_max);
 }
@@ -295,12 +313,17 @@ void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
     float natural = TabStrip::natural_width(console_label);
     for (const DockSlot& s : slots) if (s.panel->in_footer()) natural += TabStrip::natural_width(s.panel->title);
 
+    const char* version = LUMEN_VERSION_FULL_BUILD;
+    const ImVec2 version_size = ImGui::CalcTextSize(version);
+    const float version_w = version_size.x + ui.space.lg * 2.0f;
+
     const float console_chrome = ui.console_bar.pad * 2.0f;
-    const float free_w = (p_max.x - p_min.x) - natural - console_chrome;
+    const float free_w = (p_max.x - p_min.x) - natural - console_chrome - version_w;
     const float field_w = ImClamp(free_w, ui.console_bar.field_min_width, ui.console_bar.field_width);
 
     TabStrip strip;
-    strip.begin("##footer", p_min, p_max, TabStrip::Edge::BOTTOM, natural, console_chrome + field_w);
+    strip.begin("##footer", p_min, p_max, TabStrip::Edge::BOTTOM, natural, console_chrome + field_w + version_w);
+    strip.draw_list->AddText(ImVec2(ImFloor(p_max.x - ui.space.lg - version_size.x), ImFloor(p_min.y + (p_max.y - p_min.y - version_size.y) * 0.5f)), ui_hex(UiStyle::Palette::TEXT_STATUS), version);
     for (DockSlot& s : slots) {
         if (s.panel->in_footer() && strip.button(s.panel->title, s.open)) open_panel(s);
     }
@@ -317,7 +340,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 {
     const UiStyle& ui = ui_style();
     const float gap = ui.dock.gap;
-    const float bar_h = p_toolbar ? ui.toolbar.height : 0.0f;
+    _toolbar = &p_toolbar;
 
     for (DockWell* w : wells()) {
         w->slots.clear();
@@ -338,32 +361,24 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.editor_border);
     ImGui::Begin(host_id.c_str(), nullptr,
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
     );
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar(3);
 
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 extent = ImGui::GetContentRegionAvail();
     const ImVec2 end(origin.x + extent.x, origin.y + extent.y);
 
-    if (p_toolbar) {
-        ImGui::SetCursorScreenPos(origin);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ui.toolbar.padding_x, ImFloor((bar_h - ImGui::GetFrameHeight()) * 0.5f)));
-        ImGui::BeginChild("##topbar", ImVec2(extent.x, bar_h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-        p_toolbar(ctx);
-        ImGui::EndChild();
-    }
-
-    const float body_y = p_toolbar ? origin.y + bar_h + gap : origin.y;
+    const float body_y = origin.y;
 
     if (viewport.fullscreen) {
         _draw_scene(ctx, ImVec2(origin.x, body_y), end);
+        _toolbar = nullptr;
         ImGui::End();
         return;
     }
@@ -483,6 +498,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     }
     _apply_drop();
 
+    _toolbar = nullptr;
     ImGui::End();
 }
 

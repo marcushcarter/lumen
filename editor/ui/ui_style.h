@@ -1,16 +1,106 @@
 #pragma once
 #include <imgui.h>
+#include <cstdint>
 
 namespace lumen {
 
 struct UiStyle
 {
     /*****************/
+    /**** PALETTE ****/
+    /*****************/
+
+    struct Palette {
+        static constexpr uint32_t EDITOR_BORDER = 0x161616ff;
+        static constexpr uint32_t TOPBAR = 0x181818ff;
+        static constexpr uint32_t BACK = 0x303030ff;
+        static constexpr uint32_t HEADER = 0x303030ff;
+        static constexpr uint32_t OUTLINER_BACK = 0x282828ff;
+        static constexpr uint32_t VIEWPORT_BACK = 0x3d3d3dff;
+        static constexpr uint32_t PANEL = 0x3d3d3dff;
+        static constexpr uint32_t PANEL_SUB = 0x0000001f;
+        static constexpr uint32_t PANEL_OUTLINE = 0xffffff11;
+        static constexpr uint32_t OUTLINE = 0x3d3d3dff;
+        static constexpr uint32_t SEPARATOR = 0xffffff1a;
+        static constexpr uint32_t EMBOSS = 0x00000026;
+
+        static constexpr uint32_t TEXT = 0xe6e6e6ff;
+        static constexpr uint32_t TEXT_HI = 0xffffffff;
+        static constexpr uint32_t TEXT_DIM = 0x989898ff;
+        static constexpr uint32_t TEXT_STATUS = 0x838383ff;
+        static constexpr uint32_t TEXT_CURSOR = 0x71a8ffff;
+        static constexpr uint32_t LINK = 0x6fa9e6ff;
+
+        static constexpr uint32_t NUM = 0x545454ff;
+        static constexpr uint32_t NUM_HOVER = 0x636363ff;
+        static constexpr uint32_t NUM_ACTIVE = 0x222222ff;
+        static constexpr uint32_t TEXT_FIELD = 0x1d1d1dff;
+        static constexpr uint32_t TEXT_FIELD_HOVER = 0x2c2c2cff;
+        static constexpr uint32_t TEXT_FIELD_ACTIVE = 0x181818ff;
+        static constexpr uint32_t MENU = 0x282828ff;
+        static constexpr uint32_t MENU_HOVER = 0x373737ff;
+        static constexpr uint32_t TOOLBAR_ITEM = 0x282828ff;
+
+        static constexpr uint32_t PULLDOWN_TEXT = 0xd9d9d9ff;
+        static constexpr uint32_t PULLDOWN_HOVER = 0xffffff1a;
+        static constexpr uint32_t MENU_BACK = 0x181818ff;
+        static constexpr uint32_t MENU_BACK_OUTLINE = 0x242424ff;
+        static constexpr uint32_t MENU_ITEM_TEXT = 0xddddddff;
+        static constexpr uint32_t MENU_ITEM_DIM = 0x999999ff;
+        static constexpr uint32_t TOOLTIP = 0x1d1d1dff;
+        static constexpr uint32_t TOOLTIP_OUTLINE = 0x242424ff;
+
+        static constexpr uint32_t ACCENT = 0x4772b3ff;
+        static constexpr uint32_t ACCENT_HOVER = 0x5681c2ff;
+        static constexpr uint32_t ACCENT_SELECT = 0x4772b366;
+        static constexpr uint32_t ACCENT_DROP = 0x4772b326;
+
+        static constexpr uint32_t TAB = 0x1d1d1dff;
+        static constexpr uint32_t TAB_HOVER = 0x282828ff;
+        static constexpr uint32_t TAB_ACTIVE = 0x303030ff;
+
+        static constexpr uint32_t LIST_HOVER = 0xffffff0d;
+        static constexpr uint32_t LIST_SELECTED = 0x1d314dff;
+        static constexpr uint32_t LIST_ACTIVE = 0x334d80ff;
+        static constexpr uint32_t ROW_ALTERNATE = 0xffffff04;
+
+        static constexpr uint32_t SCROLL = 0x545454ff;
+        static constexpr uint32_t SCROLL_HOVER = 0x656565ff;
+        static constexpr uint32_t SCROLL_ACTIVE = 0x767676ff;
+
+        static constexpr uint32_t AXIS_X = 0xff3352ff;
+        static constexpr uint32_t AXIS_Y = 0x8bdc00ff;
+        static constexpr uint32_t AXIS_Z = 0x2890ffff;
+        static constexpr uint32_t AXIS_W = 0xedba18ff;
+
+        static constexpr uint32_t STATE_ERROR = 0xe60000ff;
+        static constexpr uint32_t STATE_WARNING = 0xac8737ff;
+        static constexpr uint32_t STATE_SUCCESS = 0x188625ff;
+        static constexpr uint32_t STATE_INFO = 0x1a8cffff;
+
+        static constexpr uint32_t GRID = 0x545454ff;
+        static constexpr uint32_t VIEW_SELECT = 0xed5700ff;
+        static constexpr uint32_t VIEW_ACTIVE = 0xffa028ff;
+
+        static constexpr uint32_t ICON_SCENE = 0xccccccff;
+        static constexpr uint32_t ICON_COLLECTION = 0xffffffff;
+        static constexpr uint32_t ICON_OBJECT = 0xe19658ff;
+        static constexpr uint32_t ICON_OBJECT_DATA = 0x00d4a3ff;
+        static constexpr uint32_t ICON_MODIFIER = 0x74a2ffff;
+        static constexpr uint32_t ICON_SHADING = 0xcc6670ff;
+        static constexpr uint32_t ICON_FOLDER = 0xccad63ff;
+    };
+
+    /*****************/
     /**** TOKENS *****/
     /*****************/
 
+    float scale = 1.25f;
+    float unit = 20.0f;
+
     struct Typography {
-        float size = 12.0f;
+        float size = 16.5f;
+        float icon_size = 15.0f;
         float icon_offset_y = 1.0f;
     };
 
@@ -82,7 +172,36 @@ struct UiStyle
         ImU32 field_active;
         ImU32 field_pressed;
 
+        ImU32 editor_border;
+        ImU32 topbar;
+        ImU32 topbar_hover;
+        ImU32 header;
+        ImU32 header_hover;
+        ImU32 outliner_back;
+        ImU32 viewport_back;
+        ImU32 panel_sub;
+        ImU32 outline;
+        ImU32 emboss;
+        ImU32 text_field;
+        ImU32 text_field_hover;
+        ImU32 text_field_active;
+        ImU32 menu_field;
+        ImU32 menu_field_hover;
+        ImU32 menu_back;
+        ImU32 menu_outline;
+        ImU32 menu_text;
+        ImU32 menu_dim;
+        ImU32 pulldown_text;
+        ImU32 tab;
+        ImU32 tab_hover;
+        ImU32 tab_active;
+        ImU32 list_hover;
+        ImU32 list_selected;
+        ImU32 list_active;
+        ImU32 row_alternate;
+
         ImU32 text;
+        ImU32 text_hi;
         ImU32 text_dim;
 
         ImU32 accent;
@@ -240,6 +359,27 @@ struct UiStyle
         float padding_x;
     };
 
+    struct Header {
+        float height;
+        float pad_x;
+        float item_gap;
+        float group_gap;
+        float rounding;
+        float menu_pad_x;
+        float dropdown_arrow;
+    };
+
+    struct PanelBox {
+        float margin_x;
+        float margin_top;
+        float gap;
+        float rounding;
+        float header_height;
+        float body_pad_y;
+        float grip_dot;
+        float grip_spacing;
+    };
+
     struct PlayControls {
         float margin;
         float inset;
@@ -251,6 +391,9 @@ struct UiStyle
 
     struct Titlebar {
         ImVec2 menu_padding;
+        float menu_height;
+        float menu_gap;
+        float tab_inset_x;
         float tab_height;
         float tab_top_space;
         float tab_pad_x;
@@ -475,6 +618,8 @@ struct UiStyle
     Splitter splitter;
     Property property;
     Toolbar toolbar;
+    Header header;
+    PanelBox panel_box;
     PlayControls play;
     Titlebar titlebar;
     Overlay overlay;
@@ -505,6 +650,11 @@ struct UiStyle
 UiStyle& ui_style();
 
 ImU32 ui_with_alpha(ImU32 p_color, float p_alpha);
+ImVec4 ui_hex4(uint32_t p_rgba);
+ImU32 ui_hex(uint32_t p_rgba);
+ImVec4 ui_hex4_over(uint32_t p_rgba, uint32_t p_background);
+ImU32 ui_hex_over(uint32_t p_rgba, uint32_t p_background);
 ImVec4 ui_vec4(ImU32 p_color);
+void ui_install_font_gamma(ImFontAtlas* p_atlas);
 
 }

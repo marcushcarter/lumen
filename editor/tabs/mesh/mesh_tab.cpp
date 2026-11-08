@@ -20,7 +20,7 @@ Error MeshTab::create(EditorContext& ctx)
     _create_layout(ctx, "MeshHost");
     layout.add_panel<MeshDetailsPanel>()->tab = this;
     layout.viewport.overlay = [this](ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size) { rig_preview.draw_bones(p_draw_list, p_pos, p_size, orbit.camera); };
-    layout.viewport.overlay_controls = [this](OverlayBar& r_bar) { rig_preview.draw_controls(r_bar); };
+    layout.viewport.options_controls = [this] { rig_preview.draw_controls(); };
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);

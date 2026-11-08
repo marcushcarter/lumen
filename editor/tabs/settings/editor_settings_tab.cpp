@@ -20,12 +20,6 @@ Error EditorSettingsTab::create(EditorContext& ctx)
     return Error::OK;
 }
 
-void EditorSettingsTab::_apply_theme(EditorContext& ctx)
-{
-    ctx.settings->theme.apply();
-    ctx.win32->window_set_titlebar_color(*ctx.main_window, (COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg]));
-}
-
 void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
 {
     (void)p_dt;
@@ -41,46 +35,9 @@ void EditorSettingsTab::on_update(EditorContext& ctx, float p_dt)
 void EditorSettingsTab::_draw_appearance(EditorContext& ctx)
 {
     EditorSettings& s = *ctx.settings;
-    bool theme_changed = false;
-
-    if (ImGui::BeginCombo("Preset", Theme::theme_preset_name(s.theme.preset))) {
-        for (int i = 0; i < (int)std::size(Theme::THEME_PRESETS); ++i) {
-            if (ImGui::Selectable(Theme::THEME_PRESETS[i].name, s.theme.preset == i)) {
-                s.theme.preset = i;
-                s.theme.base = Theme::THEME_PRESETS[i].base;
-                s.theme.accent = Theme::THEME_PRESETS[i].accent;
-                s.theme.text = Theme::THEME_PRESETS[i].text;
-                theme_changed = true;
-            }
-        }
-        if (ImGui::Selectable("Custom", s.theme.preset == -1)) {
-            s.theme.preset = -1;
-            theme_changed = true;
-        }
-        ImGui::EndCombo();
-    }
-
-    if (ImGui::ColorEdit3("Base", &s.theme.base.x)) { s.theme.preset = -1; theme_changed = true; }
-    if (ImGui::ColorEdit3("Text", &s.theme.text.x)) { s.theme.preset = -1; theme_changed = true; }
-    ImGui::BeginDisabled(s.theme.use_system_accent);
-    if (ImGui::ColorEdit3("Accent", &s.theme.accent.x)) { s.theme.preset = -1; theme_changed = true; }
-    ImGui::EndDisabled();
-    if (ImGui::Checkbox("Use system accent", &s.theme.use_system_accent)) theme_changed = true;
-
     bool custom = ctx.win32->window_has_custom_titlebar(*ctx.main_window);
     if (ImGui::Checkbox("Custom titlebar", &custom)) {
         ctx.win32->window_set_custom_titlebar(*ctx.main_window, custom);
-        s.dirty = true;
-    }
-
-    ui_spacing();
-    if (ImGui::Button("Reset to default theme")) {
-        s.theme = Theme{};
-        theme_changed = true;
-    }
-
-    if (theme_changed) {
-        _apply_theme(ctx);
         s.dirty = true;
     }
 }

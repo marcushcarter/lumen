@@ -172,6 +172,7 @@ void OverlayDetailsPanel::draw_contents(EditorContext& ctx)
     std::snprintf(header, sizeof(header), "Exclude (%zu)###exclude", overlay.mask.exclude.size());
     if (ui_category(header)) _draw_joints(ctx, overlay.mask.exclude, "Add Exclude");
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
 }

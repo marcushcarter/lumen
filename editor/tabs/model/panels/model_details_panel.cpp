@@ -59,6 +59,7 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
     std::snprintf(header, sizeof(header), "Materials (%u)###materials", std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)m.materials.size()));
     if (ui_category(header, nullptr, true)) _draw_materials(ctx);
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
 }

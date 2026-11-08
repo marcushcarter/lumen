@@ -285,6 +285,7 @@ void BlendSpaceDetailsPanel::draw_contents(EditorContext& ctx)
     std::snprintf(header, sizeof(header), "Preview Overlays (%zu)###preview_overlays", tab->preview_overlays.size());
     if (ui_category(header)) _draw_overlays(ctx);
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
 }

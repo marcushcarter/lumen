@@ -50,10 +50,12 @@ Error EditorApplication::on_init()
 
     ImGuiIO& io = ImGui::GetIO();
     {
-        EmbeddedResource::Blob jb = EmbeddedResource::load(L"FONTS_JETBRAINS_MONO_REGULAR_TTF");
-        ImFontConfig jb_cfg;
-        jb_cfg.FontDataOwnedByAtlas = false;
-        io.Fonts->AddFontFromMemoryTTF((void*)jb.data, (int)jb.size, ui_style().font.size, &jb_cfg);
+        ui_install_font_gamma(io.Fonts);
+        EmbeddedResource::Blob inter = EmbeddedResource::load(L"FONTS_INTER_REGULAR_TTF");
+        ImFontConfig inter_cfg;
+        inter_cfg.FontDataOwnedByAtlas = false;
+        inter_cfg.OversampleH = 2;
+        io.Fonts->AddFontFromMemoryTTF((void*)inter.data, (int)inter.size, ui_style().font.size, &inter_cfg);
 
         EmbeddedResource::Blob fa = EmbeddedResource::load(L"FONTS_FA_SOLID_900_OTF");
         static const ImWchar fa_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
@@ -62,7 +64,7 @@ Error EditorApplication::on_init()
         fa_cfg.PixelSnapH = true;
         fa_cfg.GlyphOffset.y = ui_style().font.icon_offset_y;
         fa_cfg.FontDataOwnedByAtlas = false;
-        io.Fonts->AddFontFromMemoryTTF((void*)fa.data, (int)fa.size, ui_style().font.size, &fa_cfg, fa_ranges);
+        io.Fonts->AddFontFromMemoryTTF((void*)fa.data, (int)fa.size, ui_style().font.icon_size, &fa_cfg, fa_ranges);
         io.Fonts->Build();
     }
 
@@ -520,12 +522,6 @@ void EditorApplication::_load_state()
     }
     const toml::table& tbl = parsed;
 
-    settings.theme.preset = Theme::theme_preset_index(from_toml(tbl.at_path("theme.preset"), "Custom"));
-    settings.theme.base = from_toml(tbl.at_path("theme.base"), settings.theme.base);
-    settings.theme.accent = from_toml(tbl.at_path("theme.accent"), settings.theme.accent);
-    settings.theme.text = from_toml(tbl.at_path("theme.text"), settings.theme.text);
-    settings.theme.use_system_accent = tbl.at_path("theme.use_system_accent").value_or(settings.theme.use_system_accent);
-
     settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
     settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
 
@@ -546,15 +542,6 @@ void EditorApplication::_load_state()
 
 void EditorApplication::_save_state()
 {
-    const char* preset_name = Theme::theme_preset_name(settings.theme.preset);
-
-    toml::table theme;
-    theme.insert_or_assign("preset", preset_name ? preset_name : "");
-    theme.insert_or_assign("base", to_toml(settings.theme.base));
-    theme.insert_or_assign("accent", to_toml(settings.theme.accent));
-    theme.insert_or_assign("text", to_toml(settings.theme.text));
-    theme.insert_or_assign("use_system_accent", settings.theme.use_system_accent);
-
     toml::table window;
     window.insert_or_assign("custom_titlebar", win32.window_has_custom_titlebar(main_window));
 
@@ -568,7 +555,6 @@ void EditorApplication::_save_state()
 
     toml::table root;
     root.insert_or_assign("session", std::move(session));
-    root.insert_or_assign("theme", std::move(theme));
     root.insert_or_assign("window", std::move(window));
     root.insert_or_assign("display", std::move(display));
 
@@ -747,79 +733,108 @@ void EditorApplication::_titlebar_block(const TitlebarLayout& p_layout, ImVec2 p
     );
 }
 
+struct TopbarMenus
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float h = 0.0f;
+    ImGuiID open = 0;
+};
+
+static TopbarMenus g_topbar;
+
+static bool _topbar_menu(const char* p_label)
+{
+    const UiStyle& ui = ui_style();
+    const float bh = ui.unit;
+    const ImVec2 ts = ImGui::CalcTextSize(p_label);
+    const ImVec2 a(g_topbar.x, ImFloor(g_topbar.y + (g_topbar.h - bh) * 0.5f));
+    const ImVec2 b(a.x + ts.x + ui.titlebar.menu_padding.x * 2.0f, a.y + bh);
+    g_topbar.x = b.x + ui.titlebar.menu_gap;
+
+    ImGui::SetCursorScreenPos(a);
+    const ImGuiID id = ImGui::GetID(p_label);
+    const bool open_now = ImGui::IsPopupOpen(id, ImGuiPopupFlags_None);
+    const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(b.x - a.x, bh), ImGuiButtonFlags_PressedOnClick);
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+    if (pressed && !open_now) ImGui::OpenPopupEx(id);
+    else if (hovered && !open_now && g_topbar.open != 0 && g_topbar.open != id && ImGui::IsPopupOpen(g_topbar.open, ImGuiPopupFlags_None)) ImGui::OpenPopupEx(id);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (open_now || hovered) dl->AddRectFilled(a, b, ui.color.topbar_hover, ui.header.rounding);
+    ui_text_centered(dl, a, b, open_now || hovered ? ui.color.text_hi : ui.color.pulldown_text, p_label);
+
+    ImGui::SetNextWindowPos(ImVec2(a.x, b.y + ui.menu.popup_offset), ImGuiCond_Always);
+    ui_menu_push_style();
+    const bool open = ImGui::BeginPopupEx(id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    if (!open) {
+        ui_menu_pop_style();
+        return false;
+    }
+    g_topbar.open = id;
+    return true;
+}
+
+static void _topbar_menu_end()
+{
+    ImGui::EndPopup();
+    ui_menu_pop_style();
+}
+
 void EditorApplication::_draw_titlebar()
 {
     const UiStyle& ui = ui_style();
     const bool loaded = project.loaded();
-    const float TAB_H = ui.titlebar.tab_height + ui.titlebar.tab_top_space;
+    const float MENU_H = ui.titlebar.menu_height;
+    const float TAB_H = loaded ? ui.titlebar.tab_height + ui.titlebar.tab_top_space : 0.0f;
+    const float TOTAL_H = MENU_H + TAB_H;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ui.titlebar.menu_padding);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.topbar);
 
-    const float MENU_H = ImGui::GetFrameHeight();
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
     TitlebarLayout L;
     L.menu_h = MENU_H;
-    L.bar_h = TAB_H;
+    L.bar_h = MENU_H;
+    L.total_h = TOTAL_H;
     L.tab_h = ui.titlebar.tab_height;
     L.btn_w = ui.titlebar.caption_width;
-    L.logo = TAB_H;
+    L.logo = TOTAL_H;
 
-    if (ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, TAB_H, flags)) {
+    const bool titlebar_open = ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, TOTAL_H, flags);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (titlebar_open) {
         L.origin = ImGui::GetWindowPos();
         L.width = ImGui::GetWindowWidth();
+        L.tabs_x = L.origin.x + L.logo;
 
-        win32.window_titlebar_reset(main_window, (int)TAB_H);
+        win32.window_titlebar_reset(main_window, (int)TOTAL_H);
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + TAB_H), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
-        dl->AddRectFilled(ImVec2(L.origin.x, L.origin.y + TAB_H - ui.stroke.hairline), ImVec2(L.origin.x + L.width, L.origin.y + TAB_H), ui.color.line);
+        dl->AddRectFilled(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + TOTAL_H), ui.color.topbar);
 
-        if (loaded) _titlebar_tabs(L);
-        _titlebar_logo(L);
+        if (loaded) {
+            g_topbar.x = L.tabs_x;
+            g_topbar.y = L.origin.y;
+            g_topbar.h = MENU_H;
+            const float menus_x = g_topbar.x;
+            _titlebar_menus();
+            _titlebar_block(L, ImVec2(menus_x, L.origin.y), ImVec2(g_topbar.x, L.origin.y + MENU_H));
+            _titlebar_tabs(L);
+        }
         _titlebar_info(L);
+        _titlebar_logo(L);
         if (win32.window_has_custom_titlebar(main_window)) _titlebar_caption_buttons(L);
     }
     ImGui::End();
-
-    if (loaded) {
-        ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ui.color.panel);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.panel);
-        if (ImGui::BeginViewportSideBar("##LumenMenubar", ImGui::GetMainViewport(), ImGuiDir_Up, MENU_H, flags | ImGuiWindowFlags_MenuBar)) {
-            const ImVec2 o = ImGui::GetWindowPos();
-            const float w = ImGui::GetWindowWidth();
-            _titlebar_menus();
-            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(o.x, o.y + MENU_H - ui.stroke.hairline), ImVec2(o.x + w, o.y + MENU_H), ui.color.line);
-        }
-        ImGui::End();
-        ImGui::PopStyleColor(2);
-    }
-
-    ImGui::PopStyleVar(2);
 }
 
 void EditorApplication::_titlebar_menus()
 {
-    const UiStyle& ui = ui_style();
-    ui_menu_push_style();
-    ImGui::PushStyleColor(ImGuiCol_Header, ui.color.hover);
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui.color.hover);
-    if (ImGui::BeginMenuBar()) {
-        ImGui::SetCursorPosX(ui.titlebar.menu_offset_x);
-        _titlebar_editor_menu();
-        ImGui::EndMenuBar();
-    }
-    ImGui::PopStyleColor(2);
-    ui_menu_pop_style();
-}
-
-float EditorApplication::_titlebar_info_width() const
-{
-    const UiStyle& ui = ui_style();
-    const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
-    const float caption = win32.window_has_custom_titlebar(main_window) ? ui.titlebar.caption_width * 3.0f : 0.0f;
-    return caption + ui.titlebar.title_margin + ImGui::CalcTextSize(title.c_str()).x + ImGui::CalcTextSize("000.00 ms  0000 fps").x + ui.titlebar.stats_margin * 2.0f;
+    _titlebar_editor_menu();
 }
 
 void EditorApplication::_titlebar_info(const TitlebarLayout& p_layout)
@@ -847,8 +862,8 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout
     const UiStyle& ui = ui_style();
 
     const float btns_x = p_layout.origin.x + p_layout.width - p_layout.btn_w * 3.0f;
-    const float fill_h = p_layout.bar_h - ui.stroke.hairline;
-    fg->AddRectFilled(ImVec2(btns_x, p_layout.origin.y), ImVec2(btns_x + p_layout.btn_w * 3.0f, p_layout.origin.y + fill_h), ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+    const float fill_h = p_layout.bar_h;
+    fg->AddRectFilled(ImVec2(btns_x, p_layout.origin.y), ImVec2(btns_x + p_layout.btn_w * 3.0f, p_layout.origin.y + fill_h), ui.color.topbar);
 
     RECT rmin, rmax, rclose;
     auto client_rect = [&](float x0) -> RECT {
@@ -870,7 +885,7 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout
             case 1: fg->AddRect(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, 0,0,w); break;
             case 2:
                 fg->AddRect(ImVec2(c.x-s+o,c.y-s-o), ImVec2(c.x+s+o,c.y+s-o), col, 0,0,w);
-                fg->AddRectFilled(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), hovered ? ui.color.hover : ui.color.chrome);
+                fg->AddRectFilled(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), hovered ? ui.color.hover : ui.color.topbar);
                 fg->AddRect(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), col, 0,0,w);
                 break;
             case 3:
@@ -897,9 +912,9 @@ void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout
 void EditorApplication::_titlebar_tabs(const TitlebarLayout& p_layout)
 {
     const UiStyle& ui = ui_style();
-    const ImVec2 min(p_layout.origin.x + p_layout.logo + ui.titlebar.menu_offset_x, p_layout.origin.y + ui.titlebar.tab_top_space);
-    const ImVec2 max(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.bar_h);
-    tabs.draw_bar(min, max, _titlebar_info_width(), ImGui::GetColorU32(ImGuiCol_MenuBarBg), [&](ImVec2 p_min, ImVec2 p_max) { _titlebar_block(p_layout, p_min, p_max); });
+    const ImVec2 min(p_layout.tabs_x, p_layout.origin.y + p_layout.menu_h + ui.titlebar.tab_top_space);
+    const ImVec2 max(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.total_h);
+    tabs.draw_bar(min, max, ui.titlebar.tab_inset_x, ui.color.topbar, [&](ImVec2 p_min, ImVec2 p_max) { _titlebar_block(p_layout, p_min, p_max); });
 }
 
 void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
@@ -907,13 +922,12 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     const UiStyle& ui = ui_style();
-    const float side = p_layout.bar_h - ui.titlebar.logo_margin * 2.0f;
-    const float area = p_layout.logo + ui.titlebar.menu_offset_x;
-    const ImVec2 mn(ImFloor(p_layout.origin.x + (area - side) * 0.5f), ImFloor(p_layout.origin.y + (p_layout.bar_h - side) * 0.5f));
+    const float side = ImFloor(p_layout.total_h - ui.titlebar.logo_margin * 2.0f);
+    const ImVec2 mn(ImFloor(p_layout.origin.x + (p_layout.logo - side) * 0.5f), ImFloor(p_layout.origin.y + (p_layout.total_h - side) * 0.5f));
     const ImVec2 mx(mn.x + side, mn.y + side);
 
     VkDescriptorSet logo_set = imgui.texture_cache.get(resources.icon_image.image_view);
-    dl->PushClipRect(p_layout.origin, ImVec2(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.bar_h), false);
+    dl->PushClipRect(p_layout.origin, ImVec2(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.total_h), false);
     if (logo_set) dl->AddImage(logo_set, mn, mx);
     else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), ui.titlebar.logo_rounding);
     dl->PopClipRect();
@@ -921,7 +935,7 @@ void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
 
 void EditorApplication::_titlebar_editor_menu()
 {
-    if (ImGui::BeginMenu("File")) {
+    if (_topbar_menu("File")) {
         // if (ImGui::MenuItem("Save Current Scene")) {}
         // if (ImGui::MenuItem("Save Current Scene As")) {}
         if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) tabs.active->save(_context());
@@ -941,10 +955,10 @@ void EditorApplication::_titlebar_editor_menu()
         ImGui::Separator();
         if (ImGui::MenuItem("Exit")) close_project();
         if (ImGui::MenuItem("Quit", "Alt+F4")) win32.window_request_close(main_window);
-        ImGui::EndMenu();
+        _topbar_menu_end();
     }
 
-    if (ImGui::BeginMenu("Edit")) {
+    if (_topbar_menu("Edit")) {
         // if (ImGui::MenuItem("Undo")) {}
         // if (ImGui::MenuItem("Redo")) {}
         // if (ImGui::MenuItem("Undo History")) {}
@@ -960,10 +974,10 @@ void EditorApplication::_titlebar_editor_menu()
         if (ImGui::MenuItem("Editor Settings")) tabs.open<EditorSettingsTab>();
         if (ImGui::MenuItem("Project Settings")) tabs.open<ProjectSettingsTab>();
         if (ImGui::MenuItem("Open Editor Data Folder")) Paths::reveal_in_explorer(Paths::roaming_data());
-        ImGui::EndMenu();
+        _topbar_menu_end();
     }
 
-    if (ImGui::BeginMenu("Window")) {
+    if (_topbar_menu("Window")) {
         if (tabs.active != &asset_manager_tab) world_tab.draw_menu();
         if (ImGui::BeginMenu("Display")) {
             int vsync = (int)settings.vsync_mode;
@@ -977,7 +991,7 @@ void EditorApplication::_titlebar_editor_menu()
         ImGui::Separator();
         // if (ImGui::MenuItem("Enable Fullscreen", "Alt+F11")) {}
         if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) screenshot_request();
-        ImGui::EndMenu();
+        _topbar_menu_end();
     }
 
     // if (ImGui::BeginMenu("Tools")) {

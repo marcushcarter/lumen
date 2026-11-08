@@ -20,7 +20,6 @@ struct EditorSettingsTab : EditorTab
     Error create(EditorContext& ctx) override;
     void on_update(EditorContext& ctx, float p_dt) override;
 
-    void _apply_theme(EditorContext& ctx);
     void _draw_appearance(EditorContext& ctx);
     void _draw_display(EditorContext& ctx);
     void _draw_startup(EditorContext& ctx);

@@ -68,6 +68,8 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     DockSlot* closed = nullptr;
     TabStrip strip;
+    strip.rounding = ui.panel_box.rounding;
+    strip.round_flags = ImDrawFlags_RoundCornersTop;
     strip.begin("##tabs", p_min, ImVec2(p_max.x, p_min.y + tab_h), TabStrip::Edge::TOP, natural, ui.dock_tab.inset_x * 2.0f);
     strip.fit(naturals, mins);
     strip.cursor_x += ui.dock_tab.inset_x;
@@ -97,7 +99,8 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     const float content_h = ImMax(1.0f, size.y - tab_h);
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + tab_h));
     ImGui::PushID(active ? active->panel->layout_id : "##empty");
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.panel);
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p_min.x, p_min.y + tab_h), p_max, ui.color.panel, ui.panel_box.rounding, ImDrawFlags_RoundCornersBottom);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.transparent);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, active ? active->panel->window_padding() : ui.dock.panel_padding);
     const ImGuiWindowFlags flags = (active ? active->panel->window_flags() : 0) | ImGuiWindowFlags_NoScrollbar;
     const bool visible = ImGui::BeginChild("##content", ImVec2(size.x, content_h), ImGuiChildFlags_AlwaysUseWindowPadding, flags);
@@ -107,6 +110,7 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (active) {
             ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.0f);
             active->panel->draw_contents(ctx);
+            ui_category_flush();
             ImGui::PopStyleVar();
         } else {
             const ImVec2 wp = ImGui::GetWindowPos();

@@ -39,6 +39,7 @@ void AnimationDetailsPanel::draw_contents(EditorContext& ctx)
     asset_field(ctx, "Preview Mesh", "###animation_preview_mesh", tab->preview_mesh, AssetType::MESH);
     ImGui::Checkbox("Loop", &tab->loop);
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
 }

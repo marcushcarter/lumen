@@ -83,6 +83,7 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings)
         if (ImGui::Checkbox("Generate Materials", &generate)) r_settings.mode = generate ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Creates materials and imports their textures");
     }
+    ui_category_flush();
 }
 
 void ImportDialog::_start(EditorContext& ctx, Pending& r_pending)

@@ -1,121 +1,91 @@
 #include <editor/application/editor_settings.h>
-#include <drivers/windows/window_driver_win32.h>
 #include <editor/ui/ui_style.h>
 #include <core/base/color.h>
 #include <cmath>
-#include <iterator>
 
 namespace lumen {
 
-static float _luminance(const ImVec4& c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; }
-static ImVec4 _fade(const ImVec4& c, float a) { return { c.x, c.y, c.z, a }; }
-static ImVec4 _mix(const ImVec4& a, const ImVec4& b, float t) { return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w }; }
-
-static ImVec4 _shade(const ImVec4& c, float f)
-{
-    float lum = _luminance(c);
-    float t = (lum - 0.35f) / 0.30f;
-    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-    t = t * t * (3.0f - 2.0f * t);
-    float k = f + (1.0f / f - f) * t;
-    return { c.x * k, c.y * k, c.z * k, c.w };
-}
-
 void Theme::apply() const
 {
-    ImVec4 acc = accent;
-    if (use_system_accent) {
-        float r, g, b;
-        if (drivers::WindowDriverWin32::system_accent_color(r, g, b)) acc = ImVec4(r, g, b, 1.0f);
-    }
+    using P = UiStyle::Palette;
+    auto hex = [](uint32_t p_rgba) { return ui_hex4(p_rgba); };
 
     ImGui::StyleColorsDark();
     ImVec4* c = ImGui::GetStyle().Colors;
 
-    c[ImGuiCol_Text] = text;
-    c[ImGuiCol_TextDisabled] = _mix(text, base, 0.55f);
-    c[ImGuiCol_TextLink] = acc;
-    c[ImGuiCol_TextSelectedBg] = _fade(acc, 0.35f);
-    c[ImGuiCol_UnsavedMarker] = text;
+    c[ImGuiCol_Text] = hex(P::TEXT);
+    c[ImGuiCol_TextDisabled] = hex(P::TEXT_DIM);
+    c[ImGuiCol_TextLink] = hex(P::LINK);
+    c[ImGuiCol_TextSelectedBg] = hex(P::ACCENT_SELECT);
+    c[ImGuiCol_UnsavedMarker] = hex(P::TEXT);
 
-    // Surfaces
-    const ImVec4 chrome = _mix(base, text, 0.012f);
-    c[ImGuiCol_WindowBg] = chrome;
-    c[ImGuiCol_ChildBg] = chrome;
-    c[ImGuiCol_PopupBg] = _shade(base, 0.85f);
-    c[ImGuiCol_MenuBarBg] = chrome;
-    c[ImGuiCol_TitleBg] = _shade(base, 0.80f);
-    c[ImGuiCol_TitleBgActive] = _shade(base, 0.90f);
-    c[ImGuiCol_TitleBgCollapsed] = _shade(base, 0.70f);
-    c[ImGuiCol_DockingEmptyBg] = _shade(base, 0.70f);
+    c[ImGuiCol_WindowBg] = hex(P::BACK);
+    c[ImGuiCol_ChildBg] = hex(P::BACK);
+    c[ImGuiCol_PopupBg] = hex(P::MENU_BACK);
+    c[ImGuiCol_MenuBarBg] = hex(P::TOPBAR);
+    c[ImGuiCol_TitleBg] = hex(P::TOPBAR);
+    c[ImGuiCol_TitleBgActive] = hex(P::TOPBAR);
+    c[ImGuiCol_TitleBgCollapsed] = hex(P::TOPBAR);
+    c[ImGuiCol_DockingEmptyBg] = hex(P::EDITOR_BORDER);
     c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.45f);
     c[ImGuiCol_NavWindowingDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.35f);
 
-    // Frames (inputs, checkboxes, combos)
-    c[ImGuiCol_FrameBg] = _mix(_shade(base, 1.25f), acc, 0.06f);
-    c[ImGuiCol_FrameBgHovered] = _mix(_shade(base, 1.45f), acc, 0.18f);
-    c[ImGuiCol_FrameBgActive] = _mix(_shade(base, 1.60f), acc, 0.30f);
-    c[ImGuiCol_CheckboxSelectedBg] = _mix(_shade(base, 1.60f), acc, 0.25f);
-    c[ImGuiCol_InputTextCursor] = text;
+    c[ImGuiCol_FrameBg] = hex(P::NUM);
+    c[ImGuiCol_FrameBgHovered] = hex(P::NUM_HOVER);
+    c[ImGuiCol_FrameBgActive] = hex(P::NUM_ACTIVE);
+    c[ImGuiCol_CheckboxSelectedBg] = hex(P::ACCENT);
+    c[ImGuiCol_InputTextCursor] = hex(P::TEXT_CURSOR);
 
-    // Lines
-    c[ImGuiCol_Border] = _shade(base, 1.80f);
-    c[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    c[ImGuiCol_Separator] = _shade(base, 1.80f);
-    c[ImGuiCol_SeparatorHovered] = _fade(acc, 0.70f);
-    c[ImGuiCol_SeparatorActive] = acc;
-    c[ImGuiCol_TreeLines] = _shade(base, 1.60f);
+    c[ImGuiCol_Border] = hex(P::OUTLINE);
+    c[ImGuiCol_BorderShadow] = hex(P::EMBOSS);
+    c[ImGuiCol_Separator] = hex(P::SEPARATOR);
+    c[ImGuiCol_SeparatorHovered] = hex(P::ACCENT_HOVER);
+    c[ImGuiCol_SeparatorActive] = hex(P::ACCENT);
+    c[ImGuiCol_TreeLines] = hex(P::OUTLINE);
 
-    // Window resize grip
-    c[ImGuiCol_ResizeGrip] = _fade(acc, 0.20f);
-    c[ImGuiCol_ResizeGripHovered] = _fade(acc, 0.50f);
-    c[ImGuiCol_ResizeGripActive] = acc;
+    c[ImGuiCol_ResizeGrip] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    c[ImGuiCol_ResizeGripHovered] = hex(P::ACCENT_HOVER);
+    c[ImGuiCol_ResizeGripActive] = hex(P::ACCENT);
 
-    // Scrollbar
-    c[ImGuiCol_ScrollbarBg] = _shade(base, 0.80f);
-    c[ImGuiCol_ScrollbarGrab] = _shade(base, 1.60f);
-    c[ImGuiCol_ScrollbarGrabHovered] = _fade(acc, 0.50f);
-    c[ImGuiCol_ScrollbarGrabActive] = acc;
+    c[ImGuiCol_ScrollbarBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    c[ImGuiCol_ScrollbarGrab] = hex(P::SCROLL);
+    c[ImGuiCol_ScrollbarGrabHovered] = hex(P::SCROLL_HOVER);
+    c[ImGuiCol_ScrollbarGrabActive] = hex(P::SCROLL_ACTIVE);
 
-    // Interactive
-    c[ImGuiCol_Header] = _fade(acc, 0.35f);
-    c[ImGuiCol_HeaderHovered] = _fade(acc, 0.55f);
-    c[ImGuiCol_HeaderActive] = acc;
-    c[ImGuiCol_Button] = _fade(acc, 0.30f);
-    c[ImGuiCol_ButtonHovered] = _fade(acc, 0.50f);
-    c[ImGuiCol_ButtonActive] = acc;
-    c[ImGuiCol_CheckMark] = acc;
-    c[ImGuiCol_SliderGrab] = acc;
-    c[ImGuiCol_SliderGrabActive] = acc;
+    c[ImGuiCol_Header] = hex(P::LIST_SELECTED);
+    c[ImGuiCol_HeaderHovered] = hex(P::LIST_HOVER);
+    c[ImGuiCol_HeaderActive] = hex(P::LIST_ACTIVE);
+    c[ImGuiCol_Button] = hex(P::NUM);
+    c[ImGuiCol_ButtonHovered] = hex(P::NUM_HOVER);
+    c[ImGuiCol_ButtonActive] = hex(P::ACCENT);
+    c[ImGuiCol_CheckMark] = hex(P::TEXT_HI);
+    c[ImGuiCol_SliderGrab] = hex(P::ACCENT);
+    c[ImGuiCol_SliderGrabActive] = hex(P::ACCENT_HOVER);
 
-    // Tabs
-    c[ImGuiCol_Tab] = _shade(base, 0.90f);
-    c[ImGuiCol_TabHovered] = _fade(acc, 0.60f);
-    c[ImGuiCol_TabSelected] = _fade(acc, 0.80f);
-    c[ImGuiCol_TabSelectedOverline] = acc;
-    c[ImGuiCol_TabDimmed] = _shade(base, 0.85f);
-    c[ImGuiCol_TabDimmedSelected] = _shade(base, 1.05f);
-    c[ImGuiCol_TabDimmedSelectedOverline] = _fade(acc, 0.40f);
+    c[ImGuiCol_Tab] = hex(P::TAB);
+    c[ImGuiCol_TabHovered] = hex(P::TAB_HOVER);
+    c[ImGuiCol_TabSelected] = hex(P::TAB_ACTIVE);
+    c[ImGuiCol_TabSelectedOverline] = hex(P::ACCENT);
+    c[ImGuiCol_TabDimmed] = hex(P::TAB);
+    c[ImGuiCol_TabDimmedSelected] = hex(P::TAB_ACTIVE);
+    c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 
-    // Docking / drag-drop / nav
-    c[ImGuiCol_DockingPreview] = _fade(acc, 0.60f);
-    c[ImGuiCol_DragDropTarget] = acc;
-    c[ImGuiCol_DragDropTargetBg] = _fade(acc, 0.15f);
-    c[ImGuiCol_NavCursor] = acc;
-    c[ImGuiCol_NavWindowingHighlight] = _fade(acc, 0.70f);
+    c[ImGuiCol_DockingPreview] = hex(P::ACCENT_SELECT);
+    c[ImGuiCol_DragDropTarget] = hex(P::ACCENT);
+    c[ImGuiCol_DragDropTargetBg] = hex(P::ACCENT_DROP);
+    c[ImGuiCol_NavCursor] = hex(P::ACCENT);
+    c[ImGuiCol_NavWindowingHighlight] = hex(P::ACCENT_HOVER);
 
-    // Plots
-    c[ImGuiCol_PlotLines] = _mix(text, base, 0.35f);
-    c[ImGuiCol_PlotLinesHovered] = acc;
-    c[ImGuiCol_PlotHistogram] = _fade(acc, 0.75f);
-    c[ImGuiCol_PlotHistogramHovered] = acc;
+    c[ImGuiCol_PlotLines] = hex(P::TEXT_DIM);
+    c[ImGuiCol_PlotLinesHovered] = hex(P::ACCENT);
+    c[ImGuiCol_PlotHistogram] = hex(P::ACCENT);
+    c[ImGuiCol_PlotHistogramHovered] = hex(P::ACCENT_HOVER);
 
-    // Tables
-    c[ImGuiCol_TableHeaderBg] = _shade(base, 1.20f);
-    c[ImGuiCol_TableBorderStrong] = _shade(base, 1.90f);
-    c[ImGuiCol_TableBorderLight] = _shade(base, 1.50f);
+    c[ImGuiCol_TableHeaderBg] = hex(P::PANEL);
+    c[ImGuiCol_TableBorderStrong] = hex(P::EDITOR_BORDER);
+    c[ImGuiCol_TableBorderLight] = hex(P::OUTLINE);
     c[ImGuiCol_TableRowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    c[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.03f);
+    c[ImGuiCol_TableRowBgAlt] = hex(P::ROW_ALTERNATE);
 
     UiStyle& ui = ui_style();
     ui.build();
@@ -129,17 +99,6 @@ uint32_t Theme::to_colorref(const ImVec4& p_color)
         return (uint32_t)std::lround(color_linear_to_srgb(q) * 255.0f);
     };
     return channel(p_color.x) | (channel(p_color.y) << 8) | (channel(p_color.z) << 16);
-}
-
-const char* Theme::theme_preset_name(int i)
-{
-    return (i < 0 || i >= (int)std::size(THEME_PRESETS)) ? "Custom" : THEME_PRESETS[i].name;
-}
-
-int Theme::theme_preset_index(std::string_view n)
-{
-    for (int i = 0; i < (int)std::size(THEME_PRESETS); ++i) if (n == THEME_PRESETS[i].name) return i;
-    return -1;
 }
 
 }

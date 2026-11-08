@@ -222,26 +222,22 @@ void Viewport::_draw_image(EditorContext& ctx)
         else _outline_rect(ctx, ctx.render_path->outline, *ctx.world, ctx.selection->entities);
     }
 
-    if (!ImGui::IsAnyItemActive() && size.x >= 1.0f && size.y >= 1.0f) {
+    if (size.x >= 1.0f && size.y >= 1.0f) {
         const uint32_t w = (uint32_t)ImClamp(size.x, 1.0f, 8192.0f);
         const uint32_t h = (uint32_t)ImClamp(size.y, 1.0f, 8192.0f);
         ctx.renderer->request_size(w, h);
     }
 
     if (ctx.render_path) {
-        const UiStyle& ui = ui_style();
         GridFeature& grid = ctx.render_path->grid;
         grid.show_grid = allow_grid && show_grid && !playing;
         grid.show_axes = allow_grid && show_grid && !playing;
-        grid.ui_width = size.x;
-        grid.axis_thickness = ui.gizmo.axis_thickness;
-        grid.head_length = ui.gizmo.head_length;
-        grid.head_width = ui.gizmo.head_width;
-        const ImU32 axis_color[3] = { ui.color.gizmo_x, ui.color.gizmo_y, ui.color.gizmo_z };
-        for (uint32_t i = 0; i < 3; i++) {
-            const ImVec4 c = ImGui::ColorConvertU32ToFloat4(axis_color[i]);
-            grid.axis_color[i] = vec4(c.x, c.y, c.z, c.w);
-        }
+        const ImVec4 gc = ui_hex4(UiStyle::Palette::GRID);
+        const ImVec4 xc = ui_hex4(UiStyle::Palette::AXIS_X);
+        const ImVec4 zc = ui_hex4(UiStyle::Palette::AXIS_Z);
+        grid.grid_color = vec4(gc.x, gc.y, gc.z, gc.w);
+        grid.axis_x_color = vec4(xc.x, xc.y, xc.z, xc.w);
+        grid.axis_z_color = vec4(zc.x, zc.y, zc.z, zc.w);
     }
     const char* vp_image = ctx.render_path ? ctx.render_path->ui.viewport_image(ctx.renderer->main_view.graph) : nullptr;
     RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
@@ -254,7 +250,8 @@ void Viewport::_draw_image(EditorContext& ctx)
     bool look_hover = false;
     ImVec2 pick_mouse = ImGui::GetMousePos();
     if (set) {
-        ImGui::Image((ImTextureID)set, size, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+        ImGui::Dummy(size);
+        ImGui::GetWindowDrawList()->AddImageRounded((ImTextureID)set, pos, ImVec2(pos.x + size.x, pos.y + size.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f), IM_COL32_WHITE, ui_style().panel_box.rounding, _corners);
         const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         const bool image_hovered = ImGui::IsItemHovered();
         const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
@@ -266,25 +263,50 @@ void Viewport::_draw_image(EditorContext& ctx)
         if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.sunken);
+        dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.viewport_back, ui_style().panel_box.rounding, _corners);
     }
 
+    if (_header_frame != ImGui::GetFrameCount()) {
+        const float margin = ui_style().overlay.margin;
+        _draw_controls(ctx, pos, ImVec2(pos.x + size.x, pos.y + ImGui::GetFrameHeight() + margin * 2.0f), margin);
+    } else {
+        _draw_options_tab(ctx, pos, size);
+    }
+
+    if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
+        ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
+    }
+    look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
+    _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));
+    popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+
+    if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
+}
+
+void Viewport::draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
+{
+    _header_frame = ImGui::GetFrameCount();
+    const float margin = ImFloor((p_max.y - p_min.y - ImGui::GetFrameHeight()) * 0.5f);
+    _draw_controls(ctx, p_min, p_max, margin);
+}
+
+void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, float p_margin)
+{
+    const ImVec2 pos = p_min;
+    const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
     const DebugView& cur = DEBUG_VIEWS[selected_view];
     const char* btn_icon = cur.category ? cur.category->icon : cur.icon;
     char view_btn[128];
     if (btn_icon) snprintf(view_btn, sizeof(view_btn), "%s  %s###ViewMode", btn_icon, cur.name);
     else snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", cur.name);
 
-    left_overlay.begin(pos, size, OverlayBar::Align::LEFT);
-    if (left_overlay.begin_menu(ICON_FA_BARS)) {
-        float internal = ctx.renderer->main_view.render_scale * 100.0f;
-        if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
-        float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
-        if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
-        left_overlay.end_menu();
+    right_overlay.begin(pos, size, OverlayBar::Align::RIGHT, p_margin);
+
+    if (_header_frame != ImGui::GetFrameCount() && right_overlay.begin_menu(ICON_FA_SLIDERS "###render_settings")) {
+        _draw_options(ctx);
+        right_overlay.end_menu();
     }
-    left_overlay.gap();
-    if (left_overlay.begin_menu(view_btn)) {
+    if (right_overlay.begin_menu(view_btn)) {
         int i = 0;
         while (i < DEBUG_VIEW_COUNT) {
             const DebugView& d = DEBUG_VIEWS[i];
@@ -302,40 +324,68 @@ void Viewport::_draw_image(EditorContext& ctx)
             }
             i = j;
         }
-        left_overlay.end_menu();
+        right_overlay.end_menu();
     }
-    if (allow_grid) {
-        left_overlay.gap();
-        left_overlay.toggle(ICON_FA_BORDER_ALL "###grid", show_grid);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(show_grid ? "Hide grid" : "Show grid");
+    right_overlay.end();
+}
+
+void Viewport::_draw_options(EditorContext& ctx)
+{
+    ImGui::TextDisabled("Viewport");
+    ImGui::PushItemWidth(ImFloor(ImGui::GetFontSize() * 9.0f));
+    float internal = ctx.renderer->main_view.render_scale * 100.0f;
+    if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
+    float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
+    if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
+    ImGui::PopItemWidth();
+    if (allow_grid) ImGui::Checkbox("Grid", &show_grid);
+    if (options_controls) options_controls();
+    ImGui::Checkbox("Fullscreen", &fullscreen);
+}
+
+void Viewport::_draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+{
+    const UiStyle& ui = ui_style();
+    const char* label = "Options";
+    const ImVec2 ts = ImGui::CalcTextSize(label);
+    const float pad = ImGui::GetStyle().FramePadding.x;
+    const float arrow = ui.header.dropdown_arrow;
+    const float w = ts.x + pad * 3.0f + arrow * 2.0f;
+    const float h = ImGui::GetFrameHeight() + ui.space.xs;
+    const float margin = ui.header.pad_x * 2.0f;
+    if (p_size.x < w + margin * 2.0f || p_size.y < h) return;
+
+    const ImVec2 a(ImFloor(p_pos.x + p_size.x - margin - w), p_pos.y);
+    const ImVec2 b(a.x + w, a.y + h);
+    const float r = ui.header.rounding * 1.5f;
+
+    ImGui::SetCursorScreenPos(a);
+    const ImGuiID id = ImGui::GetID("##viewport_options");
+    const bool open_now = ImGui::IsPopupOpen(id, ImGuiPopupFlags_None);
+    const bool pressed = ImGui::InvisibleButton("##viewport_options_tab", ImVec2(w, h), ImGuiButtonFlags_PressedOnClick);
+    const bool hovered = ImGui::IsItemHovered();
+    if (pressed && !open_now) ImGui::OpenPopupEx(id);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(a, b, ui.color.header, r, ImDrawFlags_RoundCornersBottom);
+    const ImVec2 ia(a.x + ui.space.xxs, a.y);
+    const ImVec2 ib(b.x - ui.space.xxs, b.y - ui.space.xxs);
+    if (open_now || hovered) dl->AddRectFilled(ia, ib, ui.color.header_hover, ui.header.rounding);
+    const ImU32 text = (open_now || hovered) ? ui.color.text_hi : ui.color.pulldown_text;
+    const float cy = ImFloor((ia.y + ib.y) * 0.5f);
+    dl->AddText(ImVec2(a.x + pad, ImFloor(cy - ts.y * 0.5f)), text, label);
+    ui_chevron(dl, ImVec2(ImFloor(b.x - pad - arrow * 0.5f) + 0.5f, cy + 0.5f), arrow * 2.0f, ImGuiDir_Down, ui_with_alpha(text, 0.8f), ui.stroke.thin);
+
+    ImGui::SetNextWindowPos(ImVec2(b.x, b.y + ui.menu.popup_offset), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+    ui_menu_push_style();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ui.space.lg, ui.space.lg));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ui.space.lg, ui.space.sm));
+    if (ImGui::BeginPopupEx(id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        _draw_options(ctx);
+        ImGui::EndPopup();
     }
-    left_overlay.end();
-
-    if (allow_gizmo || overlay_controls) {
-        right_overlay.begin(pos, size, OverlayBar::Align::RIGHT);
-        if (allow_gizmo) {
-            right_overlay.toggle(gizmo_world ? ICON_FA_GLOBE "  World###gizmo_space" : ICON_FA_CUBE "  Object###gizmo_space", gizmo_world);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(gizmo_world ? "World space" : "Object space");
-        }
-        if (overlay_controls) overlay_controls(right_overlay);
-        right_overlay.end();
-    }
-
-    const float corner_h = ImGui::GetFrameHeight();
-    const float corner_margin = ui_style().overlay.margin;
-    corner_overlay.begin(ImVec2(pos.x, pos.y + size.y - corner_h - corner_margin * 2.0f), size, OverlayBar::Align::RIGHT);
-    if (corner_overlay.button(fullscreen ? ICON_FA_COMPRESS "###fullscreen" : ICON_FA_EXPAND "###fullscreen", ImVec2(corner_h, corner_h))) fullscreen = !fullscreen;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip(fullscreen ? "Exit fullscreen" : "Fullscreen");
-    corner_overlay.end();
-
-    if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
-        ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
-    }
-    look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
-    _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));
-    popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-
-    if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
+    ImGui::PopStyleVar(2);
+    ui_menu_pop_style();
 }
 
 void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
@@ -380,7 +430,8 @@ void Viewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
     ImGui::SetCursorScreenPos(p_min);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::BeginChild("##scene", ImVec2(ImMax(1.0f, p_max.x - p_min.x), ImMax(1.0f, p_max.y - p_min.y)), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    _corners = _header_frame == ImGui::GetFrameCount() ? ImDrawFlags_RoundCornersBottom : ImDrawFlags_RoundCornersAll;
+    ImGui::BeginChild("##scene", ImVec2(ImMax(1.0f, p_max.x - p_min.x), ImMax(1.0f, p_max.y - p_min.y)), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
     ImGui::PopStyleVar();
     _draw_image(ctx);
     ImGui::EndChild();

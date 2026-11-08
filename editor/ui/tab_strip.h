@@ -19,6 +19,8 @@ struct TabStrip
     float trailing_x = 0.0f;
     float natural_total = 0.0f;
     float avail = 0.0f;
+    float rounding = 0.0f;
+    ImDrawFlags round_flags = ImDrawFlags_RoundCornersNone;
 
     static float height();
     static float natural_width(const char* p_label);

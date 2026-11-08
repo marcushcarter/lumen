@@ -58,13 +58,8 @@ struct Renderer
     /**** SIZING ****/
     /****************/
 
-    static constexpr uint32_t RESIZE_SETTLE_FRAMES = 4;
-
     uint32_t pending_width = 0;
     uint32_t pending_height = 0;
-    uint32_t _settle_width = 0;
-    uint32_t _settle_height = 0;
-    uint32_t _settle_frames = 0;
     uint64_t resize_epoch = 0;
 
     void request_size(uint32_t p_width, uint32_t p_height);

@@ -106,11 +106,10 @@ bool RigPreview::bounds(const GeometryPool& p_geometry, Guid p_mesh, vec3& r_cen
     return true;
 }
 
-void RigPreview::draw_controls(OverlayBar& r_bar)
+void RigPreview::draw_controls()
 {
     if (!skinned) return;
-    r_bar.toggle(ICON_FA_BONE "  Bones###show_bones", show_bones);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip(show_bones ? "Hide bones" : "Show bones");
+    ImGui::Checkbox("Bones", &show_bones);
 }
 
 void RigPreview::draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera, const float* p_weights) const

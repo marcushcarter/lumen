@@ -13,6 +13,13 @@ namespace lumen {
 struct SharedPanels;
 struct DetailsPanel;
 
+enum class WorldEditMode : uint8_t { SELECTION, COUNT };
+
+static constexpr const char* WORLD_EDIT_MODE_NAMES[] = { ICON_FA_ARROW_POINTER "  Selection Mode" };
+static constexpr const char* TRANSFORM_ORIENTATION_NAMES[] = { ICON_FA_GLOBE "  Global", ICON_FA_CUBE "  Local" };
+
+struct TabToolbar;
+
 struct WorldTab : EditorTab
 {
     static constexpr TabKind KIND = TabKind::WORLD;
@@ -30,6 +37,7 @@ struct WorldTab : EditorTab
     uint64_t _hash = 0;
     uint64_t _saved_hash = 0;
     double _hash_poll = -1.0e9;
+    WorldEditMode edit_mode = WorldEditMode::SELECTION;
 
     const std::filesystem::path* _path(EditorContext& ctx) const;
     uint64_t _compute_hash(EditorContext& ctx) const;
@@ -39,7 +47,8 @@ struct WorldTab : EditorTab
     void _draw_empty(ImVec2 p_min, ImVec2 p_max);
     void _draw_play_badge(EditorContext& ctx, ImDrawList* p_dl, ImVec2 p_min, ImVec2 p_max);
     void _draw_toolbar(EditorContext& ctx);
-    float _draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max);
+    void _draw_play_controls(EditorContext& ctx, float p_center_x, float p_y);
+    void _draw_header_menus(EditorContext& ctx, TabToolbar& r_bar);
 
     Error initialize(SharedPanels& r_shared);
     void shutdown();

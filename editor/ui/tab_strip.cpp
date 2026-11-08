@@ -88,10 +88,7 @@ void TabStrip::begin(const char* p_id, ImVec2 p_min, ImVec2 p_max, Edge p_edge, 
     scale = (p_natural_total > avail) ? avail / p_natural_total : 1.0f;
     min_factor = 1.0f;
 
-    const float line = ui.stroke.hairline;
-    draw_list->AddRectFilled(min, max, background);
-    const float ly = (edge == Edge::TOP) ? max.y - line : min.y;
-    draw_list->AddRectFilled(ImVec2(min.x, ly), ImVec2(max.x, ly + line), ui.color.line);
+    draw_list->AddRectFilled(min, max, background, rounding, round_flags);
 
     ImGui::PushID(p_id);
     ImGui::PushClipRect(min, max, true);
@@ -113,9 +110,11 @@ bool TabStrip::tab(const char* p_label, bool p_selected)
     const float line = ui.stroke.hairline;
     const float accent_h = ui.tab_strip.accent_height;
     if (p_selected) {
-        draw_list->AddRectFilled(a, b, ui.color.panel);
-        const float ay = (edge == Edge::TOP) ? a.y : b.y - accent_h;
-        draw_list->AddRectFilled(ImVec2(a.x, ay), ImVec2(b.x, ay + accent_h), ui.color.accent);
+        draw_list->AddRectFilled(a, b, ui.color.tab_active);
+        if (accent_h > 0.0f) {
+            const float ay = (edge == Edge::TOP) ? a.y : b.y - accent_h;
+            draw_list->AddRectFilled(ImVec2(a.x, ay), ImVec2(b.x, ay + accent_h), ui.color.accent);
+        }
     } else if (hovered) {
         const ImVec2 ha(a.x, edge == Edge::BOTTOM ? a.y + line : a.y);
         const ImVec2 hb(b.x, edge == Edge::TOP ? b.y - line : b.y);
@@ -139,13 +138,9 @@ bool TabStrip::button(const char* p_label, bool p_on)
     const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(w, h), ImGuiButtonFlags_PressedOnClick);
     const bool hovered = ImGui::IsItemHovered();
 
-    const float line = ui.stroke.hairline;
-    if (hovered) {
-        const ImVec2 ha(a.x, edge == Edge::BOTTOM ? a.y + line : a.y);
-        const ImVec2 hb(b.x, edge == Edge::TOP ? b.y - line : b.y);
-        draw_list->AddRectFilled(ha, hb, ui.color.hover);
-    }
-    if (p_on) {
+    if (p_on) draw_list->AddRectFilled(a, b, ui.color.tab_active);
+    else if (hovered) draw_list->AddRectFilled(a, b, ui.color.hover);
+    if (p_on && ui.tab_strip.accent_height > 0.0f) {
         const float accent_h = ui.tab_strip.accent_height;
         const float ay = (edge == Edge::TOP) ? a.y : b.y - accent_h;
         draw_list->AddRectFilled(ImVec2(a.x, ay), ImVec2(b.x, ay + accent_h), ui.color.accent);
@@ -209,11 +204,8 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     const bool hovered = ImGui::IsItemHovered();
     const bool hot = hovered || close_hovered || close_held;
 
-    if (p_selected) {
-        draw_list->AddRectFilled(a, b, ui.color.panel, ui.dock_tab.rounding, ImDrawFlags_RoundCornersTop);
-    } else if (hot) {
-        draw_list->AddRectFilled(a, ImVec2(b.x, b.y - ui.stroke.hairline), ui.color.hover, ui.dock_tab.rounding, ImDrawFlags_RoundCornersTop);
-    }
+    if (p_selected) draw_list->AddRectFilled(a, b, ui.color.tab_active, ui.dock_tab.rounding, ImDrawFlags_RoundCornersTop);
+    else if (hot) draw_list->AddRectFilled(a, b, ui.color.tab_hover, ui.dock_tab.rounding, ImDrawFlags_RoundCornersTop);
 
     const float h = b.y - a.y;
     const char* end = ImGui::FindRenderedTextEnd(p_label);
@@ -228,7 +220,7 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
         tmin.x += ImGui::CalcTextSize(p_label, text).x;
     }
     const ImVec2 text_size = ImGui::CalcTextSize(text, end);
-    ImGui::PushStyleColor(ImGuiCol_Text, (p_selected || hot) ? ui.color.text : ui.color.text_dim);
+    ImGui::PushStyleColor(ImGuiCol_Text, p_selected ? ui.color.text_hi : (hot ? ui.color.text : ui.color.text_dim));
     ImGui::RenderTextEllipsis(draw_list, tmin, tmax, tmax.x, text, end, &text_size);
     ImGui::PopStyleColor();
 
@@ -238,7 +230,7 @@ bool TabStrip::dock_tab(const char* p_label, bool p_selected, bool* p_close, boo
     if (p_dirty && !close_hot) {
         draw_list->AddCircleFilled(c, r, (p_selected || hot) ? ui.color.text : ui.color.text_dim);
     } else if (closable && (p_selected || hot)) {
-        if (close_hot) draw_list->AddRectFilled(ca, cb, ui.color.line, ui.dock_tab.close_rounding);
+        if (close_hot) draw_list->AddRectFilled(ca, cb, ui.color.field, ui.dock_tab.close_rounding);
         const ImU32 xc = close_hot ? ui.color.text : ui.color.text_dim;
         draw_list->AddLine(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), xc, ui.dock_tab.close_glyph_stroke);
         draw_list->AddLine(ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), xc, ui.dock_tab.close_glyph_stroke);

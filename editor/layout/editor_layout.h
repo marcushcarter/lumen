@@ -67,6 +67,8 @@ struct EditorLayout
     bool bottom_was_open = false;
     bool bottom_collapsed = false;
     Drop pending_drop;
+    bool viewport_in_header = true;
+    const std::function<void(EditorContext&)>* _toolbar = nullptr;
 
     float _layout_center(float p_top, float p_bottom);
     void _apply_center_delta(float p_delta, bool p_activated);

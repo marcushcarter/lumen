@@ -124,6 +124,8 @@ struct EditorApplication : Application
         float tab_h = 0;
         float btn_w = 0;
         float logo = 0;
+        float tabs_x = 0;
+        float total_h = 0;
     };
 
     void _titlebar_block(const TitlebarLayout& p_layout, ImVec2 p_min, ImVec2 p_max);
@@ -132,7 +134,6 @@ struct EditorApplication : Application
     void _titlebar_tabs(const TitlebarLayout& p_layout);
     void _titlebar_logo(const TitlebarLayout& p_layout);
     void _titlebar_info(const TitlebarLayout& p_layout);
-    float _titlebar_info_width() const;
     void _titlebar_editor_menu();
 
     void _draw_titlebar();

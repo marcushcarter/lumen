@@ -38,6 +38,7 @@ void TextureDetailsPanel::draw_contents(EditorContext& ctx)
     tab->draw_import();
     _draw_stats(ctx);
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
 }

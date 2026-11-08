@@ -310,17 +310,6 @@ Error Renderer::apply_pending_size()
 {
     if (pending_width == 0 || pending_height == 0) return Error::OK;
     if (_size_matches(main_view, pending_width, pending_height)) return Error::OK;
-    if (pending_width == main_view.output_width && pending_height == main_view.output_height) return set_size(pending_width, pending_height);
-
-    if (main_view.output_width > 1 && main_view.output_height > 1) {
-        if (pending_width != _settle_width || pending_height != _settle_height) {
-            _settle_width = pending_width;
-            _settle_height = pending_height;
-            _settle_frames = 0;
-            return Error::OK;
-        }
-        if (++_settle_frames < RESIZE_SETTLE_FRAMES) return Error::OK;
-    }
     return set_size(pending_width, pending_height);
 }
 

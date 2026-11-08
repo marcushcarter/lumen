@@ -45,6 +45,7 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
         asset_field(ctx, "Skeleton", "###mesh_skeleton", rig.skeleton, AssetType::SKELETON);
     }
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
 }

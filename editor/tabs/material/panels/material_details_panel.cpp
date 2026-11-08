@@ -42,6 +42,7 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
         }
     }
 
+    ui_category_flush();
     _draw_warnings(ctx);
     ui_field_pop_style();
     

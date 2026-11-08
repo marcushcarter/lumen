@@ -16,21 +16,6 @@
 
 namespace lumen {
 
-static void _push_accent_soft(ImGuiCol p_idle, ImGuiCol p_hovered, ImGuiCol p_active)
-{
-    const UiStyle& ui = ui_style();
-    ImGui::PushStyleColor(p_idle, ui.color.accent_soft);
-    ImGui::PushStyleColor(p_hovered, ui.color.accent_soft_hover);
-    ImGui::PushStyleColor(p_active, ui.color.accent_soft_active);
-}
-
-static void _accent_underline()
-{
-    const UiStyle& ui = ui_style();
-    const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(mn.x, mx.y - ui.details.line * 2.0f), mx, ui.color.accent);
-}
-
 void DetailsPanel::_draw_environment(EditorContext& ctx)
 {
     EnvironmentSettings& env = ctx.world->environment;
@@ -132,14 +117,14 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<ModelGridComponent>(e);
     }
 
+    ui_category_flush();
     ui_field_pop_style();
-    ImGui::Spacing();
+    ImGui::Dummy(ImVec2(0.0f, ui_style().panel_box.gap));
 
     ImGui::PushID("Add Component");
-    _push_accent_soft(ImGuiCol_Button, ImGuiCol_ButtonHovered, ImGuiCol_ButtonActive);
+    ui_push_buttons(UiButton::NEUTRAL);
     const bool add_pressed = ImGui::Button(ICON_FA_PLUS "  Add Component", ImVec2(-FLT_MIN, 0.0f));
-    ImGui::PopStyleColor(3);
-    _accent_underline();
+    ui_pop_buttons();
     if (add_pressed) ImGui::OpenPopup("##add_component");
     ui_menu_push_style();
     if (ImGui::BeginPopup("##add_component")) {

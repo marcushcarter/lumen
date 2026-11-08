@@ -43,44 +43,9 @@ void GridFeature::_write_params(const CameraUniform& p_camera, VkExtent2D p_size
     r_params.ray_dx = glm::vec4(ray_dx, 0.0f);
     r_params.ray_dy = glm::vec4(ray_dy, 0.0f);
 
-    const float scale = ui_width > 0.0f ? size.x / ui_width : 1.0f;
-    const float thickness = axis_thickness * scale;
-    const float length = head_length * scale;
-    const float width = head_width * scale;
-    r_params.axis_style = glm::vec4(thickness, length, width, 0.0f);
-
-    auto project = [&](glm::vec3 p_world, glm::vec4& r_out) {
-        const glm::vec4 clip = view_proj * glm::vec4(p_world, 1.0f);
-        if (clip.w <= p_camera.near_z) {
-            r_out = glm::vec4(0.0f);
-            return false;
-        }
-        const glm::vec2 pixel = (glm::vec2(clip) / clip.w * 0.5f + 0.5f) * size;
-        r_out = glm::vec4(pixel, clip.z / clip.w, 1.0f);
-        return true;
-    };
-
-    glm::vec2 lo(1.0f);
-    glm::vec2 hi(0.0f);
-    const bool origin = project(glm::vec3(0.0f), r_params.axis_origin);
-    for (int i = 0; i < 3; i++) {
-        r_params.axis_color[i] = axis_color[i];
-        glm::vec3 axis(0.0f);
-        axis[i] = 1.0f;
-        glm::vec4& tip = r_params.axis_tip[i];
-        if (!origin || !project(axis, tip) || glm::distance(glm::vec2(tip), glm::vec2(r_params.axis_origin)) < 1.0f) {
-            tip = glm::vec4(0.0f);
-            continue;
-        }
-        if (hi.x < lo.x) {
-            lo = glm::vec2(r_params.axis_origin);
-            hi = lo;
-        }
-        lo = glm::min(lo, glm::vec2(tip));
-        hi = glm::max(hi, glm::vec2(tip));
-    }
-    const float pad = std::max(thickness, width) + AXIS_BOUNDS_PAD;
-    r_params.axis_bounds = hi.x < lo.x ? glm::vec4(1.0f, 1.0f, 0.0f, 0.0f) : glm::vec4(lo - pad, hi + pad);
+    r_params.grid_color = grid_color;
+    r_params.axis_x_color = axis_x_color;
+    r_params.axis_z_color = axis_z_color;
     r_params.size = glm::uvec4(p_size.width, p_size.height, p_depth_size.width, p_depth_size.height);
 }
 

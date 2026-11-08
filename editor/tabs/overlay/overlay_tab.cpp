@@ -24,7 +24,7 @@ Error OverlayTab::create(EditorContext& ctx)
         const bool weighted = mask.size() == rig_preview.skeleton_data().joint_count();
         rig_preview.draw_bones(p_draw_list, p_pos, p_size, orbit.camera, weighted ? mask.data() : nullptr);
     };
-    layout.viewport.overlay_controls = [this](OverlayBar& r_bar) { rig_preview.draw_controls(r_bar); };
+    layout.viewport.options_controls = [this] { rig_preview.draw_controls(); };
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);

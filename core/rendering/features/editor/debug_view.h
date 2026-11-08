@@ -21,6 +21,7 @@ enum class DebugViewOp : uint32_t {
     CLUSTER_ERROR,
     TRIANGLE_DENSITY,
     UV_CHECKER,
+    STREAMING,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -66,16 +67,11 @@ static constexpr DebugView DEBUG_VIEWS[] = {
     { nullptr, "Cluster Error", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTER_ERROR, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { nullptr, "Triangle Density", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::TRIANGLE_DENSITY, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { nullptr, "Overdraw", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::OVERDRAW, DebugViewInputs::DEPTH },
-    // occlusion phase
-    // hiz mip
+    { nullptr, "Streaming", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
 
     { nullptr, "Depth Normal", &DV_CAT_GEOMETRY, "G_Depth", DebugViewOp::DEPTH_NORMAL, DebugViewInputs::SOURCE },
     { nullptr, "Clay", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::CLAY, DebugViewInputs::VISBUF },
     { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
-    // random color
-    // zebra
-    // mip level
-    // texel density
 
     { nullptr, "World Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
     { nullptr, "Velocity", &DV_CAT_BUFFERS, "G_Motion", DebugViewOp::VELOCITY, DebugViewInputs::SOURCE },

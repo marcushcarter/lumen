@@ -517,7 +517,10 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
         if (_stamp(bin) == STAMP_MISSING) return FAIL;
         r.geometry.load(p_job.mesh, bin);
     }
-    if (!r.geometry.get(r.geometry.find(p_job.mesh))) return FAIL;
+    const uint32_t mesh_id = r.geometry.find(p_job.mesh);
+    if (!r.geometry.get(mesh_id)) return FAIL;
+    r.geometry.require(mesh_id);
+    if (!r.geometry.settled(mesh_id)) return WAIT;
 
     for (Guid t : p_job.textures) {
         if (r.textures.get(t)) continue;

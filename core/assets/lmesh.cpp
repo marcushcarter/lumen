@@ -2,6 +2,7 @@
 #include <core/assets/asset_common.h>
 #include <core/base/error.h>
 #include <core/io/file_io.h>
+#include <meshoptimizer.h>
 #include <algorithm>
 #include <cstddef>
 #include <cfloat>
@@ -65,16 +66,6 @@ static uint32_t _payload_flags(uint32_t p_version, const uint8_t* p_header)
 static bool _has_rig_block(uint32_t p_version, uint32_t p_flags)
 {
     return p_version >= LMESH_VERSION_RIG && has_flag((MeshFlags)p_flags, MeshFlags::SKINNED);
-}
-
-static size_t _page_bytes(const LMeshPage& p_page, bool p_skinned, bool p_wide)
-{
-    size_t bytes = (size_t)p_page.cluster_count * sizeof(LMeshCluster);
-    bytes += (size_t)p_page.tri_count * sizeof(uint32_t);
-    bytes += (size_t)p_page.vertex_count * sizeof(ClusterVertex);
-    if (p_skinned) bytes += (size_t)p_page.vertex_count * sizeof(SkinVertex);
-    if (p_wide) bytes += (size_t)p_page.tri_count * sizeof(uint32_t);
-    return bytes;
 }
 
 static vec4 _sphere_union(const std::vector<vec4>& p_spheres)
@@ -152,6 +143,8 @@ static const char* _split_clusters(const std::vector<Cluster>& p_in, const std::
     }
     return nullptr;
 }
+
+static void _compute_child_pages(LMeshData& r_data);
 
 const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
 {
@@ -240,9 +233,6 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
 
     auto level_of = [&](const Cluster& c) { return c.self_group == CLUSTER_GROUP_NONE ? 0u : p_src.groups[c.self_group].level; };
 
-    // Parts: clusters made from the same group (self_group) that refine into the same
-    // parent group. A part is the smallest unit a streamer swaps; a unit (all parts of one
-    // self_group) never splits across pages.
     struct Part {
         uint32_t self = CLUSTER_GROUP_NONE;
         uint32_t parent = CLUSTER_GROUP_NONE;
@@ -347,7 +337,6 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
             Part& part = parts[i];
             part.first_cluster = (uint32_t)r_data.clusters.size();
             part.page = pi;
-            page.level = std::max(page.level, part.level);
             if (part.root) r_data.header.root_page_count = pi + 1;
             for (uint32_t ci : part.clusters) {
                 const Cluster& c = clusters[ci];
@@ -375,12 +364,9 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
         page.cluster_count = (uint32_t)r_data.clusters.size() - page.cluster_first;
         page.tri_count = (uint32_t)r_data.local_tris.size() - page.tri_first;
         page.vertex_count = (uint32_t)r_data.vertices.size() - page.vertex_first;
-        page.size = (uint32_t)_page_bytes(page, skinned, wide);
         r_data.pages.push_back(page);
     }
 
-    // Hierarchy: one bottom-up tree per (root, level) run of parts, then a tree over those
-    // roots, laid out breadth-first so the root is node 0 and siblings are contiguous.
     struct TreeNode {
         LMeshNode node{};
         std::vector<uint32_t> kids;
@@ -475,27 +461,48 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
     h.bounds_sphere = p_src.bounds_sphere;
     r_data.groups = p_src.groups;
     r_data.rig = p_src.rig;
+    _compute_child_pages(r_data);
     return lmesh_validate(r_data);
 }
 
-const char* lmesh_validate(const LMeshData& p_data)
+static void _compute_child_pages(LMeshData& r_data)
+{
+    const uint32_t group_count = (uint32_t)r_data.groups.size();
+    std::vector<std::vector<uint32_t>> kids(group_count);
+    for (uint32_t pi = 0; pi < (uint32_t)r_data.pages.size(); pi++) {
+        const LMeshPage& page = r_data.pages[pi];
+        for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count; ci++) {
+            const uint32_t g = r_data.clusters[ci].parent_group;
+            if (g == CLUSTER_GROUP_NONE || g >= group_count) continue;
+            if (kids[g].empty() || kids[g].back() != pi) kids[g].push_back(pi);
+        }
+    }
+    r_data.group_child_first.assign(group_count + 1, 0u);
+    r_data.group_child_pages.clear();
+    for (uint32_t g = 0; g < group_count; g++) {
+        r_data.group_child_first[g] = (uint32_t)r_data.group_child_pages.size();
+        r_data.group_child_pages.insert(r_data.group_child_pages.end(), kids[g].begin(), kids[g].end());
+    }
+    r_data.group_child_first[group_count] = (uint32_t)r_data.group_child_pages.size();
+    r_data.header.group_child_page_count = (uint32_t)r_data.group_child_pages.size();
+}
+
+const char* lmesh_validate_tables(const LMeshData& p_data)
 {
     const LMeshPayloadHeader& h = p_data.header;
-    const bool skinned = p_data.skinned();
-    const bool wide = p_data.wide_slots();
     if (h.slot_count == 0) return "mesh has no material slots";
     if (h.cluster_count == 0 || h.page_count == 0 || h.node_count == 0) return "mesh has no clusters";
-    if (p_data.clusters.size() != h.cluster_count || p_data.local_tris.size() != h.tri_count || p_data.vertices.size() != h.vertex_count) return "cluster array sizes disagree with the header";
-    if (p_data.groups.size() != h.group_count || p_data.nodes.size() != h.node_count || p_data.pages.size() != h.page_count) return "table sizes disagree with the header";
-    if (p_data.skin.size() != (skinned ? h.vertex_count : 0u)) return "skin stream size disagrees with the header";
-    if (p_data.tri_slots.size() != (wide ? h.tri_count : 0u)) return "wide slot table size disagrees with the header";
+    if (p_data.clusters.size() != h.cluster_count || p_data.groups.size() != h.group_count || p_data.nodes.size() != h.node_count || p_data.pages.size() != h.page_count) return "table sizes disagree with the header";
     if (h.root_page_count == 0 || h.root_page_count > h.page_count) return "bad root page count";
+    if (p_data.group_child_first.size() != (size_t)h.group_count + 1 || p_data.group_child_pages.size() != h.group_child_page_count) return "bad group child page table";
+    if (p_data.group_child_first[0] != 0 || p_data.group_child_first[h.group_count] != h.group_child_page_count) return "bad group child page table";
+    for (uint32_t g = 0; g < h.group_count; g++) if (p_data.group_child_first[g] > p_data.group_child_first[g + 1]) return "bad group child page table";
+    for (uint32_t p : p_data.group_child_pages) if (p >= h.page_count) return "group child page out of range";
 
     uint32_t cluster_at = 0, tri_at = 0, vertex_at = 0;
     for (const LMeshPage& page : p_data.pages) {
         if (page.cluster_first != cluster_at || page.tri_first != tri_at || page.vertex_first != vertex_at) return "pages are not contiguous";
         if ((uint64_t)page.cluster_first + page.cluster_count > h.cluster_count || (uint64_t)page.tri_first + page.tri_count > h.tri_count || (uint64_t)page.vertex_first + page.vertex_count > h.vertex_count) return "page range out of bounds";
-        if (page.size != _page_bytes(page, skinned, wide)) return "page size mismatch";
         for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count; ci++) {
             const LMeshCluster& c = p_data.clusters[ci];
             if (c.tri_count == 0 || c.tri_count > LMESH_CLUSTER_MAX_TRIS || c.vertex_count > LMESH_CLUSTER_MAX_VERTS) return "cluster size out of range";
@@ -503,17 +510,6 @@ const char* lmesh_validate(const LMeshData& p_data)
             if (c.self_group != CLUSTER_GROUP_NONE && c.self_group >= h.group_count) return "cluster self_group out of range";
             if (c.parent_group != CLUSTER_GROUP_NONE && c.parent_group >= h.group_count) return "cluster parent_group out of range";
             if (c.slot != LMESH_CLUSTER_SLOT_MIXED && c.slot >= h.slot_count) return "cluster slot out of range";
-            const uint32_t first = page.tri_first + c.tri_offset;
-            for (uint32_t t = first; t < first + c.tri_count; t++) {
-                const uint32_t lt = p_data.local_tris[t];
-                if ((lt & 0xFFu) >= c.vertex_count || ((lt >> 8) & 0xFFu) >= c.vertex_count || ((lt >> 16) & 0xFFu) >= c.vertex_count) return "local index out of range";
-                const uint32_t slot = lt >> 24;
-                if (slot == LMESH_LOCAL_SLOT_OVERFLOW) {
-                    if (!wide || p_data.tri_slots[t] >= h.slot_count) return "triangle slot out of range";
-                } else if (slot >= h.slot_count) {
-                    return "triangle slot out of range";
-                }
-            }
         }
         cluster_at += page.cluster_count;
         tri_at += page.tri_count;
@@ -534,6 +530,57 @@ const char* lmesh_validate(const LMeshData& p_data)
     return nullptr;
 }
 
+const char* lmesh_validate_page(const LMeshData& p_tables, uint32_t p_page, const LMeshPageData& p_data)
+{
+    const LMeshPayloadHeader& h = p_tables.header;
+    if (p_page >= p_tables.pages.size()) return "page out of range";
+    const LMeshPage& page = p_tables.pages[p_page];
+    const bool skinned = p_tables.skinned();
+    const bool wide = p_tables.wide_slots();
+    if (p_data.tris.size() != page.tri_count || p_data.vertices.size() != page.vertex_count) return "page data size mismatch";
+    if (p_data.skin.size() != (skinned ? page.vertex_count : 0u) || p_data.tri_slots.size() != (wide ? page.tri_count : 0u)) return "page stream size mismatch";
+    for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count; ci++) {
+        const LMeshCluster& c = p_tables.clusters[ci];
+        for (uint32_t t = c.tri_offset; t < c.tri_offset + c.tri_count; t++) {
+            const uint32_t lt = p_data.tris[t];
+            if ((lt & 0xFFu) >= c.vertex_count || ((lt >> 8) & 0xFFu) >= c.vertex_count || ((lt >> 16) & 0xFFu) >= c.vertex_count) return "local index out of range";
+            const uint32_t slot = lt >> 24;
+            if (slot == LMESH_LOCAL_SLOT_OVERFLOW) {
+                if (!wide || p_data.tri_slots[t] >= h.slot_count) return "triangle slot out of range";
+            } else if (slot >= h.slot_count) {
+                return "triangle slot out of range";
+            }
+        }
+    }
+    return nullptr;
+}
+
+void lmesh_page_slice(const LMeshData& p_data, uint32_t p_page, LMeshPageData& r_out)
+{
+    const LMeshPage& page = p_data.pages[p_page];
+    r_out.tris.assign(p_data.local_tris.begin() + page.tri_first, p_data.local_tris.begin() + page.tri_first + page.tri_count);
+    r_out.vertices.assign(p_data.vertices.begin() + page.vertex_first, p_data.vertices.begin() + page.vertex_first + page.vertex_count);
+    r_out.skin.clear();
+    r_out.tri_slots.clear();
+    if (p_data.skinned()) r_out.skin.assign(p_data.skin.begin() + page.vertex_first, p_data.skin.begin() + page.vertex_first + page.vertex_count);
+    if (p_data.wide_slots()) r_out.tri_slots.assign(p_data.tri_slots.begin() + page.tri_first, p_data.tri_slots.begin() + page.tri_first + page.tri_count);
+}
+
+const char* lmesh_validate(const LMeshData& p_data)
+{
+    if (const char* why = lmesh_validate_tables(p_data)) return why;
+    const LMeshPayloadHeader& h = p_data.header;
+    if (!p_data.has_page_data()) return "mesh has no page data";
+    if (p_data.skin.size() != (p_data.skinned() ? h.vertex_count : 0u)) return "skin stream size disagrees with the header";
+    if (p_data.tri_slots.size() != (p_data.wide_slots() ? h.tri_count : 0u)) return "wide slot table size disagrees with the header";
+    LMeshPageData page;
+    for (uint32_t p = 0; p < h.page_count; p++) {
+        lmesh_page_slice(p_data, p, page);
+        if (const char* why = lmesh_validate_page(p_data, p, page)) return why;
+    }
+    return nullptr;
+}
+
 template <class T>
 static void _append(std::vector<uint8_t>& r_out, const T* p_data, size_t p_count)
 {
@@ -543,10 +590,31 @@ static void _append(std::vector<uint8_t>& r_out, const T* p_data, size_t p_count
     std::memcpy(r_out.data() + at, p_data, p_count * sizeof(T));
 }
 
+template <class T>
+static uint32_t _encode(std::vector<uint8_t>& r_out, const T* p_data, size_t p_count)
+{
+    static_assert(sizeof(T) % 4 == 0 && sizeof(T) <= 256, "meshopt vertex codec stride");
+    if (p_count == 0) return 0;
+    const size_t at = r_out.size();
+    r_out.resize(at + meshopt_encodeVertexBufferBound(p_count, sizeof(T)));
+    const size_t n = meshopt_encodeVertexBufferLevel(r_out.data() + at, r_out.size() - at, p_data, p_count, sizeof(T), 3, 1);
+    r_out.resize(at + n);
+    return (uint32_t)n;
+}
+
+template <class T>
+static bool _decode(const uint8_t* p_src, size_t p_bytes, size_t p_count, std::vector<T>& r_out)
+{
+    r_out.resize(p_count);
+    if (p_count == 0) return p_bytes == 0;
+    return p_bytes > 0 && meshopt_decodeVertexBuffer(r_out.data(), p_count, sizeof(T), p_src, p_bytes) == 0;
+}
+
 bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshData& p_data)
 {
     const bool skinned = p_data.skinned();
     const bool wide = p_data.wide_slots();
+    if (!p_data.has_page_data()) return false;
 
     std::string rig_names;
     for (const std::string& n : p_data.rig.joints) {
@@ -558,45 +626,66 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     const size_t rig_bytes = skinned ? lmesh_rig_bytes(rig) : 0;
 
     std::vector<LMeshPage> pages = p_data.pages;
-    uint64_t at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
-    at += p_data.groups.size() * sizeof(ClusterGroup) + p_data.nodes.size() * sizeof(LMeshNode) + pages.size() * sizeof(LMeshPage);
+    std::vector<uint8_t> blobs;
     for (LMeshPage& page : pages) {
-        page.size = (uint32_t)_page_bytes(page, skinned, wide);
-        page.offset = at;
-        at += page.size;
+        const size_t start = blobs.size();
+        page.tri_bytes = _encode(blobs, p_data.local_tris.data() + page.tri_first, page.tri_count);
+        page.vertex_bytes = _encode(blobs, p_data.vertices.data() + page.vertex_first, page.vertex_count);
+        page.skin_bytes = skinned ? _encode(blobs, p_data.skin.data() + page.vertex_first, page.vertex_count) : 0u;
+        if (wide) _encode(blobs, p_data.tri_slots.data() + page.tri_first, page.tri_count);
+        page.size = (uint32_t)(blobs.size() - start);
+        page.offset = start;
     }
-    if (at > UINT32_MAX) {
+
+    std::vector<uint8_t> resident;
+    _append(resident, p_data.groups.data(), p_data.groups.size());
+    _append(resident, p_data.nodes.data(), p_data.nodes.size());
+    const size_t pages_at = resident.size();
+    _append(resident, pages.data(), pages.size());
+    _append(resident, p_data.clusters.data(), p_data.clusters.size());
+    _append(resident, p_data.group_child_first.data(), p_data.group_child_first.size());
+    _append(resident, p_data.group_child_pages.data(), p_data.group_child_pages.size());
+
+    LMeshPayloadHeader header = p_data.header;
+    header.section_count = 2;
+    header.group_child_page_count = (uint32_t)p_data.group_child_pages.size();
+
+    const uint64_t sections_at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
+    const uint64_t resident_at = sections_at + header.section_count * sizeof(LMeshSection);
+    const uint64_t blobs_at = resident_at + resident.size();
+    const uint64_t total = blobs_at + blobs.size();
+    if (total > UINT32_MAX) {
         log_write("lmesh: '%s' would be over 4 GB.", p_bin.string().c_str());
         return false;
     }
+    for (LMeshPage& page : pages) page.offset += blobs_at;
+    std::memcpy(resident.data() + pages_at, pages.data(), pages.size() * sizeof(LMeshPage));
+
+    const LMeshSection sections[2] = {
+        { LMeshSectionType::RASTER_RESIDENT, 0, resident_at, resident.size() },
+        { LMeshSectionType::RASTER_PAGES, 0, blobs_at, blobs.size() },
+    };
 
     LAssetHeader ah{};
     ah.magic = BCON_MAGIC;
     ah.version = LMESH_VERSION;
     ah.guid = p_guid;
     ah.type = AssetType::MESH;
-    ah.payload_size = (uint32_t)(at - sizeof(LAssetHeader));
+    ah.payload_size = (uint32_t)(total - sizeof(LAssetHeader));
 
     std::vector<uint8_t> out;
-    out.reserve((size_t)at);
+    out.reserve((size_t)total);
     _append(out, &ah, 1);
-    _append(out, &p_data.header, 1);
+    _append(out, &header, 1);
     if (skinned) {
         _append(out, &rig, 1);
         _append(out, p_data.rig.inverse_binds.data(), p_data.rig.inverse_binds.size());
         _append(out, rig_names.data(), rig_names.size());
     }
-    _append(out, p_data.groups.data(), p_data.groups.size());
-    _append(out, p_data.nodes.data(), p_data.nodes.size());
-    _append(out, pages.data(), pages.size());
-    for (const LMeshPage& page : pages) {
-        _append(out, p_data.clusters.data() + page.cluster_first, page.cluster_count);
-        _append(out, p_data.local_tris.data() + page.tri_first, page.tri_count);
-        _append(out, p_data.vertices.data() + page.vertex_first, page.vertex_count);
-        if (skinned) _append(out, p_data.skin.data() + page.vertex_first, page.vertex_count);
-        if (wide) _append(out, p_data.tri_slots.data() + page.tri_first, page.tri_count);
-    }
-    if (out.size() != at) return false;
+    _append(out, sections, 2);
+    _append(out, resident.data(), resident.size());
+    _append(out, blobs.data(), blobs.size());
+    if (out.size() != total) return false;
 
     std::error_code ec;
     std::filesystem::create_directories(p_bin.parent_path(), ec);
@@ -622,20 +711,43 @@ static const char* _parse_rig_block(const std::vector<uint8_t>& p_bytes, size_t&
     return nullptr;
 }
 
-static const char* _parse_paged(const std::vector<uint8_t>& p_bytes, LMeshData& r_data)
+static bool _counts_sane(const LMeshPayloadHeader& p_h)
+{
+    return p_h.cluster_count <= (1u << 26) && p_h.tri_count <= (1u << 28) && p_h.vertex_count <= (1u << 28) && p_h.page_count <= (1u << 24) && p_h.node_count <= (1u << 26) && p_h.group_count <= (1u << 26) && p_h.group_child_page_count <= (1u << 28) && p_h.section_count <= 16;
+}
+
+struct LMeshPageV5
+{
+    uint64_t offset;
+    uint32_t size;
+    uint32_t cluster_first;
+    uint32_t cluster_count;
+    uint32_t tri_first;
+    uint32_t tri_count;
+    uint32_t vertex_first;
+    uint32_t vertex_count;
+    uint32_t level;
+    uint32_t _pad[2];
+};
+
+static_assert(sizeof(LMeshPageV5) == 48, "v5 page layout is frozen");
+
+static const char* _parse_v5(const std::vector<uint8_t>& p_bytes, LMeshData& r_data)
 {
     size_t at = sizeof(LAssetHeader);
     LMeshPayloadHeader& h = r_data.header;
     if (!_read(p_bytes, at, &h, 1)) return "truncated header";
+    h.section_count = 0;
+    h.group_child_page_count = 0;
     if (r_data.skinned()) {
         if (const char* why = _parse_rig_block(p_bytes, at, r_data.rig)) return why;
     }
-    if (h.cluster_count > (1u << 26) || h.tri_count > (1u << 28) || h.vertex_count > (1u << 28) || h.page_count > (1u << 24) || h.node_count > (1u << 26) || h.group_count > (1u << 26)) return "counts out of range";
+    if (!_counts_sane(h)) return "counts out of range";
 
+    std::vector<LMeshPageV5> pages(h.page_count);
     r_data.groups.resize(h.group_count);
     r_data.nodes.resize(h.node_count);
-    r_data.pages.resize(h.page_count);
-    if (!_read(p_bytes, at, r_data.groups.data(), h.group_count) || !_read(p_bytes, at, r_data.nodes.data(), h.node_count) || !_read(p_bytes, at, r_data.pages.data(), h.page_count)) return "truncated tables";
+    if (!_read(p_bytes, at, r_data.groups.data(), h.group_count) || !_read(p_bytes, at, r_data.nodes.data(), h.node_count) || !_read(p_bytes, at, pages.data(), h.page_count)) return "truncated tables";
 
     const bool skinned = r_data.skinned();
     const bool wide = r_data.wide_slots();
@@ -644,18 +756,29 @@ static const char* _parse_paged(const std::vector<uint8_t>& p_bytes, LMeshData& 
     r_data.vertices.resize(h.vertex_count);
     r_data.skin.resize(skinned ? h.vertex_count : 0u);
     r_data.tri_slots.resize(wide ? h.tri_count : 0u);
-    for (const LMeshPage& page : r_data.pages) {
-        if ((uint64_t)page.cluster_first + page.cluster_count > h.cluster_count || (uint64_t)page.tri_first + page.tri_count > h.tri_count || (uint64_t)page.vertex_first + page.vertex_count > h.vertex_count) return "page range out of bounds";
-        if (page.size != _page_bytes(page, skinned, wide) || page.offset + page.size > p_bytes.size()) return "page out of bounds";
-        size_t p = (size_t)page.offset;
-        bool ok = _read(p_bytes, p, r_data.clusters.data() + page.cluster_first, page.cluster_count)
-            && _read(p_bytes, p, r_data.local_tris.data() + page.tri_first, page.tri_count)
-            && _read(p_bytes, p, r_data.vertices.data() + page.vertex_first, page.vertex_count);
-        if (ok && skinned) ok = _read(p_bytes, p, r_data.skin.data() + page.vertex_first, page.vertex_count);
-        if (ok && wide) ok = _read(p_bytes, p, r_data.tri_slots.data() + page.tri_first, page.tri_count);
+    r_data.pages.resize(h.page_count);
+    for (uint32_t i = 0; i < h.page_count; i++) {
+        const LMeshPageV5& v5 = pages[i];
+        if ((uint64_t)v5.cluster_first + v5.cluster_count > h.cluster_count || (uint64_t)v5.tri_first + v5.tri_count > h.tri_count || (uint64_t)v5.vertex_first + v5.vertex_count > h.vertex_count) return "page range out of bounds";
+        size_t p = (size_t)v5.offset;
+        if (v5.offset > p_bytes.size()) return "page out of bounds";
+        bool ok = _read(p_bytes, p, r_data.clusters.data() + v5.cluster_first, v5.cluster_count)
+            && _read(p_bytes, p, r_data.local_tris.data() + v5.tri_first, v5.tri_count)
+            && _read(p_bytes, p, r_data.vertices.data() + v5.vertex_first, v5.vertex_count);
+        if (ok && skinned) ok = _read(p_bytes, p, r_data.skin.data() + v5.vertex_first, v5.vertex_count);
+        if (ok && wide) ok = _read(p_bytes, p, r_data.tri_slots.data() + v5.tri_first, v5.tri_count);
         if (!ok) return "truncated page";
+        LMeshPage& page = r_data.pages[i];
+        page = {};
+        page.cluster_first = v5.cluster_first;
+        page.cluster_count = v5.cluster_count;
+        page.tri_first = v5.tri_first;
+        page.tri_count = v5.tri_count;
+        page.vertex_first = v5.vertex_first;
+        page.vertex_count = v5.vertex_count;
     }
-    return lmesh_validate(r_data);
+    _compute_child_pages(r_data);
+    return nullptr;
 }
 
 static const char* _parse_legacy(const std::vector<uint8_t>& p_bytes, uint32_t p_version, uint32_t p_payload_size, LMeshSource& r_src)
@@ -724,30 +847,170 @@ static const char* _parse_legacy(const std::vector<uint8_t>& p_bytes, uint32_t p
     return nullptr;
 }
 
+static std::vector<uint8_t> _read_range(std::ifstream& r_file, uint64_t p_offset, uint64_t p_size)
+{
+    std::vector<uint8_t> bytes((size_t)p_size);
+    r_file.clear();
+    r_file.seekg((std::streamoff)p_offset);
+    if (p_size && !r_file.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)p_size)) bytes.clear();
+    return bytes;
+}
+
+static const char* _open_streamed(std::ifstream& r_file, uint64_t p_file_size, LMeshData& r_data)
+{
+    const std::vector<uint8_t> head = _read_range(r_file, 0, std::min<uint64_t>(p_file_size, sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + sizeof(LMeshRigHeader)));
+    size_t at = sizeof(LAssetHeader);
+    LMeshPayloadHeader& h = r_data.header;
+    if (!_read(head, at, &h, 1)) return "truncated header";
+    if (!_counts_sane(h)) return "counts out of range";
+
+    if (r_data.skinned()) {
+        LMeshRigHeader rh{};
+        if (!_read(head, at, &rh, 1) || rh.joint_count > MESH_MAX_JOINTS) return "bad rig";
+        const std::vector<uint8_t> rig = _read_range(r_file, at - sizeof(rh), lmesh_rig_bytes(rh));
+        if (rig.empty() || !lmesh_parse_rig(rig.data(), rig.size(), r_data.rig)) return "bad rig";
+        at = at - sizeof(rh) + rig.size();
+    }
+
+    const std::vector<uint8_t> table = _read_range(r_file, at, (uint64_t)h.section_count * sizeof(LMeshSection));
+    r_data.sections.resize(h.section_count);
+    size_t t = 0;
+    if (!_read(table, t, r_data.sections.data(), h.section_count)) return "truncated section table";
+
+    const LMeshSection* resident = nullptr;
+    for (const LMeshSection& s : r_data.sections) {
+        if (s.offset + s.size > p_file_size || s.offset + s.size < s.offset) return "section out of bounds";
+        if (s.type == LMeshSectionType::RASTER_RESIDENT) resident = &s;
+    }
+    if (!resident) return "no raster section";
+
+    const std::vector<uint8_t> block = _read_range(r_file, resident->offset, resident->size);
+    if (block.size() != resident->size) return "truncated raster section";
+    size_t b = 0;
+    r_data.groups.resize(h.group_count);
+    r_data.nodes.resize(h.node_count);
+    r_data.pages.resize(h.page_count);
+    r_data.clusters.resize(h.cluster_count);
+    r_data.group_child_first.resize((size_t)h.group_count + 1);
+    r_data.group_child_pages.resize(h.group_child_page_count);
+    const bool ok = _read(block, b, r_data.groups.data(), r_data.groups.size())
+        && _read(block, b, r_data.nodes.data(), r_data.nodes.size())
+        && _read(block, b, r_data.pages.data(), r_data.pages.size())
+        && _read(block, b, r_data.clusters.data(), r_data.clusters.size())
+        && _read(block, b, r_data.group_child_first.data(), r_data.group_child_first.size())
+        && _read(block, b, r_data.group_child_pages.data(), r_data.group_child_pages.size());
+    if (!ok) return "truncated raster section";
+
+    for (const LMeshPage& page : r_data.pages) {
+        if (page.offset + page.size > p_file_size) return "page out of bounds";
+        if ((uint64_t)page.tri_bytes + page.vertex_bytes + page.skin_bytes > page.size) return "page streams out of bounds";
+    }
+    return lmesh_validate_tables(r_data);
+}
+
+const char* lmesh_decode_page(const uint8_t* p_blob, size_t p_size, const LMeshPage& p_page, uint32_t p_flags, LMeshPageData& r_out)
+{
+    const bool skinned = has_flag((MeshFlags)p_flags, MeshFlags::SKINNED);
+    const bool wide = has_flag((MeshFlags)p_flags, MeshFlags::WIDE_SLOTS);
+    if (p_size != p_page.size) return "page size mismatch";
+    const uint64_t used = (uint64_t)p_page.tri_bytes + p_page.vertex_bytes + p_page.skin_bytes;
+    if (used > p_size) return "page streams out of bounds";
+    const size_t slot_bytes = p_size - (size_t)used;
+    if ((!skinned && p_page.skin_bytes) || (!wide && slot_bytes)) return "unexpected page stream";
+
+    const uint8_t* p = p_blob;
+    if (!_decode(p, p_page.tri_bytes, p_page.tri_count, r_out.tris)) return "bad triangle stream";
+    p += p_page.tri_bytes;
+    if (!_decode(p, p_page.vertex_bytes, p_page.vertex_count, r_out.vertices)) return "bad vertex stream";
+    p += p_page.vertex_bytes;
+    if (skinned) {
+        if (!_decode(p, p_page.skin_bytes, p_page.vertex_count, r_out.skin)) return "bad skin stream";
+        p += p_page.skin_bytes;
+    } else {
+        r_out.skin.clear();
+    }
+    if (wide) {
+        if (!_decode(p, slot_bytes, p_page.tri_count, r_out.tri_slots)) return "bad slot stream";
+    } else {
+        r_out.tri_slots.clear();
+    }
+    return nullptr;
+}
+
+bool lmesh_open(const std::filesystem::path& p_bin, LMeshData& r_tables, uint32_t& r_version, std::string& r_error)
+{
+    r_tables = {};
+    r_version = 0;
+    std::ifstream f(p_bin, std::ios::binary | std::ios::ate);
+    if (!f) { r_error = "cannot open"; return false; }
+    const uint64_t file_size = (uint64_t)f.tellg();
+    LAssetHeader ah{};
+    f.seekg(0);
+    if (file_size < sizeof(ah) || !f.read(reinterpret_cast<char*>(&ah), sizeof(ah))) { r_error = "too small"; return false; }
+    if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) { r_error = "bad asset header"; return false; }
+    if (!asset_version_supported(AssetType::MESH, ah.version)) { r_error = "unsupported mesh version"; return false; }
+    r_version = ah.version;
+    if (ah.version < LMESH_VERSION_STREAMED) {
+        f.close();
+        return lmesh_load(p_bin, r_tables, r_error);
+    }
+    if (const char* why = _open_streamed(f, file_size, r_tables)) {
+        r_error = why;
+        r_tables = {};
+        return false;
+    }
+    return true;
+}
+
 bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::string& r_error)
 {
     r_data = {};
     std::ifstream f(p_bin, std::ios::binary | std::ios::ate);
     if (!f) { r_error = "cannot open"; return false; }
-    const std::streamsize file_size = f.tellg();
-    f.seekg(0);
-    if (file_size < (std::streamsize)sizeof(LAssetHeader)) { r_error = "too small"; return false; }
-    std::vector<uint8_t> bytes((size_t)file_size);
-    if (!f.read(reinterpret_cast<char*>(bytes.data()), file_size)) { r_error = "read failed"; return false; }
-
+    const uint64_t file_size = (uint64_t)f.tellg();
     LAssetHeader ah{};
-    std::memcpy(&ah, bytes.data(), sizeof(ah));
+    f.seekg(0);
+    if (file_size < sizeof(ah) || !f.read(reinterpret_cast<char*>(&ah), sizeof(ah))) { r_error = "too small"; return false; }
     if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) { r_error = "bad asset header"; return false; }
     if (!asset_version_supported(AssetType::MESH, ah.version)) { r_error = "unsupported mesh version"; return false; }
-    if ((uint64_t)ah.payload_size + sizeof(ah) > bytes.size()) { r_error = "truncated payload"; return false; }
+    if ((uint64_t)ah.payload_size + sizeof(ah) > file_size) { r_error = "truncated payload"; return false; }
 
     const char* why = nullptr;
-    if (ah.version >= LMESH_VERSION_PAGED) {
-        why = _parse_paged(bytes, r_data);
+    if (ah.version >= LMESH_VERSION_STREAMED) {
+        why = _open_streamed(f, file_size, r_data);
+        if (!why) {
+            const LMeshPayloadHeader& h = r_data.header;
+            r_data.local_tris.resize(h.tri_count);
+            r_data.vertices.resize(h.vertex_count);
+            r_data.skin.resize(r_data.skinned() ? h.vertex_count : 0u);
+            r_data.tri_slots.resize(r_data.wide_slots() ? h.tri_count : 0u);
+            LMeshPageData page;
+            for (uint32_t i = 0; i < h.page_count && !why; i++) {
+                const LMeshPage& info = r_data.pages[i];
+                const std::vector<uint8_t> blob = _read_range(f, info.offset, info.size);
+                if (blob.size() != info.size) { why = "truncated page"; break; }
+                why = lmesh_decode_page(blob.data(), blob.size(), info, h.flags, page);
+                if (why) break;
+                std::copy(page.tris.begin(), page.tris.end(), r_data.local_tris.begin() + info.tri_first);
+                std::copy(page.vertices.begin(), page.vertices.end(), r_data.vertices.begin() + info.vertex_first);
+                if (r_data.skinned()) std::copy(page.skin.begin(), page.skin.end(), r_data.skin.begin() + info.vertex_first);
+                if (r_data.wide_slots()) std::copy(page.tri_slots.begin(), page.tri_slots.end(), r_data.tri_slots.begin() + info.tri_first);
+            }
+            if (!why) why = lmesh_validate(r_data);
+        }
     } else {
-        LMeshSource src;
-        why = _parse_legacy(bytes, ah.version, ah.payload_size, src);
-        if (!why) why = lmesh_build(src, r_data);
+        f.close();
+        std::ifstream all(p_bin, std::ios::binary);
+        std::vector<uint8_t> bytes((size_t)file_size);
+        if (!all.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)file_size)) { r_error = "read failed"; return false; }
+        if (ah.version == LMESH_VERSION_PAGED) {
+            why = _parse_v5(bytes, r_data);
+            if (!why) why = lmesh_validate(r_data);
+        } else {
+            LMeshSource src;
+            why = _parse_legacy(bytes, ah.version, ah.payload_size, src);
+            if (!why) why = lmesh_build(src, r_data);
+        }
     }
     if (why) {
         r_error = why;

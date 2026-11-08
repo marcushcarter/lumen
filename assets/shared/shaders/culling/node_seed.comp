@@ -8,6 +8,9 @@ layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint co
 layout(buffer_reference, scalar) writeonly buffer NodeQueueBuffer { uint count; };
 layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
 layout(buffer_reference, scalar) writeonly buffer ClusterRefsCount { uint count; };
+layout(buffer_reference, scalar) writeonly buffer LevelDoneBuffer { uint data[]; };
+
+const uint MAX_LEVELS = 16u;
 
 layout(push_constant) uniform Push {
     VisibleInstanceBuffer visible_instances;
@@ -15,15 +18,17 @@ layout(push_constant) uniform Push {
     NodeQueueBuffer queue_b;
     IndirectDispatch traverse_args;
     ClusterRefsCount cluster_refs;
+    LevelDoneBuffer level_done;
     uint append;
 } pc;
 
 void main() {
-    uint groups = (pc.visible_instances.count + 63u) / 64u;
+    uint groups = max((pc.visible_instances.count + 63u) / 64u, 1u);
     pc.traverse_args.x = min(groups, 65535u);
     pc.traverse_args.y = (groups + 65534u) / 65535u;
     pc.traverse_args.z = 1u;
     pc.queue_a.count = 0u;
     pc.queue_b.count = 0u;
+    for (uint i = 0u; i < MAX_LEVELS; i++) pc.level_done.data[i] = 0u;
     if (pc.append == 0u) pc.cluster_refs.count = 0u;
 }

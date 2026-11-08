@@ -29,6 +29,9 @@ struct Mesh {
     uint skin_base;
     uint node_base;
     uint node_count;
+    uint page_base;
+    uint page_count;
+    uint flags;
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
@@ -46,6 +49,17 @@ struct Node {
 const uint NODE_INNER = 0xFFFFFFFFu;
 
 layout(buffer_reference, scalar) readonly buffer NodeBuffer { Node data[]; };
+layout(buffer_reference, scalar) readonly buffer PageResidentBuffer { uint data[]; };
+layout(buffer_reference, scalar) buffer PageStampBuffer { uint data[]; };
+layout(buffer_reference, scalar) readonly buffer GroupRefinedBuffer { uint data[]; };
+layout(buffer_reference, scalar) buffer StreamRequestBuffer { uint count; uint _pad; uvec2 data[]; };
+
+const uint MESH_FLAG_STREAMED = 1u;
+
+const uint PAGE_ABSENT = 0u;
+const uint PAGE_STREAMED = 1u;
+const uint PAGE_PERMANENT = 2u;
+const uint STREAM_REQUEST_RESIDENT_BIT = 0x80000000u;
 layout(buffer_reference, scalar) readonly buffer TriSlotBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer SlotTableBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer ClusterBuffer { Cluster data[]; };
@@ -76,6 +90,12 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     UintBuffer cluster_slots;
     ClusterBoundsBuffer cluster_bounds;
     NodeBuffer nodes;
+    PageResidentBuffer page_resident;
+    PageStampBuffer page_stamp;
+    GroupRefinedBuffer group_refined;
+    StreamRequestBuffer stream_requests;
+    uint stream_frame;
+    uint stream_request_capacity;
 };
 
 void cluster_box(GeometryBuffer p_geometry, Mesh p_mesh, uint p_cluster, out vec3 r_min, out vec3 r_extent) {

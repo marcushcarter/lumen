@@ -251,6 +251,21 @@ void MemoryPanel::_draw_transient_buffers(const RenderGraph& graph)
     }
 }
 
+void MemoryPanel::_draw_streaming(const GeometryPool& p_geometry)
+{
+    const GeometryPool::StreamStats& st = p_geometry.stream_stats;
+    uint32_t streamed = 0, resident = 0;
+    for (uint32_t i = 0; i < (uint32_t)p_geometry.streams.size(); i++) {
+        if (!p_geometry.get(i)) continue;
+        if (p_geometry.streams[i].streamed) streamed++;
+        else resident++;
+    }
+    _usage_bar("Mesh streaming", st.resident_bytes, st.budget_bytes);
+    ImGui::Text("Pages %u / %u   meshes %u streamed, %u resident   in flight %u   failed %u", st.resident_pages, st.streamed_pages, streamed, resident, st.in_flight, st.failed_pages);
+    ImGui::Text("This frame: %u requests, %u loads, %u evictions, %s uploaded", st.requests, st.loads, st.evictions, fmt_bytes(st.uploaded_bytes));
+    if (streamed == 0) ImGui::TextDisabled("No streamed meshes. Re-import static meshes to stream them; skinned and older meshes stay fully resident.");
+}
+
 void MemoryPanel::draw_contents(EditorContext& ctx)
 {
     drivers::DeviceDriverVulkan& dd = *ctx.renderer->dd;
@@ -269,6 +284,8 @@ void MemoryPanel::draw_contents(EditorContext& ctx)
 
     _draw_header();
     _draw_budgets(heaps, dd.memory_budget_enabled());
+    ui_section_gap();
+    _draw_streaming(ctx.renderer->geometry);
     ui_section_gap();
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();

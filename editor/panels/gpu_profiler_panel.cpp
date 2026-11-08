@@ -67,6 +67,11 @@ void GpuProfilerPanel::_copy_report(EditorContext& ctx)
     str_appendf(out, "\n--- Scene ---\n");
     str_appendf(out, "Instances: %u (static %u), cluster ref capacity: %u\n", v.frame.instance_count, (uint32_t)v.frame.static_insts.instances.size(), v.frame.cluster_ref_capacity);
     str_appendf(out, "Meshes loaded: %zu, cluster pool extent: %u\n", r.geometry.mesh_guids.size() - r.geometry.free_meshes.size(), r.geometry.cluster_extent);
+    {
+        const GeometryPool::StreamStats& st = r.geometry.stream_stats;
+        str_appendf(out, "Streaming: %.1f / %.1f MB, pages %u / %u, in flight %u, failed %u\n", (double)st.resident_bytes / (1024.0 * 1024.0), (double)st.budget_bytes / (1024.0 * 1024.0), st.resident_pages, st.streamed_pages, st.in_flight, st.failed_pages);
+        str_appendf(out, "Streaming frame: requests %u, loads %u, evictions %u, uploaded %.1f KB\n", st.requests, st.loads, st.evictions, (double)st.uploaded_bytes / 1024.0);
+    }
     if (ctx.render_path && ctx.profiling && ctx.profiling->gpu_on()) {
         const GeometryFeature::CullStats& s = ctx.render_path->geometry.stats;
         str_appendf(out, "Cull: refs %u, phase1 visible %u, retest %u, phase2 visible %u, instances visible %u / occluded %u / recovered %u\n", s.refs, s.phase1_visible, s.retest, s.phase2_visible, s.instances_visible, s.instances_occluded, s.instances_recovered);

@@ -7,6 +7,7 @@
 namespace lumen {
 
 struct RenderGraph;
+struct GeometryPool;
 
 struct MemoryPanel : Panel
 {
@@ -27,6 +28,7 @@ struct MemoryPanel : Panel
 
     void _draw_header();
     void _draw_budgets(const Heaps& p_heaps, bool p_budget_ext);
+    void _draw_streaming(const GeometryPool& p_geometry);
     void _draw_allocator(drivers::DeviceDriverVulkan& dd, const Heaps& p_heaps);
     void _draw_transient_images(const RenderGraph& graph);
     void _draw_transient_buffers(const RenderGraph& graph);

@@ -191,6 +191,23 @@ const uint LOD_HEAT_MAX_LEVEL = 9u;
 
 const float UV_CHECKER_TILES = 8.0;
 
+const vec3 STREAM_FULL_COLOR = vec3(0.15, 0.75, 0.25);
+const vec3 STREAM_WAITING_COLOR = vec3(1.0, 0.8, 0.05);
+const vec3 STREAM_STARVED_COLOR = vec3(1.0, 0.1, 0.05);
+const vec3 STREAM_RESIDENT_COLOR = vec3(0.35);
+
+vec3 streaming_color(uvec2 ref) {
+    const Instance inst = pc.instances.data[ref.x];
+    const Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+    if (mesh.page_count == 0u || pc.geometry.page_resident.data[mesh.page_base + mesh.page_count - 1u] == PAGE_PERMANENT) return STREAM_RESIDENT_COLOR;
+    const Cluster c = pc.geometry.clusters.data[ref.y];
+    if (c.self_group == CLUSTER_GROUP_NONE || lod_group_refined(pc.geometry, c.self_group)) return STREAM_FULL_COLOR;
+    const mat4 model = pc.transforms.data[inst.transform_id].curr_mtx;
+    const float over = lod_self_error_px(pc.geometry, c, model, transform_max_scale(model), pc.camera.position.xyz, pc.px_per_unit) / LOD_THRESHOLD_PX;
+    if (over <= 1.0) return STREAM_FULL_COLOR;
+    return mix(STREAM_WAITING_COLOR, STREAM_STARVED_COLOR, clamp(log2(over) / 4.0, 0.0, 1.0));
+}
+
 uint material_id(uvec2 v, uvec2 ref) {
     const Instance inst = pc.instances.data[ref.x];
     const uint tri_index = pc.geometry.clusters.data[ref.y].index_base / 3u + v.y;
@@ -289,6 +306,10 @@ void main() {
             }
             color = mix(base, vec3(0.0), sobel_depth_edge(coord, size));
         }
+    } else if (pc.op == OP_STREAMING) {
+        uvec2 v, ref;
+        color = vec3(0);
+        if (sample_vis(coord, v, ref)) color = mix(streaming_color(ref), vec3(0.0), sobel_depth_edge(coord, size));
     } else if (pc.op == OP_TRIANGLE_DENSITY) {
         uvec2 v, ref;
         color = vec3(0);

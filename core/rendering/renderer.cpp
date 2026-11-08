@@ -787,6 +787,7 @@ Error Renderer::record()
 
     dd->command_bind_graphics_uniform_sets(cmd, { dd->bindless_heap.set });
     dd->command_bind_compute_uniform_sets(cmd, { dd->bindless_heap.set });
+    geometry.record_begin(cmd);
 
     main_view.graph.gpu_profiler.frame_number = frame_number;
     cpu_profiler().zone_begin("Graph Execute");
@@ -794,6 +795,7 @@ Error Renderer::record()
     main_view.graph.execute(cmd);
     _queued_views.clear();
     cpu_profiler().zone_end();
+    geometry.record_end(cmd);
 
     err = dd->command_buffer_end(command_buffers[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);

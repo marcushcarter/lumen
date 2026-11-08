@@ -17,5 +17,6 @@ const uint OP_LOD_LEVEL = 12u;
 const uint OP_CLUSTER_ERROR = 13u;
 const uint OP_TRIANGLE_DENSITY = 14u;
 const uint OP_UV_CHECKER = 15u;
+const uint OP_STREAMING = 16u;
 
 #endif

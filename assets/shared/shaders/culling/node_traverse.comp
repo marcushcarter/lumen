@@ -18,6 +18,8 @@ layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint co
 layout(buffer_reference, scalar) buffer NodeQueueBuffer { uint count; uint _pad; uvec2 data[]; };
 layout(buffer_reference, scalar) buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
 layout(buffer_reference, scalar) buffer ClusterRetestBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
+layout(buffer_reference, scalar) buffer LevelDoneBuffer { uint data[]; };
 
 layout(push_constant) uniform Push {
     CameraBuffer camera;
@@ -29,12 +31,17 @@ layout(push_constant) uniform Push {
     NodeQueueBuffer queue_out;
     ClusterRefsBuffer cluster_refs;
     ClusterRetestBuffer cluster_retest;
+    IndirectDispatch next_args;
+    LevelDoneBuffer level_done;
     float px_per_unit;
     uint late;
     uint ref_capacity;
     uint queue_capacity;
     uint first_level;
+    uint level;
 } pc;
+
+shared bool s_last;
 
 bool _in_frustum(vec4 p_sphere, mat4 p_model, float p_scale, bool p_skinned) {
     if (p_skinned) return true;
@@ -50,6 +57,9 @@ void main() {
     bool alive = false;
     uint instance_id = 0u;
     Node node = Node(vec4(0.0), vec4(0.0), 0.0, 0u, 0u, NODE_INNER);
+    uint page_base = 0u;
+    float error_px = 0.0;
+    float threshold = LOD_THRESHOLD_PX;
     mat4 model = mat4(1.0);
     float scale = 1.0;
     bool skinned = false;
@@ -67,19 +77,35 @@ void main() {
         Instance instance = pc.instances.data[instance_id];
         Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
         if (first) node_id = mesh.node_base;
+        page_base = mesh.page_base;
+        if ((mesh.flags & MESH_FLAG_STREAMED) != 0u) threshold = LOD_PREFETCH_PX;
         model = pc.transforms.data[instance.transform_id].curr_mtx;
         scale = transform_max_scale(model);
         skinned = instance.skin_id != SKIN_NONE;
 
         if (mesh.node_count > 0u) {
             node = pc.geometry.nodes.data[node_id];
-            alive = lod_sphere_error_px(node.lod_sphere, node.max_parent_error, model, scale, cam, pc.px_per_unit) > LOD_THRESHOLD_PX
-                && _in_frustum(node.cull_sphere, model, scale, skinned);
+            error_px = lod_sphere_error_px(node.lod_sphere, node.max_parent_error, model, scale, cam, pc.px_per_unit);
+            alive = error_px > threshold && _in_frustum(node.cull_sphere, model, scale, skinned);
         }
     }
 
     bool inner = alive && node.page == NODE_INNER;
     bool leaf = alive && node.page != NODE_INNER;
+
+    if (leaf) {
+        uint page = page_base + node.page;
+        uint residency = pc.geometry.page_resident.data[page];
+        uint frame = pc.geometry.stream_frame;
+        if (residency != PAGE_PERMANENT && pc.geometry.page_stamp.data[page] != frame && atomicExchange(pc.geometry.page_stamp.data[page], frame) != frame) {
+            uint slot = atomicAdd(pc.geometry.stream_requests.count, 1u);
+            if (slot < pc.geometry.stream_request_capacity) {
+                uint key = page | (residency == PAGE_ABSENT ? 0u : STREAM_REQUEST_RESIDENT_BIT);
+                pc.geometry.stream_requests.data[slot] = uvec2(key, floatBitsToUint(min(error_px, 3.0e38)));
+            }
+        }
+        leaf = residency != PAGE_ABSENT;
+    }
 
     uint kids = inner ? node.count : 0u;
     uint kid_offset = subgroupExclusiveAdd(kids);
@@ -127,5 +153,23 @@ void main() {
             }
             if (written) pc.cluster_retest.data[rbase + subgroupBallotExclusiveBitCount(wb)] = base + my;
         }
+    }
+
+    memoryBarrierBuffer();
+    barrier();
+    if (gl_LocalInvocationIndex == 0u) {
+        uint total = gl_NumWorkGroups.x * gl_NumWorkGroups.y;
+        s_last = atomicAdd(pc.level_done.data[pc.level], 1u) + 1u == total;
+    }
+    barrier();
+    if (s_last && gl_LocalInvocationIndex == 0u) {
+        memoryBarrierBuffer();
+        uint n = min(atomicAdd(pc.queue_out.count, 0u), pc.queue_capacity);
+        pc.queue_out.count = n;
+        uint groups = max((n + 63u) / 64u, 1u);
+        pc.next_args.x = min(groups, 65535u);
+        pc.next_args.y = (groups + 65534u) / 65535u;
+        pc.next_args.z = 1u;
+        if (!first) pc.queue_in.count = 0u;
     }
 }

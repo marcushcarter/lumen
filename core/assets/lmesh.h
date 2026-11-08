@@ -26,7 +26,8 @@ static constexpr uint32_t LMESH_VERSION_SLOT_TABLE = 2;
 static constexpr uint32_t LMESH_VERSION_NO_RIG = 3;
 static constexpr uint32_t LMESH_VERSION_RIG = 4;
 static constexpr uint32_t LMESH_VERSION_PAGED = 5;
-static constexpr uint32_t LMESH_VERSION = LMESH_VERSION_PAGED;
+static constexpr uint32_t LMESH_VERSION_STREAMED = 6;
+static constexpr uint32_t LMESH_VERSION = LMESH_VERSION_STREAMED;
 
 static constexpr uint32_t LMESH_CLUSTER_MAX_TRIS = 256;
 static constexpr uint32_t LMESH_CLUSTER_MAX_VERTS = 256;
@@ -104,7 +105,9 @@ struct LMeshPayloadHeader
     uint32_t page_count;
     uint32_t root_page_count;
     uint32_t level_count;
-    uint32_t _pad[4];
+    uint32_t section_count;
+    uint32_t group_child_page_count;
+    uint32_t _pad[2];
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
@@ -138,8 +141,9 @@ struct LMeshPage
     uint32_t tri_count;
     uint32_t vertex_first;
     uint32_t vertex_count;
-    uint32_t level;
-    uint32_t _pad[2];
+    uint32_t tri_bytes;
+    uint32_t vertex_bytes;
+    uint32_t skin_bytes;
 };
 
 static_assert(sizeof(LMeshPage) == 48, "LMeshPage layout changed");
@@ -155,6 +159,18 @@ struct LMeshNode
 };
 
 static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
+
+enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5 };
+
+struct LMeshSection
+{
+    LMeshSectionType type;
+    uint32_t _pad;
+    uint64_t offset;
+    uint64_t size;
+};
+
+static_assert(sizeof(LMeshSection) == 24, "LMeshSection layout changed");
 
 static constexpr uint32_t LMESH_RIG_ALIGN = 16;
 
@@ -194,10 +210,13 @@ struct LMeshData
 {
     LMeshPayloadHeader header{};
     LMeshRig rig;
+    std::vector<LMeshSection> sections;
     std::vector<ClusterGroup> groups;
     std::vector<LMeshNode> nodes;
     std::vector<LMeshPage> pages;
     std::vector<LMeshCluster> clusters;
+    std::vector<uint32_t> group_child_first;
+    std::vector<uint32_t> group_child_pages;
     std::vector<uint32_t> local_tris;
     std::vector<ClusterVertex> vertices;
     std::vector<SkinVertex> skin;
@@ -205,6 +224,15 @@ struct LMeshData
 
     bool skinned() const { return (header.flags & (uint32_t)MeshFlags::SKINNED) != 0; }
     bool wide_slots() const { return (header.flags & (uint32_t)MeshFlags::WIDE_SLOTS) != 0; }
+    bool has_page_data() const { return local_tris.size() == header.tri_count && vertices.size() == header.vertex_count; }
+};
+
+struct LMeshPageData
+{
+    std::vector<uint32_t> tris;
+    std::vector<ClusterVertex> vertices;
+    std::vector<SkinVertex> skin;
+    std::vector<uint32_t> tri_slots;
 };
 
 struct LMeshStats
@@ -222,8 +250,13 @@ struct LMeshStats
 };
 
 const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data);
+const char* lmesh_validate_tables(const LMeshData& p_data);
+const char* lmesh_validate_page(const LMeshData& p_tables, uint32_t p_page, const LMeshPageData& p_data);
 const char* lmesh_validate(const LMeshData& p_data);
 bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshData& p_data);
+bool lmesh_open(const std::filesystem::path& p_bin, LMeshData& r_tables, uint32_t& r_version, std::string& r_error);
+const char* lmesh_decode_page(const uint8_t* p_blob, size_t p_size, const LMeshPage& p_page, uint32_t p_flags, LMeshPageData& r_out);
+void lmesh_page_slice(const LMeshData& p_data, uint32_t p_page, LMeshPageData& r_out);
 bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::string& r_error);
 
 bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats);

@@ -211,6 +211,11 @@ static const char* _node_queue_name(uint32_t p_level)
     return (p_level & 1u) ? "NodeQueueB" : "NodeQueueA";
 }
 
+static const char* _node_args_name(uint32_t p_level)
+{
+    return (p_level & 1u) ? "NodeTraverseArgsB" : "NodeTraverseArgsA";
+}
+
 uint32_t GeometryFeature::_node_queue_capacity() const
 {
     const uint64_t refs = ctx->frame->cluster_ref_capacity;
@@ -227,7 +232,14 @@ void GeometryFeature::_create_node_seed_pass(RenderGraph::Pass& r_pass, bool p_l
             args_ci.size = sizeof(IndirectDispatch);
             args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             args_ci.device_local = true;
-            b.create_buffer("NodeTraverseArgs", args_ci);
+            b.create_buffer("NodeTraverseArgsA", args_ci);
+            b.create_buffer("NodeTraverseArgsB", args_ci);
+
+            drivers::DeviceDriverVulkan::BufferCreateInfo done_ci{};
+            done_ci.size = MAX_TRAVERSE_LEVELS * sizeof(uint32_t);
+            done_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            done_ci.device_local = true;
+            b.create_buffer("NodeLevelDone", done_ci);
 
             drivers::DeviceDriverVulkan::BufferCreateInfo refs_ci{};
             refs_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
@@ -246,7 +258,8 @@ void GeometryFeature::_create_node_seed_pass(RenderGraph::Pass& r_pass, bool p_l
         b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_buffer("NodeQueueA", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("NodeQueueB", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("NodeTraverseArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeTraverseArgsA", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeLevelDone", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (!p_late) b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
@@ -256,13 +269,15 @@ void GeometryFeature::_create_node_seed_pass(RenderGraph::Pass& r_pass, bool p_l
             VkDeviceAddress queue_b_addr;
             VkDeviceAddress args_addr;
             VkDeviceAddress cluster_refs_addr;
+            VkDeviceAddress level_done_addr;
             uint32_t append;
         } pc{};
         pc.visible_addr = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances")->device_address;
         pc.queue_a_addr = cl.graph->buffer("NodeQueueA")->device_address;
         pc.queue_b_addr = cl.graph->buffer("NodeQueueB")->device_address;
-        pc.args_addr = cl.graph->buffer("NodeTraverseArgs")->device_address;
+        pc.args_addr = cl.graph->buffer("NodeTraverseArgsA")->device_address;
         pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
+        pc.level_done_addr = cl.graph->buffer("NodeLevelDone")->device_address;
         pc.append = p_late ? 1u : 0u;
 
         cl.dd->command_bind_pipeline(cl.cmd, node_seed_pipe);
@@ -281,8 +296,10 @@ void GeometryFeature::_create_node_traverse_pass(RenderGraph::Pass& r_pass, bool
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         if (p_level == 0) b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        else b.read_buffer(_node_queue_name(p_level - 1), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("NodeTraverseArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        else b.write_buffer(_node_queue_name(p_level - 1), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.read_buffer(_node_args_name(p_level), VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        b.write_buffer(_node_args_name(p_level + 1), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeLevelDone", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer(_node_queue_name(p_level), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (p_late) b.write_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -298,12 +315,16 @@ void GeometryFeature::_create_node_traverse_pass(RenderGraph::Pass& r_pass, bool
             VkDeviceAddress queue_out_addr;
             VkDeviceAddress cluster_refs_addr;
             VkDeviceAddress cluster_retest_addr;
+            VkDeviceAddress next_args_addr;
+            VkDeviceAddress level_done_addr;
             float px_per_unit;
             uint32_t late;
             uint32_t ref_capacity;
             uint32_t queue_capacity;
             uint32_t first_level;
+            uint32_t level;
         } pc{};
+        static_assert(sizeof(Push) <= 128, "push constants must fit the 128 byte minimum");
         pc.camera_addr = cl.graph->buffer("Camera")->device_address;
         pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
         pc.instances_addr = cl.graph->buffer("Instances")->device_address;
@@ -313,42 +334,18 @@ void GeometryFeature::_create_node_traverse_pass(RenderGraph::Pass& r_pass, bool
         pc.queue_out_addr = cl.graph->buffer(_node_queue_name(p_level))->device_address;
         pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
         pc.cluster_retest_addr = p_late ? cl.graph->buffer("ClusterRetest")->device_address : 0;
+        pc.next_args_addr = cl.graph->buffer(_node_args_name(p_level + 1))->device_address;
+        pc.level_done_addr = cl.graph->buffer("NodeLevelDone")->device_address;
         pc.px_per_unit = ctx->frame->px_per_unit;
         pc.late = p_late ? 1u : 0u;
         pc.ref_capacity = ctx->frame->cluster_ref_capacity;
         pc.queue_capacity = _node_queue_capacity();
         pc.first_level = p_level == 0 ? 1u : 0u;
+        pc.level = p_level;
 
         cl.dd->command_bind_pipeline(cl.cmd, node_traverse_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect(p_late ? "Node traverse 2" : "Node traverse", *cl.graph->buffer("NodeTraverseArgs"));
-    };
-}
-
-void GeometryFeature::_create_node_args_pass(RenderGraph::Pass& r_pass, bool p_late, uint32_t p_level)
-{
-    r_pass.name = std::string(p_late ? "NodeArgs2_" : "NodeArgs_") + std::to_string(p_level);
-    r_pass.category = PASS_CATEGORY_CULLING;
-    r_pass.setup = [p_level](RenderGraph::Builder& b) {
-        b.write_buffer(_node_queue_name(p_level), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer(_node_queue_name(p_level + 1), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("NodeTraverseArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-    };
-    r_pass.execute = [this, p_level](RenderGraph::CommandList& cl) {
-        struct Push {
-            VkDeviceAddress filled_addr;
-            VkDeviceAddress next_addr;
-            VkDeviceAddress args_addr;
-            uint32_t capacity;
-        } pc{};
-        pc.filled_addr = cl.graph->buffer(_node_queue_name(p_level))->device_address;
-        pc.next_addr = cl.graph->buffer(_node_queue_name(p_level + 1))->device_address;
-        pc.args_addr = cl.graph->buffer("NodeTraverseArgs")->device_address;
-        pc.capacity = _node_queue_capacity();
-
-        cl.dd->command_bind_pipeline(cl.cmd, node_args_pipe);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Node args", 1);
+        cl.dispatch_indirect(p_late ? "Node traverse 2" : "Node traverse", *cl.graph->buffer(_node_args_name(p_level)));
     };
 }
 
@@ -985,7 +982,6 @@ Error GeometryFeature::create_resources()
     for (uint32_t late = 0; late < 2; late++) {
         for (uint32_t l = 0; l < MAX_TRAVERSE_LEVELS; l++) {
             _create_node_traverse_pass(node_traverse_passes[late][l], late != 0, l);
-            _create_node_args_pass(node_args_passes[late][l], late != 0, l);
         }
     }
     _create_cluster_cull_args_pass();
@@ -1051,7 +1047,6 @@ Error GeometryFeature::create_pipelines()
     instance_cull_pipe = _compute_pipeline(L"SHADERS_CULLING_INSTANCE_CULL_COMP", "culling/instance_cull.comp");
     node_seed_pipe = _compute_pipeline(L"SHADERS_CULLING_NODE_SEED_COMP", "culling/node_seed.comp");
     node_traverse_pipe = _compute_pipeline(L"SHADERS_CULLING_NODE_TRAVERSE_COMP", "culling/node_traverse.comp");
-    node_args_pipe = _compute_pipeline(L"SHADERS_CULLING_NODE_ARGS_COMP", "culling/node_args.comp");
     cluster_cull_args_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_CULL_ARGS_COMP", "culling/cluster_cull_args.comp");
     cluster_cull_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_CULL_COMP", "culling/cluster_cull.comp");
     hiz_build_pipe = _compute_pipeline(L"SHADERS_CULLING_HIZ_BUILD_COMP", "culling/hiz_build.comp");
@@ -1110,7 +1105,6 @@ void GeometryFeature::destroy_resources()
     ctx->dd->pipeline_free(instance_cull_pipe);
     ctx->dd->pipeline_free(node_seed_pipe);
     ctx->dd->pipeline_free(node_traverse_pipe);
-    ctx->dd->pipeline_free(node_args_pipe);
     ctx->dd->pipeline_free(cluster_cull_args_pipe);
     ctx->dd->pipeline_free(cluster_cull_pipe);
     ctx->dd->pipeline_free(hiz_build_pipe);
@@ -1200,10 +1194,7 @@ void GeometryFeature::build(RenderGraph& g)
     const uint32_t levels = std::min(ctx->geometry->max_node_depth, MAX_TRAVERSE_LEVELS);
     auto add_traversal = [&](RenderGraph::Pass& r_seed, uint32_t p_late) {
         g.add(&r_seed);
-        for (uint32_t l = 0; l < levels; l++) {
-            g.add(&node_traverse_passes[p_late][l]);
-            if (l + 1 < levels) g.add(&node_args_passes[p_late][l]);
-        }
+        for (uint32_t l = 0; l < levels; l++) g.add(&node_traverse_passes[p_late][l]);
     };
 
     g.add(&instance_cull_pass);

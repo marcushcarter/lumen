@@ -1,4 +1,5 @@
 #include <editor/panels/output_panel.h>
+#include <core/base/console.h>
 #include <core/base/error.h>
 #include <editor/ui/ui_style.h>
 #include <imgui.h>
@@ -10,6 +11,7 @@ void console_submit(const char* p_command)
 {
     if (!p_command || p_command[0] == '\0') return;
     log_write("> %s", p_command);
+    console_execute(p_command);
 }
 
 void OutputPanel::draw_contents(EditorContext&)

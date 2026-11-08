@@ -1,0 +1,131 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+#include "common/geometry.glsl"
+#include "common/camera.glsl"
+#include "common/instances.glsl"
+#include "common/lod.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) buffer NodeQueueBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) buffer ClusterRetestBuffer { uint count; uint data[]; };
+
+layout(push_constant) uniform Push {
+    CameraBuffer camera;
+    GeometryBuffer geometry;
+    InstanceBuffer instances;
+    TransformBuffer transforms;
+    VisibleInstanceBuffer visible_instances;
+    NodeQueueBuffer queue_in;
+    NodeQueueBuffer queue_out;
+    ClusterRefsBuffer cluster_refs;
+    ClusterRetestBuffer cluster_retest;
+    float px_per_unit;
+    uint late;
+    uint ref_capacity;
+    uint queue_capacity;
+    uint first_level;
+} pc;
+
+bool _in_frustum(vec4 p_sphere, mat4 p_model, float p_scale, bool p_skinned) {
+    if (p_skinned) return true;
+    vec3 center = (p_model * vec4(p_sphere.xyz, 1.0)).xyz;
+    return !frustum_cull_sphere(pc.camera, center, p_sphere.w * p_scale);
+}
+
+void main() {
+    uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 64u + gl_LocalInvocationID.x;
+    bool first = pc.first_level != 0u;
+    uint count = first ? pc.visible_instances.count : pc.queue_in.count;
+
+    bool alive = false;
+    uint instance_id = 0u;
+    Node node = Node(vec4(0.0), vec4(0.0), 0.0, 0u, 0u, NODE_INNER);
+    mat4 model = mat4(1.0);
+    float scale = 1.0;
+    bool skinned = false;
+    vec3 cam = pc.camera.position.xyz;
+
+    if (id < count) {
+        uint node_id = 0u;
+        if (first) {
+            instance_id = pc.visible_instances.data[id];
+        } else {
+            uvec2 item = pc.queue_in.data[id];
+            instance_id = item.x;
+            node_id = item.y;
+        }
+        Instance instance = pc.instances.data[instance_id];
+        Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
+        if (first) node_id = mesh.node_base;
+        model = pc.transforms.data[instance.transform_id].curr_mtx;
+        scale = transform_max_scale(model);
+        skinned = instance.skin_id != SKIN_NONE;
+
+        if (mesh.node_count > 0u) {
+            node = pc.geometry.nodes.data[node_id];
+            alive = lod_sphere_error_px(node.lod_sphere, node.max_parent_error, model, scale, cam, pc.px_per_unit) > LOD_THRESHOLD_PX
+                && _in_frustum(node.cull_sphere, model, scale, skinned);
+        }
+    }
+
+    bool inner = alive && node.page == NODE_INNER;
+    bool leaf = alive && node.page != NODE_INNER;
+
+    uint kids = inner ? node.count : 0u;
+    uint kid_offset = subgroupExclusiveAdd(kids);
+    uint kid_total = subgroupAdd(kids);
+    uint kid_base = 0u;
+    if (kid_total > 0u) {
+        if (subgroupElect()) kid_base = atomicAdd(pc.queue_out.count, kid_total);
+        kid_base = subgroupBroadcastFirst(kid_base);
+    }
+    for (uint k = 0u; k < kids; k++) {
+        uint slot = kid_base + kid_offset + k;
+        if (slot < pc.queue_capacity) pc.queue_out.data[slot] = uvec2(instance_id, node.first + k);
+    }
+
+    uint clusters = leaf ? node.count : 0u;
+    uint iterations = subgroupMax(clusters);
+    for (uint i = 0u; i < iterations; i++) {
+        bool keep = false;
+        uint cluster_id = 0u;
+        if (i < clusters) {
+            cluster_id = node.first + i;
+            Cluster cl = pc.geometry.clusters.data[cluster_id];
+            keep = lod_selected(pc.geometry, cl, model, scale, cam, pc.px_per_unit) && _in_frustum(cl.cull_sphere, model, scale, skinned);
+        }
+
+        uvec4 ballot = subgroupBallot(keep);
+        uint cnt = subgroupBallotBitCount(ballot);
+        uint my = subgroupBallotExclusiveBitCount(ballot);
+        uint base = 0u;
+        if (cnt > 0u) {
+            if (subgroupElect()) base = atomicAdd(pc.cluster_refs.count, cnt);
+            base = subgroupBroadcastFirst(base);
+        }
+
+        bool written = keep && base + my < pc.ref_capacity;
+        if (written) pc.cluster_refs.data[base + my] = uvec2(instance_id, cluster_id);
+
+        if (pc.late != 0u) {
+            uvec4 wb = subgroupBallot(written);
+            uint wn = subgroupBallotBitCount(wb);
+            uint rbase = 0u;
+            if (wn > 0u) {
+                if (subgroupElect()) rbase = atomicAdd(pc.cluster_retest.count, wn);
+                rbase = subgroupBroadcastFirst(rbase);
+            }
+            if (written) pc.cluster_retest.data[rbase + subgroupBallotExclusiveBitCount(wb)] = base + my;
+        }
+    }
+}

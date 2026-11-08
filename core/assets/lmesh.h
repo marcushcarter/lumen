@@ -17,14 +17,25 @@ enum class MeshDagLevel : uint8_t { FLAT, CLUSTERED, CLUSTERED_DAG };
 const char* mesh_dag_level_name(MeshDagLevel p_level);
 MeshDagLevel mesh_dag_level_from_name(const std::string& p_name, MeshDagLevel p_fallback);
 
-enum class MeshFlags : uint32_t { NONE = 0, SKINNED = 1u << 0 };
+enum class MeshFlags : uint32_t { NONE = 0, SKINNED = 1u << 0, WIDE_SLOTS = 1u << 1 };
 LUMEN_ENUM_FLAGS(MeshFlags)
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
 static constexpr uint32_t LMESH_VERSION_INTERLEAVED = 1;
 static constexpr uint32_t LMESH_VERSION_SLOT_TABLE = 2;
 static constexpr uint32_t LMESH_VERSION_NO_RIG = 3;
-static constexpr uint32_t LMESH_VERSION = 4;
+static constexpr uint32_t LMESH_VERSION_RIG = 4;
+static constexpr uint32_t LMESH_VERSION_PAGED = 5;
+static constexpr uint32_t LMESH_VERSION = LMESH_VERSION_PAGED;
+
+static constexpr uint32_t LMESH_CLUSTER_MAX_TRIS = 256;
+static constexpr uint32_t LMESH_CLUSTER_MAX_VERTS = 256;
+static constexpr uint32_t LMESH_LOCAL_SLOT_OVERFLOW = 255;
+static constexpr uint32_t LMESH_CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
+static constexpr uint32_t LMESH_PAGE_BYTES = 64u * 1024;
+static constexpr uint32_t LMESH_PART_MAX_CLUSTERS = 32;
+static constexpr uint32_t LMESH_NODE_FANOUT = 8;
+static constexpr uint32_t LMESH_NODE_INNER = 0xFFFFFFFFu;
 
 struct Vertex
 {
@@ -47,22 +58,20 @@ struct VertexAttributes
 
 static_assert(sizeof(VertexPosition) == 8 && sizeof(VertexAttributes) == 8, "vertex streams must stay 8 B (one aligned 64-bit GPU load)");
 
+struct ClusterVertex
+{
+    VertexPosition position;
+    VertexAttributes attributes;
+};
+
+static_assert(sizeof(ClusterVertex) == 16, "ClusterVertex must match the GPU cluster vertex stride");
+
 static constexpr uint32_t MESH_MAX_JOINTS = 256;
 
 struct SkinVertex
 {
     u8vec4 joints;
     u8vec4 weights;
-};
-
-static constexpr uint32_t BVH_LEAF_BIT = 0x80000000u;
-
-struct BVHNode
-{
-    vec3 bounds_min;
-    uint32_t left;
-    vec3 bounds_max;
-    uint32_t right;
 };
 
 struct Cluster
@@ -83,21 +92,69 @@ struct ClusterGroup
 
 struct LMeshPayloadHeader
 {
-    uint32_t vertex_count;
-    uint32_t index_count;
-    uint32_t tri_count;
-    uint32_t slot_count;
-    uint32_t cluster_count;
-    uint32_t group_count;
-    uint32_t bvh_node_count;
     uint32_t flags;
+    uint32_t slot_count;
+    uint32_t source_vertex_count;
+    uint32_t lod0_tri_count;
+    uint32_t cluster_count;
+    uint32_t tri_count;
+    uint32_t vertex_count;
+    uint32_t group_count;
+    uint32_t node_count;
+    uint32_t page_count;
+    uint32_t root_page_count;
+    uint32_t level_count;
+    uint32_t _pad[4];
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
 };
 
-static_assert(sizeof(LMeshPayloadHeader) == 88, "LMeshPayloadHeader layout changed");
+static_assert(sizeof(LMeshPayloadHeader) == 120, "LMeshPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LMeshPayloadHeader>, "must be blittable");
+
+struct LMeshCluster
+{
+    vec4 cull_sphere;
+    uint32_t self_group;
+    uint32_t parent_group;
+    uint32_t tri_offset;
+    uint32_t vertex_offset;
+    uint32_t tri_count;
+    uint32_t vertex_count;
+    uint32_t slot;
+    uint32_t bounds[3];
+};
+
+static_assert(sizeof(LMeshCluster) == 56, "LMeshCluster layout changed");
+
+struct LMeshPage
+{
+    uint64_t offset;
+    uint32_t size;
+    uint32_t cluster_first;
+    uint32_t cluster_count;
+    uint32_t tri_first;
+    uint32_t tri_count;
+    uint32_t vertex_first;
+    uint32_t vertex_count;
+    uint32_t level;
+    uint32_t _pad[2];
+};
+
+static_assert(sizeof(LMeshPage) == 48, "LMeshPage layout changed");
+
+struct LMeshNode
+{
+    vec4 cull_sphere;
+    vec4 lod_sphere;
+    float max_parent_error;
+    uint32_t first;
+    uint32_t count;
+    uint32_t page;
+};
+
+static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
 static constexpr uint32_t LMESH_RIG_ALIGN = 16;
 
@@ -117,6 +174,39 @@ struct LMeshRig
     std::vector<mat4> inverse_binds;
 };
 
+struct LMeshSource
+{
+    std::vector<VertexPosition> positions;
+    std::vector<VertexAttributes> attributes;
+    std::vector<SkinVertex> skin;
+    std::vector<uint32_t> indices;
+    std::vector<uint32_t> tri_slots;
+    std::vector<Cluster> clusters;
+    std::vector<ClusterGroup> groups;
+    uint32_t slot_count = 0;
+    vec3 pos_min = vec3(0.0f), pos_extent = vec3(0.0f);
+    vec2 uv_min = vec2(0.0f), uv_extent = vec2(0.0f);
+    vec4 bounds_sphere = vec4(0.0f);
+    LMeshRig rig;
+};
+
+struct LMeshData
+{
+    LMeshPayloadHeader header{};
+    LMeshRig rig;
+    std::vector<ClusterGroup> groups;
+    std::vector<LMeshNode> nodes;
+    std::vector<LMeshPage> pages;
+    std::vector<LMeshCluster> clusters;
+    std::vector<uint32_t> local_tris;
+    std::vector<ClusterVertex> vertices;
+    std::vector<SkinVertex> skin;
+    std::vector<uint32_t> tri_slots;
+
+    bool skinned() const { return (header.flags & (uint32_t)MeshFlags::SKINNED) != 0; }
+    bool wide_slots() const { return (header.flags & (uint32_t)MeshFlags::WIDE_SLOTS) != 0; }
+};
+
 struct LMeshStats
 {
     uint64_t disk_size = 0;
@@ -130,6 +220,11 @@ struct LMeshStats
     uint32_t joints = 0;
     vec3 size = vec3(0.0f);
 };
+
+const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data);
+const char* lmesh_validate(const LMeshData& p_data);
+bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshData& p_data);
+bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::string& r_error);
 
 bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats);
 size_t lmesh_rig_bytes(const LMeshRigHeader& p_header);

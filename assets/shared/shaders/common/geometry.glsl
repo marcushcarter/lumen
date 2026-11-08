@@ -8,13 +8,6 @@
 
 #include "common/material.glsl"
 
-struct BVHNode {
-    vec3 bounds_min;
-    uint left;
-    vec3 bounds_max;
-    uint right;
-};
-
 struct Cluster {
     uint index_base;
     uint index_count;
@@ -30,28 +23,34 @@ struct ClusterGroup {
 };
 
 struct Mesh {
-    uint vertex_base;
-    uint vertex_count;
     uint cluster_base;
     uint cluster_count;
     uint slot_count;
     uint skin_base;
-    uint bvh_node_base;
-    uint bvh_node_count;
+    uint node_base;
+    uint node_count;
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
 };
 
-layout(buffer_reference, scalar, buffer_reference_align = 8) readonly buffer VertexPositionBuffer { uvec2 data[]; };
-layout(buffer_reference, scalar, buffer_reference_align = 8) readonly buffer VertexAttributeBuffer { uvec2 data[]; };
-layout(buffer_reference, scalar) readonly buffer IndexBuffer { uint data[]; };
+struct Node {
+    vec4 cull_sphere;
+    vec4 lod_sphere;
+    float max_parent_error;
+    uint first;
+    uint count;
+    uint page;
+};
+
+const uint NODE_INNER = 0xFFFFFFFFu;
+
+layout(buffer_reference, scalar) readonly buffer NodeBuffer { Node data[]; };
 layout(buffer_reference, scalar) readonly buffer TriSlotBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer SlotTableBuffer { uint data[]; };
 layout(buffer_reference, scalar) readonly buffer ClusterBuffer { Cluster data[]; };
 layout(buffer_reference, scalar) readonly buffer ClusterGroupBuffer { ClusterGroup data[]; };
 layout(buffer_reference, scalar, buffer_reference_align = 8) readonly buffer SkinVerticesBuffer { uvec2 data[]; };
-layout(buffer_reference, scalar) readonly buffer BVHNodeBuffer { BVHNode data[]; };
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
 layout(buffer_reference, scalar) readonly buffer UintBuffer { uint data[]; };
 layout(buffer_reference, scalar, buffer_reference_align = 16) readonly buffer ClusterVertexBuffer { uvec4 data[]; };
@@ -64,23 +63,19 @@ const uint SLOT_BIN_SHIFT = 29u;
 const uint SLOT_MATERIAL_MASK = (1u << SLOT_BIN_SHIFT) - 1u;
 
 layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
-    VertexPositionBuffer vertices;
-    VertexAttributeBuffer attributes;
-    IndexBuffer indices;
     TriSlotBuffer tri_slots;
     SlotTableBuffer slot_table;
     ClusterBuffer clusters;
     ClusterGroupBuffer groups;
     SkinVerticesBuffer skin_vertices;
-    BVHNodeBuffer bvh_nodes;
     MeshBuffer meshes;
-    UintBuffer meshlet_vertices;
     UintBuffer cluster_vertex_base;
     UintBuffer local_triangles;
     ClusterVertexBuffer cluster_vertices;
     MaterialBuffer materials;
     UintBuffer cluster_slots;
     ClusterBoundsBuffer cluster_bounds;
+    NodeBuffer nodes;
 };
 
 void cluster_box(GeometryBuffer p_geometry, Mesh p_mesh, uint p_cluster, out vec3 r_min, out vec3 r_extent) {

@@ -17,35 +17,29 @@ using namespace glm;
 
 struct GeometryAddresses
 {
-    VkDeviceAddress vertices;
-    VkDeviceAddress attributes;
-    VkDeviceAddress indices;
     VkDeviceAddress tri_slots;
     VkDeviceAddress slot_table;
     VkDeviceAddress clusters;
     VkDeviceAddress groups;
     VkDeviceAddress skin_vertices;
-    VkDeviceAddress bvh_nodes;
     VkDeviceAddress meshes;
-    VkDeviceAddress meshlet_vertices;
     VkDeviceAddress cluster_vertex_base;
     VkDeviceAddress local_triangles;
     VkDeviceAddress cluster_vertices;
     VkDeviceAddress materials;
     VkDeviceAddress cluster_slots;
     VkDeviceAddress cluster_bounds;
+    VkDeviceAddress nodes;
 };
 
 struct LMesh
 {
-    uint32_t vertex_base;
-    uint32_t vertex_count;
     uint32_t cluster_base;
     uint32_t cluster_count;
     uint32_t slot_count;
     uint32_t skin_base;
-    uint32_t bvh_node_base;
-    uint32_t bvh_node_count;
+    uint32_t node_base;
+    uint32_t node_count;
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
@@ -53,36 +47,32 @@ struct LMesh
 
 struct GeometryPool
 {
-    static constexpr uint32_t MAX_VERTS = 32u * 1024 * 1024;
     static constexpr uint32_t MAX_TRIS = 32u * 1024 * 1024;
     static constexpr uint32_t MAX_CLUSTERS = 4u * 1024 * 1024;
-    static constexpr uint32_t RASTER_CLUSTER_TRIS = 256;
-    static constexpr uint32_t RASTER_CLUSTER_VERTS = 256;
+    static constexpr uint32_t MAX_CLUSTER_VERTS = 64u * 1024 * 1024;
+    static constexpr uint32_t RASTER_CLUSTER_TRIS = LMESH_CLUSTER_MAX_TRIS;
+    static constexpr uint32_t RASTER_CLUSTER_VERTS = LMESH_CLUSTER_MAX_VERTS;
     static constexpr uint32_t MAX_GROUPS = 512u * 1024;
     static constexpr uint32_t MAX_SKIN_VERTS = 4u * 1024 * 1024;
-    static constexpr uint32_t MAX_BVH_NODES = 8u * 1024 * 1024;
     static constexpr uint32_t MAX_MESHES = 64u * 1024;
-    static constexpr uint32_t MAX_MESHLET_VERTS = 2u * MAX_VERTS;
-    static constexpr uint32_t LOCAL_TRI_SLOT_OVERFLOW = 255u;
-    static constexpr uint32_t CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
+    static constexpr uint32_t MAX_NODES = 8u * 1024 * 1024;
+    static constexpr uint32_t MAX_NODE_DEPTH = 16;
+    static constexpr uint32_t LOCAL_TRI_SLOT_OVERFLOW = LMESH_LOCAL_SLOT_OVERFLOW;
+    static constexpr uint32_t CLUSTER_SLOT_MIXED = LMESH_CLUSTER_SLOT_MIXED;
     static constexpr uint32_t INVALID_MESH = UINT32_MAX;
 
     enum class ArenaKind : uint32_t {
-        VERTICES,
-        VERTEX_ATTRIBUTES,
-        INDICES,
         TRI_SLOTS,
         CLUSTERS,
         GROUPS,
         SKIN,
-        BVH_NODES,
         MESHES,
-        MESHLET_VERTICES,
         CLUSTER_VERTEX_BASE,
         LOCAL_TRIANGLES,
         CLUSTER_VERTICES,
         CLUSTER_SLOTS,
         CLUSTER_BOUNDS,
+        NODES,
         COUNT,
     };
 
@@ -104,8 +94,7 @@ struct GeometryPool
         uint32_t cluster = RangeAllocator::INVALID, cluster_count = 0;
         uint32_t group = RangeAllocator::INVALID, group_count = 0;
         uint32_t skin = RangeAllocator::INVALID, skin_count = 0;
-        uint32_t bvh = RangeAllocator::INVALID, bvh_count = 0;
-        uint32_t meshlet_vertex = RangeAllocator::INVALID, meshlet_vertex_count = 0;
+        uint32_t node = RangeAllocator::INVALID, node_count = 0;
     };
 
     struct JointBox {
@@ -137,10 +126,10 @@ struct GeometryPool
     RangeAllocator cluster_alloc;
     RangeAllocator group_alloc;
     RangeAllocator skin_alloc;
-    RangeAllocator bvh_alloc;
-    RangeAllocator meshlet_vertex_alloc;
+    RangeAllocator node_alloc;
     uint32_t cluster_extent = 0;
     uint32_t max_cluster_tris = 0;
+    uint32_t max_node_depth = 0;
 
     std::vector<LMesh> meshes;
     std::vector<MeshRanges> mesh_ranges;
@@ -175,7 +164,6 @@ struct GeometryPool
     void free();
 
     drivers::DeviceDriverVulkan::Buffer& address_buffer(uint32_t p_slot) { return address_buffers[p_slot]; }
-    const drivers::DeviceDriverVulkan::Buffer& index_buffer() const { return _arena(ArenaKind::INDICES).buffer; }
 
     uint32_t find(Guid p_guid) const {
         auto it = by_guid.find(p_guid);

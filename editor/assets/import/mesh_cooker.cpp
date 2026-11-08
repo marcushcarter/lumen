@@ -41,7 +41,6 @@ struct MeshSource
     std::vector<mat4> inverse_binds;
     std::vector<Cluster> clusters;
     std::vector<ClusterGroup> groups;
-    std::vector<BVHNode> bvh_nodes;
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
@@ -266,7 +265,7 @@ std::pair<uint32_t, uint32_t> _build_meshlets(const std::vector<SrcVert>& p_vert
     return { begin, (uint32_t)r_src.clusters.size() };
 }
 
-void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
+void _finalize(MeshSource& r_src)
 {
     const uint32_t tri_count = (uint32_t)r_src.indices.size() / 3;
     r_src.tri_slots.resize(tri_count);
@@ -280,10 +279,6 @@ void _finalize(MeshSource& r_src, uint32_t p_lod0_tri_count)
     }
     if (mixed) log_write("MeshCooker: %u triangles span more than one material slot.", mixed);
     if (r_src.slot_count == 0) r_src.slot_count = 1;
-
-    const vec3 pmin = r_src.pos_min;
-    const vec3 pmax = r_src.pos_min + r_src.pos_extent;
-    r_src.bvh_nodes.push_back(BVHNode{ pmin, BVH_LEAF_BIT | 0u, pmax, p_lod0_tri_count });
 }
 
 static void _apply_import_transform(const MeshCooker::CookSettings& p_settings, std::vector<SrcVert>& r_verts, std::vector<SkinVertex>& r_skin, MeshSource& r_src)
@@ -323,7 +318,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     const vec4 sphere = r_src.bounds_sphere;
     r_src.clusters.push_back(Cluster{ 0u, (uint32_t)r_src.indices.size(), sphere, CLUSTER_GROUP_NONE, CLUSTER_GROUP_NONE });
 
-    _finalize(r_src, (uint32_t)r_src.indices.size() / 3);
+    _finalize(r_src);
     return true;
 }
 
@@ -345,7 +340,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     if (_build_meshlets(verts, indices, CLUSTER_GROUP_NONE, p_settings, flat, r_src).first == (uint32_t)r_src.clusters.size()) return false;
 
     r_src.indices = std::move(flat);
-    _finalize(r_src, (uint32_t)r_src.indices.size() / 3);
+    _finalize(r_src);
     return true;
 }
 
@@ -369,7 +364,6 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     flat.reserve(indices.size() * 2);
 
     std::pair<uint32_t, uint32_t> lvl0 = _build_meshlets(verts, indices, CLUSTER_GROUP_NONE, p_settings, flat, r_src);
-    const uint32_t lod0_tri_count = (uint32_t)flat.size() / 3;
     std::vector<uint32_t> cur;
     for (uint32_t c = lvl0.first; c < lvl0.second; c++) cur.push_back(c);
 
@@ -459,7 +453,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     }
 
     r_src.indices = std::move(flat);
-    _finalize(r_src, lod0_tri_count);
+    _finalize(r_src);
     return true;
 }
 
@@ -509,72 +503,39 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
 
     const bool skinned = !src.skin_vertices.empty();
 
-    LMeshPayloadHeader ph{};
-    ph.vertex_count = (uint32_t)src.vertices.size();
-    ph.index_count = (uint32_t)src.indices.size();
-    ph.tri_count = ph.index_count / 3;
-    ph.slot_count = src.slot_count;
-    ph.cluster_count = (uint32_t)src.clusters.size();
-    ph.group_count = (uint32_t)src.groups.size();
-    ph.bvh_node_count = (uint32_t)src.bvh_nodes.size();
-    ph.flags = (uint32_t)(skinned ? MeshFlags::SKINNED : MeshFlags::NONE);
-    ph.pos_min = src.pos_min;
-    ph.pos_extent = src.pos_extent;
-    ph.uv_min = src.uv_min;
-    ph.uv_extent = src.uv_extent;
-    ph.bounds_sphere = src.bounds_sphere;
-
-    std::vector<VertexPosition> positions(src.vertices.size());
-    std::vector<VertexAttributes> attributes(src.vertices.size());
+    LMeshSource out;
+    out.positions.resize(src.vertices.size());
+    out.attributes.resize(src.vertices.size());
     for (size_t i = 0; i < src.vertices.size(); i++) {
-        positions[i] = { src.vertices[i].position, 0 };
-        attributes[i] = { src.vertices[i].normal, src.vertices[i].uv };
+        out.positions[i] = { src.vertices[i].position, 0 };
+        out.attributes[i] = { src.vertices[i].normal, src.vertices[i].uv };
     }
-    const size_t pos_bytes = positions.size() * sizeof(VertexPosition);
-    const size_t attr_bytes = attributes.size() * sizeof(VertexAttributes);
-    const size_t vtx_bytes = pos_bytes + attr_bytes;
-    const size_t idx_bytes = src.indices.size() * sizeof(uint32_t);
-    const size_t tri_bytes = src.tri_slots.size() * sizeof(uint32_t);
-    const size_t clus_bytes = src.clusters.size() * sizeof(Cluster);
-    const size_t group_bytes = src.groups.size() * sizeof(ClusterGroup);
-    const size_t skin_bytes = src.skin_vertices.size() * sizeof(SkinVertex);
-
-    std::string rig_names;
-    for (const std::string& n : src.joints) {
-        rig_names.append(n);
-        rig_names.push_back('\0');
-    }
-    rig_names.resize((rig_names.size() + LMESH_RIG_ALIGN - 1) / LMESH_RIG_ALIGN * LMESH_RIG_ALIGN, '\0');
-    const LMeshRigHeader rig{ p_job.skeleton, (uint32_t)src.joints.size(), (uint32_t)rig_names.size() };
-    const size_t rig_bytes = skinned ? lmesh_rig_bytes(rig) : 0;
-    const size_t bvhn_bytes = src.bvh_nodes.size() * sizeof(BVHNode);
-
-    LAssetHeader ah{};
-    ah.magic = BCON_MAGIC;
-    ah.version = LMESH_VERSION;
-    ah.guid = p_job.guid;
-    ah.type = AssetType::MESH;
-    ah.payload_size = (uint32_t)(sizeof(ph) + rig_bytes + vtx_bytes + idx_bytes + tri_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes);
-
-    std::error_code ec;
-    std::filesystem::create_directories(p_job.content_bin.parent_path(), ec);
-    std::ofstream f(p_job.content_bin, std::ios::binary | std::ios::trunc);
-    if (!f) { return FAILED; }
-    f.write(reinterpret_cast<const char*>(&ah), sizeof(ah));
-    f.write(reinterpret_cast<const char*>(&ph), sizeof(ph));
+    out.skin = std::move(src.skin_vertices);
+    out.indices = std::move(src.indices);
+    out.tri_slots = std::move(src.tri_slots);
+    out.clusters = std::move(src.clusters);
+    out.groups = std::move(src.groups);
+    out.slot_count = src.slot_count;
+    out.pos_min = src.pos_min;
+    out.pos_extent = src.pos_extent;
+    out.uv_min = src.uv_min;
+    out.uv_extent = src.uv_extent;
+    out.bounds_sphere = src.bounds_sphere;
     if (skinned) {
-        f.write(reinterpret_cast<const char*>(&rig), sizeof(rig));
-        f.write(reinterpret_cast<const char*>(src.inverse_binds.data()), src.inverse_binds.size() * sizeof(mat4));
-        f.write(rig_names.data(), rig_names.size());
+        out.rig.skeleton = p_job.skeleton;
+        out.rig.joints = src.joints;
+        out.rig.inverse_binds = src.inverse_binds;
     }
-    f.write(reinterpret_cast<const char*>(positions.data()), pos_bytes);
-    f.write(reinterpret_cast<const char*>(attributes.data()), attr_bytes);
-    f.write(reinterpret_cast<const char*>(src.indices.data()), idx_bytes);
-    if (tri_bytes) f.write(reinterpret_cast<const char*>(src.tri_slots.data()), tri_bytes);
-    if (clus_bytes) f.write(reinterpret_cast<const char*>(src.clusters.data()), clus_bytes);
-    if (group_bytes) f.write(reinterpret_cast<const char*>(src.groups.data()), group_bytes);
-    if (skin_bytes) f.write(reinterpret_cast<const char*>(src.skin_vertices.data()), skin_bytes);
-    if (bvhn_bytes) f.write(reinterpret_cast<const char*>(src.bvh_nodes.data()), bvhn_bytes);
+
+    LMeshData data;
+    if (const char* why = lmesh_build(out, data)) {
+        log_write("MeshCooker: %s: %s", p_job.source.string().c_str(), why);
+        return FAILED;
+    }
+    if (!lmesh_write(p_job.content_bin, p_job.guid, data)) {
+        log_write("MeshCooker: couldn't write '%s'", p_job.content_bin.string().c_str());
+        return FAILED;
+    }
 
     toml::table tbl {
         { "asset", toml::table{

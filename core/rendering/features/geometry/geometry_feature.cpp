@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <cstring>
 #include <algorithm>
+#include <string>
 
 namespace lumen {
 
@@ -203,9 +204,22 @@ void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool
     };
 }
 
-void GeometryFeature::_create_cluster_expand_args_pass(RenderGraph::Pass& r_pass, bool p_late)
+static_assert(GeometryFeature::MAX_TRAVERSE_LEVELS >= GeometryPool::MAX_NODE_DEPTH, "traversal must cover every hierarchy level the pool accepts");
+
+static const char* _node_queue_name(uint32_t p_level)
 {
-    r_pass.name = p_late ? "ClusterExpandArgs2" : "ClusterExpandArgs";
+    return (p_level & 1u) ? "NodeQueueB" : "NodeQueueA";
+}
+
+uint32_t GeometryFeature::_node_queue_capacity() const
+{
+    const uint64_t refs = ctx->frame->cluster_ref_capacity;
+    return (uint32_t)std::min<uint64_t>(refs + refs / 4 + ctx->frame->instance_count + 64, UINT32_MAX / 8);
+}
+
+void GeometryFeature::_create_node_seed_pass(RenderGraph::Pass& r_pass, bool p_late)
+{
+    r_pass.name = p_late ? "NodeSeed2" : "NodeSeed";
     r_pass.category = PASS_CATEGORY_CULLING;
     r_pass.setup = [this, p_late](RenderGraph::Builder& b) {
         if (!p_late) {
@@ -213,7 +227,7 @@ void GeometryFeature::_create_cluster_expand_args_pass(RenderGraph::Pass& r_pass
             args_ci.size = sizeof(IndirectDispatch);
             args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             args_ci.device_local = true;
-            b.create_buffer("ClusterExpandArgs", args_ci);
+            b.create_buffer("NodeTraverseArgs", args_ci);
 
             drivers::DeviceDriverVulkan::BufferCreateInfo refs_ci{};
             refs_ci.size = ((VkDeviceSize)ctx->frame->cluster_ref_capacity + 1) * sizeof(uint64_t);
@@ -221,104 +235,120 @@ void GeometryFeature::_create_cluster_expand_args_pass(RenderGraph::Pass& r_pass
             refs_ci.device_local = true;
             b.create_buffer("ClusterRefs", refs_ci);
 
-            drivers::DeviceDriverVulkan::BufferCreateInfo off_ci{};
-            off_ci.size = (VkDeviceSize)(ctx->frame->instance_count + 1) * sizeof(uint32_t);
-            off_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-            off_ci.device_local = true;
-            b.create_buffer("ClusterExpandOffsets", off_ci);
+            drivers::DeviceDriverVulkan::BufferCreateInfo queue_ci{};
+            queue_ci.size = ((VkDeviceSize)_node_queue_capacity() + 1) * sizeof(uint64_t);
+            queue_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            queue_ci.device_local = true;
+            b.create_buffer("NodeQueueA", queue_ci);
+            b.create_buffer("NodeQueueB", queue_ci);
         }
 
-        b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
-        b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.write_buffer("ClusterExpandOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("ClusterExpandArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeQueueA", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeQueueB", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeTraverseArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (!p_late) b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
-        auto geometry = cl.graph->buffer("Geometry");
-        auto inst = cl.graph->buffer("Instances");
-        auto vis_inst = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances");
-        auto offsets = cl.graph->buffer("ClusterExpandOffsets");
-        auto expand_args = cl.graph->buffer("ClusterExpandArgs");
-        auto cluster_refs = cl.graph->buffer("ClusterRefs");
-
         struct Push {
-            VkDeviceAddress geometry_addr;
-            VkDeviceAddress instances_addr;
-            VkDeviceAddress visible_inst_addr;
-            VkDeviceAddress offsets_addr;
-            VkDeviceAddress expand_addr;
+            VkDeviceAddress visible_addr;
+            VkDeviceAddress queue_a_addr;
+            VkDeviceAddress queue_b_addr;
+            VkDeviceAddress args_addr;
             VkDeviceAddress cluster_refs_addr;
             uint32_t append;
-        } pc;
-        pc.geometry_addr = geometry->device_address;
-        pc.instances_addr = inst->device_address;
-        pc.visible_inst_addr = vis_inst->device_address;
-        pc.offsets_addr = offsets->device_address;
-        pc.expand_addr = expand_args->device_address;
-        pc.cluster_refs_addr = cluster_refs->device_address;
+        } pc{};
+        pc.visible_addr = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances")->device_address;
+        pc.queue_a_addr = cl.graph->buffer("NodeQueueA")->device_address;
+        pc.queue_b_addr = cl.graph->buffer("NodeQueueB")->device_address;
+        pc.args_addr = cl.graph->buffer("NodeTraverseArgs")->device_address;
+        pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
         pc.append = p_late ? 1u : 0u;
 
-        cl.dd->command_bind_pipeline(cl.cmd, cluster_expand_args_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, node_seed_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch(p_late ? "Cluster expand args 2" : "Cluster expand args", 1);
+        cl.dispatch(p_late ? "Node seed 2" : "Node seed", 1);
     };
 }
 
-void GeometryFeature::_create_cluster_expand_pass(RenderGraph::Pass& r_pass, bool p_late)
+void GeometryFeature::_create_node_traverse_pass(RenderGraph::Pass& r_pass, bool p_late, uint32_t p_level)
 {
-    r_pass.name = p_late ? "ClusterExpand2" : "ClusterExpand";
+    r_pass.name = std::string(p_late ? "NodeTraverse2_" : "NodeTraverse_") + std::to_string(p_level);
     r_pass.category = PASS_CATEGORY_CULLING;
-    r_pass.setup = [p_late](RenderGraph::Builder& b) {
+    r_pass.setup = [p_late, p_level](RenderGraph::Builder& b) {
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Geometry", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("ClusterExpandOffsets", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_buffer("ClusterExpandArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        if (p_level == 0) b.read_buffer(p_late ? "VisibleInstances2" : "VisibleInstances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        else b.read_buffer(_node_queue_name(p_level - 1), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer("NodeTraverseArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+        b.write_buffer(_node_queue_name(p_level), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         if (p_late) b.write_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
-        auto camera = cl.graph->buffer("Camera");
-        auto geometry = cl.graph->buffer("Geometry");
-        auto inst = cl.graph->buffer("Instances");
-        auto transforms = cl.graph->buffer("Transforms");
-        auto visible = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances");
-        auto offsets = cl.graph->buffer("ClusterExpandOffsets");
-        auto expand_args = cl.graph->buffer("ClusterExpandArgs");
-        auto cluster_refs = cl.graph->buffer("ClusterRefs");
-
+    r_pass.execute = [this, p_late, p_level](RenderGraph::CommandList& cl) {
         struct Push {
             VkDeviceAddress camera_addr;
             VkDeviceAddress geometry_addr;
             VkDeviceAddress instances_addr;
             VkDeviceAddress transforms_addr;
             VkDeviceAddress visible_addr;
-            VkDeviceAddress offsets_addr;
+            VkDeviceAddress queue_in_addr;
+            VkDeviceAddress queue_out_addr;
             VkDeviceAddress cluster_refs_addr;
             VkDeviceAddress cluster_retest_addr;
             float px_per_unit;
             uint32_t late;
             uint32_t ref_capacity;
-        } pc;
-        pc.camera_addr = camera->device_address;
-        pc.geometry_addr = geometry->device_address;
-        pc.instances_addr = inst->device_address;
-        pc.transforms_addr = transforms->device_address;
-        pc.visible_addr = visible->device_address;
-        pc.offsets_addr = offsets->device_address;
-        pc.cluster_refs_addr = cluster_refs->device_address;
+            uint32_t queue_capacity;
+            uint32_t first_level;
+        } pc{};
+        pc.camera_addr = cl.graph->buffer("Camera")->device_address;
+        pc.geometry_addr = cl.graph->buffer("Geometry")->device_address;
+        pc.instances_addr = cl.graph->buffer("Instances")->device_address;
+        pc.transforms_addr = cl.graph->buffer("Transforms")->device_address;
+        pc.visible_addr = cl.graph->buffer(p_late ? "VisibleInstances2" : "VisibleInstances")->device_address;
+        pc.queue_in_addr = p_level == 0 ? 0 : cl.graph->buffer(_node_queue_name(p_level - 1))->device_address;
+        pc.queue_out_addr = cl.graph->buffer(_node_queue_name(p_level))->device_address;
+        pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
         pc.cluster_retest_addr = p_late ? cl.graph->buffer("ClusterRetest")->device_address : 0;
         pc.px_per_unit = ctx->frame->px_per_unit;
         pc.late = p_late ? 1u : 0u;
         pc.ref_capacity = ctx->frame->cluster_ref_capacity;
+        pc.queue_capacity = _node_queue_capacity();
+        pc.first_level = p_level == 0 ? 1u : 0u;
 
-        cl.dd->command_bind_pipeline(cl.cmd, cluster_expand_pipe);
+        cl.dd->command_bind_pipeline(cl.cmd, node_traverse_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch_indirect(p_late ? "Cluster expand 2" : "Cluster expand", *expand_args);
+        cl.dispatch_indirect(p_late ? "Node traverse 2" : "Node traverse", *cl.graph->buffer("NodeTraverseArgs"));
+    };
+}
+
+void GeometryFeature::_create_node_args_pass(RenderGraph::Pass& r_pass, bool p_late, uint32_t p_level)
+{
+    r_pass.name = std::string(p_late ? "NodeArgs2_" : "NodeArgs_") + std::to_string(p_level);
+    r_pass.category = PASS_CATEGORY_CULLING;
+    r_pass.setup = [p_level](RenderGraph::Builder& b) {
+        b.write_buffer(_node_queue_name(p_level), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer(_node_queue_name(p_level + 1), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("NodeTraverseArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    };
+    r_pass.execute = [this, p_level](RenderGraph::CommandList& cl) {
+        struct Push {
+            VkDeviceAddress filled_addr;
+            VkDeviceAddress next_addr;
+            VkDeviceAddress args_addr;
+            uint32_t capacity;
+        } pc{};
+        pc.filled_addr = cl.graph->buffer(_node_queue_name(p_level))->device_address;
+        pc.next_addr = cl.graph->buffer(_node_queue_name(p_level + 1))->device_address;
+        pc.args_addr = cl.graph->buffer("NodeTraverseArgs")->device_address;
+        pc.capacity = _node_queue_capacity();
+
+        cl.dd->command_bind_pipeline(cl.cmd, node_args_pipe);
+        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+        cl.dispatch("Node args", 1);
     };
 }
 
@@ -951,14 +981,18 @@ Error GeometryFeature::create_resources()
 {
     _create_clear_visible_pass();
     _create_instance_cull_pass(instance_cull_pass, false);
-    _create_cluster_expand_args_pass(cluster_expand_args_pass, false);
-    _create_cluster_expand_pass(cluster_expand_pass, false);
+    _create_node_seed_pass(node_seed_pass, false);
+    for (uint32_t late = 0; late < 2; late++) {
+        for (uint32_t l = 0; l < MAX_TRAVERSE_LEVELS; l++) {
+            _create_node_traverse_pass(node_traverse_passes[late][l], late != 0, l);
+            _create_node_args_pass(node_args_passes[late][l], late != 0, l);
+        }
+    }
     _create_cluster_cull_args_pass();
     _create_cluster_cull_pass();
     _create_hiz_pass(hiz_build_pass, "HiZBuild1", nullptr);
     _create_instance_cull_pass(instance_cull_pass_2, true);
-    _create_cluster_expand_args_pass(cluster_expand_args_pass_2, true);
-    _create_cluster_expand_pass(cluster_expand_pass_2, true);
+    _create_node_seed_pass(node_seed_pass_2, true);
     _create_cluster_retest_args_pass();
     _create_cluster_retest_pass();
     _create_draw_compact_pass(draw_compact_pass, false);
@@ -1015,8 +1049,9 @@ Error GeometryFeature::create_pipelines()
     using enum Error;
 
     instance_cull_pipe = _compute_pipeline(L"SHADERS_CULLING_INSTANCE_CULL_COMP", "culling/instance_cull.comp");
-    cluster_expand_args_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_EXPAND_ARGS_COMP", "culling/cluster_expand_args.comp");
-    cluster_expand_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_EXPAND_COMP", "culling/cluster_expand.comp");
+    node_seed_pipe = _compute_pipeline(L"SHADERS_CULLING_NODE_SEED_COMP", "culling/node_seed.comp");
+    node_traverse_pipe = _compute_pipeline(L"SHADERS_CULLING_NODE_TRAVERSE_COMP", "culling/node_traverse.comp");
+    node_args_pipe = _compute_pipeline(L"SHADERS_CULLING_NODE_ARGS_COMP", "culling/node_args.comp");
     cluster_cull_args_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_CULL_ARGS_COMP", "culling/cluster_cull_args.comp");
     cluster_cull_pipe = _compute_pipeline(L"SHADERS_CULLING_CLUSTER_CULL_COMP", "culling/cluster_cull.comp");
     hiz_build_pipe = _compute_pipeline(L"SHADERS_CULLING_HIZ_BUILD_COMP", "culling/hiz_build.comp");
@@ -1073,8 +1108,9 @@ Error GeometryFeature::create_pipelines()
 void GeometryFeature::destroy_resources()
 {
     ctx->dd->pipeline_free(instance_cull_pipe);
-    ctx->dd->pipeline_free(cluster_expand_args_pipe);
-    ctx->dd->pipeline_free(cluster_expand_pipe);
+    ctx->dd->pipeline_free(node_seed_pipe);
+    ctx->dd->pipeline_free(node_traverse_pipe);
+    ctx->dd->pipeline_free(node_args_pipe);
     ctx->dd->pipeline_free(cluster_cull_args_pipe);
     ctx->dd->pipeline_free(cluster_cull_pipe);
     ctx->dd->pipeline_free(hiz_build_pipe);
@@ -1161,9 +1197,17 @@ void GeometryFeature::build(RenderGraph& g)
     }
 
     g.add(&clear_visible_pass);
+    const uint32_t levels = std::min(ctx->geometry->max_node_depth, MAX_TRAVERSE_LEVELS);
+    auto add_traversal = [&](RenderGraph::Pass& r_seed, uint32_t p_late) {
+        g.add(&r_seed);
+        for (uint32_t l = 0; l < levels; l++) {
+            g.add(&node_traverse_passes[p_late][l]);
+            if (l + 1 < levels) g.add(&node_args_passes[p_late][l]);
+        }
+    };
+
     g.add(&instance_cull_pass);
-    g.add(&cluster_expand_args_pass);
-    g.add(&cluster_expand_pass);
+    add_traversal(node_seed_pass, 0);
     g.add(&cluster_cull_args_pass);
     g.add(&cluster_cull_pass);
     if (task_active) {
@@ -1180,8 +1224,7 @@ void GeometryFeature::build(RenderGraph& g)
     }
     if (hiz_use_prev) {
         g.add(&instance_cull_pass_2);
-        g.add(&cluster_expand_args_pass_2);
-        g.add(&cluster_expand_pass_2);
+        add_traversal(node_seed_pass_2, 1);
     }
     g.add(&cluster_retest_args_pass);
     g.add(&cluster_retest_pass);

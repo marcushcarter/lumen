@@ -10,74 +10,23 @@ namespace lumen {
 
 using Buffer = drivers::DeviceDriverVulkan::Buffer;
 
-static const char* _split_clusters(const Cluster* p_src, uint32_t p_count, const uint32_t* p_idx, uint32_t p_index_count, uint32_t p_vertex_count, std::vector<Cluster>& r_out)
-{
-    std::vector<uint32_t> stamp(p_vertex_count, UINT32_MAX);
-    uint32_t chunk_id = 0;
-    r_out.clear();
-    r_out.reserve(p_count);
-    for (uint32_t ci = 0; ci < p_count; ci++) {
-        const Cluster& src = p_src[ci];
-        if ((uint64_t)src.index_base + src.index_count > p_index_count) return "cluster index range out of bounds";
-        if (src.index_base % 3 != 0 || src.index_count % 3 != 0) return "cluster index range not triangle aligned";
-        if (src.index_count / 3 <= GeometryPool::RASTER_CLUSTER_TRIS && src.index_count <= GeometryPool::RASTER_CLUSTER_VERTS) {
-            r_out.push_back(src);
-            continue;
-        }
-
-        Cluster chunk = src;
-        chunk.index_count = 0;
-        uint32_t chunk_verts = 0;
-        chunk_id++;
-        for (uint32_t i = 0; i < src.index_count; i += 3) {
-            uint32_t fresh = 0;
-            for (uint32_t k = 0; k < 3; k++) {
-                const uint32_t v = p_idx[src.index_base + i + k];
-                if (v >= p_vertex_count) return "index out of range";
-                if (stamp[v] != chunk_id) fresh++;
-            }
-            if (chunk.index_count / 3 + 1 > GeometryPool::RASTER_CLUSTER_TRIS || chunk_verts + fresh > GeometryPool::RASTER_CLUSTER_VERTS) {
-                r_out.push_back(chunk);
-                chunk.index_base += chunk.index_count;
-                chunk.index_count = 0;
-                chunk_verts = 0;
-                chunk_id++;
-            }
-            for (uint32_t k = 0; k < 3; k++) {
-                const uint32_t v = p_idx[src.index_base + i + k];
-                if (stamp[v] != chunk_id) {
-                    stamp[v] = chunk_id;
-                    chunk_verts++;
-                }
-            }
-            chunk.index_count += 3;
-        }
-        if (chunk.index_count) r_out.push_back(chunk);
-    }
-    return nullptr;
-}
-
 Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
 {
     using enum Error;
     dd = &r_dd;
     frame_count = p_frame_count ? p_frame_count : 1;
 
-    _arena_setup(ArenaKind::VERTICES, sizeof(VertexPosition), 1u << 20, MAX_VERTS, 0, "geo_vertex_positions");
-    _arena_setup(ArenaKind::VERTEX_ATTRIBUTES, sizeof(VertexAttributes), 1u << 20, MAX_VERTS, 0, "geo_vertex_attributes");
-    _arena_setup(ArenaKind::INDICES, 3 * sizeof(uint32_t), 1u << 20, MAX_TRIS, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "geo_indices");
     _arena_setup(ArenaKind::TRI_SLOTS, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_tri_slots");
     _arena_setup(ArenaKind::CLUSTERS, sizeof(Cluster), 64u << 10, MAX_CLUSTERS, 0, "geo_clusters");
     _arena_setup(ArenaKind::GROUPS, sizeof(ClusterGroup), 16u << 10, MAX_GROUPS, 0, "geo_groups");
     _arena_setup(ArenaKind::SKIN, sizeof(SkinVertex), 64u << 10, MAX_SKIN_VERTS, 0, "geo_skin");
-    _arena_setup(ArenaKind::BVH_NODES, sizeof(BVHNode), 64u << 10, MAX_BVH_NODES, 0, "geo_bvh_nodes");
     _arena_setup(ArenaKind::MESHES, sizeof(LMesh), 1u << 10, MAX_MESHES, 0, "geo_meshes");
-    _arena_setup(ArenaKind::MESHLET_VERTICES, sizeof(uint32_t), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_meshlet_vertices");
     _arena_setup(ArenaKind::CLUSTER_VERTEX_BASE, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_vertex_base");
     _arena_setup(ArenaKind::LOCAL_TRIANGLES, sizeof(uint32_t), 1u << 20, MAX_TRIS, 0, "geo_local_triangles");
-    _arena_setup(ArenaKind::CLUSTER_VERTICES, sizeof(VertexPosition) + sizeof(VertexAttributes), 1u << 20, MAX_MESHLET_VERTS, 0, "geo_cluster_vertices");
+    _arena_setup(ArenaKind::CLUSTER_VERTICES, sizeof(ClusterVertex), 1u << 20, MAX_CLUSTER_VERTS, 0, "geo_cluster_vertices");
     _arena_setup(ArenaKind::CLUSTER_SLOTS, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_slots");
     _arena_setup(ArenaKind::CLUSTER_BOUNDS, 3 * sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_bounds");
+    _arena_setup(ArenaKind::NODES, sizeof(LMeshNode), 64u << 10, MAX_NODES, 0, "geo_nodes");
 
     address_buffers.resize(frame_count);
     for (Buffer& b : address_buffers) {
@@ -103,23 +52,19 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDevic
     _collect(p_frame_number);
 
     GeometryAddresses a{};
-    a.vertices = _arena(ArenaKind::VERTICES).buffer.device_address;
-    a.attributes = _arena(ArenaKind::VERTEX_ATTRIBUTES).buffer.device_address;
-    a.indices = _arena(ArenaKind::INDICES).buffer.device_address;
     a.tri_slots = _arena(ArenaKind::TRI_SLOTS).buffer.device_address;
     a.slot_table = p_slot_table;
     a.clusters = _arena(ArenaKind::CLUSTERS).buffer.device_address;
     a.groups = _arena(ArenaKind::GROUPS).buffer.device_address;
     a.skin_vertices = _arena(ArenaKind::SKIN).buffer.device_address;
-    a.bvh_nodes = _arena(ArenaKind::BVH_NODES).buffer.device_address;
     a.meshes = _arena(ArenaKind::MESHES).buffer.device_address;
-    a.meshlet_vertices = _arena(ArenaKind::MESHLET_VERTICES).buffer.device_address;
     a.cluster_vertex_base = _arena(ArenaKind::CLUSTER_VERTEX_BASE).buffer.device_address;
     a.local_triangles = _arena(ArenaKind::LOCAL_TRIANGLES).buffer.device_address;
     a.cluster_vertices = _arena(ArenaKind::CLUSTER_VERTICES).buffer.device_address;
     a.materials = p_materials;
     a.cluster_slots = _arena(ArenaKind::CLUSTER_SLOTS).buffer.device_address;
     a.cluster_bounds = _arena(ArenaKind::CLUSTER_BOUNDS).buffer.device_address;
+    a.nodes = _arena(ArenaKind::NODES).buffer.device_address;
 
     Buffer& b = address_buffers[p_slot];
     dd->buffer_update(b, &a, sizeof(a));
@@ -194,13 +139,10 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
     if (capacity == 0) return RangeAllocator::INVALID;
 
     const uint32_t live = r_alloc.extent();
-    if (p_kind == ArenaKind::INDICES && _arena_grow(ArenaKind::TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ArenaKind::VERTICES && _arena_grow(ArenaKind::VERTEX_ATTRIBUTES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ArenaKind::INDICES && _arena_grow(ArenaKind::LOCAL_TRIANGLES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::LOCAL_TRIANGLES && _arena_grow(ArenaKind::TRI_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_VERTEX_BASE, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_BOUNDS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
-    if (p_kind == ArenaKind::MESHLET_VERTICES && _arena_grow(ArenaKind::CLUSTER_VERTICES, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (_arena_grow(p_kind, capacity, live) != Error::OK) return RangeAllocator::INVALID;
 
     r_alloc.grow(capacity);
@@ -214,8 +156,7 @@ void GeometryPool::_release(const MeshRanges& p_r)
     cluster_alloc.free(p_r.cluster, p_r.cluster_count);
     group_alloc.free(p_r.group, p_r.group_count);
     skin_alloc.free(p_r.skin, p_r.skin_count);
-    bvh_alloc.free(p_r.bvh, p_r.bvh_count);
-    meshlet_vertex_alloc.free(p_r.meshlet_vertex, p_r.meshlet_vertex_count);
+    node_alloc.free(p_r.node, p_r.node_count);
 }
 
 void GeometryPool::_retire_buffer(Buffer& r_buffer)
@@ -274,15 +215,15 @@ void GeometryPool::clear()
     by_guid.clear();
     _retired_meshes.clear();
 
-    vertex_alloc.reset(_arena(ArenaKind::VERTICES).capacity);
-    tri_alloc.reset(_arena(ArenaKind::INDICES).capacity);
+    vertex_alloc.reset(_arena(ArenaKind::CLUSTER_VERTICES).capacity);
+    tri_alloc.reset(_arena(ArenaKind::LOCAL_TRIANGLES).capacity);
     cluster_alloc.reset(_arena(ArenaKind::CLUSTERS).capacity);
     group_alloc.reset(_arena(ArenaKind::GROUPS).capacity);
     skin_alloc.reset(_arena(ArenaKind::SKIN).capacity);
-    bvh_alloc.reset(_arena(ArenaKind::BVH_NODES).capacity);
-    meshlet_vertex_alloc.reset(_arena(ArenaKind::MESHLET_VERTICES).capacity);
+    node_alloc.reset(_arena(ArenaKind::NODES).capacity);
     cluster_extent = 0;
     max_cluster_tris = 0;
+    max_node_depth = 0;
 }
 
 uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
@@ -292,59 +233,11 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     const std::string name = p_path.string();
     auto fail = [&](const char* p_why) { log_write("GeometryPool: %s: %s", name.c_str(), p_why); return INVALID_MESH; };
 
-    std::ifstream f(p_path, std::ios::binary | std::ios::ate);
-    if (!f) return fail("cannot open");
-    const std::streamsize file_size = f.tellg();
-    f.seekg(0);
-    if (file_size < (std::streamsize)(sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader))) return fail("too small");
-
-    std::vector<uint8_t> bytes((size_t)file_size);
-    f.read(reinterpret_cast<char*>(bytes.data()), file_size);
-    if (!f) return fail("read failed");
-
-    LAssetHeader ah{};
-    std::memcpy(&ah, bytes.data(), sizeof(ah));
-    if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) return fail("bad asset header");
-    if (!asset_version_supported(AssetType::MESH, ah.version)) return fail("unsupported mesh version");
-    const bool interleaved = ah.version == LMESH_VERSION_INTERLEAVED;
-    const bool legacy_slot_table = ah.version < LMESH_VERSION_NO_RIG;
-
-    LMeshPayloadHeader ph{};
-    std::memcpy(&ph, bytes.data() + sizeof(ah), sizeof(ph));
-    if (ah.payload_size < sizeof(ph)) return fail("payload_size underflow");
-
-    const bool skinned = has_flag((MeshFlags)ph.flags, MeshFlags::SKINNED);
-    const size_t vtx_bytes = (size_t)ph.vertex_count * (interleaved ? sizeof(Vertex) : sizeof(VertexPosition) + sizeof(VertexAttributes));
-    const size_t idx_bytes = (size_t)ph.index_count * sizeof(uint32_t);
-    const size_t tri_bytes = (size_t)ph.tri_count * sizeof(uint32_t);
-    const size_t slot_bytes = legacy_slot_table ? (size_t)ph.slot_count * sizeof(uint32_t) : 0;
-    const size_t clus_bytes = (size_t)ph.cluster_count * sizeof(Cluster);
-    const size_t group_bytes = (size_t)ph.group_count * sizeof(ClusterGroup);
-    const size_t skin_bytes = skinned ? (size_t)ph.vertex_count * sizeof(SkinVertex) : 0;
-    const size_t bvhn_bytes = (size_t)ph.bvh_node_count * sizeof(BVHNode);
-    size_t rig_bytes = 0;
-    LMeshRig rig;
-    if (skinned && ah.version >= LMESH_VERSION) {
-        const size_t at = sizeof(ah) + sizeof(ph);
-        if (at > bytes.size() || !lmesh_parse_rig(bytes.data() + at, bytes.size() - at, rig)) return fail("bad rig");
-        LMeshRigHeader rh{};
-        std::memcpy(&rh, bytes.data() + at, sizeof(rh));
-        rig_bytes = lmesh_rig_bytes(rh);
-    }
-    const size_t payload_off = sizeof(ah) + sizeof(ph) + rig_bytes;
-
-    if (ah.payload_size < sizeof(ph) + rig_bytes) return fail("payload_size underflow");
-    const size_t blocks_size = (size_t)ah.payload_size - sizeof(ph) - rig_bytes;
-    if (vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes != blocks_size || payload_off + blocks_size > bytes.size()) return fail("bad/truncated payload");
-    if (ph.vertex_count == 0 || ph.index_count == 0 || ph.index_count % 3 != 0 || ph.tri_count != ph.index_count / 3) return fail("bad vertex/index counts");
-    if (ph.slot_count == 0) return fail("mesh has no material slots");
-
-    std::vector<Cluster> src_clusters(ph.cluster_count);
-    std::memcpy(src_clusters.data(), bytes.data() + payload_off + vtx_bytes + idx_bytes + tri_bytes + slot_bytes, clus_bytes);
-    std::vector<Cluster> clusters;
-    const uint32_t* src_idx = reinterpret_cast<const uint32_t*>(bytes.data() + payload_off + vtx_bytes);
-    if (const char* why = _split_clusters(src_clusters.data(), ph.cluster_count, src_idx, ph.index_count, ph.vertex_count, clusters)) return fail(why);
-    const uint32_t cluster_count = (uint32_t)clusters.size();
+    LMeshData data;
+    std::string error;
+    if (!lmesh_load(p_path, data, error)) return fail(error.c_str());
+    const LMeshPayloadHeader& h = data.header;
+    const bool skinned = data.skinned();
 
     uint32_t id = INVALID_MESH;
     if (!free_meshes.empty()) id = free_meshes.back();
@@ -356,11 +249,12 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
     }
 
     MeshRanges r;
-    r.vertex_count = ph.vertex_count;
-    r.tri_count = ph.tri_count;
-    r.cluster_count = cluster_count;
-    r.group_count = ph.group_count;
-    r.bvh_count = ph.bvh_node_count;
+    r.vertex_count = h.vertex_count;
+    r.tri_count = h.tri_count;
+    r.cluster_count = h.cluster_count;
+    r.group_count = h.group_count;
+    r.skin_count = skinned ? h.vertex_count : 0;
+    r.node_count = h.node_count;
 
     auto reserve = [&](uint32_t& r_offset, RangeAllocator& r_alloc, ArenaKind p_kind, uint32_t p_count) {
         if (p_count == 0) return true;
@@ -368,214 +262,96 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         return r_offset != RangeAllocator::INVALID;
     };
     const bool reserved =
-        reserve(r.vertex, vertex_alloc, ArenaKind::VERTICES, r.vertex_count) &&
-        reserve(r.tri, tri_alloc, ArenaKind::INDICES, r.tri_count) &&
+        reserve(r.vertex, vertex_alloc, ArenaKind::CLUSTER_VERTICES, r.vertex_count) &&
+        reserve(r.tri, tri_alloc, ArenaKind::LOCAL_TRIANGLES, r.tri_count) &&
         reserve(r.cluster, cluster_alloc, ArenaKind::CLUSTERS, r.cluster_count) &&
         reserve(r.group, group_alloc, ArenaKind::GROUPS, r.group_count) &&
-        reserve(r.bvh, bvh_alloc, ArenaKind::BVH_NODES, r.bvh_count);
+        reserve(r.skin, skin_alloc, ArenaKind::SKIN, r.skin_count) &&
+        reserve(r.node, node_alloc, ArenaKind::NODES, r.node_count);
     if (!reserved) {
         _release(r);
         return fail("geometry arenas exhausted");
     }
 
-    uint8_t* p = bytes.data() + payload_off;
-    uint8_t* p_vtx = p; p += vtx_bytes;
-
-    const size_t pos_bytes = (size_t)ph.vertex_count * sizeof(VertexPosition);
-    const size_t attr_bytes = (size_t)ph.vertex_count * sizeof(VertexAttributes);
-    const void* p_pos = p_vtx;
-    const void* p_attr = p_vtx + pos_bytes;
-    std::vector<VertexPosition> legacy_pos;
-    std::vector<VertexAttributes> legacy_attr;
-    if (interleaved) {
-        legacy_pos.resize(ph.vertex_count);
-        legacy_attr.resize(ph.vertex_count);
-        for (uint32_t i = 0; i < ph.vertex_count; i++) {
-            Vertex v;
-            std::memcpy(&v, p_vtx + (size_t)i * sizeof(Vertex), sizeof(Vertex));
-            legacy_pos[i] = { v.position, 0 };
-            legacy_attr[i] = { v.normal, v.uv };
-        }
-        p_pos = legacy_pos.data();
-        p_attr = legacy_attr.data();
-    }
-    uint8_t* p_idx = p; p += idx_bytes;
-    uint8_t* p_tri = p; p += tri_bytes;
-    p += slot_bytes;
-    p += clus_bytes;
-    uint8_t* p_group = p; p += group_bytes;
-    uint8_t* p_skin = p; p += skin_bytes;
-    uint8_t* p_bvhn = p; p += bvhn_bytes;
-
-    const char* bad = nullptr;
-    const uint32_t index_base = r.tri * 3;
-
-    uint32_t* idx = reinterpret_cast<uint32_t*>(p_idx);
-    for (uint32_t i = 0; i < ph.index_count && !bad; i++) {
-        if (idx[i] >= ph.vertex_count) bad = "index out of range";
-        idx[i] += r.vertex;
-    }
-
-    const uint32_t* tri = reinterpret_cast<const uint32_t*>(p_tri);
-    for (uint32_t i = 0; i < ph.tri_count && !bad; i++) {
-        if (tri[i] >= ph.slot_count) bad = "triangle slot out of range";
-    }
-
-    Cluster* clus = clusters.data();
-    for (uint32_t i = 0; i < cluster_count && !bad; i++) {
-        Cluster& c = clus[i];
-        if ((uint64_t)c.index_base + c.index_count > ph.index_count) bad = "cluster index range out of bounds";
-        else if (c.self_group != CLUSTER_GROUP_NONE && c.self_group >= ph.group_count) bad = "cluster self_group out of range";
-        else if (c.parent_group != CLUSTER_GROUP_NONE && c.parent_group >= ph.group_count) bad = "cluster parent_group out of range";
-        c.index_base += index_base;
-        if (c.self_group != CLUSTER_GROUP_NONE) c.self_group += r.group;
-        if (c.parent_group != CLUSTER_GROUP_NONE) c.parent_group += r.group;
-    }
-
-    BVHNode* bvhn = reinterpret_cast<BVHNode*>(p_bvhn);
-    for (uint32_t i = 0; i < ph.bvh_node_count && !bad; i++) {
-        BVHNode& n = bvhn[i];
-        if (n.left & BVH_LEAF_BIT) {
-            const uint64_t first = n.left & ~BVH_LEAF_BIT;
-            if (first + n.right > ph.tri_count) bad = "bvh leaf range out of bounds";
-            n.left = BVH_LEAF_BIT | (uint32_t)(first + r.tri);
-        } else {
-            if (n.left >= ph.bvh_node_count || n.right >= ph.bvh_node_count) bad = "bvh child out of range";
-            n.left += r.bvh;
-            n.right += r.bvh;
-        }
-    }
-
-    std::vector<uint32_t> meshlet_verts;
-    std::vector<uint32_t> cluster_vbase(cluster_count);
-    std::vector<uint32_t> cluster_slots(cluster_count, CLUSTER_SLOT_MIXED);
-    std::vector<uint32_t> local_tris(ph.tri_count, 0u);
+    auto rebase_group = [&](uint32_t p_group) { return p_group == CLUSTER_GROUP_NONE ? CLUSTER_GROUP_NONE : p_group + r.group; };
+    std::vector<Cluster> clusters(h.cluster_count);
+    std::vector<uint32_t> cluster_vbase(h.cluster_count);
+    std::vector<uint32_t> cluster_slots(h.cluster_count);
+    std::vector<uint32_t> cluster_bounds((size_t)h.cluster_count * 3);
     uint32_t mesh_max_tris = 0;
-    if (!bad) {
-        std::vector<uint32_t> stamp(ph.vertex_count, UINT32_MAX);
-        std::vector<uint8_t> local_of(ph.vertex_count, 0);
-        meshlet_verts.reserve(ph.index_count / 2);
-        for (uint32_t ci = 0; ci < cluster_count && !bad; ci++) {
-            const Cluster& cl = clus[ci];
-            const uint32_t first = cl.index_base - index_base;
-            if (first % 3 != 0 || cl.index_count % 3 != 0) { bad = "cluster index range not triangle aligned"; break; }
-            const uint32_t vbase = (uint32_t)meshlet_verts.size();
-            cluster_vbase[ci] = vbase;
-            mesh_max_tris = std::max(mesh_max_tris, cl.index_count / 3);
-            uint32_t uniform_slot = cl.index_count ? tri[first / 3] : CLUSTER_SLOT_MIXED;
-            for (uint32_t i = 0; i < cl.index_count && !bad; i += 3) {
-                uint32_t packed = 0;
-                for (uint32_t k = 0; k < 3; k++) {
-                    const uint32_t v = idx[first + i + k] - r.vertex;
-                    if (stamp[v] != ci) {
-                        const uint32_t n = (uint32_t)meshlet_verts.size() - vbase;
-                        if (n >= RASTER_CLUSTER_VERTS) { bad = "cluster has too many unique vertices"; break; }
-                        stamp[v] = ci;
-                        local_of[v] = (uint8_t)n;
-                        meshlet_verts.push_back(v + r.vertex);
-                    }
-                    packed |= (uint32_t)local_of[v] << (8 * k);
-                }
-                const uint32_t slot = tri[(first + i) / 3];
-                local_tris[(first + i) / 3] = packed | (std::min(slot, LOCAL_TRI_SLOT_OVERFLOW) << 24);
-                if (slot != uniform_slot) uniform_slot = CLUSTER_SLOT_MIXED;
-            }
-            cluster_slots[ci] = uniform_slot < LOCAL_TRI_SLOT_OVERFLOW ? uniform_slot : CLUSTER_SLOT_MIXED;
-        }
-        if (mesh_max_tris > RASTER_CLUSTER_TRIS) bad = "cluster has too many triangles";
-    }
-    std::vector<uint8_t> cluster_vertices(meshlet_verts.size() * (sizeof(VertexPosition) + sizeof(VertexAttributes)));
-    std::vector<uint32_t> cluster_bounds((size_t)cluster_count * 3, 0u);
-    if (!bad) {
-        const VertexPosition* src_pos = reinterpret_cast<const VertexPosition*>(p_pos);
-        const VertexAttributes* src_attr = reinterpret_cast<const VertexAttributes*>(p_attr);
-        for (size_t i = 0; i < meshlet_verts.size(); i++) {
-            const uint32_t v = meshlet_verts[i] - r.vertex;
-            uint8_t* dst = cluster_vertices.data() + i * (sizeof(VertexPosition) + sizeof(VertexAttributes));
-            std::memcpy(dst, &src_pos[v], sizeof(VertexPosition));
-            std::memcpy(dst + sizeof(VertexPosition), &src_attr[v], sizeof(VertexAttributes));
-        }
-        for (uint32_t ci = 0; ci < cluster_count; ci++) {
-            const uint32_t end = ci + 1 < cluster_count ? cluster_vbase[ci + 1] : (uint32_t)meshlet_verts.size();
-            u16vec3 lo(UINT16_MAX), hi(0);
-            for (uint32_t i = cluster_vbase[ci]; i < end; i++) {
-                const u16vec3 q = src_pos[meshlet_verts[i] - r.vertex].position;
-                lo = glm::min(lo, q);
-                hi = glm::max(hi, q);
-            }
-            if (end == cluster_vbase[ci]) lo = hi = u16vec3(0);
-            cluster_bounds[ci * 3 + 0] = (uint32_t)lo.x | ((uint32_t)lo.y << 16);
-            cluster_bounds[ci * 3 + 1] = (uint32_t)lo.z | ((uint32_t)hi.x << 16);
-            cluster_bounds[ci * 3 + 2] = (uint32_t)hi.y | ((uint32_t)hi.z << 16);
+    for (const LMeshPage& page : data.pages) {
+        for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count; ci++) {
+            const LMeshCluster& c = data.clusters[ci];
+            clusters[ci] = Cluster{ (r.tri + page.tri_first + c.tri_offset) * 3u, c.tri_count * 3u, c.cull_sphere, rebase_group(c.self_group), rebase_group(c.parent_group) };
+            cluster_vbase[ci] = r.vertex + page.vertex_first + c.vertex_offset;
+            cluster_slots[ci] = c.slot;
+            std::memcpy(&cluster_bounds[(size_t)ci * 3], c.bounds, sizeof(c.bounds));
+            mesh_max_tris = std::max(mesh_max_tris, c.tri_count);
         }
     }
-    
-    std::vector<SkinVertex> cluster_skin;
+
+    std::vector<LMeshNode> nodes = data.nodes;
+    std::vector<uint32_t> depth(nodes.size(), 1u);
+    uint32_t mesh_depth = 1;
+    for (uint32_t i = 0; i < (uint32_t)nodes.size(); i++) {
+        LMeshNode& n = nodes[i];
+        if (n.page == LMESH_NODE_INNER) {
+            for (uint32_t k = n.first; k < n.first + n.count; k++) depth[k] = depth[i] + 1;
+            n.first += r.node;
+        } else {
+            n.first += r.cluster;
+        }
+        mesh_depth = std::max(mesh_depth, depth[i]);
+    }
+    if (mesh_depth > MAX_NODE_DEPTH) {
+        _release(r);
+        return fail("cluster hierarchy is deeper than the traversal supports");
+    }
+
     std::vector<JointBox> joint_boxes;
-    if (!bad && skinned) {
-        const SkinVertex* src_skin = reinterpret_cast<const SkinVertex*>(p_skin);
-        const VertexPosition* src_pos = reinterpret_cast<const VertexPosition*>(p_pos);
-        cluster_skin.resize(meshlet_verts.size());
-        for (size_t i = 0; i < meshlet_verts.size(); i++) cluster_skin[i] = src_skin[meshlet_verts[i] - r.vertex];
-        for (uint32_t v = 0; v < ph.vertex_count; v++) {
-            const vec3 pos = ph.pos_min + vec3(src_pos[v].position) / 65535.0f * ph.pos_extent;
+    if (skinned) {
+        for (uint32_t v = 0; v < h.vertex_count; v++) {
+            const SkinVertex& sv = data.skin[v];
+            const vec3 pos = h.pos_min + vec3(data.vertices[v].position.position) / 65535.0f * h.pos_extent;
             for (int k = 0; k < 4; k++) {
-                if (src_skin[v].weights[k] == 0) continue;
-                const uint32_t j = src_skin[v].joints[k];
+                if (sv.weights[k] == 0) continue;
+                const uint32_t j = sv.joints[k];
                 if (j >= joint_boxes.size()) joint_boxes.resize(j + 1);
                 joint_boxes[j].min = glm::min(joint_boxes[j].min, pos);
                 joint_boxes[j].max = glm::max(joint_boxes[j].max, pos);
             }
         }
     }
-    if (!bad) {
-        r.meshlet_vertex_count = (uint32_t)meshlet_verts.size();
-        r.skin_count = skinned ? r.meshlet_vertex_count : 0;
-        if (!reserve(r.meshlet_vertex, meshlet_vertex_alloc, ArenaKind::MESHLET_VERTICES, r.meshlet_vertex_count)) bad = "meshlet vertex arena exhausted";
-        else if (!reserve(r.skin, skin_alloc, ArenaKind::SKIN, r.skin_count)) bad = "skin arena exhausted";
-        else for (uint32_t& b : cluster_vbase) b += r.meshlet_vertex;
-    }
-
-    if (bad) {
-        _release(r);
-        return fail(bad);
-    }
 
     LMesh m{};
-    m.vertex_base = r.vertex;
-    m.vertex_count = ph.vertex_count;
     m.cluster_base = r.cluster_count ? r.cluster : 0;
-    m.cluster_count = cluster_count;
-    m.slot_count = ph.slot_count;
-    m.skin_base = skinned ? r.skin - r.meshlet_vertex : 0;
-    m.bvh_node_base = r.bvh_count ? r.bvh : 0;
-    m.bvh_node_count = ph.bvh_node_count;
-    m.pos_min = ph.pos_min;
-    m.pos_extent = ph.pos_extent;
-    m.uv_min = ph.uv_min;
-    m.uv_extent = ph.uv_extent;
-    m.bounds_sphere = ph.bounds_sphere;
+    m.cluster_count = h.cluster_count;
+    m.slot_count = h.slot_count;
+    m.skin_base = skinned ? r.skin - r.vertex : 0;
+    m.node_base = r.node_count ? r.node : 0;
+    m.node_count = h.node_count;
+    m.pos_min = h.pos_min;
+    m.pos_extent = h.pos_extent;
+    m.uv_min = h.uv_min;
+    m.uv_extent = h.uv_extent;
+    m.bounds_sphere = h.bounds_sphere;
 
     drivers::DeviceDriverVulkan::BufferUpload uploads[ARENA_COUNT];
     uint32_t upload_count = 0;
     auto add = [&](ArenaKind p_kind, uint32_t p_offset, const void* p_data, size_t p_bytes) {
         if (p_bytes) uploads[upload_count++] = { &_arena(p_kind).buffer, p_data, (VkDeviceSize)p_bytes, (VkDeviceSize)p_offset * _arena(p_kind).stride };
     };
-    add(ArenaKind::VERTICES, r.vertex, p_pos, pos_bytes);
-    add(ArenaKind::VERTEX_ATTRIBUTES, r.vertex, p_attr, attr_bytes);
-    add(ArenaKind::INDICES, r.tri, p_idx, idx_bytes);
-    add(ArenaKind::TRI_SLOTS, r.tri, p_tri, tri_bytes);
+    add(ArenaKind::CLUSTER_VERTICES, r.vertex, data.vertices.data(), data.vertices.size() * sizeof(ClusterVertex));
+    add(ArenaKind::LOCAL_TRIANGLES, r.tri, data.local_tris.data(), data.local_tris.size() * sizeof(uint32_t));
+    add(ArenaKind::TRI_SLOTS, r.tri, data.tri_slots.data(), data.tri_slots.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTERS, r.cluster, clusters.data(), clusters.size() * sizeof(Cluster));
-    add(ArenaKind::GROUPS, r.group, p_group, group_bytes);
-    add(ArenaKind::SKIN, r.skin, cluster_skin.data(), cluster_skin.size() * sizeof(SkinVertex));
-    add(ArenaKind::BVH_NODES, r.bvh, p_bvhn, bvhn_bytes);
-    add(ArenaKind::MESHES, id, &m, sizeof(LMesh));
-    add(ArenaKind::MESHLET_VERTICES, r.meshlet_vertex, meshlet_verts.data(), meshlet_verts.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_VERTEX_BASE, r.cluster, cluster_vbase.data(), cluster_vbase.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_SLOTS, r.cluster, cluster_slots.data(), cluster_slots.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_BOUNDS, r.cluster, cluster_bounds.data(), cluster_bounds.size() * sizeof(uint32_t));
-    add(ArenaKind::LOCAL_TRIANGLES, r.tri, local_tris.data(), local_tris.size() * sizeof(uint32_t));
-    add(ArenaKind::CLUSTER_VERTICES, r.meshlet_vertex, cluster_vertices.data(), cluster_vertices.size());
+    add(ArenaKind::GROUPS, r.group, data.groups.data(), data.groups.size() * sizeof(ClusterGroup));
+    add(ArenaKind::SKIN, r.skin, data.skin.data(), data.skin.size() * sizeof(SkinVertex));
+    add(ArenaKind::NODES, r.node, nodes.data(), nodes.size() * sizeof(LMeshNode));
+    add(ArenaKind::MESHES, id, &m, sizeof(LMesh));
 
     if (dd->buffer_upload_batch(uploads, upload_count) != Error::OK) {
         _release(r);
@@ -587,20 +363,21 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         mesh_ranges.push_back(r);
         mesh_guids.push_back(p_guid);
         mesh_joint_boxes.push_back(std::move(joint_boxes));
-        mesh_rigs.push_back(std::move(rig));
+        mesh_rigs.push_back(std::move(data.rig));
     } else {
         free_meshes.pop_back();
         meshes[id] = m;
         mesh_ranges[id] = r;
         mesh_guids[id] = p_guid;
         mesh_joint_boxes[id] = std::move(joint_boxes);
-        mesh_rigs[id] = std::move(rig);
+        mesh_rigs[id] = std::move(data.rig);
     }
     by_guid.emplace(p_guid, id);
     max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
+    max_node_depth = std::max(max_node_depth, mesh_depth);
     version++;
 
-    log_write("GeometryPool: loaded %s verts=%u tris=%u clusters=%u groups=%u bvh_nodes=%u id=%u", name.c_str(), ph.vertex_count, ph.tri_count, cluster_count, ph.group_count, ph.bvh_node_count, id);
+    log_write("GeometryPool: loaded %s tris=%u cluster_verts=%u clusters=%u groups=%u pages=%u (%u root) nodes=%u depth=%u id=%u", name.c_str(), h.tri_count, h.vertex_count, h.cluster_count, h.group_count, h.page_count, h.root_page_count, h.node_count, mesh_depth, id);
     return id;
 }
 

@@ -1,0 +1,29 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 1) in;
+
+layout(buffer_reference, scalar) readonly buffer VisibleInstanceBuffer { uint count; };
+layout(buffer_reference, scalar) writeonly buffer NodeQueueBuffer { uint count; };
+layout(buffer_reference, scalar) writeonly buffer IndirectDispatch { uint x; uint y; uint z; };
+layout(buffer_reference, scalar) writeonly buffer ClusterRefsCount { uint count; };
+
+layout(push_constant) uniform Push {
+    VisibleInstanceBuffer visible_instances;
+    NodeQueueBuffer queue_a;
+    NodeQueueBuffer queue_b;
+    IndirectDispatch traverse_args;
+    ClusterRefsCount cluster_refs;
+    uint append;
+} pc;
+
+void main() {
+    uint groups = (pc.visible_instances.count + 63u) / 64u;
+    pc.traverse_args.x = min(groups, 65535u);
+    pc.traverse_args.y = (groups + 65534u) / 65535u;
+    pc.traverse_args.z = 1u;
+    pc.queue_a.count = 0u;
+    pc.queue_b.count = 0u;
+    if (pc.append == 0u) pc.cluster_refs.count = 0u;
+}

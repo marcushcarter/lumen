@@ -21,6 +21,7 @@ struct GeometryFeature : Feature
     static constexpr uint32_t COMPACT_GRANULE_TRIS = 64u * 1024;
     static constexpr uint32_t COMPACT_SHRINK_FRAMES = 300;
     static constexpr uint64_t COMPACT_INDEX_LIMIT_TRIS = 0xFFFFFFFFull / 3ull;
+    static constexpr uint32_t MAX_TRAVERSE_LEVELS = 16;
 
     struct CullStats {
         uint32_t refs;
@@ -96,14 +97,14 @@ struct GeometryFeature : Feature
 
     RenderGraph::Pass clear_visible_pass;
     RenderGraph::Pass instance_cull_pass;
-    RenderGraph::Pass cluster_expand_args_pass;
-    RenderGraph::Pass cluster_expand_pass;
+    RenderGraph::Pass node_seed_pass;
     RenderGraph::Pass cluster_cull_args_pass;
     RenderGraph::Pass cluster_cull_pass;
     RenderGraph::Pass hiz_build_pass;
     RenderGraph::Pass instance_cull_pass_2;
-    RenderGraph::Pass cluster_expand_args_pass_2;
-    RenderGraph::Pass cluster_expand_pass_2;
+    RenderGraph::Pass node_seed_pass_2;
+    RenderGraph::Pass node_traverse_passes[2][MAX_TRAVERSE_LEVELS];
+    RenderGraph::Pass node_args_passes[2][MAX_TRAVERSE_LEVELS];
     RenderGraph::Pass cluster_retest_args_pass;
     RenderGraph::Pass cluster_retest_pass;
     RenderGraph::Pass hiz_build_pass_2;
@@ -116,8 +117,9 @@ struct GeometryFeature : Feature
     RenderGraph::Pass stats_pass;
 
     drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_expand_args_pipe;
-    drivers::DeviceDriverVulkan::Pipeline cluster_expand_pipe;
+    drivers::DeviceDriverVulkan::Pipeline node_seed_pipe;
+    drivers::DeviceDriverVulkan::Pipeline node_traverse_pipe;
+    drivers::DeviceDriverVulkan::Pipeline node_args_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_cull_args_pipe;
     drivers::DeviceDriverVulkan::Pipeline cluster_cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline hiz_build_pipe;
@@ -135,8 +137,10 @@ struct GeometryFeature : Feature
 
     void _create_clear_visible_pass();
     void _create_instance_cull_pass(RenderGraph::Pass& r_pass, bool p_late);
-    void _create_cluster_expand_args_pass(RenderGraph::Pass& r_pass, bool p_late);
-    void _create_cluster_expand_pass(RenderGraph::Pass& r_pass, bool p_late);
+    uint32_t _node_queue_capacity() const;
+    void _create_node_seed_pass(RenderGraph::Pass& r_pass, bool p_late);
+    void _create_node_traverse_pass(RenderGraph::Pass& r_pass, bool p_late, uint32_t p_level);
+    void _create_node_args_pass(RenderGraph::Pass& r_pass, bool p_late, uint32_t p_level);
     void _create_cluster_cull_args_pass();
     void _create_cluster_cull_pass();
     void _create_hiz_pass(RenderGraph::Pass& r_build, const char* p_build_name, const char* p_args);

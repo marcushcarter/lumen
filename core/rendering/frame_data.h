@@ -53,7 +53,6 @@ struct FrameData
     float texture_grad_scale = 1.0f;
 
     CameraUniform camera{};
-    vec3 sky_radiance = vec3(0.0f);
 
     struct EntityCache {
         mat4 prev_mtx;

@@ -33,8 +33,6 @@ void serialize(Archive& a, EditorFolderComponent& r_c)
 
 void serialize(Archive& a, EnvironmentSettings& r_c)
 {
-    a.field("sky_color", r_c.sky_color);
-    a.field("sky_intensity", r_c.sky_intensity);
     a.field("manual_ev100", r_c.manual_ev100);
 }
 

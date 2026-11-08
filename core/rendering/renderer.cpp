@@ -556,7 +556,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.direct_light.direction = normalize(EnvironmentSettings::SUN_DIRECTION);
         frame.direct_light.angular_radius = EnvironmentSettings::SUN_ANGULAR_RADIUS;
         frame.direct_light.illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
-        frame.sky_radiance = env.sky_color * env.sky_intensity;
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
 

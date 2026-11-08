@@ -88,6 +88,8 @@ void ThumbnailCache::close(EditorContext& ctx)
     job = {};
     materials.clear();
     models.clear();
+    animations.clear();
+    overlays.clear();
 
     if (ctx.renderer) {
         ctx.renderer->models.unload(preview_sphere);
@@ -335,6 +337,72 @@ void ThumbnailCache::_pose_animation(Guid p_guid)
     rig.pose(local.data());
 }
 
+const ThumbnailCache::ParsedOverlay* ThumbnailCache::_parsed_overlay(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp)
+{
+    const std::filesystem::path file = _asset_file(ctx, p_guid);
+    const uint64_t asset_stamp = _stamp(file);
+    if (asset_stamp == STAMP_MISSING) return nullptr;
+    ParsedOverlay& p = overlays[p_guid];
+    if (p.asset_stamp != asset_stamp) {
+        p.asset_stamp = asset_stamp;
+        p.stamp = 0;
+        if (p.overlay.load(file) != Error::OK) p.overlay = LOverlay{};
+    }
+    if (p.overlay.guid != p_guid) return nullptr;
+
+    const uint64_t source_stamp = _stamp(_content_file(ctx, p.overlay.source));
+    if (source_stamp == STAMP_MISSING) return nullptr;
+    const bool additive = p.overlay.mode == OverlayMode::ADDITIVE && p.overlay.reference.valid();
+    const uint64_t reference_stamp = additive ? _stamp(_content_file(ctx, p.overlay.reference)) : 0;
+    const uint64_t space_stamp = p.overlay.preview_blend_space.valid() ? _stamp(_asset_file(ctx, p.overlay.preview_blend_space)) : 0;
+    r_stamp = _mix(_mix(_mix(_mix(asset_stamp, source_stamp), _stamp(_asset_file(ctx, p.overlay.source))), reference_stamp), space_stamp);
+    if (p.stamp != r_stamp) {
+        p.stamp = r_stamp;
+        p.mesh = {};
+        anim._clips.erase(p.overlay.source);
+        anim._clips.erase(p.overlay.reference);
+        if (const LBlendSpace* space = anim.blend_space(ctx, p.overlay.preview_blend_space)) {
+            for (const BlendSample& s : space->samples) anim._clips.erase(s.clip);
+            p.mesh = space->preview_mesh;
+            for (size_t i = 0; i < space->samples.size() && !p.mesh.valid(); ++i) p.mesh = _clip_preview_mesh(ctx, space->samples[i].clip);
+        }
+        if (!p.mesh.valid()) p.mesh = _clip_preview_mesh(ctx, p.overlay.source);
+        if (!p.mesh.valid()) p.stamp = 0;
+    }
+    return p.mesh.valid() ? &p : nullptr;
+}
+
+Guid ThumbnailCache::_clip_preview_mesh(EditorContext& ctx, Guid p_clip)
+{
+    const std::filesystem::path file = _asset_file(ctx, p_clip);
+    if (file.empty()) return {};
+    toml::table tbl;
+    try { tbl = toml::parse_file(file.string()); }
+    catch (const toml::parse_error&) { return {}; }
+    auto section = tbl[asset_type_section(AssetType::ANIMATION)];
+    const Guid mesh = Guid::from_string(section["preview_mesh"].value_or(std::string()));
+    if (mesh.valid()) return mesh;
+    return RigPreview::find_mesh(ctx, Guid::from_string(section["skeleton"].value_or(std::string())));
+}
+
+void ThumbnailCache::_pose_overlay(EditorContext& ctx, Guid p_guid)
+{
+    auto it = overlays.find(p_guid);
+    const LSkeleton& skeleton = rig.skeleton_data();
+    if (it == overlays.end() || skeleton.joint_count() == 0) return;
+    const LOverlay& overlay = it->second.overlay;
+
+    std::vector<JointTransform> local = skeleton.rest;
+    if (const LBlendSpace* space = anim.blend_space(ctx, overlay.preview_blend_space)) {
+        float phase = ANIMATION_POSE_FRACTION;
+        anim.blend_pose(ctx, rig, *space, 0.0f, 0.0f, 0.0f, phase, local.data());
+    }
+    const AnimPreview::LoadedClip* source = anim.clip(ctx, rig, overlay.source);
+    const float time = source ? source->clip.duration * ANIMATION_POSE_FRACTION : 0.0f;
+    anim.overlay_apply(ctx, rig, overlay, time, 1.0f, local.data());
+    rig.pose(local.data());
+}
+
 const LModel* ThumbnailCache::_parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp)
 {
     const std::filesystem::path file = _asset_file(ctx, p_guid);
@@ -423,6 +491,17 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             add_rig(a->mesh);
             r_job.model = preview_mesh;
             r_job.mesh = a->mesh;
+        } break;
+        case AssetType::OVERLAY: {
+            uint64_t stamp = STAMP_MISSING;
+            const ParsedOverlay* o = _parsed_overlay(ctx, p_guid, stamp);
+            if (!o) return false;
+            const uint64_t mesh_stamp = _stamp(_content_file(ctx, o->mesh));
+            if (mesh_stamp == STAMP_MISSING) return false;
+            key = _mix(_mix(_mix(_mix(key, stamp), o->mesh.value), mesh_stamp), (uint64_t)(ANIMATION_POSE_FRACTION * 1000.0f));
+            add_rig(o->mesh);
+            r_job.model = preview_mesh;
+            r_job.mesh = o->mesh;
         } break;
         default:
             return false;
@@ -562,7 +641,7 @@ VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_typ
 {
     if (!p_guid.valid() || !ctx.renderer) return VK_NULL_HANDLE;
     if (p_type == AssetType::TEXTURE) return _texture_view(ctx, p_guid);
-    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON && p_type != AssetType::ANIMATION) return VK_NULL_HANDLE;
+    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON && p_type != AssetType::ANIMATION && p_type != AssetType::OVERLAY) return VK_NULL_HANDLE;
     Entry& e = entries[p_guid];
     if (e.type != p_type) {
         e.type = p_type;
@@ -641,6 +720,7 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         rig.invalidate();
         rig.refresh(ctx, next.mesh, false);
         if (next.type == AssetType::ANIMATION) _pose_animation(next.guid);
+        if (next.type == AssetType::OVERLAY) _pose_overlay(ctx, next.guid);
         rig.apply(world, entity);
         vec3 center(0.0f);
         float bounds_radius = 0.0f;

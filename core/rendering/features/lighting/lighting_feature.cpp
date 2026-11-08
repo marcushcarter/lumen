@@ -34,7 +34,6 @@ void LightingFeature::_create_lighting_pass()
             VkDeviceAddress camera_addr;
             VkDeviceAddress tiles_addr;
             VkDeviceAddress direct_light_addr;
-            vec3 sky_radiance;
             uint32_t depth_index;
             uint32_t normal_index;
             uint32_t out_slot;
@@ -43,7 +42,6 @@ void LightingFeature::_create_lighting_pass()
         } pc{};
         pc.camera_addr = camera->device_address;
         pc.tiles_addr = tiles->device_address;
-        pc.sky_radiance = ctx->frame->sky_radiance;
         pc.direct_light_addr = direct_light->device_address;
         pc.depth_index = depth->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;

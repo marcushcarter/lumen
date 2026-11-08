@@ -12,8 +12,6 @@ struct EnvironmentSettings
     static constexpr float SUN_ILLUMINANCE_LUX = 128000.0f;
     static constexpr float SUN_ANGULAR_RADIUS = 0.0046525f;
 
-    vec3 sky_color = vec3(0.45f, 0.6f, 0.85f);
-    float sky_intensity = 8000.0f;
     float manual_ev100 = 15.0f;
 };
 

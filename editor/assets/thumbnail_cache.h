@@ -5,6 +5,8 @@
 #include <core/assets/lanim.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
+#include <core/assets/loverlay.h>
+#include <editor/assets/anim_preview.h>
 #include <core/assets/guid.h>
 #include <core/world/world.h>
 #include <core/world/camera.h>
@@ -24,7 +26,7 @@ struct EditorContext;
 
 struct ThumbnailCache
 {
-    static constexpr uint32_t VERSION = 1;
+    static constexpr uint32_t VERSION = 2;
     static constexpr uint32_t RENDER_SIZE = 256;
     static constexpr uint32_t OUTPUT_SIZE = ThumbnailCaptureFeature::OUTPUT_SIZE;
     static constexpr double CHECK_INTERVAL_S = 1.0;
@@ -70,6 +72,7 @@ struct ThumbnailCache
     struct ParsedMaterial { uint64_t stamp = 0; LMaterial material; };
     struct ParsedModel { uint64_t stamp = 0; LModel model; };
     struct ParsedAnimation { uint64_t stamp = 0; LAnimation clip; Guid mesh; };
+    struct ParsedOverlay { uint64_t asset_stamp = 0; uint64_t stamp = 0; LOverlay overlay; Guid mesh; };
     struct Retired { drivers::DeviceDriverVulkan::Image image; uint64_t frame = 0; };
     struct PendingWrite { JobCounter counter; bool ok = false; };
     struct TextureView { VkImage image = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE; };
@@ -85,6 +88,8 @@ struct ThumbnailCache
     std::unordered_map<Guid, ParsedMaterial> materials;
     std::unordered_map<Guid, ParsedModel> models;
     std::unordered_map<Guid, ParsedAnimation> animations;
+    std::unordered_map<Guid, ParsedOverlay> overlays;
+    AnimPreview anim;
     std::deque<Guid> queue;
     Job job;
     uint64_t ticket_serial = 0;
@@ -132,6 +137,9 @@ struct ThumbnailCache
     const LModel* _parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     const ParsedAnimation* _parsed_animation(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     void _pose_animation(Guid p_guid);
+    const ParsedOverlay* _parsed_overlay(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
+    void _pose_overlay(EditorContext& ctx, Guid p_guid);
+    Guid _clip_preview_mesh(EditorContext& ctx, Guid p_clip);
     std::filesystem::path _asset_file(EditorContext& ctx, Guid p_guid) const;
     std::filesystem::path _content_file(EditorContext& ctx, Guid p_guid) const;
 };

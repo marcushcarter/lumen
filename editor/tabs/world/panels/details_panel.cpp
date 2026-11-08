@@ -37,10 +37,6 @@ void DetailsPanel::_draw_environment(EditorContext& ctx)
     ImGui::TextDisabled("Environment");
     ImGui::Spacing();
     ui_field_push_style();
-    if (ui_category("Sky")) {
-        ImGui::ColorEdit3("Color", &env.sky_color.x);
-        ImGui::DragFloat("Intensity", &env.sky_intensity, 1.0f, 0.0f, 100000.0f, "%.1f nits", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
-    }
     if (ui_category("Exposure")) {
         ImGui::DragFloat("EV100", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }

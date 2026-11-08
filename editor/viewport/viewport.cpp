@@ -13,6 +13,7 @@
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <editor/tabs/world/scene/editor_folders.h>
+#include <editor/play/editor_play.h>
 #include <IconsFontAwesome6.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
@@ -86,12 +87,12 @@ bool Viewport::_view_submenu(const DebugViewCategory& p_category, bool p_active)
     return ImGui::BeginPopupMenuEx(popup_id, p_category.name, ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus);
 }
 
-static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
+static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const World& p_world, const std::vector<Entity>& p_entities)
 {
     static constexpr size_t MAX_BOUNDED = 4096;
-    const World& world = *ctx.world;
+    const World& world = p_world;
     const Renderer& renderer = *ctx.renderer;
-    if (ctx.selection->entities.size() > MAX_BOUNDED || renderer.main_view.output_width == 0 || renderer.main_view.output_height == 0) {
+    if (p_entities.size() > MAX_BOUNDED || renderer.main_view.output_width == 0 || renderer.main_view.output_height == 0) {
         r_outline.set_rect(vec2(0.0f), vec2(1.0f));
         return;
     }
@@ -125,7 +126,7 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline)
         hi = max(hi, box_hi);
     };
 
-    for (const Entity e : ctx.selection->entities) {
+    for (const Entity e : p_entities) {
         const TransformComponent* xf = world.try_get<TransformComponent>(e);
         if (!xf || world.has<EditorHiddenTag>(e)) continue;
         const mat4 mvp = view_proj * translate(mat4(1.0f), xf->position) * mat4_cast(xf->rotation) * glm::scale(mat4(1.0f), xf->scale);
@@ -188,21 +189,38 @@ void Viewport::_draw_image(EditorContext& ctx)
     ImVec2 size = ImGui::GetContentRegionAvail();
     ImVec2 pos = ImGui::GetCursorScreenPos();
 
+    const bool live = play && play->active();
+    const bool playing = play && play->playing();
+    const bool outline_on = allow_outline && !playing;
+
     uint32_t picked = PickFeature::NONE;
     if (allow_pick && ctx.render_path && ctx.world && ctx.selection && ctx.render_path->pick.take_result(picked)) {
         World& world = *ctx.world;
         ctx.selection->clear();
         if (picked != PickFeature::NONE) {
-            const Entity e = world.entity_at(picked);
+            const Entity e = live ? play->to_authored(picked) : world.entity_at(picked);
             if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
         }
     }
-    if (ctx.render_path) ctx.render_path->outline.enabled = allow_outline;
-    if (allow_outline && ctx.render_path && ctx.selection && ctx.render_path->outline.source_version != ctx.selection->version) {
-        ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
-        ctx.render_path->outline.source_version = ctx.selection->version;
+    if (ctx.render_path) ctx.render_path->outline.enabled = outline_on;
+    if (outline_on && ctx.render_path && ctx.selection) {
+        if (live) {
+            _view_selection.clear();
+            for (const Entity e : ctx.selection->entities) {
+                const Entity r = play->to_runtime(e);
+                if (r != ENTITY_NULL) _view_selection.push_back(r);
+            }
+            ctx.render_path->outline.set_selection(_view_selection.data(), (uint32_t)_view_selection.size());
+            ctx.render_path->outline.source_version = 0;
+        } else if (ctx.render_path->outline.source_version != ctx.selection->version) {
+            ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
+            ctx.render_path->outline.source_version = ctx.selection->version;
+        }
     }
-    if (allow_outline && ctx.render_path && ctx.world && ctx.selection && ctx.render_path->outline.enabled && !ctx.selection->entities.empty()) _outline_rect(ctx, ctx.render_path->outline);
+    if (outline_on && ctx.render_path && ctx.world && ctx.selection && !ctx.selection->entities.empty()) {
+        if (live) _outline_rect(ctx, ctx.render_path->outline, play->runtime, _view_selection);
+        else _outline_rect(ctx, ctx.render_path->outline, *ctx.world, ctx.selection->entities);
+    }
 
     if (!ImGui::IsAnyItemActive() && size.x >= 1.0f && size.y >= 1.0f) {
         const uint32_t w = (uint32_t)ImClamp(size.x, 1.0f, 8192.0f);
@@ -213,8 +231,8 @@ void Viewport::_draw_image(EditorContext& ctx)
     if (ctx.render_path) {
         const UiStyle& ui = ui_style();
         GridFeature& grid = ctx.render_path->grid;
-        grid.show_grid = allow_grid && show_grid;
-        grid.show_axes = allow_grid && show_grid;
+        grid.show_grid = allow_grid && show_grid && !playing;
+        grid.show_axes = allow_grid && show_grid && !playing;
         grid.ui_width = size.x;
         grid.axis_thickness = ui.gizmo.axis_thickness;
         grid.head_length = ui.gizmo.head_length;
@@ -239,13 +257,12 @@ void Viewport::_draw_image(EditorContext& ctx)
         ImGui::Image((ImTextureID)set, size, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
         const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         const bool image_hovered = ImGui::IsItemHovered();
-        const bool playing = false;
         const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
         const bool gizmo_hot = !playing && allow_gizmo && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
         pick_click = allow_pick && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
         look_click = allow_look && !gizmo_hot && image_clicked;
         look_hover = allow_look && image_hovered;
-        if (allow_asset_drop) _asset_drop(ctx, pos, size);
+        if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
         if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
     } else {
         ImDrawList* dl = ImGui::GetWindowDrawList();

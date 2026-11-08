@@ -51,6 +51,7 @@ void World::unload()
     _deferred.clear();
     _by_guid.clear();
     environment = {};
+    if (track_changes) changed_all = true;
     static_version++;
     structure_version++;
     entity_version++;
@@ -78,7 +79,10 @@ void World::destroy(Entity p_entity)
 {
     LUMEN_ERR_FAIL_COND(_iterating != 0);
     LUMEN_ERR_FAIL_COND(!valid(p_entity));
-    if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) _by_guid.erase(id->guid.value);
+    if (const EntityIdComponent* id = try_get<EntityIdComponent>(p_entity)) {
+        _by_guid.erase(id->guid.value);
+        if (track_changes) destroyed.push_back(id->guid.value);
+    }
     if (_is_static(p_entity)) static_version++;
     structure_version++;
     entity_version++;

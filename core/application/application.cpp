@@ -166,6 +166,10 @@ Error Application::_frame()
 
     const bool scene = renders_scene();
 
+    cpu.zone_begin("Simulate");
+    on_simulate((float)delta);
+    cpu.zone_end();
+
     cpu.zone_begin("Camera");
     update_camera((float)delta);
     renderer.set_camera(active_camera());
@@ -173,7 +177,7 @@ Error Application::_frame()
 
     if (scene) {
         cpu.zone_begin("Poses");
-        poses.update(world, renderer);
+        poses.update(simulated_world(), renderer);
         cpu.zone_end();
     }
 

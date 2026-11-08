@@ -46,6 +46,7 @@ struct ComponentInfo
     const char* key = nullptr;
     bool editor_only = false;
     void (*serialize)(World& r_world, Entity p_entity, Archive& r_archive) = nullptr;
+    void (*sync)(const World& p_src, Entity p_src_entity, World& r_dst, Entity p_dst_entity) = nullptr;
 };
 
 struct World
@@ -85,7 +86,23 @@ struct World
     Entity find(Guid p_guid) const;
     Entity entity_at(uint32_t p_index) const;
     bool valid(Entity p_entity) const { return p_entity.index != Entity::INVALID_INDEX && registry.valid(_to_id(p_entity)); }
-    void touch(Entity p_entity) { if (valid(p_entity) && _is_static(p_entity)) static_version++; }
+    void touch(Entity p_entity) {
+        if (!valid(p_entity)) return;
+        _record(p_entity);
+        if (_is_static(p_entity)) static_version++;
+    }
+
+    /*****************/
+    /**** CHANGES ****/
+    /*****************/
+
+    bool track_changes = false;
+    bool changed_all = false;
+    std::vector<uint32_t> changed;
+    std::vector<uint64_t> destroyed;
+
+    void _record(Entity p_entity) { if (track_changes) changed.push_back(p_entity.index); }
+    void changes_clear() { changed.clear(); destroyed.clear(); changed_all = false; }
 
     /********************/
     /**** COMPONENTS ****/
@@ -109,6 +126,25 @@ struct World
         ComponentInfo& info = components.back();
         info.key = p_key;
         info.editor_only = p_editor_only;
+        info.sync = [](const World& p_src, Entity p_src_entity, World& r_dst, Entity p_dst_entity) {
+            if constexpr (std::is_empty_v<T>) {
+                if (p_src.has<T>(p_src_entity)) {
+                    if (!r_dst.has<T>(p_dst_entity)) r_dst.add<T>(p_dst_entity);
+                } else {
+                    r_dst.remove<T>(p_dst_entity);
+                }
+            } else {
+                const T* src = p_src.try_get<T>(p_src_entity);
+                if (!src) {
+                    r_dst.remove<T>(p_dst_entity);
+                } else if (T* dst = r_dst.try_get<T>(p_dst_entity)) {
+                    *dst = *src;
+                    r_dst.touch(p_dst_entity);
+                } else {
+                    r_dst.add<T>(p_dst_entity, *src);
+                }
+            }
+        };
         info.serialize = [](World& r_world, Entity p_entity, Archive& r_archive) {
             if constexpr (!std::is_empty_v<T>) {
                 if (T* c = r_world.try_get<T>(p_entity)) serialize(r_archive, *c);
@@ -126,6 +162,7 @@ struct World
         LUMEN_ERR_FAIL_COND_V(!valid(p_entity), nullptr);
         const EntityId id = _to_id(p_entity);
         structure_version++;
+        _record(p_entity);
         if constexpr (std::is_empty_v<T>) {
             registry.emplace_or_replace<T>(id);
             if (_is_static(p_entity)) static_version++;
@@ -144,6 +181,7 @@ struct World
         if (!has<T>(p_entity)) return;
         if (_is_static(p_entity)) static_version++;
         structure_version++;
+        _record(p_entity);
         registry.remove<T>(_to_id(p_entity));
     }
 

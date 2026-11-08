@@ -2,6 +2,7 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/game_render_path.h>
 #include <game/application/boot_splash.h>
+#include <core/game/game_session.h>
 #include <filesystem>
 #include <string>
 
@@ -20,6 +21,7 @@ struct GameApplication : Application
     BootSplash splash;
 
     Camera orbit_camera;
+    GameSession session;
 
     void _load_world();
 
@@ -35,8 +37,9 @@ struct GameApplication : Application
     bool wants_docking() const override { return false; }
     RenderPath* create_render_path() override { return new GameRenderPath(); }
 
+    void on_simulate(float p_dt) override { session.update(p_dt); }
     void update_camera(float p_dt) override;
-    const Camera& active_camera() const override { return orbit_camera; }
+    const Camera& active_camera() const override { return session.active() ? session.camera : orbit_camera; }
 };
 
 }

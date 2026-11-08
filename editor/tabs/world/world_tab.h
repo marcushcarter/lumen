@@ -37,6 +37,7 @@ struct WorldTab : EditorTab
     void _load(EditorContext& ctx, Guid p_world);
     void _unload(EditorContext& ctx);
     void _draw_empty(ImVec2 p_min, ImVec2 p_max);
+    void _draw_play_badge(EditorContext& ctx, ImDrawList* p_dl, ImVec2 p_min, ImVec2 p_max);
     void _draw_toolbar(EditorContext& ctx);
     float _draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2 p_bar_max);
 

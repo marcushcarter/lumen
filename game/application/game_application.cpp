@@ -42,6 +42,8 @@ Error GameApplication::on_init()
     err = project_load(project_root);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     _load_world();
+    update_camera(0.0f);
+    session.begin(world, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());
     win32.window_set_size(main_window, project.settings.width, project.settings.height);
@@ -128,6 +130,7 @@ void GameApplication::update_camera(float )
 
 void GameApplication::on_shutdown()
 {
+    session.end();
     splash.close();
 }
 

@@ -16,6 +16,7 @@
 #include <editor/tabs/world/panels/outliner_panel.h>
 #include <editor/tabs/world/panels/world_settings_panel.h>
 #include <editor/tabs/world/scene/editor_selection.h>
+#include <editor/play/editor_play.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -32,8 +33,13 @@ Error WorldTab::initialize(SharedPanels& r_shared)
     layout.add_panel<WorldSettingsPanel>();
     for (auto& p : r_shared.panels) layout.add_shared(p.get());
     layout.center = [this](EditorContext& r_ctx, ImVec2 p_min, ImVec2 p_max) {
-        if (has_world()) layout.viewport.draw(r_ctx, p_min, p_max);
-        else _draw_empty(p_min, p_max);
+        if (!has_world()) {
+            _draw_empty(p_min, p_max);
+            return;
+        }
+        layout.viewport.play = r_ctx.play;
+        layout.viewport.overlay = [this, &r_ctx](ImDrawList* p_dl, ImVec2 p_pos, ImVec2 p_size) { _draw_play_badge(r_ctx, p_dl, p_pos, ImVec2(p_pos.x + p_size.x, p_pos.y + p_size.y)); };
+        layout.viewport.draw(r_ctx, p_min, p_max);
     };
     return OK;
 }
@@ -141,6 +147,25 @@ void WorldTab::_draw_empty(ImVec2 p_min, ImVec2 p_max)
     ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, ui_style().color.sunken);
 }
 
+void WorldTab::_draw_play_badge(EditorContext& ctx, ImDrawList* p_dl, ImVec2 p_min, ImVec2 p_max)
+{
+    if (!ctx.play || !ctx.play->active()) return;
+    const UiStyle& ui = ui_style();
+    const bool playing = ctx.play->playing();
+    const ImU32 color = playing ? ui.color.success : ui.color.warning;
+    const char* text = playing ? ICON_FA_PLAY "  PLAYING    F8 edit    Shift+F5 stop" : ICON_FA_PAUSE "  EDITING  game paused    F8 / F5 resume    Shift+F5 stop";
+
+    ImDrawList* dl = p_dl;
+    dl->AddRect(p_min, p_max, color, 0.0f, 0, 2.0f);
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const float pad = ui.overlay.margin;
+    const ImVec2 a(ImFloor((p_min.x + p_max.x - ts.x) * 0.5f - pad * 2.0f), p_min.y + pad * 2.0f);
+    const ImVec2 b(a.x + ts.x + pad * 4.0f, a.y + ts.y + pad * 2.0f);
+    dl->AddRectFilled(a, b, ui_with_alpha(ui.color.sunken, 0.85f), ui.play.rounding);
+    dl->AddRect(a, b, color, ui.play.rounding);
+    dl->AddText(ImVec2(a.x + pad * 2.0f, a.y + pad), color, text);
+}
+
 void WorldTab::on_tick(EditorContext& ctx)
 {
     if (!ctx.assets || ctx.assets->dirty) return;
@@ -222,16 +247,16 @@ float WorldTab::_draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2
     const float y = box_min.y + ui.play.inset;
     float x = box_min.x + ui.play.inset;
 
-    PlayButton primary{ ICON_FA_PLAY "##primary", has_world() ? "Play" : "No world open", has_world() && (bool)ctx.pie_toggle_play, ui.color.success };
-    if (playing && paused) primary = { ICON_FA_PLAY "##primary", "Resume", (bool)ctx.pie_toggle_pause, ui.color.success };
-    else if (playing) primary = { ICON_FA_PAUSE "##primary", "Pause", (bool)ctx.pie_toggle_pause, ui.color.text };
+    PlayButton primary{ ICON_FA_PLAY "##primary", has_world() ? "Play (F5)" : "No world open", has_world() && (bool)ctx.pie_toggle_play, ui.color.success };
+    if (playing && paused) primary = { ICON_FA_PLAY "##primary", "Resume playing (F8)", (bool)ctx.pie_toggle_pause, ui.color.success };
+    else if (playing) primary = { ICON_FA_PAUSE "##primary", "Pause and edit (F8)", (bool)ctx.pie_toggle_pause, ui.color.text };
     if (_play_button(primary, ImVec2(x, y), size, false)) {
         if (!playing) ctx.pie_toggle_play();
         else ctx.pie_toggle_pause();
     }
     x += bw;
 
-    const PlayButton stop{ ICON_FA_STOP "##stop", "Stop", playing && (bool)ctx.pie_toggle_play, ui.color.text };
+    const PlayButton stop{ ICON_FA_STOP "##stop", "Stop (Shift+F5)", playing && (bool)ctx.pie_toggle_play, ui.color.text };
     if (_play_button(stop, ImVec2(x, y), size, false)) ctx.pie_toggle_play();
 
     const ImVec2 kebab_min(box_max.x + ui.play.kebab_gap, y);
@@ -243,7 +268,7 @@ float WorldTab::_draw_play_controls(EditorContext& ctx, ImVec2 p_bar_min, ImVec2
     ui_menu_push_style();
     if (ImGui::BeginPopup("##options_menu", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         ImGui::TextDisabled("MODES");
-        ImGui::MenuItem(ICON_FA_WINDOW_MAXIMIZE "  New Window", nullptr, true);
+        ImGui::MenuItem(ICON_FA_DISPLAY "  In Editor", nullptr, true);
         ImGui::EndPopup();
     }
     ui_menu_pop_style();

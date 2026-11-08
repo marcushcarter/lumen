@@ -2,15 +2,18 @@
 #include <editor/viewport/overlay_bar.h>
 #include <editor/viewport/transform_gizmo.h>
 #include <editor/application/editor_context.h>
+#include <core/world/world.h>
 #include <drivers/windows/cursor_lock_win32.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace lumen {
 
 struct DebugViewCategory;
+struct EditorPlay;
 
 struct Viewport
 {
@@ -35,6 +38,8 @@ struct Viewport
     bool allow_asset_drop = true;
     bool show_grid = true;
     bool fullscreen = false;
+    const EditorPlay* play = nullptr;
+    std::vector<Entity> _view_selection;
 
     std::function<void(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size)> overlay;
     std::function<void(OverlayBar& r_bar)> overlay_controls;

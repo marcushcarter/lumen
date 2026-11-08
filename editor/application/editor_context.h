@@ -10,6 +10,7 @@ namespace drivers { struct GitDriver; }
 struct Renderer;
 struct Project;
 struct World;
+struct EditorPlay;
 struct ProjectManager;
 struct WorldTab;
 struct SharedPanels;
@@ -62,6 +63,7 @@ struct EditorContext
     std::function<bool(const std::filesystem::path&)> run_is_running;
     std::function<void(const std::filesystem::path&)> run_toggle;
 
+    EditorPlay* play = nullptr;
     std::function<bool()> pie_is_playing;
     std::function<void()> pie_toggle_play;
     std::function<bool()> pie_is_paused;

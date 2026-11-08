@@ -14,6 +14,7 @@
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/panels/shared_panels.h>
 #include <editor/play/play_session.h>
+#include <editor/play/editor_play.h>
 #include <editor/project_manager/project_manager.h>
 #include <editor/tabs/asset_manager/asset_manager_tab.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
@@ -47,7 +48,7 @@ struct EditorApplication : Application
     TextureViewer texture_viewer;
     ImportDialog import_dialog;
     ThumbnailCache thumbnails;
-    PlaySession play;
+    EditorPlay play;
     PlaySession run;
     drivers::GitDriver git;
     std::filesystem::path reopen_root;
@@ -106,6 +107,10 @@ struct EditorApplication : Application
     toml::table _project_state_write();
     void _project_state_read(const toml::table& p_tbl);
 
+    void _play_start();
+    void _play_shortcuts();
+    void on_simulate(float p_dt) override;
+    World& simulated_world() override { return play.active() ? play.runtime : world; }
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
     bool renders_scene() const override { return project.loaded() && tabs.active && tabs.active->shows_viewport(); }

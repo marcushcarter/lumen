@@ -108,20 +108,14 @@ Error EditorApplication::on_init()
     _ctx.close_project_callback = [this] { close_project(); };
     _ctx.save_all_callback = [this] { save_all(); };
     _ctx.reload_project_callback = [this](std::function<void()> p_op) { reload_project(std::move(p_op)); };
-    _ctx.pie_is_playing = [this] { return play.is_running(); };
+    _ctx.play = &play;
+    _ctx.pie_is_playing = [this] { return play.active(); };
     _ctx.pie_toggle_play = [this] {
-        if (play.is_running()) { play.stop(); return; }
-        if (!world_tab.has_world()) return;
-        const std::filesystem::path snapshot = project.root / Project::FILE_PLAY_WORLD;
-        std::error_code ec;
-        std::filesystem::create_directories(snapshot.parent_path(), ec);
-        if (world_tab.write(_context(), snapshot) != Error::OK) {
-            log_write("Play: couldn't write the world snapshot '%s'.", snapshot.string().c_str());
-            return;
-        }
-        ContentCooker::cook(project);
-        play.launch(project.root, snapshot);
+        if (play.active()) play.stop();
+        else _play_start();
     };
+    _ctx.pie_is_paused = [this] { return play.editing(); };
+    _ctx.pie_toggle_pause = [this] { play.toggle(); };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
         if (run.is_running_for(p_root)) { run.stop(); return; }
@@ -161,9 +155,35 @@ void EditorApplication::on_shutdown()
     shared_panels.shutdown();
 }
 
+void EditorApplication::_play_start()
+{
+    if (!world_tab.has_world()) return;
+    play.start(world, world_tab.guid, editor_camera.camera);
+}
+
+void EditorApplication::_play_shortcuts()
+{
+    if (!world_tab.has_world() || tabs.active != &world_tab) return;
+    if (ImGui::Shortcut(ImGuiKey_F5, ImGuiInputFlags_RouteGlobal)) {
+        if (!play.active()) _play_start();
+        else if (play.editing()) play.toggle();
+    }
+    if (play.active() && ImGui::Shortcut(ImGuiKey_F8, ImGuiInputFlags_RouteGlobal)) play.toggle();
+    if (play.active() && ImGui::Shortcut(ImGuiMod_Shift | ImGuiKey_F5, ImGuiInputFlags_RouteGlobal)) play.stop();
+}
+
+void EditorApplication::on_simulate(float p_dt)
+{
+    if (!play.active()) return;
+    if (!project.loaded() || !world_tab.has_world() || world_tab.guid != play.world_guid) {
+        play.stop();
+        return;
+    }
+    play.update(p_dt);
+}
+
 void EditorApplication::on_update(float p_dt)
 {
-    play.poll();
     run.poll();
     _draw_titlebar();
 
@@ -174,6 +194,7 @@ void EditorApplication::on_update(float p_dt)
         assets.tick();
         selection.prune(world, folders);
 
+        _play_shortcuts();
         tabs.update(ctx, p_dt);
         texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);
@@ -203,7 +224,6 @@ void EditorApplication::on_update(float p_dt)
 
 void EditorApplication::on_background_tick()
 {
-    play.poll();
     run.poll();
     if (!project.loaded()) return;
 
@@ -979,6 +999,7 @@ void EditorApplication::update_camera(float p_dt)
 
 const Camera& EditorApplication::active_camera() const
 {
+    if (tabs.active == &world_tab && play.playing()) return play.session.camera;
     if (tabs.active) {
         if (const Camera* c = tabs.active->camera()) return *c;
     }
@@ -987,6 +1008,7 @@ const Camera& EditorApplication::active_camera() const
 
 const World& EditorApplication::render_world() const
 {
+    if (tabs.active == &world_tab && play.active()) return play.runtime;
     if (tabs.active) {
         if (const World* w = tabs.active->scene()) return *w;
     }

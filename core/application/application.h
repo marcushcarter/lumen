@@ -100,6 +100,8 @@ struct Application
     virtual void on_visibility_changed(bool p_visible) { (void)p_visible; }
     virtual void on_background_tick() {}
 
+    virtual void on_simulate(float p_dt) { (void)p_dt; }
+    virtual World& simulated_world() { return world; }
     virtual void update_camera(float p_dt) { (void)p_dt; }
     virtual const Camera& active_camera() const { return *world.active_camera; }
     virtual const World& render_world() const { return world; }

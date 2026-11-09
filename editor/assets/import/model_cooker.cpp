@@ -367,13 +367,6 @@ static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScen
     return plan;
 }
 
-static void _write_collision(const ModelCooker::Job& p_job, CollisionPlan& r_plan)
-{
-    if (!r_plan.cook) return;
-    const std::filesystem::path staged = p_job.session->stage_file(p_job.project->collision_path(p_job.mesh_guid));
-    CollisionCooker::write(staged, p_job.mesh_guid, r_plan.data);
-}
-
 Error ModelCooker::_import(const Job& p_job)
 {
     using enum Error;
@@ -401,7 +394,7 @@ Error ModelCooker::_import(const Job& p_job)
         MeshCooker::Job mesh;
         mesh.source = p_job.source;
         mesh.skeleton = _import_skeleton(p_job, scene);
-        mesh.has_collision = collision.cook;
+        if (collision.cook) mesh.collision = collision.data.to_payload();
         mesh.guid = p_job.mesh_guid;
         mesh.settings = p_job.settings.mesh_settings;
         const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, true);
@@ -409,7 +402,6 @@ Error ModelCooker::_import(const Job& p_job)
         mesh.content_bin = mesh_staged.content_bin;
         mesh.step = root.sub(READ_END, 1.0f);
         if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
-        _write_collision(p_job, collision);
         const uint32_t slot_count = (uint32_t)MeshCooker::material_slots(scene).size();
         if (p_job.model_slots && slot_count != p_job.model_slots) log_write("ModelCooker: '%s' now has %u material slots but its model has %u. Reimport the model to update its materials.", p_job.dst_lmesh.filename().string().c_str(), slot_count, p_job.model_slots);
         root.report(1.0f);
@@ -449,7 +441,7 @@ Error ModelCooker::_import(const Job& p_job)
     MeshCooker::Job mesh;
     mesh.source = p_job.source;
     mesh.skeleton = _import_skeleton(p_job, scene);
-    mesh.has_collision = collision.cook;
+    if (collision.cook) mesh.collision = collision.data.to_payload();
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
     const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, false);
@@ -457,7 +449,6 @@ Error ModelCooker::_import(const Job& p_job)
     mesh.content_bin = mesh_staged.content_bin;
     mesh.step = next_step(mesh_cost);
     if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
-    _write_collision(p_job, collision);
     _import_animations(p_job, scene, p_job.dst_dir, mesh.skeleton, false);
 
     for (size_t i = 0; i < textures.size(); i++) {

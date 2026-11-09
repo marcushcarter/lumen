@@ -221,6 +221,7 @@ struct LMeshData
     std::vector<ClusterVertex> vertices;
     std::vector<SkinVertex> skin;
     std::vector<uint32_t> tri_slots;
+    std::vector<uint8_t> collision;
 
     bool skinned() const { return (header.flags & (uint32_t)MeshFlags::SKINNED) != 0; }
     bool wide_slots() const { return (header.flags & (uint32_t)MeshFlags::WIDE_SLOTS) != 0; }
@@ -264,5 +265,10 @@ size_t lmesh_rig_bytes(const LMeshRigHeader& p_header);
 bool lmesh_parse_rig(const uint8_t* p_data, size_t p_size, LMeshRig& r_rig);
 bool lmesh_read_rig(const std::filesystem::path& p_bin, LMeshRig& r_rig);
 bool lmesh_set_skeleton(const std::filesystem::path& p_bin, Guid p_skeleton);
+
+enum class LMeshCollisionWrite : uint8_t { OK, NO_SLOT, FAILED };
+bool lmesh_read_collision(const std::filesystem::path& p_bin, std::vector<uint8_t>& r_collision);
+bool lmesh_has_collision_slot(const std::filesystem::path& p_bin);
+LMeshCollisionWrite lmesh_write_collision(const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const std::vector<uint8_t>& p_collision);
 
 }

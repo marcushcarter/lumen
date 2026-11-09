@@ -38,11 +38,13 @@ Error Project::_ensure_layout(const std::filesystem::path& p_root)
     return OK;
 }
 
-std::filesystem::path Project::collision_path(Guid p_mesh) const
+void Project::remove_content(Guid p_guid) const
 {
-    std::filesystem::path p = content_path(p_mesh);
-    p.replace_extension(".collision");
-    return p;
+    const std::filesystem::path file = content_path(p_guid);
+    std::error_code ec;
+    if (std::filesystem::exists(file, ec)) Paths::remove_to_recycle(file);
+    const std::filesystem::path shard = file.parent_path();
+    if (shard != content_dir && std::filesystem::is_empty(shard, ec) && !ec) std::filesystem::remove(shard, ec);
 }
 
 std::filesystem::path Project::content_path(Guid p_guid) const

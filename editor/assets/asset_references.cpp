@@ -297,9 +297,7 @@ bool delete_replaced_asset(EditorContext& ctx, Guid p_guid)
             default: break;
         }
     }
-    std::error_code ec;
-    const std::filesystem::path bin = ctx.project->content_path(p_guid);
-    if (std::filesystem::exists(bin, ec)) Paths::remove_to_recycle(bin);
+    ctx.project->remove_content(p_guid);
     Paths::remove_to_recycle(path);
     ctx.assets->dirty = true;
     return true;

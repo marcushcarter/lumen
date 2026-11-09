@@ -40,6 +40,7 @@ struct ImportSession
         std::filesystem::path content_bin;
         Guid guid;
         bool notify = false;
+        bool keep_loaded = false;
     };
 
     std::filesystem::path dst;
@@ -50,11 +51,10 @@ struct ImportSession
     std::atomic<State> state{ State::RUNNING };
     std::mutex outputs_mutex;
     std::vector<Output> outputs;
-    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> extra_files;
 
     Staged stage(const Project& p_project, const std::filesystem::path& p_asset, Guid p_guid, bool p_content, bool p_notify);
     void unstage(const std::filesystem::path& p_asset);
-    std::filesystem::path stage_file(const std::filesystem::path& p_final);
+    void keep_loaded(const std::filesystem::path& p_asset);
     bool staged_exists(const std::filesystem::path& p_asset);
     bool writes(const std::filesystem::path& p_path);
     bool touches(const std::filesystem::path& p_path);
@@ -71,6 +71,7 @@ struct AssetImportTracker
         std::filesystem::path dst;
         std::filesystem::path content_bin;
         bool notify = true;
+        bool keep_loaded = false;
     };
 
     std::vector<std::shared_ptr<ImportSession>> sessions;

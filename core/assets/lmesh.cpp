@@ -647,13 +647,14 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     _append(resident, p_data.group_child_pages.data(), p_data.group_child_pages.size());
 
     LMeshPayloadHeader header = p_data.header;
-    header.section_count = 2;
+    header.section_count = 3;
     header.group_child_page_count = (uint32_t)p_data.group_child_pages.size();
 
     const uint64_t sections_at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
     const uint64_t resident_at = sections_at + header.section_count * sizeof(LMeshSection);
     const uint64_t blobs_at = resident_at + resident.size();
-    const uint64_t total = blobs_at + blobs.size();
+    const uint64_t collision_at = blobs_at + blobs.size();
+    const uint64_t total = collision_at + p_data.collision.size();
     if (total > UINT32_MAX) {
         log_write("lmesh: '%s' would be over 4 GB.", p_bin.string().c_str());
         return false;
@@ -661,9 +662,10 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     for (LMeshPage& page : pages) page.offset += blobs_at;
     std::memcpy(resident.data() + pages_at, pages.data(), pages.size() * sizeof(LMeshPage));
 
-    const LMeshSection sections[2] = {
+    const LMeshSection sections[3] = {
         { LMeshSectionType::RASTER_RESIDENT, 0, resident_at, resident.size() },
         { LMeshSectionType::RASTER_PAGES, 0, blobs_at, blobs.size() },
+        { LMeshSectionType::COLLISION, 0, collision_at, p_data.collision.size() },
     };
 
     LAssetHeader ah{};
@@ -682,9 +684,10 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
         _append(out, p_data.rig.inverse_binds.data(), p_data.rig.inverse_binds.size());
         _append(out, rig_names.data(), rig_names.size());
     }
-    _append(out, sections, 2);
+    _append(out, sections, 3);
     _append(out, resident.data(), resident.size());
     _append(out, blobs.data(), blobs.size());
+    _append(out, p_data.collision.data(), p_data.collision.size());
     if (out.size() != total) return false;
 
     std::error_code ec;
@@ -1165,6 +1168,99 @@ bool lmesh_set_skeleton(const std::filesystem::path& p_bin, Guid p_skeleton)
     f.seekp(f.tellg());
     f.write(reinterpret_cast<const char*>(&p_skeleton), sizeof(Guid));
     return (bool)f;
+}
+
+static bool _section_table(std::ifstream& r_file, uint64_t p_file_size, uint64_t& r_table_at, LMeshPayloadHeader& r_header)
+{
+    const std::vector<uint8_t> head = _read_range(r_file, 0, std::min<uint64_t>(p_file_size, sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + sizeof(LMeshRigHeader)));
+    if (head.size() < sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader)) return false;
+    LAssetHeader ah;
+    std::memcpy(&ah, head.data(), sizeof(ah));
+    if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH || ah.version != LMESH_VERSION) return false;
+    std::memcpy(&r_header, head.data() + sizeof(ah), sizeof(r_header));
+    if (r_header.section_count > 16) return false;
+    uint64_t at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader);
+    if (r_header.flags & (uint32_t)MeshFlags::SKINNED) {
+        if (head.size() < at + sizeof(LMeshRigHeader)) return false;
+        LMeshRigHeader rh;
+        std::memcpy(&rh, head.data() + at, sizeof(rh));
+        if (rh.joint_count > MESH_MAX_JOINTS) return false;
+        at += lmesh_rig_bytes(rh);
+    }
+    if (at + (uint64_t)r_header.section_count * sizeof(LMeshSection) > p_file_size) return false;
+    r_table_at = at;
+    return true;
+}
+
+static int _collision_entry(std::ifstream& r_file, uint64_t p_file_size, uint64_t& r_table_at, LMeshSection& r_section)
+{
+    LMeshPayloadHeader h{};
+    if (!_section_table(r_file, p_file_size, r_table_at, h)) return -1;
+    const std::vector<uint8_t> table = _read_range(r_file, r_table_at, (uint64_t)h.section_count * sizeof(LMeshSection));
+    if (table.size() != (size_t)h.section_count * sizeof(LMeshSection)) return -1;
+    for (uint32_t i = 0; i < h.section_count; i++) {
+        std::memcpy(&r_section, table.data() + (size_t)i * sizeof(LMeshSection), sizeof(LMeshSection));
+        if (r_section.type == LMeshSectionType::COLLISION) return (int)i;
+    }
+    return -1;
+}
+
+bool lmesh_read_collision(const std::filesystem::path& p_bin, std::vector<uint8_t>& r_collision)
+{
+    r_collision.clear();
+    std::error_code ec;
+    const uint64_t size = std::filesystem::file_size(p_bin, ec);
+    if (ec) return false;
+    std::ifstream f(p_bin, std::ios::binary);
+    if (!f) return false;
+    uint64_t table_at = 0;
+    LMeshSection section{};
+    if (_collision_entry(f, size, table_at, section) < 0 || section.size == 0 || section.offset + section.size > size) return false;
+    r_collision = _read_range(f, section.offset, section.size);
+    return r_collision.size() == section.size;
+}
+
+bool lmesh_has_collision_slot(const std::filesystem::path& p_bin)
+{
+    std::error_code ec;
+    const uint64_t size = std::filesystem::file_size(p_bin, ec);
+    if (ec) return false;
+    std::ifstream f(p_bin, std::ios::binary);
+    if (!f) return false;
+    uint64_t table_at = 0;
+    LMeshSection section{};
+    return _collision_entry(f, size, table_at, section) >= 0;
+}
+
+LMeshCollisionWrite lmesh_write_collision(const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const std::vector<uint8_t>& p_collision)
+{
+    using enum LMeshCollisionWrite;
+    std::error_code ec;
+    const uint64_t size = std::filesystem::file_size(p_src, ec);
+    if (ec) return FAILED;
+    std::ifstream f(p_src, std::ios::binary);
+    if (!f) return FAILED;
+    uint64_t table_at = 0;
+    LMeshSection section{};
+    const int index = _collision_entry(f, size, table_at, section);
+    if (index < 0) return NO_SLOT;
+    if (section.offset + section.size != size) return FAILED;
+
+    std::vector<uint8_t> bytes = _read_range(f, 0, section.offset);
+    f.close();
+    if (bytes.size() != section.offset) return FAILED;
+    if (bytes.size() + p_collision.size() > UINT32_MAX) return FAILED;
+    bytes.insert(bytes.end(), p_collision.begin(), p_collision.end());
+
+    section.size = p_collision.size();
+    std::memcpy(bytes.data() + table_at + (size_t)index * sizeof(LMeshSection), &section, sizeof(section));
+    LAssetHeader ah;
+    std::memcpy(&ah, bytes.data(), sizeof(ah));
+    ah.payload_size = (uint32_t)(bytes.size() - sizeof(LAssetHeader));
+    std::memcpy(bytes.data(), &ah, sizeof(ah));
+
+    std::filesystem::create_directories(p_dst.parent_path(), ec);
+    return write_file_atomic(p_dst, bytes.data(), bytes.size()) ? OK : FAILED;
 }
 
 }

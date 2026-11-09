@@ -53,8 +53,8 @@ struct LCollision
     uint32_t triangle_count() const { return (uint32_t)(indices.size() / 3); }
     bool primitive() const { return type == CollisionType::BOX || type == CollisionType::SPHERE || type == CollisionType::CAPSULE; }
 
-    Error load_cooked(const std::filesystem::path& p_path);
-    Error save_cooked(const std::filesystem::path& p_path) const;
+    std::vector<uint8_t> to_payload() const;
+    Error from_payload(const uint8_t* p_data, size_t p_size);
 };
 
 }

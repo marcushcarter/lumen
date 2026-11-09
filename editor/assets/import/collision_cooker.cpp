@@ -7,6 +7,7 @@
 #include <core/base/jobs.h>
 #include <core/io/file_io.h>
 #include <core/io/path.h>
+#include <core/assets/lmesh.h>
 #include <core/project/project.h>
 #include <assimp/config.h>
 #include <assimp/Importer.hpp>
@@ -312,14 +313,6 @@ bool CollisionCooker::build(const aiScene* p_scene, const MeshCooker::CookSettin
     return r_collision.primitive() || !r_collision.indices.empty();
 }
 
-Error CollisionCooker::write(const std::filesystem::path& p_file, Guid p_mesh, LCollision& r_collision)
-{
-    r_collision.guid = p_mesh;
-    if (r_collision.save_cooked(p_file) == Error::OK) return Error::OK;
-    log_write("CollisionCooker: failed to write '%s'.", p_file.string().c_str());
-    return Error::FAILED;
-}
-
 bool CollisionCooker::has_collision(const std::filesystem::path& p_lmesh)
 {
     toml::table tbl;
@@ -333,7 +326,8 @@ struct CollisionReimport
     std::filesystem::path lmesh;
     std::filesystem::path source;
     std::filesystem::path staged_record;
-    std::filesystem::path staged_collision;
+    std::filesystem::path mesh_bin;
+    std::filesystem::path staged_bin;
     Guid mesh;
     MeshCooker::CookSettings settings;
 };
@@ -355,7 +349,10 @@ static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_st
     LCollision collision;
     if (!CollisionCooker::build(scene, p_job.settings, collision)) return FAILED;
     if (p_step.cancelled()) return CANCELED;
-    if (CollisionCooker::write(p_job.staged_collision, p_job.mesh, collision) != OK) return FAILED;
+    if (lmesh_write_collision(p_job.mesh_bin, p_job.staged_bin, collision.to_payload()) != LMeshCollisionWrite::OK) {
+        log_write("CollisionCooker: couldn't write collision into '%s'.", p_job.mesh_bin.string().c_str());
+        return FAILED;
+    }
 
     toml::table tbl;
     try { tbl = toml::parse_file(p_job.lmesh.string()); }
@@ -389,9 +386,8 @@ Error CollisionCooker::remove(EditorContext& ctx, const std::filesystem::path& p
     std::ostringstream ss;
     ss << tbl;
     if (!write_file_atomic(p_lmesh, ss.str())) return FAILED;
-    const std::filesystem::path file = ctx.project->collision_path(info.guid);
-    std::error_code ec;
-    if (std::filesystem::exists(file, ec)) Paths::remove_to_recycle(file);
+    const std::filesystem::path bin = ctx.project->content_path(info.guid);
+    if (lmesh_write_collision(bin, bin, {}) == LMeshCollisionWrite::FAILED) log_write("CollisionCooker: couldn't clear the collision inside '%s'.", bin.string().c_str());
     log_write("Removed the collision of '%s'.", p_lmesh.filename().string().c_str());
     return OK;
 }
@@ -416,11 +412,21 @@ Error CollisionCooker::reimport(EditorContext& ctx, const std::filesystem::path&
     job.settings.generate_collision = true;
     job.lmesh = p_lmesh;
     job.mesh = info.guid;
+    job.mesh_bin = ctx.project->content_path(info.guid);
+
+    if (!lmesh_has_collision_slot(job.mesh_bin)) {
+        ModelCooker::Settings settings;
+        settings.mesh_settings = job.settings;
+        log_write("'%s' was cooked before collision lived in the mesh file, reimporting the mesh to add it.", p_lmesh.filename().string().c_str());
+        return ModelCooker::reimport_mesh(ctx, p_lmesh, &settings);
+    }
 
     std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, p_lmesh);
     if (!session) return FAILED;
-    job.staged_record = session->stage(*ctx.project, p_lmesh, info.guid, false, true).asset;
-    job.staged_collision = session->stage_file(ctx.project->collision_path(info.guid));
+    const ImportSession::Staged staged = session->stage(*ctx.project, p_lmesh, info.guid, true, true);
+    session->keep_loaded(p_lmesh);
+    job.staged_record = staged.asset;
+    job.staged_bin = staged.content_bin;
     job_system().run_background_owned([job, session]{
         session->finish(_reimport_collision(job, session->step()));
     }, nullptr, "Collision Cook");

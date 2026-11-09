@@ -568,6 +568,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
         log_write("MeshCooker: %s: %s", p_job.source.string().c_str(), why);
         return FAILED;
     }
+    data.collision = p_job.collision;
     if (!lmesh_write(p_job.content_bin, p_job.guid, data)) {
         log_write("MeshCooker: couldn't write '%s'", p_job.content_bin.string().c_str());
         return FAILED;
@@ -598,7 +599,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "skinned", skinned } }},
     };
     if (skinned) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("skeleton", p_job.skeleton.to_string());
-    if (p_job.has_collision) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", true);
+    if (!p_job.collision.empty()) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", true);
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;
 

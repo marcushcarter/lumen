@@ -39,14 +39,12 @@ ImportSession::Staged ImportSession::stage(const Project& p_project, const std::
     return o.staged;
 }
 
-std::filesystem::path ImportSession::stage_file(const std::filesystem::path& p_final)
+void ImportSession::keep_loaded(const std::filesystem::path& p_asset)
 {
-    const std::filesystem::path staged = staging / "extra" / p_final.filename();
-    std::error_code ec;
-    std::filesystem::create_directories(staged.parent_path(), ec);
     std::lock_guard lock(outputs_mutex);
-    extra_files.push_back({ staged, p_final });
-    return staged;
+    for (Output& o : outputs) {
+        if (o.asset == p_asset) o.keep_loaded = true;
+    }
 }
 
 void ImportSession::unstage(const std::filesystem::path& p_asset)
@@ -181,14 +179,6 @@ uint32_t AssetImportTracker::active_count() const
 
 void AssetImportTracker::_commit(ImportSession& r_session)
 {
-    for (const auto& [staged, final_path] : r_session.extra_files) {
-        std::error_code ec;
-        if (!std::filesystem::exists(staged, ec)) continue;
-        if (!_move_replace(staged, final_path)) {
-            log_write("Import: failed to move '%s'; staged files kept in '%s'.", final_path.string().c_str(), r_session.staging.string().c_str());
-            return;
-        }
-    }
     for (const ImportSession::Output& o : r_session.outputs) {
         if (!o.content_bin.empty() && !_move_replace(o.staged.content_bin, o.content_bin)) {
             log_write("Import: failed to move '%s'; staged files kept in '%s'.", o.content_bin.string().c_str(), r_session.staging.string().c_str());
@@ -200,7 +190,7 @@ void AssetImportTracker::_commit(ImportSession& r_session)
             log_write("Import: failed to move '%s'; staged files kept in '%s'.", o.asset.string().c_str(), r_session.staging.string().c_str());
             return;
         }
-        completed.push_back({ o.guid, o.asset, o.content_bin, o.notify });
+        completed.push_back({ o.guid, o.asset, o.content_bin, o.notify, o.keep_loaded });
     }
     std::error_code ec;
     std::filesystem::remove_all(r_session.staging, ec);

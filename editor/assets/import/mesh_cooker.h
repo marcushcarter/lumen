@@ -62,7 +62,7 @@ struct MeshCooker
         Guid guid;
         CookSettings settings;
         Guid skeleton;
-        bool has_collision = false;
+        std::vector<uint8_t> collision;
         ImportStep step;
     };
 

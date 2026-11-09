@@ -265,6 +265,7 @@ void EditorApplication::_tick_imports()
             renderer.models.load(c.dst);
             continue;
         }
+        if (c.keep_loaded) continue;
         LAssetHeader ah{};
         if (!read_asset_header(c.content_bin, ah)) continue;
         switch (ah.type) {

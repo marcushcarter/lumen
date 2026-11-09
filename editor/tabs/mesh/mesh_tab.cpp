@@ -126,12 +126,13 @@ void MeshTab::_refresh_collision(EditorContext& ctx)
         return;
     }
 
-    const std::filesystem::path bin = ctx.project->collision_path(guid);
+    const std::filesystem::path bin = ctx.project->content_path(guid);
     std::error_code ec;
     const std::filesystem::file_time_type t = std::filesystem::last_write_time(bin, ec);
     if (ec || t == collision.time) return;
     collision.time = t;
-    collision.loaded = collision.data.load_cooked(bin) == Error::OK;
+    std::vector<uint8_t> payload;
+    collision.loaded = lmesh_read_collision(bin, payload) && collision.data.from_payload(payload.data(), payload.size()) == Error::OK;
     collision.edges.clear();
     if (!collision.loaded) return;
 

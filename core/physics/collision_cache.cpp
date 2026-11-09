@@ -1,4 +1,5 @@
 #include <core/physics/collision_cache.h>
+#include <core/assets/lmesh.h>
 #include <core/physics/jolt_bridge.h>
 #include <core/base/error.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -80,11 +81,12 @@ static JPH::RefConst<JPH::Shape> _build(const LCollision& p_collision)
 CollisionCache::CollisionCache() : impl(std::make_unique<Impl>()) {}
 CollisionCache::~CollisionCache() = default;
 
-bool CollisionCache::load(Guid p_mesh, const std::filesystem::path& p_collision_file)
+bool CollisionCache::load(Guid p_mesh, const std::filesystem::path& p_mesh_bin)
 {
+    std::vector<uint8_t> payload;
     LCollision collision;
-    if (collision.load_cooked(p_collision_file) != Error::OK) {
-        log_write("CollisionCache: couldn't read '%s'.", p_collision_file.string().c_str());
+    if (!lmesh_read_collision(p_mesh_bin, payload) || collision.from_payload(payload.data(), payload.size()) != Error::OK) {
+        log_write("CollisionCache: '%s' has no readable collision.", p_mesh_bin.string().c_str());
         return false;
     }
     collision.guid = p_mesh;

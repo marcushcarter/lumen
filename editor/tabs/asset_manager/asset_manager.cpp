@@ -396,9 +396,7 @@ void AssetManager::_delete_content(EditorContext& ctx, const std::filesystem::pa
         }
     }
 
-    Paths::remove_to_recycle(ctx.project->content_path(info.guid));
-    std::error_code ec;
-    if (info.type == AssetType::MESH && std::filesystem::exists(ctx.project->collision_path(info.guid), ec)) Paths::remove_to_recycle(ctx.project->collision_path(info.guid));
+    ctx.project->remove_content(info.guid);
 }
 
 void AssetManager::_delete_asset(EditorContext& ctx, const std::filesystem::path& p_path)

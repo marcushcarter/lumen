@@ -27,6 +27,9 @@ layout(push_constant, scalar) uniform Push {
 } pc;
 
 const uint DEBUG_LINE_FLAG_XRAY = 1u << 8;
+const uint DEBUG_LINE_FLAG_POINT = 1u << 9;
+const uint DEBUG_LINE_POINT_RADIUS_SHIFT = 16u;
+const float DEBUG_LINE_POINT_RADIUS_STEPS = 4.0;
 const float DEBUG_LINE_AA_PX = 1.0;
 
 #endif

@@ -9,8 +9,9 @@
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 
 layout(location = 0) in vec4 v_color;
-layout(location = 1) in float v_dist;
+layout(location = 1) in vec2 v_coord;
 layout(location = 2) flat in uint v_flags;
+layout(location = 3) flat in float v_width;
 
 layout(location = 0) out vec4 o_color;
 
@@ -23,7 +24,8 @@ vec3 to_linear(vec3 p_c) {
 }
 
 void main() {
-    float alpha = clamp(pc.half_width + 0.5 - abs(v_dist), 0.0, 1.0) * v_color.a;
+    const float dist = (v_flags & DEBUG_LINE_FLAG_POINT) != 0u ? length(v_coord) : abs(v_coord.y);
+    float alpha = clamp(v_width + 0.5 - dist, 0.0, 1.0) * v_color.a;
 
     if ((v_flags & DEBUG_LINE_FLAG_XRAY) == 0u) {
         const ivec2 limit = ivec2(pc.depth_size) - 1;

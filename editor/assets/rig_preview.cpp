@@ -115,9 +115,10 @@ void RigPreview::draw_bones(DebugDraw& r_draw, const float* p_weights) const
     const ImVec4 off = ImGui::ColorConvertU32ToFloat4(ui.color.text_dim);
     const ImVec4 on = ImGui::ColorConvertU32ToFloat4(ui.color.asset_overlay);
     for (size_t i = 0; i < _global.size(); ++i) {
+        const uint32_t color = p_weights ? ImGui::ColorConvertFloat4ToU32(ImLerp(off, on, p_weights[i])) : DebugDraw::WHITE;
+        debug_draw_joint(r_draw, vec3(_global[i][3]), color);
         const int32_t parent = _skeleton.parents[i];
         if (parent == SKELETON_NO_JOINT || parent >= (int32_t)_global.size()) continue;
-        const ImU32 color = p_weights ? ImGui::ColorConvertFloat4ToU32(ImLerp(off, on, p_weights[i])) : ui.color.asset_skeleton;
         debug_draw_bone(r_draw, vec3(_global[parent][3]), vec3(_global[i][3]), color);
     }
 }

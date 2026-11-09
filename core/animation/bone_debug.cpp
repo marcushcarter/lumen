@@ -10,31 +10,45 @@
 
 namespace lumen {
 
-static constexpr float BONE_WAIST = 0.1f;
+static constexpr float INSTANCE_SATURATION = 0.6f;
+static constexpr float INSTANCE_VALUE = 1.0f;
+static constexpr float GOLDEN_RATIO_CONJUGATE = 0.618033988749895f;
 
 void debug_draw_bone(DebugDraw& r_draw, const vec3& p_head, const vec3& p_tail, uint32_t p_color)
 {
-    const DebugDraw::Style style{ .color = p_color, .category = DebugCategory::BONES, .xray = true };
-    const vec3 axis = p_tail - p_head;
-    const float len = length(axis);
-    if (len < 1e-5f) return;
-
-    const vec3 d = axis / len;
-    const vec3 up = std::abs(d.y) < 0.99f ? vec3(0.0f, 1.0f, 0.0f) : vec3(1.0f, 0.0f, 0.0f);
-    const vec3 u = normalize(cross(up, d));
-    const vec3 v = cross(d, u);
-    const vec3 waist = p_head + axis * BONE_WAIST;
-    const float r = len * BONE_WAIST;
-    const vec3 ring[4] = { waist + u * r, waist + v * r, waist - u * r, waist - v * r };
-
-    for (uint32_t i = 0; i < 4; i++) {
-        r_draw.line(p_head, ring[i], style);
-        r_draw.line(ring[i], p_tail, style);
-        r_draw.line(ring[i], ring[(i + 1) % 4], style);
-    }
+    r_draw.line(p_head, p_tail, { .color = p_color, .category = DebugCategory::BONES, .xray = true });
 }
 
-void debug_draw_bones(DebugDraw& r_draw, const World& p_world, const Renderer& p_renderer, uint32_t p_color)
+void debug_draw_joint(DebugDraw& r_draw, const vec3& p_position, uint32_t p_color)
+{
+    r_draw.point(p_position, BONE_JOINT_RADIUS_PX, { .color = p_color, .category = DebugCategory::BONES, .xray = true });
+}
+
+uint32_t debug_instance_color(uint64_t p_seed)
+{
+    uint64_t z = p_seed + 0x9E3779B97F4A7C15ull;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    z ^= z >> 31;
+    const float hue = std::fmod((float)(z & 0xFFFFu) / 65536.0f + GOLDEN_RATIO_CONJUGATE, 1.0f) * 6.0f;
+    const float c = INSTANCE_VALUE * INSTANCE_SATURATION;
+    const float x = c * (1.0f - std::abs(std::fmod(hue, 2.0f) - 1.0f));
+    const float m = INSTANCE_VALUE - c;
+    vec3 rgb;
+    if (hue < 1.0f) rgb = vec3(c, x, 0.0f);
+    else if (hue < 2.0f) rgb = vec3(x, c, 0.0f);
+    else if (hue < 3.0f) rgb = vec3(0.0f, c, x);
+    else if (hue < 4.0f) rgb = vec3(0.0f, x, c);
+    else if (hue < 5.0f) rgb = vec3(x, 0.0f, c);
+    else rgb = vec3(c, 0.0f, x);
+    rgb += vec3(m);
+    const uint32_t r = (uint32_t)(std::clamp(rgb.r, 0.0f, 1.0f) * 255.0f + 0.5f);
+    const uint32_t g = (uint32_t)(std::clamp(rgb.g, 0.0f, 1.0f) * 255.0f + 0.5f);
+    const uint32_t b = (uint32_t)(std::clamp(rgb.b, 0.0f, 1.0f) * 255.0f + 0.5f);
+    return debug_rgb((r << 16) | (g << 8) | b);
+}
+
+void debug_draw_bones(DebugDraw& r_draw, const World& p_world, const Renderer& p_renderer)
 {
     std::vector<int32_t> map;
     std::vector<vec3> joints;
@@ -55,6 +69,8 @@ void debug_draw_bones(DebugDraw& r_draw, const World& p_world, const Renderer& p
         joints.assign(joint_count, vec3(0.0f));
         valid.assign(joint_count, 0);
 
+        const EntityIdComponent* id = p_world.try_get<EntityIdComponent>(p_entity);
+        const uint32_t color = debug_instance_color(id ? id->guid.value : (uint64_t)p_entity.index);
         const mat4 model = p_world.world_matrix(p_entity);
         const size_t count = std::min({ p_pose.skin.size(), rig->inverse_binds.size(), map.size() });
         for (size_t j = 0; j < count; j++) {
@@ -66,9 +82,11 @@ void debug_draw_bones(DebugDraw& r_draw, const World& p_world, const Renderer& p
         }
 
         for (uint32_t s = 0; s < joint_count; s++) {
+            if (!valid[s]) continue;
+            debug_draw_joint(r_draw, joints[s], color);
             const int32_t parent = skeleton.parents[s];
-            if (!valid[s] || parent == SKELETON_NO_JOINT || parent >= (int32_t)joint_count || !valid[parent]) continue;
-            debug_draw_bone(r_draw, joints[parent], joints[s], p_color);
+            if (parent == SKELETON_NO_JOINT || parent >= (int32_t)joint_count || !valid[parent]) continue;
+            debug_draw_bone(r_draw, joints[parent], joints[s], color);
         }
     });
 }

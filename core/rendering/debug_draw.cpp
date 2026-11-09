@@ -1,5 +1,6 @@
 #include <core/rendering/debug_draw.h>
 #include <glm/gtc/constants.hpp>
+#include <algorithm>
 #include <cmath>
 
 namespace lumen {
@@ -46,6 +47,13 @@ void DebugDraw::_arc(const vec3& p_center, const vec3& p_x, const vec3& p_y, flo
         _push(prev, next, p_style.color, flags, p_style.duration);
         prev = next;
     }
+}
+
+void DebugDraw::point(const vec3& p_position, float p_radius_px, const Style& p_style)
+{
+    const uint32_t radius = (uint32_t)(std::clamp(p_radius_px, 0.0f, POINT_RADIUS_MAX) * POINT_RADIUS_STEPS + 0.5f);
+    std::lock_guard lock(mutex);
+    _push(p_position, p_position, p_style.color, _flags(p_style) | FLAG_POINT | (radius << POINT_RADIUS_SHIFT), p_style.duration);
 }
 
 void DebugDraw::line(const vec3& p_a, const vec3& p_b, const Style& p_style)

@@ -5,8 +5,9 @@
 #include "debug/lines_common.glsl"
 
 layout(location = 0) out vec4 v_color;
-layout(location = 1) out float v_dist;
+layout(location = 1) out vec2 v_coord;
 layout(location = 2) flat out uint v_flags;
+layout(location = 3) flat out float v_width;
 
 const vec2 CORNERS[6] = vec2[](vec2(0.0, -1.0), vec2(0.0, 1.0), vec2(1.0, -1.0), vec2(1.0, -1.0), vec2(0.0, 1.0), vec2(1.0, 1.0));
 
@@ -25,15 +26,28 @@ void main() {
     v_flags = l.flags;
 
     const float near_w = cam.near_z;
+    v_coord = vec2(0.0);
+    v_width = pc.half_width;
     if (pa.w < near_w && pb.w < near_w) {
-        v_dist = 0.0;
         gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    const vec2 half_size = vec2(pc.out_size) * 0.5;
+
+    if ((l.flags & DEBUG_LINE_FLAG_POINT) != 0u) {
+        const float radius = float((l.flags >> DEBUG_LINE_POINT_RADIUS_SHIFT) & 0xFFu) / DEBUG_LINE_POINT_RADIUS_STEPS;
+        const float point_extent = radius + DEBUG_LINE_AA_PX;
+        const vec2 side = vec2(corner.x * 2.0 - 1.0, corner.y);
+        vec4 q = pa;
+        q.xy += side * point_extent / half_size * q.w;
+        v_coord = side * point_extent;
+        v_width = radius;
+        gl_Position = q;
         return;
     }
     if (pa.w < near_w) pa = mix(pa, pb, (near_w - pa.w) / (pb.w - pa.w));
     else if (pb.w < near_w) pb = mix(pb, pa, (near_w - pb.w) / (pa.w - pb.w));
 
-    const vec2 half_size = vec2(pc.out_size) * 0.5;
     const vec2 sa = pa.xy / pa.w * half_size;
     const vec2 sb = pb.xy / pb.w * half_size;
     const vec2 delta = sb - sa;
@@ -47,6 +61,6 @@ void main() {
     const vec2 offset_px = normal * corner.y * extent + dir * (at_b ? DEBUG_LINE_AA_PX : -DEBUG_LINE_AA_PX);
     p.xy += offset_px / half_size * p.w;
 
-    v_dist = corner.y * extent;
+    v_coord = vec2(0.0, corner.y * extent);
     gl_Position = p;
 }

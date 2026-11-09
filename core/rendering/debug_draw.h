@@ -36,6 +36,10 @@ struct DebugDraw
 {
     static constexpr uint32_t CATEGORY_MASK = 0xFFu;
     static constexpr uint32_t FLAG_XRAY = 1u << 8;
+    static constexpr uint32_t FLAG_POINT = 1u << 9;
+    static constexpr uint32_t POINT_RADIUS_SHIFT = 16;
+    static constexpr float POINT_RADIUS_STEPS = 4.0f;
+    static constexpr float POINT_RADIUS_MAX = 255.0f / POINT_RADIUS_STEPS;
     static constexpr uint32_t MAX_LINES = 1u << 20;
     static constexpr uint32_t CIRCLE_SEGMENTS = 32;
 
@@ -64,6 +68,7 @@ struct DebugDraw
     void _arc(const vec3& p_center, const vec3& p_x, const vec3& p_y, float p_radius, float p_from, float p_to, uint32_t p_segments, const Style& p_style);
 
     void line(const vec3& p_a, const vec3& p_b, const Style& p_style = {});
+    void point(const vec3& p_position, float p_radius_px, const Style& p_style = {});
     void box(const mat4& p_transform, const vec3& p_half_extents, const Style& p_style = {});
     void aabb(const vec3& p_min, const vec3& p_max, const Style& p_style = {});
     void circle(const vec3& p_center, const vec3& p_normal, float p_radius, const Style& p_style = {});

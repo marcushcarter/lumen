@@ -1,6 +1,7 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/render_path.h>
 #include <core/rendering/debug_draw.h>
+#include <core/physics/physics_world.h>
 #include <core/io/path.h>
 #include <core/version.h>
 #include <imgui.h>
@@ -92,13 +93,23 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
     Error err = job_system().initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
+    err = physics_initialize();
+    if (err != OK) {
+        job_system().shutdown();
+        return err;
+    }
+
     err = _initialize(p_create_info);
-    if (err != OK) job_system().shutdown();
+    if (err != OK) {
+        physics_shutdown();
+        job_system().shutdown();
+    }
     return err;
 }
 
 void Application::shutdown()
 {
+    physics_shutdown();
     job_system().shutdown();
 
     dd.device_wait_idle();

@@ -1,4 +1,5 @@
 #pragma once
+#include <core/assets/lcollision.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <core/assets/lmesh.h>
 #include <assimp/ProgressHandler.hpp>
@@ -22,6 +23,19 @@ struct AssimpImportProgress : Assimp::ProgressHandler
     }
 };
 
+struct CollisionSettings
+{
+    static constexpr float DEFAULT_ERROR = 0.02f;
+    static constexpr float DEFAULT_MIN_FEATURE = 0.15f;
+
+    CollisionType type = CollisionType::MESH;
+    float error = DEFAULT_ERROR;
+    float min_feature = DEFAULT_MIN_FEATURE;
+    bool exclude_masked = true;
+
+    bool operator==(const CollisionSettings&) const = default;
+};
+
 struct MeshCooker
 {
     static constexpr float GATHER_SHARE = 0.1f;
@@ -34,6 +48,7 @@ struct MeshCooker
         float scale = 1.0f;
         bool load_skeleton = true;
         bool generate_collision = true;
+        CollisionSettings collision;
         uint32_t max_verts = 64;
         uint32_t max_tris = 64;
         uint32_t group_size = 8;
@@ -47,7 +62,7 @@ struct MeshCooker
         Guid guid;
         CookSettings settings;
         Guid skeleton;
-        Guid collision;
+        bool has_collision = false;
         ImportStep step;
     };
 

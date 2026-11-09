@@ -36,11 +36,11 @@ static constexpr float MIN_DIRECTION_LENGTH = 1e-6f;
 static JPH::RefConst<JPH::Shape> _make_shape(const PhysicsShape& p_shape, const CollisionCache* p_cache, PhysicsMotion p_motion)
 {
     switch (p_shape.type) {
-        case PhysicsShapeType::ASSET: {
+        case PhysicsShapeType::MESH_COLLISION: {
             CollisionType type = CollisionType::MESH;
-            const JPH::Shape* shape = p_cache ? jolt::collision_shape(*p_cache, p_shape.collision, type) : nullptr;
+            const JPH::Shape* shape = p_cache ? jolt::collision_shape(*p_cache, p_shape.mesh, type) : nullptr;
             if (!shape) {
-                log_write("Physics: collision asset %s isn't loaded.", p_shape.collision.to_string().c_str());
+                log_write("Physics: collision for mesh %s isn't loaded.", p_shape.mesh.to_string().c_str());
                 return nullptr;
             }
             if (type == CollisionType::MESH && p_motion != PhysicsMotion::STATIC) {

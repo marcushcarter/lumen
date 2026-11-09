@@ -397,6 +397,8 @@ void AssetManager::_delete_content(EditorContext& ctx, const std::filesystem::pa
     }
 
     Paths::remove_to_recycle(ctx.project->content_path(info.guid));
+    std::error_code ec;
+    if (info.type == AssetType::MESH && std::filesystem::exists(ctx.project->collision_path(info.guid), ec)) Paths::remove_to_recycle(ctx.project->collision_path(info.guid));
 }
 
 void AssetManager::_delete_asset(EditorContext& ctx, const std::filesystem::path& p_path)
@@ -412,7 +414,7 @@ void AssetManager::_delete_folder(EditorContext& ctx, const std::filesystem::pat
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton" || ext == ".lanim" || ext == ".lcollision") _delete_content(ctx, it->path());
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton" || ext == ".lanim") _delete_content(ctx, it->path());
     }
     Paths::remove_to_recycle(p_folder);
 }

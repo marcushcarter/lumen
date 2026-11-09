@@ -502,6 +502,10 @@ bool MeshCooker::load_settings(const std::filesystem::path& p_lmesh, CookSetting
     r_settings.scale = (float)rec["scale"].value_or((double)r_settings.scale);
     r_settings.load_skeleton = rec["load_skeleton"].value_or(r_settings.load_skeleton);
     r_settings.generate_collision = rec["generate_collision"].value_or(r_settings.generate_collision);
+    r_settings.collision.type = collision_type_from_name(rec["collision_type"].value_or(std::string()), r_settings.collision.type);
+    r_settings.collision.error = (float)rec["collision_error"].value_or((double)r_settings.collision.error);
+    r_settings.collision.min_feature = (float)rec["collision_min_feature"].value_or((double)r_settings.collision.min_feature);
+    r_settings.collision.exclude_masked = rec["collision_exclude_masked"].value_or(r_settings.collision.exclude_masked);
     r_settings.dag_level = mesh_dag_level_from_name(rec["dag_level"].value_or(std::string()), r_settings.dag_level);
     r_settings.max_verts = (uint32_t)rec["max_verts"].value_or((int64_t)r_settings.max_verts);
     r_settings.max_tris = (uint32_t)rec["max_tris"].value_or((int64_t)r_settings.max_tris);
@@ -581,6 +585,10 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "scale", static_cast<double>(p_job.settings.scale) },
             { "load_skeleton", p_job.settings.load_skeleton },
             { "generate_collision", p_job.settings.generate_collision },
+            { "collision_type", collision_type_name(p_job.settings.collision.type) },
+            { "collision_error", static_cast<double>(p_job.settings.collision.error) },
+            { "collision_min_feature", static_cast<double>(p_job.settings.collision.min_feature) },
+            { "collision_exclude_masked", p_job.settings.collision.exclude_masked },
             { "dag_level", mesh_dag_level_name(p_job.settings.dag_level) },
             { "max_verts", static_cast<int64_t>(p_job.settings.max_verts) },
             { "max_tris", static_cast<int64_t>(p_job.settings.max_tris) },
@@ -590,7 +598,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "skinned", skinned } }},
     };
     if (skinned) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("skeleton", p_job.skeleton.to_string());
-    if (p_job.collision.valid()) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", p_job.collision.to_string());
+    if (p_job.has_collision) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", true);
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;
 

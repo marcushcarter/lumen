@@ -4,7 +4,7 @@
 #include <editor/assets/asset_field.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/assets/import/import_dialog.h>
-#include <editor/assets/import/reimport.h>
+#include <editor/assets/import/collision_cooker.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
@@ -47,16 +47,13 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
 
     if (ui_category("Collision")) {
         MeshTab::CollisionView& c = tab->collision;
-        const bool locked = tab->locked(ctx) || (ctx.imports && !c.path.empty() && ctx.imports->importing(c.path));
+        const bool locked = tab->locked(ctx);
         if (locked) ImGui::BeginDisabled();
 
-        if (!c.generate || !c.guid.valid() || c.path.empty()) {
+        if (!c.generate || !c.has) {
             ImGui::TextDisabled(!c.generate ? "Generate Collision is off for this mesh." : "This mesh has no collision yet.");
-            ReimportSettings settings;
-            if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Generate Collision") && reimport_load_settings({ ReimportKind::MESH, tab->path }, settings)) {
-                settings.model.mesh_settings.generate_collision = true;
-                reimport_asset(ctx, tab->path, &settings);
-            }
+            collision_settings_fields(c.edit);
+            if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Generate Collision")) CollisionCooker::reimport(ctx, tab->path, c.edit);
         } else {
             if (c.loaded) {
                 const LCollision& d = c.data;
@@ -76,11 +73,7 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
             collision_settings_fields(c.edit);
             const bool changed = !(c.edit == c.settings);
             if (!changed) ImGui::BeginDisabled();
-            if (ImGui::Button(ICON_FA_CHECK "  Apply")) {
-                ReimportSettings settings;
-                settings.model.collision = c.edit;
-                reimport_asset(ctx, c.path, &settings);
-            }
+            if (ImGui::Button(ICON_FA_CHECK "  Apply")) CollisionCooker::reimport(ctx, tab->path, c.edit);
             ImGui::SameLine();
             if (ImGui::Button("Revert")) c.edit = c.settings;
             if (!changed) ImGui::EndDisabled();

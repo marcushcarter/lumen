@@ -58,7 +58,6 @@ bool ImportDialog::push_reimport(const ReimportTarget& p_target)
     switch (p_target.kind) {
         case ReimportKind::TEXTURE: p.kind = ImportKind::TEXTURE; break;
         case ReimportKind::MESH: p.kind = ImportKind::MESH; break;
-        case ReimportKind::COLLISION: p.kind = ImportKind::COLLISION; break;
         default: p.kind = ImportKind::MODEL; break;
     }
     p.model = settings.model;
@@ -105,7 +104,7 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
         ui_drag_float3_axes("Import Rotation (Degrees)", &mesh.rotation.x, 0.5f, "%.1f");
         ImGui::DragFloat("Import Uniform Scale", &mesh.scale, 0.01f, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
     }
-    _draw_collision(r_settings.collision, &mesh.generate_collision);
+    _draw_collision(mesh.collision, &mesh.generate_collision);
     if (p_materials && ui_category("Materials")) {
         bool generate = r_settings.mode == ModelImportMode::FULL;
         if (ImGui::Checkbox("Generate Materials", &generate)) r_settings.mode = generate ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
@@ -153,7 +152,7 @@ void ImportDialog::_draw_texture(TextureCooker::CookSettings& r_settings)
 
 static constexpr float CM_PER_M = 100.0f;
 
-void collision_settings_fields(CollisionCooker::Settings& r_settings)
+void collision_settings_fields(CollisionSettings& r_settings)
 {
     const char* current = collision_type_label(r_settings.type);
     if (ImGui::BeginCombo("Collision Type", current)) {
@@ -177,7 +176,7 @@ void collision_settings_fields(CollisionCooker::Settings& r_settings)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Leaves out alpha-masked and transparent materials, like leaves and grass cards");
 }
 
-void ImportDialog::_draw_collision(CollisionCooker::Settings& r_settings, bool* r_generate)
+void ImportDialog::_draw_collision(CollisionSettings& r_settings, bool* r_generate)
 {
     if (!ui_category("Collision")) return;
     if (r_generate) {
@@ -301,7 +300,6 @@ static const char* _dialog_title(const ImportDialog::Pending& p_pending)
     switch (p_pending.kind) {
         case ImportKind::TEXTURE: return p_pending.reimport ? "Reimport Texture" : "Import Texture";
         case ImportKind::MESH: return "Reimport Mesh";
-        case ImportKind::COLLISION: return "Reimport Collision";
         default: return p_pending.reimport ? "Reimport Model" : "Import Model";
     }
 }
@@ -334,10 +332,6 @@ void ImportDialog::draw(EditorContext& ctx)
     ui_field_push_style();
     _draw_header(p);
     if (p.kind == ImportKind::TEXTURE) _draw_texture(p.texture);
-    else if (p.kind == ImportKind::COLLISION) {
-        _draw_collision(p.model.collision, nullptr);
-        ui_category_flush();
-    }
     else _draw_model(p.model, p.kind == ImportKind::MODEL);
     ui_field_pop_style();
     _draw_footer(ctx, p);

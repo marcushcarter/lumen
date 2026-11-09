@@ -26,7 +26,7 @@ Error MeshTab::create(EditorContext& ctx)
         rig_preview.draw_bones(debug_draw());
         _draw_collision();
     };
-    layout.viewport.show_collision = open_with_collision;
+    layout.viewport.show_collision = false;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -110,31 +110,27 @@ void MeshTab::_refresh_stats(EditorContext& ctx)
 void MeshTab::_refresh_collision(EditorContext& ctx)
 {
     if (!ctx.project || path.empty()) return;
-    toml::table tbl;
-    try { tbl = toml::parse_file(path.string()); }
-    catch (const toml::parse_error&) { return; }
-    collision.generate = tbl["import"]["generate_collision"].value_or(true);
-    const Guid guid_now = Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["collision"].value_or(std::string()));
-
-    if (guid_now != collision.guid) {
-        collision = CollisionView{ .guid = guid_now, .generate = collision.generate };
-        collision.path = CollisionCooker::find(path.parent_path(), guid_now);
-        CollisionCooker::Record record;
-        if (!collision.path.empty() && CollisionCooker::load_record(collision.path, record)) collision.settings = record.settings;
-        collision.edit = collision.settings;
+    MeshCooker::CookSettings saved;
+    std::filesystem::path saved_source;
+    MeshCooker::load_settings(path, saved, saved_source);
+    collision.generate = saved.generate_collision;
+    collision.has = CollisionCooker::has_collision(path);
+    if (!(saved.collision == collision.settings)) {
+        if (collision.edit == collision.settings) collision.edit = saved.collision;
+        collision.settings = saved.collision;
     }
-    if (!collision.guid.valid()) return;
+    if (!collision.has) {
+        collision.loaded = false;
+        collision.edges.clear();
+        collision.time = {};
+        return;
+    }
 
-    const std::filesystem::path bin = ctx.project->content_path(collision.guid);
+    const std::filesystem::path bin = ctx.project->collision_path(guid);
     std::error_code ec;
     const std::filesystem::file_time_type t = std::filesystem::last_write_time(bin, ec);
     if (ec || t == collision.time) return;
     collision.time = t;
-    CollisionCooker::Record record;
-    if (!collision.path.empty() && CollisionCooker::load_record(collision.path, record)) {
-        if (collision.edit == collision.settings) collision.edit = record.settings;
-        collision.settings = record.settings;
-    }
     collision.loaded = collision.data.load_cooked(bin) == Error::OK;
     collision.edges.clear();
     if (!collision.loaded) return;

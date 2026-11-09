@@ -80,14 +80,14 @@ static JPH::RefConst<JPH::Shape> _build(const LCollision& p_collision)
 CollisionCache::CollisionCache() : impl(std::make_unique<Impl>()) {}
 CollisionCache::~CollisionCache() = default;
 
-bool CollisionCache::load(Guid p_guid, const std::filesystem::path& p_content_bin)
+bool CollisionCache::load(Guid p_mesh, const std::filesystem::path& p_collision_file)
 {
     LCollision collision;
-    if (collision.load_cooked(p_content_bin) != Error::OK) {
-        log_write("CollisionCache: couldn't read '%s'.", p_content_bin.string().c_str());
+    if (collision.load_cooked(p_collision_file) != Error::OK) {
+        log_write("CollisionCache: couldn't read '%s'.", p_collision_file.string().c_str());
         return false;
     }
-    collision.guid = p_guid;
+    collision.guid = p_mesh;
     return add(collision);
 }
 

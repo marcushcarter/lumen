@@ -1,7 +1,6 @@
 #include <editor/assets/import/reimport.h>
 #include <editor/assets/import/model_cooker.h>
 #include <editor/assets/import/animation_cooker.h>
-#include <editor/assets/import/collision_cooker.h>
 #include <editor/assets/import/texture_cooker.h>
 #include <editor/application/editor_context.h>
 #include <editor/assets/import/asset_import_tracker.h>
@@ -45,11 +44,6 @@ ReimportTarget reimport_target(const std::filesystem::path& p_asset)
             if (!AnimationCooker::load_record(p_asset, record)) return {};
             return { ReimportKind::ANIMATION, p_asset };
         }
-        case AssetType::COLLISION: {
-            CollisionCooker::Record record;
-            if (!CollisionCooker::load_record(p_asset, record)) return {};
-            return { ReimportKind::COLLISION, p_asset };
-        }
         default:
             return {};
     }
@@ -62,7 +56,7 @@ bool can_reimport(const std::filesystem::path& p_asset)
 
 bool reimport_has_settings(ReimportKind p_kind)
 {
-    return p_kind == ReimportKind::MODEL || p_kind == ReimportKind::MESH || p_kind == ReimportKind::TEXTURE || p_kind == ReimportKind::COLLISION;
+    return p_kind == ReimportKind::MODEL || p_kind == ReimportKind::MESH || p_kind == ReimportKind::TEXTURE;
 }
 
 bool reimport_load_settings(const ReimportTarget& p_target, ReimportSettings& r_settings)
@@ -75,23 +69,11 @@ bool reimport_load_settings(const ReimportTarget& p_target, ReimportSettings& r_
             r_settings.model.mode = model.import.mode;
             const std::filesystem::path lmesh = model.mesh.valid() ? ModelCooker::find_mesh(p_target.asset.parent_path(), model.mesh) : std::filesystem::path();
             std::filesystem::path mesh_source;
-            if (!lmesh.empty()) {
-                MeshCooker::load_settings(lmesh, r_settings.model.mesh_settings, mesh_source);
-                CollisionCooker::load_for_mesh(lmesh, r_settings.model.collision);
-            }
+            if (!lmesh.empty()) MeshCooker::load_settings(lmesh, r_settings.model.mesh_settings, mesh_source);
             return true;
         }
         case ReimportKind::MESH:
-            if (!MeshCooker::load_settings(p_target.asset, r_settings.model.mesh_settings, r_settings.source)) return false;
-            CollisionCooker::load_for_mesh(p_target.asset, r_settings.model.collision);
-            return true;
-        case ReimportKind::COLLISION: {
-            CollisionCooker::Record record;
-            if (!CollisionCooker::load_record(p_target.asset, record)) return false;
-            r_settings.source = record.source;
-            r_settings.model.collision = record.settings;
-            return true;
-        }
+            return MeshCooker::load_settings(p_target.asset, r_settings.model.mesh_settings, r_settings.source);
         case ReimportKind::TEXTURE:
             return TextureCooker::load_settings(p_target.asset, r_settings.texture, r_settings.source);
         default:
@@ -148,7 +130,6 @@ static Error _run(EditorContext& ctx, const ReimportTarget& p_target, const Reim
     switch (p_target.kind) {
         case ReimportKind::MODEL: return ModelCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
         case ReimportKind::MESH: return ModelCooker::reimport_mesh(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
-        case ReimportKind::COLLISION: return CollisionCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model.collision : nullptr);
         case ReimportKind::TEXTURE: return _reimport_texture(ctx, p_target.asset, p_override ? &p_override->texture : nullptr);
         case ReimportKind::ANIMATION: return AnimationCooker::reimport(ctx, p_target.asset);
         default: return Error::FAILED;

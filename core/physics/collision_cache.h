@@ -17,7 +17,7 @@ struct CollisionCache
     CollisionCache(const CollisionCache&) = delete;
     CollisionCache& operator=(const CollisionCache&) = delete;
 
-    bool load(Guid p_guid, const std::filesystem::path& p_content_bin);
+    bool load(Guid p_mesh, const std::filesystem::path& p_collision_file);
     bool add(const LCollision& p_collision);
     void unload(Guid p_guid);
     void clear();

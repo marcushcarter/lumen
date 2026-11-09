@@ -254,8 +254,9 @@ static void _fit_primitive(const std::vector<vec3>& p_points, CollisionType p_ty
     r_collision.half_height = std::max(half[axis] - r_collision.radius, CollisionCooker::MIN_PRIMITIVE_SIZE);
 }
 
-bool CollisionCooker::build(const aiScene* p_scene, const Settings& p_settings, const MeshCooker::CookSettings& p_transform, LCollision& r_collision)
+bool CollisionCooker::build(const aiScene* p_scene, const MeshCooker::CookSettings& p_mesh, LCollision& r_collision)
 {
+    const CollisionSettings& p_settings = p_mesh.collision;
     r_collision = LCollision{};
     r_collision.type = p_settings.type;
     if (!p_scene || !p_scene->mRootNode) return false;
@@ -274,7 +275,7 @@ bool CollisionCooker::build(const aiScene* p_scene, const Settings& p_settings, 
         return false;
     }
 
-    _apply_transform(p_transform, positions);
+    _apply_transform(p_mesh, positions);
     _weld(positions, indices);
     _drop_degenerate(positions, indices);
     _cull_islands(positions, indices, p_settings.min_feature);
@@ -310,103 +311,33 @@ bool CollisionCooker::build(const aiScene* p_scene, const Settings& p_settings, 
     return r_collision.primitive() || !r_collision.indices.empty();
 }
 
-Error CollisionCooker::cook(const Job& p_job, LCollision& r_collision)
+Error CollisionCooker::write(const std::filesystem::path& p_file, Guid p_mesh, LCollision& r_collision)
 {
-    using enum Error;
-    r_collision.guid = p_job.guid;
-    if (r_collision.save_cooked(p_job.content_bin) != OK) {
-        log_write("CollisionCooker: failed to write '%s'.", p_job.content_bin.string().c_str());
-        return FAILED;
-    }
-    const MeshCooker::CookSettings& t = p_job.transform;
-    toml::table tbl {
-        { "asset", toml::table{
-            { "version", static_cast<int64_t>(LASSET_VERSION) },
-            { "guid", p_job.guid.to_string() },
-            { "type", static_cast<int64_t>(AssetType::COLLISION) } }},
-        { "import", toml::table{
-            { "source", p_job.source.generic_string() },
-            { "translation", toml::array{ t.translation.x, t.translation.y, t.translation.z } },
-            { "rotation", toml::array{ t.rotation.x, t.rotation.y, t.rotation.z } },
-            { "scale", static_cast<double>(t.scale) },
-            { "type", collision_type_name(p_job.settings.type) },
-            { "error", static_cast<double>(p_job.settings.error) },
-            { "min_feature", static_cast<double>(p_job.settings.min_feature) },
-            { "exclude_masked", p_job.settings.exclude_masked } }},
-        { std::string(asset_type_section(AssetType::COLLISION)), toml::table{
-            { "mesh", p_job.mesh.to_string() },
-            { "type", collision_type_name(r_collision.type) },
-            { "triangles", static_cast<int64_t>(r_collision.triangle_count()) },
-            { "vertices", static_cast<int64_t>(r_collision.vertices.size()) },
-            { "source_triangles", static_cast<int64_t>(r_collision.source_triangles) } }},
-    };
-    std::ostringstream ss;
-    ss << tbl;
-    return write_file_atomic(p_job.dst_lcollision, ss.str()) ? OK : FAILED;
+    r_collision.guid = p_mesh;
+    if (r_collision.save_cooked(p_file) == Error::OK) return Error::OK;
+    log_write("CollisionCooker: failed to write '%s'.", p_file.string().c_str());
+    return Error::FAILED;
 }
 
-static vec3 _read_vec3(const toml::node_view<toml::node>& p_node, const vec3& p_fallback)
+bool CollisionCooker::has_collision(const std::filesystem::path& p_lmesh)
 {
-    const toml::array* arr = p_node.as_array();
-    if (!arr || arr->size() != 3) return p_fallback;
-    vec3 v = p_fallback;
-    for (size_t i = 0; i < 3; i++) v[(int)i] = (float)(*arr)[i].value_or((double)p_fallback[(int)i]);
-    return v;
-}
-
-bool CollisionCooker::load_record(const std::filesystem::path& p_lcollision, Record& r_record)
-{
-    toml::table tbl;
-    try { tbl = toml::parse_file(p_lcollision.string()); }
-    catch (const toml::parse_error&) { return false; }
-    const toml::node_view<toml::node> rec = tbl["import"];
-    const std::string source = rec["source"].value_or(std::string());
-    if (source.empty()) return false;
-
-    r_record.source = std::filesystem::path(source);
-    r_record.mesh = Guid::from_string(tbl[asset_type_section(AssetType::COLLISION)]["mesh"].value_or(std::string()));
-    r_record.transform.translation = _read_vec3(rec["translation"], r_record.transform.translation);
-    r_record.transform.rotation = _read_vec3(rec["rotation"], r_record.transform.rotation);
-    r_record.transform.scale = (float)rec["scale"].value_or((double)r_record.transform.scale);
-    r_record.settings.type = collision_type_from_name(rec["type"].value_or(std::string()), r_record.settings.type);
-    r_record.settings.error = (float)rec["error"].value_or((double)r_record.settings.error);
-    r_record.settings.min_feature = (float)rec["min_feature"].value_or((double)r_record.settings.min_feature);
-    r_record.settings.exclude_masked = rec["exclude_masked"].value_or(r_record.settings.exclude_masked);
-    return true;
-}
-
-std::filesystem::path CollisionCooker::find(const std::filesystem::path& p_folder, Guid p_guid)
-{
-    if (!p_guid.valid()) return {};
-    std::error_code ec;
-    for (auto it = std::filesystem::directory_iterator(p_folder, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
-        if (it->path().extension() != ".lcollision") continue;
-        const AssetInfo info = read_asset_info(it->path());
-        if (info.valid() && info.type == AssetType::COLLISION && info.guid == p_guid) return it->path();
-    }
-    return {};
-}
-
-Guid CollisionCooker::mesh_collision(const std::filesystem::path& p_lmesh)
-{
-    std::error_code ec;
-    if (!std::filesystem::exists(p_lmesh, ec)) return {};
     toml::table tbl;
     try { tbl = toml::parse_file(p_lmesh.string()); }
-    catch (const toml::parse_error&) { return {}; }
-    return Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["collision"].value_or(std::string()));
+    catch (const toml::parse_error&) { return false; }
+    return tbl[asset_type_section(AssetType::MESH)]["collision"].value_or(false);
 }
 
-bool CollisionCooker::load_for_mesh(const std::filesystem::path& p_lmesh, Settings& r_settings)
+struct CollisionReimport
 {
-    const std::filesystem::path path = find(p_lmesh.parent_path(), mesh_collision(p_lmesh));
-    Record record;
-    if (path.empty() || !load_record(path, record)) return false;
-    r_settings = record.settings;
-    return true;
-}
+    std::filesystem::path lmesh;
+    std::filesystem::path source;
+    std::filesystem::path staged_record;
+    std::filesystem::path staged_collision;
+    Guid mesh;
+    MeshCooker::CookSettings settings;
+};
 
-static Error _reimport_collision(const CollisionCooker::Job& p_job, ImportStep p_step)
+static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_step)
 {
     using enum Error;
     Assimp::Importer importer;
@@ -418,48 +349,61 @@ static Error _reimport_collision(const CollisionCooker::Job& p_job, ImportStep p
         return FAILED;
     }
     ModelCooker::fbx_to_meters(scene);
-    p_step.report(0.6f);
+    p_step.report(0.5f);
 
     LCollision collision;
-    if (!CollisionCooker::build(scene, p_job.settings, p_job.transform, collision)) return FAILED;
+    if (!CollisionCooker::build(scene, p_job.settings, collision)) return FAILED;
     if (p_step.cancelled()) return CANCELED;
-    const Error err = CollisionCooker::cook(p_job, collision);
+    if (CollisionCooker::write(p_job.staged_collision, p_job.mesh, collision) != OK) return FAILED;
+
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_job.lmesh.string()); }
+    catch (const toml::parse_error&) { return FAILED; }
+    if (toml::table* rec = tbl["import"].as_table()) {
+        const CollisionSettings& c = p_job.settings.collision;
+        rec->insert_or_assign("generate_collision", true);
+        rec->insert_or_assign("collision_type", collision_type_name(c.type));
+        rec->insert_or_assign("collision_error", static_cast<double>(c.error));
+        rec->insert_or_assign("collision_min_feature", static_cast<double>(c.min_feature));
+        rec->insert_or_assign("collision_exclude_masked", c.exclude_masked);
+    }
+    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->insert_or_assign("collision", true);
+    std::ostringstream ss;
+    ss << tbl;
+    if (!write_file_atomic(p_job.staged_record, ss.str())) return FAILED;
     p_step.report(1.0f);
-    return err;
+    return OK;
 }
 
-Error CollisionCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_lcollision, const Settings* p_override)
+Error CollisionCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings)
 {
     using enum Error;
-    Record record;
-    if (!load_record(p_lcollision, record)) {
-        log_write("Reimport failed: '%s' has no import source.", p_lcollision.filename().string().c_str());
+    const AssetInfo info = read_asset_info(p_lmesh);
+    if (!info.valid() || info.type != AssetType::MESH) return FAILED;
+
+    CollisionReimport job;
+    if (!MeshCooker::load_settings(p_lmesh, job.settings, job.source)) {
+        log_write("Collision failed: '%s' has no import source.", p_lmesh.filename().string().c_str());
         return FAILED;
     }
     std::error_code ec;
-    if (!std::filesystem::exists(record.source, ec)) {
-        log_write("Reimport failed: source '%s' no longer exists.", record.source.string().c_str());
+    if (!std::filesystem::exists(job.source, ec)) {
+        log_write("Collision failed: source '%s' no longer exists.", job.source.string().c_str());
         return FAILED;
     }
-    const AssetInfo info = read_asset_info(p_lcollision);
-    if (!info.valid() || info.type != AssetType::COLLISION) return FAILED;
+    job.settings.collision = p_settings;
+    job.settings.generate_collision = true;
+    job.lmesh = p_lmesh;
+    job.mesh = info.guid;
 
-    std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, p_lcollision);
+    std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, p_lmesh);
     if (!session) return FAILED;
-    const ImportSession::Staged staged = session->stage(*ctx.project, p_lcollision, info.guid, true, true);
-
-    Job job;
-    job.source = record.source;
-    job.dst_lcollision = staged.asset;
-    job.content_bin = staged.content_bin;
-    job.guid = info.guid;
-    job.mesh = record.mesh;
-    job.settings = p_override ? *p_override : record.settings;
-    job.transform = record.transform;
+    job.staged_record = session->stage(*ctx.project, p_lmesh, info.guid, false, true).asset;
+    job.staged_collision = session->stage_file(ctx.project->collision_path(info.guid));
     job_system().run_background_owned([job, session]{
         session->finish(_reimport_collision(job, session->step()));
-    }, nullptr, "Collision Reimport");
-    log_write("Reimporting '%s' from '%s'.", p_lcollision.filename().string().c_str(), record.source.string().c_str());
+    }, nullptr, "Collision Cook");
+    log_write("Building collision for '%s'.", p_lmesh.filename().string().c_str());
     return OK;
 }
 

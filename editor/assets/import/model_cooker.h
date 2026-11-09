@@ -25,7 +25,6 @@ struct ModelCooker
         ModelImportMode mode = ModelImportMode::FULL;
         MeshCooker::CookSettings mesh_settings;
         TextureCooker::CookSettings texture_settings;
-        CollisionCooker::Settings collision;
     };
 
     struct Job {

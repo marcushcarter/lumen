@@ -38,6 +38,13 @@ Error Project::_ensure_layout(const std::filesystem::path& p_root)
     return OK;
 }
 
+std::filesystem::path Project::collision_path(Guid p_mesh) const
+{
+    std::filesystem::path p = content_path(p_mesh);
+    p.replace_extension(".collision");
+    return p;
+}
+
 std::filesystem::path Project::content_path(Guid p_guid) const
 {
     char buf[Guid::PATH_BUFFER + 4];

@@ -21,18 +21,16 @@ struct MeshTab : AssetTab
     RigPreview rig_preview;
 
     struct CollisionView {
-        Guid guid;
-        std::filesystem::path path;
+        bool has = false;
         bool generate = true;
-        CollisionCooker::Settings settings;
-        CollisionCooker::Settings edit;
+        CollisionSettings settings;
+        CollisionSettings edit;
         LCollision data;
         bool loaded = false;
         std::vector<uint32_t> edges;
         std::filesystem::file_time_type time{};
     };
     CollisionView collision;
-    bool open_with_collision = false;
 
     std::filesystem::file_time_type _stats_time{};
     double _stats_poll = -1.0e9;

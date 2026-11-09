@@ -3,7 +3,6 @@
 #include <core/project/project.h>
 #include <drivers/imgui/imgui_driver.h>
 #include <editor/assets/import/asset_import_tracker.h>
-#include <editor/assets/import/collision_cooker.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/tabs/animation/animation_tab.h>
@@ -39,7 +38,6 @@ const char* AssetBrowser::icon_for(const std::filesystem::path& p_path, bool p_i
     if (ext == ".loverlay") return OverlayTab::ICON;
     if (ext == ".lworld") return ICON_FA_EARTH_AMERICAS;
     if (ext == ".lterrain") return TerrainTab::ICON;
-    if (ext == ".lcollision") return ICON_FA_DRAW_POLYGON;
     return ICON_FA_FILE;
 }
 
@@ -56,7 +54,6 @@ std::string AssetBrowser::type_name(std::string p_ext)
     if (p_ext == ".loverlay") return "Overlay";
     if (p_ext == ".lworld") return "World";
     if (p_ext == ".lterrain") return "Terrain";
-    if (p_ext == ".lcollision") return "Collision";
     if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
     for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
     return p_ext;
@@ -333,20 +330,6 @@ bool AssetBrowser::open_entry(EditorContext& ctx, const std::filesystem::path& p
         case AssetType::OVERLAY: ctx.tabs->open<OverlayTab>(info.guid)->path = p_path; break;
         case AssetType::MATERIAL: ctx.tabs->open<MaterialTab>(info.guid)->path = p_path; break;
         case AssetType::TEXTURE: ctx.tabs->open<TextureTab>(info.guid)->path = p_path; break;
-        case AssetType::COLLISION: {
-            CollisionCooker::Record record;
-            const AssetRegistry::Entry* mesh = CollisionCooker::load_record(p_path, record) && ctx.assets ? ctx.assets->find(record.mesh) : nullptr;
-            if (!mesh) {
-                log_write("'%s' has no mesh to preview it on.", p_path.filename().string().c_str());
-                return false;
-            }
-            const bool already_open = ctx.tabs->find(MeshTab::KIND, record.mesh) != nullptr;
-            MeshTab* tab = ctx.tabs->open<MeshTab>(record.mesh);
-            tab->path = mesh->path;
-            tab->open_with_collision = true;
-            if (already_open) tab->layout.viewport.show_collision = true;
-            break;
-        }
         case AssetType::WORLD:
             if (!ctx.world_tab) return false;
             ctx.world_tab->show(ctx, info.guid);

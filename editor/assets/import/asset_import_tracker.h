@@ -6,6 +6,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 namespace lumen {
@@ -49,9 +50,11 @@ struct ImportSession
     std::atomic<State> state{ State::RUNNING };
     std::mutex outputs_mutex;
     std::vector<Output> outputs;
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> extra_files;
 
     Staged stage(const Project& p_project, const std::filesystem::path& p_asset, Guid p_guid, bool p_content, bool p_notify);
     void unstage(const std::filesystem::path& p_asset);
+    std::filesystem::path stage_file(const std::filesystem::path& p_final);
     bool staged_exists(const std::filesystem::path& p_asset);
     bool writes(const std::filesystem::path& p_path);
     bool touches(const std::filesystem::path& p_path);

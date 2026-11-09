@@ -30,18 +30,7 @@ struct AssetTab : EditorTab
     std::filesystem::file_time_type _info_time{};
     double _info_poll = -1.0e9;
 
-    struct ViewState {
-        int selected_view = 0;
-        bool show_grid = true;
-        bool show_bones = false;
-        bool show_collision = true;
-        bool show_debug_lines = true;
-    };
-    ViewState _view_restore;
-    bool _has_view_restore = false;
-
-    ViewState view_state() const;
-    void restore_view(const OrbitCamera& p_orbit, const ViewState& p_view);
+    void restore_view(const OrbitCamera& p_orbit);
     bool locked(const EditorContext& ctx) const;
     void _draw_lock(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 

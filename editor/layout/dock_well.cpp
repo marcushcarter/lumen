@@ -60,9 +60,8 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ImVector<float> mins;
     for (DockSlot* s : slots) {
         if (!s->open) continue;
-        const bool slot = s->panel->closable() && !s->panel->pinned();
-        naturals.push_back(TabStrip::dock_natural_width(s->panel->title, slot));
-        mins.push_back(TabStrip::dock_min_width(slot));
+        naturals.push_back(TabStrip::dock_natural_width(s->panel->title, s->panel->closable()));
+        mins.push_back(TabStrip::dock_min_width(s->panel->closable()));
         natural += naturals.back();
     }
 
@@ -77,12 +76,11 @@ void DockWell::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (!s->open) continue;
         Panel* p = s->panel;
         bool close = false;
-        const bool can_close = p->closable() && !p->pinned();
-        if (strip.dock_tab(p->title, s == active, can_close ? &close : nullptr)) {
+        if (strip.dock_tab(p->title, s == active, p->closable() ? &close : nullptr)) {
             active = s;
             active_name = p->layout_id;
         }
-        if (!p->pinned() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers)) {
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers)) {
             ImGui::SetDragDropPayload(PAYLOAD, &p, sizeof(Panel*));
             ImGui::TextUnformatted(p->title);
             ImGui::EndDragDropSource();

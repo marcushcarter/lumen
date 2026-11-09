@@ -1,8 +1,10 @@
-#include <editor/panels/version_control_panel.h>
+#include <editor/tabs/version_control/version_control_tab.h>
 #include <core/base/hash.h>
 #include <editor/application/editor_context.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/ui/tab_strip.h>
+#include <editor/ui/tab_toolbar.h>
+#include <editor/panels/shared_panels.h>
 #include <editor/ui/ui_style.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <core/project/project.h>
@@ -32,35 +34,65 @@ static bool _is_main(const std::string& p_name)
 
 void VersionControlPanel::draw_contents(EditorContext& ctx)
 {
-    if (!ctx.git) return;
-    _sync(ctx);
-
-    if (cached.state == GitState::CHECKING) {
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
-        ImGui::TextDisabled("Checking...");
-        return;
-    }
-    if (cached.state != GitState::NO_GIT && !ctx.git->busy && ImGui::GetTime() - last_poll > POLL_INTERVAL) {
-        ctx.git->changes_poll();
-        last_poll = ImGui::GetTime();
-    }
-    if (cached.state == GitState::NO_GIT || cached.state == GitState::NO_REPO || !_identity()) {
-        _draw_banner(ctx);
-        _draw_setup(ctx);
-        return;
-    }
-
-    _draw_toolbar(ctx);
-    _draw_banner(ctx);
-    if (cached.state == GitState::NO_REMOTE || editing_remote) _draw_remote(ctx);
-    const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-    _draw_graph(ctx, footer_h);
-    _draw_footer();
-
-    _draw_rename_popup(ctx);
+    if (tab && ctx.git) tab->_draw_controls(ctx);
 }
 
-void VersionControlPanel::_sync(EditorContext& ctx)
+Error VersionControlTab::create(EditorContext& ctx)
+{
+    layout.initialize("##VersionControlHost");
+    layout.add_panel<VersionControlPanel>()->tab = this;
+    for (auto& p : ctx.shared_panels->panels) layout.add_shared(p.get());
+    layout.center = [this](EditorContext& r_ctx, ImVec2 p_min, ImVec2 p_max) {
+        const UiStyle& ui = ui_style();
+        const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
+        if (size.x < 1.0f || size.y < 1.0f) return;
+        ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, ui.color.panel, ui.panel_box.rounding);
+        if (r_ctx.git && !_needs_setup() && cached.state != GitState::CHECKING) {
+            _draw_graph(r_ctx, p_min, p_max);
+            return;
+        }
+        const char* text = cached.state == GitState::CHECKING ? "Checking..." : "No timeline yet";
+        const ImVec2 ts = ImGui::CalcTextSize(text);
+        ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(p_min.x + (size.x - ts.x) * 0.5f), ImFloor(p_min.y + (size.y - ts.y) * 0.5f)), ui.color.text_dim, text);
+    };
+    return Error::OK;
+}
+
+void VersionControlTab::destroy(EditorContext& ctx)
+{
+    (void)ctx;
+    layout.shutdown();
+}
+
+void VersionControlTab::on_update(EditorContext& ctx, float p_dt)
+{
+    (void)p_dt;
+    if (ctx.git) {
+        _sync(ctx);
+        if (cached.state != GitState::NO_GIT && cached.state != GitState::CHECKING && !ctx.git->busy && ImGui::GetTime() - last_poll > POLL_INTERVAL) {
+            ctx.git->changes_poll();
+            last_poll = ImGui::GetTime();
+        }
+    }
+    layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
+    if (ctx.git) _draw_rename_popup(ctx);
+}
+
+void VersionControlTab::_draw_toolbar(EditorContext& ctx)
+{
+    TabToolbar bar;
+    bar.begin();
+    const bool busy = !ctx.git || ctx.git->busy;
+    if (bar.button(ICON_FA_ROTATE "  Refresh", busy ? "Working..." : "Refresh the timeline", false, !busy)) ctx.git->refresh();
+    bar.end();
+}
+
+bool VersionControlTab::_needs_setup() const
+{
+    return cached.state == GitState::NO_GIT || cached.state == GitState::NO_REPO || !_identity();
+}
+
+void VersionControlTab::_sync(EditorContext& ctx)
 {
     drivers::GitDriver& git = *ctx.git;
     {
@@ -92,14 +124,14 @@ void VersionControlPanel::_sync(EditorContext& ctx)
     }
 }
 
-void VersionControlPanel::_commit(EditorContext& ctx)
+void VersionControlTab::_commit(EditorContext& ctx)
 {
     if (_message_blank() || cached.changes.empty() || ctx.git->busy) return;
     if (ctx.save_all_callback) ctx.save_all_callback();
     if (ctx.git->commit(message)) commit_pending = true;
 }
 
-void VersionControlPanel::_go_to(EditorContext& ctx, const std::string& p_hash)
+void VersionControlTab::_go_to(EditorContext& ctx, const std::string& p_hash)
 {
     if (!ctx.reload_project_callback || ctx.git->busy) return;
     drivers::GitDriver* g = ctx.git;
@@ -113,132 +145,7 @@ void VersionControlPanel::_go_to(EditorContext& ctx, const std::string& p_hash)
     });
 }
 
-void VersionControlPanel::_draw_setup(EditorContext& ctx)
-{
-    const float pad_x = ui_style().outliner.pad_x;
-    drivers::GitDriver& git = *ctx.git;
-    ImGui::Indent(pad_x);
-    ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x - pad_x);
-    ImGui::BeginDisabled(git.busy);
-
-    if (cached.state == GitState::NO_GIT) {
-        ImGui::TextWrapped("Git for Windows isn't installed. Version control needs it to run.");
-        ui_link("Download Git for Windows", GIT_DOWNLOAD_URL);
-        if (ImGui::Button(ICON_FA_ROTATE "  Retry")) git.refresh();
-    } else if (!_identity()) {
-        ImGui::TextWrapped("Your name and email are attached to every commit.");
-        ImGui::SetNextItemWidth(-pad_x);
-        ImGui::InputTextWithHint("##vc_name", "Name", user_name, FIELD_SIZE);
-        ImGui::SetNextItemWidth(-pad_x);
-        ImGui::InputTextWithHint("##vc_email", "Email", user_email, FIELD_SIZE);
-        ImGui::BeginDisabled(user_name[0] == '\0' || user_email[0] == '\0');
-        if (ImGui::Button(ICON_FA_USER "  Save Identity")) git.identity_set(user_name, user_email);
-        ImGui::EndDisabled();
-    } else if (cached.state == GitState::NO_REPO) {
-        ImGui::TextWrapped("This project doesn't have a timeline yet. Starting one adds a README.md and an empty .gitignore, then makes the first commit.");
-        ImGui::BeginDisabled(cached.problem == drivers::GitDriver::Problem::NO_FOLDER);
-        if (ImGui::Button(ICON_FA_CLOCK_ROTATE_LEFT "  Start Timeline")) git.repo_create(ctx.project ? ctx.project->name : std::string("Project"));
-        ImGui::EndDisabled();
-    }
-
-    ImGui::EndDisabled();
-    ImGui::PopTextWrapPos();
-    ImGui::Unindent(pad_x);
-}
-
-void VersionControlPanel::_draw_toolbar(EditorContext& ctx)
-{
-    const UiStyle& ui = ui_style();
-    drivers::GitDriver& git = *ctx.git;
-    const float pad_x = ui.outliner.pad_x;
-    const float bw = ImGui::GetFrameHeight();
-    const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    const bool busy = git.busy;
-    const bool ready = cached.state == GitState::READY;
-    const uint32_t change_count = (uint32_t)cached.changes.size();
-    const uint32_t up_count = (uint32_t)cached.unuploaded.size();
-    const ImGuiHoveredFlags tip = ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled;
-    char label[64];
-
-    ui_push_buttons(UiButton::GHOST);
-    ImGui::BeginDisabled(busy);
-
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-    if (ImGui::Button(ICON_FA_ROTATE "##vc_refresh", ImVec2(bw, bw))) git.refresh();
-    if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip(busy ? "Working..." : "Refresh timeline");
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!ready);
-    std::snprintf(label, sizeof(label), ICON_FA_CLOUD_ARROW_UP "  Upload (%u)##vc_upload", up_count);
-    if (ImGui::Button(label, ImVec2(0.0f, bw))) git.upload();
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(tip)) {
-        if (!ready) ImGui::SetTooltip("Connect to GitHub first");
-        else if (up_count > 0) ImGui::SetTooltip("Upload %u commit(s) to GitHub", up_count);
-        else ImGui::SetTooltip("Everything is uploaded");
-    }
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!ready);
-    std::snprintf(label, sizeof(label), ICON_FA_CLOUD_ARROW_DOWN "  Download (%d)##vc_download", cached.incoming);
-    if (ImGui::Button(label, ImVec2(0.0f, bw)) && git.fetch()) download_pending = true;
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(tip)) {
-        if (!ready) ImGui::SetTooltip("Connect to GitHub first");
-        else if (cached.incoming > 0) ImGui::SetTooltip("Download %d new commit(s) from GitHub", cached.incoming);
-        else ImGui::SetTooltip("Download new commits from GitHub");
-    }
-
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-    ui_field_push_style();
-    ImGui::SetNextItemWidth(-(bw * 3.0f + spacing * 3.0f + pad_x));
-    const bool enter = ImGui::InputTextWithHint("##vc_message", "What changed?", message, MESSAGE_SIZE, ImGuiInputTextFlags_EnterReturnsTrue);
-    ui_field_pop_style();
-    if (enter) _commit(ctx);
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(_message_blank() || change_count == 0);
-    if (ImGui::Button(ICON_FA_FLOPPY_DISK "##vc_save", ImVec2(bw, bw))) _commit(ctx);
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip(change_count == 0 ? "Nothing to commit" : (_message_blank() ? "Describe what changed first" : "Commit"));
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(change_count == 0 || !ctx.reload_project_callback);
-    ImGui::PushStyleColor(ImGuiCol_Text, ui.color.danger);
-    const bool discard = ImGui::Button(ICON_FA_TRASH "##vc_discard", ImVec2(bw, bw));
-    ImGui::PopStyleColor();
-    if (discard) {
-        if (drivers::Win32Dialogs::confirm(L"Discard Changes", L"Discard all uncommitted changes?", L"The project goes back to the commit you're on. Every change since then is lost and new files are deleted. This can't be undone.")) {
-            drivers::GitDriver* g = ctx.git;
-            ctx.reload_project_callback([g] { g->discard_now(); });
-        }
-    }
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip("Discard changes");
-
-    ImGui::EndDisabled();
-
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, change_count > 0 ? ui.color.text : ui.color.text_dim);
-    ImGui::Button(ICON_FA_CIRCLE_QUESTION "##vc_changes", ImVec2(bw, bw));
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::BeginTooltip();
-        if (change_count == 0) {
-            ImGui::TextDisabled("No changes since your last commit");
-        } else {
-            ImGui::Text("%u change(s)", change_count);
-            ImGui::Separator();
-            const uint32_t shown = std::min(change_count, CHANGES_TOOLTIP_MAX);
-            for (uint32_t i = 0; i < shown; i++) ImGui::TextUnformatted(cached.changes[i].c_str() + 3);
-            if (change_count > shown) ImGui::TextDisabled("+%u more", change_count - shown);
-        }
-        ImGui::EndTooltip();
-    }
-    ui_pop_buttons();
-}
-
-bool VersionControlPanel::_message_blank() const
+bool VersionControlTab::_message_blank() const
 {
     for (const char* c = message; *c; c++) {
         if (!std::isspace((unsigned char)*c)) return false;
@@ -246,24 +153,25 @@ bool VersionControlPanel::_message_blank() const
     return true;
 }
 
-void VersionControlPanel::_draw_banner(EditorContext& ctx)
+void VersionControlTab::_draw_controls(EditorContext& ctx)
 {
     using Problem = drivers::GitDriver::Problem;
     const UiStyle& ui = ui_style();
-    const float pad_x = ui.outliner.pad_x;
     drivers::GitDriver& git = *ctx.git;
     const bool busy = git.busy;
-    if (cached.operation == drivers::GitDriver::Operation::NONE && cached.error.empty()) return;
+    const ImGuiHoveredFlags tip = ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled;
+    const float full = -FLT_MIN;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    char label[96];
 
-    ImGui::Indent(pad_x);
-    ImGui::PushTextWrapPos(ImGui::GetContentRegionMax().x - pad_x);
+    if (cached.state == GitState::CHECKING) {
+        ImGui::TextDisabled("Checking...");
+        return;
+    }
+
     ImGui::BeginDisabled(busy);
-
     if (cached.operation != drivers::GitDriver::Operation::NONE) {
-        const char* op = drivers::GitDriver::operation_name(cached.operation);
-        ImGui::PushStyleColor(ImGuiCol_Text, ui.color.warning);
-        ImGui::TextWrapped(ICON_FA_TRIANGLE_EXCLAMATION "  A %s started outside the editor isn't finished. Committing and switching may fail until it's aborted.", op);
-        ImGui::PopStyleColor();
+        ui_warning("A %s started outside the editor isn't finished. Committing and switching may fail until it's aborted.", drivers::GitDriver::operation_name(cached.operation));
         ImGui::BeginDisabled(!ctx.reload_project_callback);
         if (ImGui::SmallButton("Abort")) {
             if (drivers::Win32Dialogs::confirm(L"Abort", L"Abort the unfinished operation?", L"The project goes back to how it was before it started. Changes it made are discarded.")) {
@@ -272,74 +180,173 @@ void VersionControlPanel::_draw_banner(EditorContext& ctx)
             }
         }
         ImGui::EndDisabled();
+        ImGui::Spacing();
     }
-
     if (!cached.error.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ui.color.warning);
-        ImGui::TextWrapped(ICON_FA_TRIANGLE_EXCLAMATION "  %s", cached.error.c_str());
-        ImGui::PopStyleColor();
+        ui_warning("%s", cached.error.c_str());
         const Problem p = cached.problem;
-        bool first = true;
-        auto next = [&]() { if (!first) ImGui::SameLine(); first = false; };
         if ((p == Problem::REMOTE_MISSING || p == Problem::AUTH) && !cached.remote_url.empty()) {
-            next();
             if (ImGui::SmallButton("Change URL")) {
                 editing_remote = true;
                 std::snprintf(remote_url, sizeof(remote_url), "%s", cached.remote_url.c_str());
             }
-            next();
-            if (ImGui::SmallButton("Disconnect")) {
-                if (drivers::Win32Dialogs::confirm(L"Disconnect", L"Disconnect from GitHub?", L"Your commits stay here. Nothing on GitHub is deleted. You can connect a repository again at any time.")) {
-                    git.remote_remove();
-                    editing_remote = false;
-                }
-            }
+            ImGui::SameLine();
         }
         if (p == Problem::LOCKED) {
-            next();
             if (ImGui::SmallButton("Unlock")) git.lock_clear();
+            ImGui::SameLine();
         }
-        next();
         if (ImGui::SmallButton("Dismiss")) git.error_dismiss();
-    }
-
-    ImGui::EndDisabled();
-    ImGui::PopTextWrapPos();
-    ImGui::Unindent(pad_x);
-    ImGui::Spacing();
-}
-
-void VersionControlPanel::_draw_remote(EditorContext& ctx)
-{
-    const float pad_x = ui_style().outliner.pad_x;
-    drivers::GitDriver& git = *ctx.git;
-    ImGui::Indent(pad_x);
-    ImGui::BeginDisabled(git.busy);
-    ImGui::TextDisabled(editing_remote ? "New GitHub repository URL:" : "Back up to GitHub: paste an empty repository's URL.");
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const float connect_w = ImGui::CalcTextSize("Connect").x + style.FramePadding.x * 2.0f;
-    const float cancel_w = editing_remote ? ImGui::CalcTextSize("Cancel").x + style.FramePadding.x * 2.0f + style.ItemSpacing.x : 0.0f;
-    ImGui::SetNextItemWidth(-(connect_w + cancel_w + style.ItemSpacing.x + pad_x));
-    const bool enter = ImGui::InputTextWithHint("##vc_remote", "https://github.com/you/project.git", remote_url, FIELD_SIZE, ImGuiInputTextFlags_EnterReturnsTrue);
-    bool blank = true;
-    for (const char* c = remote_url; *c; c++) blank &= std::isspace((unsigned char)*c) != 0;
-    ImGui::SameLine();
-    ImGui::BeginDisabled(blank);
-    if (ImGui::Button("Connect") || (enter && !blank)) {
-        git.remote_set(remote_url);
-        editing_remote = false;
+        ImGui::Spacing();
     }
     ImGui::EndDisabled();
-    if (editing_remote) {
+
+    ui_field_push_style();
+    if (_needs_setup()) {
+        if (ui_category("Setup")) {
+            ImGui::BeginDisabled(busy);
+            ImGui::PushTextWrapPos(0.0f);
+            if (cached.state == GitState::NO_GIT) {
+                ImGui::TextWrapped("Git for Windows isn't installed. Version control needs it to run.");
+                ui_link("Download Git for Windows", GIT_DOWNLOAD_URL);
+                if (ImGui::Button(ICON_FA_ROTATE "  Retry", ImVec2(full, 0.0f))) git.refresh();
+            } else if (!_identity()) {
+                ImGui::TextWrapped("Your name and email are attached to every commit.");
+                ImGui::SetNextItemWidth(full);
+                ImGui::InputTextWithHint("##vc_name", "Name", user_name, FIELD_SIZE);
+                ImGui::SetNextItemWidth(full);
+                ImGui::InputTextWithHint("##vc_email", "Email", user_email, FIELD_SIZE);
+                ImGui::BeginDisabled(user_name[0] == '\0' || user_email[0] == '\0');
+                ui_push_buttons(UiButton::PRIMARY);
+                if (ImGui::Button(ICON_FA_USER "  Save Identity", ImVec2(full, 0.0f))) git.identity_set(user_name, user_email);
+                ui_pop_buttons();
+                ImGui::EndDisabled();
+            } else {
+                ImGui::TextWrapped("This project doesn't have a timeline yet. Starting one adds a README.md and an empty .gitignore, then makes the first commit.");
+                ImGui::BeginDisabled(cached.problem == drivers::GitDriver::Problem::NO_FOLDER);
+                ui_push_buttons(UiButton::PRIMARY);
+                if (ImGui::Button(ICON_FA_CLOCK_ROTATE_LEFT "  Start Timeline", ImVec2(full, 0.0f))) git.repo_create(ctx.project ? ctx.project->name : std::string("Project"));
+                ui_pop_buttons();
+                ImGui::EndDisabled();
+            }
+            ImGui::PopTextWrapPos();
+            ImGui::EndDisabled();
+        }
+        ui_category_flush();
+        ui_field_pop_style();
+        return;
+    }
+
+    const bool ready = cached.state == GitState::READY;
+    const uint32_t change_count = (uint32_t)cached.changes.size();
+    const uint32_t up_count = (uint32_t)cached.unuploaded.size();
+
+    if (ui_category("Timeline")) {
+        const char* branch = cached.detached ? "Earlier point" : (cached.branch.empty() ? "No branch" : cached.branch.c_str());
+        const char* summary = head_row != NONE ? cached.commits[(size_t)head_row].summary.c_str() : "No commits yet";
+        ui_property_row("Branch", "%s", branch);
+        ui_property_row("Commit", "%s", summary);
+        ui_property_row("Commits", "%u", (uint32_t)cached.commits.size());
+    }
+
+    std::snprintf(label, sizeof(label), "Commit (%u)###vc_commit", change_count);
+    if (ui_category(label)) {
+        ImGui::BeginDisabled(busy);
+        ImGui::SetNextItemWidth(full);
+        const bool enter = ImGui::InputTextWithHint("##vc_message", "What changed?", message, MESSAGE_SIZE, ImGuiInputTextFlags_EnterReturnsTrue);
+        if (enter) _commit(ctx);
+        const float half = ImFloor((ImGui::GetContentRegionAvail().x - spacing) * 0.5f);
+        ImGui::BeginDisabled(_message_blank() || change_count == 0);
+        ui_push_buttons(UiButton::PRIMARY);
+        if (ImGui::Button(ICON_FA_FLOPPY_DISK "  Commit", ImVec2(half, 0.0f))) _commit(ctx);
+        ui_pop_buttons();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip(change_count == 0 ? "Nothing to commit" : (_message_blank() ? "Describe what changed first" : "Save every change as a new commit"));
         ImGui::SameLine();
-        if (ImGui::Button("Cancel")) editing_remote = false;
+        ImGui::BeginDisabled(change_count == 0 || !ctx.reload_project_callback);
+        ui_push_buttons(UiButton::DANGER);
+        const bool discard = ImGui::Button(ICON_FA_TRASH "  Discard", ImVec2(full, 0.0f));
+        ui_pop_buttons();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip("Throw away every change since the last commit");
+        if (discard && drivers::Win32Dialogs::confirm(L"Discard Changes", L"Discard all uncommitted changes?", L"The project goes back to the commit you're on. Every change since then is lost and new files are deleted. This can't be undone.")) {
+            drivers::GitDriver* g = ctx.git;
+            ctx.reload_project_callback([g] { g->discard_now(); });
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        if (change_count == 0) {
+            ImGui::TextDisabled("No changes since your last commit");
+        } else {
+            const float row = ImGui::GetTextLineHeightWithSpacing();
+            const float list_h = row * (float)std::min(change_count, CHANGES_VISIBLE_ROWS) + ImGui::GetStyle().WindowPadding.y;
+            ImGui::BeginChild("##vc_changes", ImVec2(0.0f, list_h), ImGuiChildFlags_None);
+            for (uint32_t i = 0; i < change_count; i++) {
+                const std::string& c = cached.changes[i];
+                const char code = c.size() > 1 ? (c[0] != ' ' ? c[0] : c[1]) : '?';
+                const ImU32 color = code == 'D' ? ui.color.danger : (code == '?' || code == 'A' ? ui.color.success : ui.color.warning);
+                ImGui::TextColored(ui_vec4(color), "%c", code == '?' ? 'A' : code);
+                ImGui::SameLine();
+                ImGui::TextUnformatted(c.size() > 3 ? c.c_str() + 3 : c.c_str());
+            }
+            ImGui::EndChild();
+        }
     }
-    ImGui::EndDisabled();
-    ImGui::Unindent(pad_x);
-    ImGui::Spacing();
+
+    if (ui_category("GitHub")) {
+        ImGui::BeginDisabled(busy);
+        if (cached.state == GitState::NO_REMOTE || editing_remote) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextDisabled(editing_remote ? "New GitHub repository URL" : "Back up to GitHub: paste an empty repository's URL.");
+            ImGui::PopTextWrapPos();
+            ImGui::SetNextItemWidth(full);
+            const bool enter = ImGui::InputTextWithHint("##vc_remote", "https://github.com/you/project.git", remote_url, FIELD_SIZE, ImGuiInputTextFlags_EnterReturnsTrue);
+            bool blank = true;
+            for (const char* c = remote_url; *c; c++) blank &= std::isspace((unsigned char)*c) != 0;
+            const float half = ImFloor((ImGui::GetContentRegionAvail().x - spacing) * 0.5f);
+            ImGui::BeginDisabled(blank);
+            ui_push_buttons(UiButton::PRIMARY);
+            const bool connect = ImGui::Button("Connect", ImVec2(editing_remote ? half : full, 0.0f));
+            ui_pop_buttons();
+            ImGui::EndDisabled();
+            if (connect || (enter && !blank)) {
+                git.remote_set(remote_url);
+                editing_remote = false;
+            }
+            if (editing_remote) {
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(full, 0.0f))) editing_remote = false;
+            }
+        } else {
+            ui_property_row("Repository", "%s", cached.remote_url.c_str());
+            ImGui::BeginDisabled(!ready);
+            std::snprintf(label, sizeof(label), ICON_FA_CLOUD_ARROW_UP "  Upload (%u)", up_count);
+            if (ImGui::Button(label, ImVec2(full, 0.0f))) git.upload();
+            if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip(up_count > 0 ? "Upload your commits to GitHub" : "Everything is uploaded");
+            std::snprintf(label, sizeof(label), ICON_FA_CLOUD_ARROW_DOWN "  Download (%d)", cached.incoming);
+            if (ImGui::Button(label, ImVec2(full, 0.0f)) && git.fetch()) download_pending = true;
+            if (ImGui::IsItemHovered(tip)) ImGui::SetTooltip("Download new commits from GitHub");
+            ImGui::EndDisabled();
+            const float half = ImFloor((ImGui::GetContentRegionAvail().x - spacing) * 0.5f);
+            if (ImGui::Button("Change URL", ImVec2(half, 0.0f))) {
+                editing_remote = true;
+                std::snprintf(remote_url, sizeof(remote_url), "%s", cached.remote_url.c_str());
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Disconnect", ImVec2(full, 0.0f)) && drivers::Win32Dialogs::confirm(L"Disconnect", L"Disconnect from GitHub?", L"Your commits stay here. Nothing on GitHub is deleted. You can connect a repository again at any time.")) {
+                git.remote_remove();
+                editing_remote = false;
+            }
+        }
+        ImGui::EndDisabled();
+    }
+
+    ui_category_flush();
+    ui_field_pop_style();
 }
 
-void VersionControlPanel::_draw_graph(EditorContext& ctx, float p_footer_h)
+void VersionControlTab::_draw_graph(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
     const UiStyle& ui = ui_style();
     const float font = ImGui::GetFontSize();
@@ -354,7 +361,8 @@ void VersionControlPanel::_draw_graph(EditorContext& ctx, float p_footer_h)
     const ImU32 gray = ui.color.text_dim;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::BeginChild("##vc_graph", ImVec2(0.0f, -p_footer_h), ImGuiChildFlags_None);
+    ImGui::SetCursorScreenPos(p_min);
+    ImGui::BeginChild("##vc_graph", ImVec2(ImMax(1.0f, p_max.x - p_min.x), ImMax(1.0f, p_max.y - p_min.y)), ImGuiChildFlags_None);
     ImGui::PopStyleVar();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -503,15 +511,7 @@ void VersionControlPanel::_draw_graph(EditorContext& ctx, float p_footer_h)
     ImGui::EndChild();
 }
 
-void VersionControlPanel::_draw_footer()
-{
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
-    const char* branch = cached.detached ? "Earlier point" : (cached.branch.empty() ? "No branch" : cached.branch.c_str());
-    const char* summary = head_row != NONE ? cached.commits[(size_t)head_row].summary.c_str() : "No commits yet";
-    ImGui::TextDisabled(ICON_FA_CODE_BRANCH "  %s  -  %s", branch, summary);
-}
-
-void VersionControlPanel::_draw_commit_menu(EditorContext& ctx)
+void VersionControlTab::_draw_commit_menu(EditorContext& ctx)
 {
     ui_menu_push_style();
     if (!ImGui::BeginPopup("##vc_commit_menu")) {
@@ -605,7 +605,7 @@ void VersionControlPanel::_draw_commit_menu(EditorContext& ctx)
     ui_menu_pop_style();
 }
 
-void VersionControlPanel::_draw_rename_popup(EditorContext& ctx)
+void VersionControlTab::_draw_rename_popup(EditorContext& ctx)
 {
     const char* id = "Rename Branch###vc_rename";
     if (rename_open && !ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
@@ -631,13 +631,13 @@ void VersionControlPanel::_draw_rename_popup(EditorContext& ctx)
     ImGui::EndPopup();
 }
 
-int32_t VersionControlPanel::_add_group(const std::string& p_name)
+int32_t VersionControlTab::_add_group(const std::string& p_name)
 {
     groups.push_back({ p_name, _branch_color(p_name), 0, UINT32_MAX, 0, 0, 0, false, false });
     return (int32_t)groups.size() - 1;
 }
 
-void VersionControlPanel::_claim(int32_t p_group, int32_t p_row, const std::vector<int32_t>& p_first_parent)
+void VersionControlTab::_claim(int32_t p_group, int32_t p_row, const std::vector<int32_t>& p_first_parent)
 {
     while (p_row != NONE && row_group[(size_t)p_row] == NONE) {
         row_group[(size_t)p_row] = p_group;
@@ -645,7 +645,7 @@ void VersionControlPanel::_claim(int32_t p_group, int32_t p_row, const std::vect
     }
 }
 
-void VersionControlPanel::_build_graph()
+void VersionControlTab::_build_graph()
 {
     using Commit = drivers::GitDriver::Commit;
     const std::vector<Commit>& commits = cached.commits;
@@ -810,7 +810,7 @@ void VersionControlPanel::_build_graph()
     }
 }
 
-ImU32 VersionControlPanel::_branch_color(const std::string& p_name)
+ImU32 VersionControlTab::_branch_color(const std::string& p_name)
 {
     uint32_t h = hash_fnv32(p_name);
     h ^= h >> 13;
@@ -821,7 +821,7 @@ ImU32 VersionControlPanel::_branch_color(const std::string& p_name)
     return IM_COL32((int)(r * 255.0f), (int)(g * 255.0f), (int)(b * 255.0f), 255);
 }
 
-std::string VersionControlPanel::_merged_name(const std::string& p_summary)
+std::string VersionControlTab::_merged_name(const std::string& p_summary)
 {
     auto quoted = [&](const char* p_prefix) -> std::string {
         if (!p_summary.starts_with(p_prefix)) return {};
@@ -848,7 +848,7 @@ std::string VersionControlPanel::_merged_name(const std::string& p_summary)
     return name;
 }
 
-void VersionControlPanel::_time_ago(int64_t p_time, char* r_out, size_t p_size)
+void VersionControlTab::_time_ago(int64_t p_time, char* r_out, size_t p_size)
 {
     const int64_t d = ImMax<int64_t>(0, (int64_t)std::time(nullptr) - p_time);
     if (d < 60) std::snprintf(r_out, p_size, "just now");

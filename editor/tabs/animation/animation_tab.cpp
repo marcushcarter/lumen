@@ -39,7 +39,6 @@ Error AnimationTab::create(EditorContext& ctx)
     layout.add_panel<AnimationDetailsPanel>()->tab = this;
     layout.add_panel<AnimationTimelinePanel>()->tab = this;
     layout.viewport.debug_lines = [this] { rig_preview.draw_bones(debug_draw()); };
-    layout.viewport.show_bones = true;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);

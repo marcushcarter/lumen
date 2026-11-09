@@ -168,9 +168,7 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
     } else if (!r_guid.valid()) {
         snprintf(label, sizeof(label), "No %.*s selected##field", (int)type.size(), type.data());
     } else {
-        char guid[Guid::BUFFER];
-        r_guid.to_chars(guid);
-        snprintf(label, sizeof(label), "%s (missing)##field", guid);
+        snprintf(label, sizeof(label), "Missing %.*s##field", (int)type.size(), type.data());
     }
     const float clear_w = ImGui::GetFrameHeight();
     const float spacing = ImGui::GetStyle().ItemSpacing.x;

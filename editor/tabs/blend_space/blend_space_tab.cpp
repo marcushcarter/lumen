@@ -22,7 +22,6 @@ Error BlendSpaceTab::create(EditorContext& ctx)
     _create_layout(ctx, "BlendSpaceHost");
     layout.add_panel<BlendSpaceDetailsPanel>()->tab = this;
     layout.viewport.debug_lines = [this] { rig_preview.draw_bones(debug_draw()); };
-    layout.viewport.show_bones = true;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);

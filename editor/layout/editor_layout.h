@@ -120,7 +120,6 @@ struct EditorLayout
     void initialize(const char* p_host_id);
     void shutdown();
     void draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar);
-    void draw_menu();
 };
 
 }

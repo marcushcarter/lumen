@@ -20,6 +20,7 @@
 #include <IconsFontAwesome6.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
+#include <algorithm>
 #include <cfloat>
 #include <cstring>
 #include <cstdio>
@@ -46,15 +47,21 @@ static void _view_row_decor(ImDrawList* dl, ImVec2 p, float h, const char* p_ico
     dl->AddText(ImVec2(tx, ty), col, p_text);
 }
 
+ViewportView& viewport_view()
+{
+    static ViewportView view;
+    return view;
+}
+
 bool Viewport::_view_item(const char* p_icon, const char* p_name, int p_id)
 {
     ImGui::PushID(p_id);
-    const bool sel = (selected_view == p_id);
+    const bool sel = (viewport_view().debug_view == p_id);
     const float h = ImGui::GetFrameHeight();
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::Selectable("##vi", sel, 0, ImVec2(item_w, h));
     _view_row_decor(ImGui::GetWindowDrawList(), p, h, p_icon, p_name, sel);
-    if (clicked) selected_view = p_id;
+    if (clicked) viewport_view().debug_view = p_id;
     ImGui::PopID();
     return clicked;
 }
@@ -234,8 +241,8 @@ void Viewport::_draw_image(EditorContext& ctx)
 
     if (ctx.render_path) {
         GridFeature& grid = ctx.render_path->grid;
-        grid.show_grid = allow_grid && show_grid && !playing;
-        grid.show_axes = allow_grid && show_grid && !playing;
+        grid.show_grid = allow_grid && !playing;
+        grid.show_axes = allow_grid && !playing;
         const ImVec4 gc = ui_hex4(UiStyle::Palette::GRID);
         const ImVec4 xc = ui_hex4(UiStyle::Palette::AXIS_X);
         const ImVec4 zc = ui_hex4(UiStyle::Palette::AXIS_Z);
@@ -243,7 +250,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         grid.axis_x_color = vec4(xc.x, xc.y, xc.z, xc.w);
         grid.axis_z_color = vec4(zc.x, zc.y, zc.z, zc.w);
 
-        const uint32_t debug_mask = _debug_mask(playing);
+        const uint32_t debug_mask = _debug_mask();
         ctx.render_path->lines.mask = debug_mask;
         _submit_debug_draw(ctx, debug_mask, live);
     }
@@ -291,7 +298,7 @@ void Viewport::_draw_image(EditorContext& ctx)
     }
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
-    if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
+    if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)std::clamp(viewport_view().debug_view, 0, DEBUG_VIEW_COUNT - 1);
 }
 
 void Viewport::draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
@@ -305,6 +312,7 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
 {
     const ImVec2 pos = p_min;
     const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
+    const int selected_view = std::clamp(viewport_view().debug_view, 0, DEBUG_VIEW_COUNT - 1);
     const DebugView& cur = DEBUG_VIEWS[selected_view];
     const char* btn_icon = cur.category ? cur.category->icon : cur.icon;
     char view_btn[128];
@@ -337,7 +345,7 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
         }
         right_overlay.end_menu();
     }
-    if (allow_grid || allow_debug_draw || has_bones || has_collision) {
+    {
         const bool header = _header_frame == ImGui::GetFrameCount();
         const bool open = header ? right_overlay.header_menu("View###viewport_view") : right_overlay.begin_menu("View###viewport_view");
         if (open) {
@@ -350,22 +358,19 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
 
 void Viewport::_draw_view_menu()
 {
-    const bool bones = allow_debug_draw || has_bones;
-    const bool collision = allow_debug_draw || has_collision;
-    if (allow_grid) ImGui::MenuItem("Grid", nullptr, &show_grid);
-    if (allow_grid && (bones || collision)) ImGui::Separator();
-    if (bones) ImGui::MenuItem("Bones", nullptr, &show_bones);
-    if (collision) ImGui::MenuItem("Collision", nullptr, &show_collision);
-    if (allow_debug_draw) ImGui::MenuItem("Debug Lines", nullptr, &show_debug_lines);
+    ViewportView& view = viewport_view();
+    ImGui::MenuItem("Bones", nullptr, &view.show_bones);
+    ImGui::MenuItem("Collision", nullptr, &view.show_collision);
+    ImGui::MenuItem("Debug Lines", nullptr, &view.show_debug_lines);
 }
 
-uint32_t Viewport::_debug_mask(bool p_playing) const
+uint32_t Viewport::_debug_mask() const
 {
-    if (p_playing) return 0;
+    const ViewportView& view = viewport_view();
     uint32_t mask = 0;
-    if (show_bones && (allow_debug_draw || has_bones)) mask |= (uint32_t)DebugCategory::BONES;
-    if (show_collision && (allow_debug_draw || has_collision)) mask |= (uint32_t)DebugCategory::COLLISION;
-    if (allow_debug_draw && show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
+    if (view.show_bones && (allow_debug_draw || has_bones)) mask |= (uint32_t)DebugCategory::BONES;
+    if (view.show_collision && (allow_debug_draw || has_collision)) mask |= (uint32_t)DebugCategory::COLLISION;
+    if (allow_debug_draw && view.show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
     return mask;
 }
 
@@ -390,7 +395,6 @@ void Viewport::_draw_options(EditorContext& ctx)
     if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
     ImGui::PopItemWidth();
     if (options_controls) options_controls();
-    ImGui::Checkbox("Fullscreen", &fullscreen);
 }
 
 void Viewport::_draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)

@@ -27,7 +27,7 @@ void main() {
 
     const float near_w = cam.near_z;
     v_coord = vec2(0.0);
-    v_width = pc.half_width;
+    v_width = (l.flags & DEBUG_LINE_FLAG_WIDTH) != 0u ? float((l.flags >> DEBUG_LINE_POINT_RADIUS_SHIFT) & 0xFFu) / DEBUG_LINE_POINT_RADIUS_STEPS : pc.half_width;
     if (pa.w < near_w && pb.w < near_w) {
         gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
         return;
@@ -55,7 +55,7 @@ void main() {
     const vec2 dir = len > 1e-4 ? delta / len : vec2(1.0, 0.0);
     const vec2 normal = vec2(-dir.y, dir.x);
 
-    const float extent = pc.half_width + DEBUG_LINE_AA_PX;
+    const float extent = v_width + DEBUG_LINE_AA_PX;
     const bool at_b = corner.x > 0.5;
     vec4 p = at_b ? pb : pa;
     const vec2 offset_px = normal * corner.y * extent + dir * (at_b ? DEBUG_LINE_AA_PX : -DEBUG_LINE_AA_PX);

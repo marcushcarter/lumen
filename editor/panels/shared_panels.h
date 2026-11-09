@@ -8,7 +8,6 @@ namespace lumen {
 struct ContentBrowserPanel;
 struct GpuProfilerPanel;
 struct MemoryPanel;
-struct VersionControlPanel;
 
 struct SharedPanels
 {
@@ -16,7 +15,6 @@ struct SharedPanels
     ContentBrowserPanel* content_browser = nullptr;
     GpuProfilerPanel* gpu_profiler = nullptr;
     MemoryPanel* memory = nullptr;
-    VersionControlPanel* version_control = nullptr;
 
     void initialize();
     void shutdown();

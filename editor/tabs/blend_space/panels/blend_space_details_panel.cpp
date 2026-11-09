@@ -267,10 +267,6 @@ void BlendSpaceDetailsPanel::draw_contents(EditorContext& ctx)
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("1D blends along one value; 2D blends by direction and speed");
-        char axis[NAME_SIZE];
-        std::snprintf(axis, sizeof(axis), "%s", space.axis.c_str());
-        if (ImGui::InputText("Axis", axis, sizeof(axis))) space.axis = axis;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The value that drives this blend, like speed in m/s");
     }
 
     if (ui_category("Preview")) {

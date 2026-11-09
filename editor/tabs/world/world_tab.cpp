@@ -40,7 +40,6 @@ Error WorldTab::initialize(SharedPanels& r_shared)
             return;
         }
         layout.viewport.play = r_ctx.play;
-        layout.viewport.overlay = [this, &r_ctx](ImDrawList* p_dl, ImVec2 p_pos, ImVec2 p_size) { _draw_play_badge(r_ctx, p_dl, p_pos, ImVec2(p_pos.x + p_size.x, p_pos.y + p_size.y)); };
         layout.viewport.draw(r_ctx, p_min, p_max);
     };
     return OK;
@@ -144,25 +143,6 @@ void WorldTab::_draw_empty(ImVec2 p_min, ImVec2 p_max)
     ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, ui_style().color.sunken);
 }
 
-void WorldTab::_draw_play_badge(EditorContext& ctx, ImDrawList* p_dl, ImVec2 p_min, ImVec2 p_max)
-{
-    if (!ctx.play || !ctx.play->active()) return;
-    const UiStyle& ui = ui_style();
-    const bool playing = ctx.play->playing();
-    const ImU32 color = playing ? ui.color.success : ui.color.warning;
-    const char* text = playing ? ICON_FA_PLAY "  PLAYING    F8 edit    Shift+F5 stop" : ICON_FA_PAUSE "  EDITING  game paused    F8 / F5 resume    Shift+F5 stop";
-
-    ImDrawList* dl = p_dl;
-    dl->AddRect(p_min, p_max, color, 0.0f, 0, 2.0f);
-    const ImVec2 ts = ImGui::CalcTextSize(text);
-    const float pad = ui.overlay.margin;
-    const ImVec2 a(ImFloor((p_min.x + p_max.x - ts.x) * 0.5f - pad * 2.0f), p_min.y + pad * 2.0f);
-    const ImVec2 b(a.x + ts.x + pad * 4.0f, a.y + ts.y + pad * 2.0f);
-    dl->AddRectFilled(a, b, ui_with_alpha(ui.color.sunken, 0.85f), ui.play.rounding);
-    dl->AddRect(a, b, color, ui.play.rounding);
-    dl->AddText(ImVec2(a.x + pad * 2.0f, a.y + pad), color, text);
-}
-
 void WorldTab::on_tick(EditorContext& ctx)
 {
     if (!ctx.assets || ctx.assets->dirty) return;
@@ -191,9 +171,7 @@ void WorldTab::on_tick(EditorContext& ctx)
     _title = ICON;
     _title += "  ";
     _title += e->name;
-    char guid_text[Guid::BUFFER];
-    guid.to_chars(guid_text);
-    _tooltip = e->asset_path + "\n" + guid_text;
+    _tooltip = e->asset_path;
 }
 
 struct PlayButton
@@ -231,7 +209,7 @@ void WorldTab::_draw_play_controls(EditorContext& ctx, float p_center_x, float p
 
     const float h = ImGui::GetFrameHeight();
     const float bw = ImFloor(h * 1.3f);
-    const float total_w = bw * 3.0f;
+    const float total_w = bw * 2.0f;
     const ImVec2 box_min(ImFloor(p_center_x - total_w * 0.5f), p_y);
     const ImVec2 box_max(box_min.x + total_w, box_min.y + h);
 
@@ -249,50 +227,13 @@ void WorldTab::_draw_play_controls(EditorContext& ctx, float p_center_x, float p
     x += bw;
 
     const PlayButton stop{ ICON_FA_STOP "##stop", "Stop (Shift+F5)", playing && (bool)ctx.pie_toggle_play, ui.color.text };
-    if (_play_button(stop, ImVec2(x, p_y), size, false, ImDrawFlags_RoundCornersNone)) ctx.pie_toggle_play();
-    x += bw;
-
-    const bool options_open = ImGui::IsPopupOpen("##options_menu");
-    const PlayButton options{ ICON_FA_ANGLE_DOWN "##options", "Play options", true, ui.color.text };
-    if (_play_button(options, ImVec2(x, p_y), size, options_open, ImDrawFlags_RoundCornersRight)) ImGui::OpenPopup("##options_menu");
+    if (_play_button(stop, ImVec2(x, p_y), size, false, ImDrawFlags_RoundCornersRight)) ctx.pie_toggle_play();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRect(box_min, box_max, ui.color.outline, ui.header.rounding);
     dl->AddLine(ImVec2(box_min.x + bw, box_min.y), ImVec2(box_min.x + bw, box_max.y), ui.color.outline);
-    dl->AddLine(ImVec2(box_min.x + bw * 2.0f, box_min.y), ImVec2(box_min.x + bw * 2.0f, box_max.y), ui.color.outline);
-
-    ImGui::SetNextWindowPos(ImVec2(x, box_max.y + ui.menu.popup_offset), ImGuiCond_Always);
-    ui_menu_push_style();
-    if (ImGui::BeginPopup("##options_menu", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        ImGui::TextDisabled("Modes");
-        ImGui::MenuItem(ICON_FA_DISPLAY "  In Editor", nullptr, true);
-        ImGui::EndPopup();
-    }
-    ui_menu_pop_style();
 
     ImGui::PopID();
-}
-
-void WorldTab::_draw_header_menus(EditorContext& ctx, TabToolbar& r_bar)
-{
-    const bool world = has_world();
-
-    if (r_bar.menu("Select", world)) {
-        if (ImGui::MenuItem("All") && ctx.world && ctx.selection) {
-            ctx.selection->clear();
-            ctx.world->view<EntityIdComponent>([&](Entity p_entity, const EntityIdComponent&) {
-                if (!ctx.world->has<EditorHiddenTag>(p_entity)) ctx.selection->add(p_entity);
-            });
-        }
-        if (ImGui::MenuItem("None") && ctx.selection) ctx.selection->clear();
-        if (ImGui::MenuItem("Environment") && ctx.selection) ctx.selection->select_environment();
-        r_bar.end_menu();
-    }
-    if (r_bar.menu("Add", world)) {
-        const Entity e = editor_spawn_menu_items(ctx, ENTITY_NULL);
-        if (e != ENTITY_NULL && ctx.selection) ctx.selection->select(e);
-        r_bar.end_menu();
-    }
 }
 
 void WorldTab::_draw_toolbar(EditorContext& ctx)
@@ -314,21 +255,9 @@ void WorldTab::_draw_toolbar(EditorContext& ctx)
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Transform orientation");
 
-    const int mode = (int)edit_mode;
-    float mode_w = 0.0f;
-    for (const char* n : WORLD_EDIT_MODE_NAMES) mode_w = ImMax(mode_w, ImGui::CalcTextSize(n).x);
-    mode_w += ImGui::GetStyle().FramePadding.x * 3.0f + ui.header.dropdown_arrow * 2.0f;
-    if (bar.dropdown("##edit_mode", WORLD_EDIT_MODE_NAMES[mode], mode_w)) {
-        for (int i = 0; i < (int)WorldEditMode::COUNT; i++) {
-            if (ImGui::MenuItem(WORLD_EDIT_MODE_NAMES[i], nullptr, i == mode)) edit_mode = (WorldEditMode)i;
-        }
-        bar.end_dropdown();
-    }
-    bar.gap();
-    _draw_header_menus(ctx, bar);
 
     if (has_world()) {
-        const float controls_w = ImFloor(ImGui::GetFrameHeight() * 1.3f) * 3.0f;
+        const float controls_w = ImFloor(ImGui::GetFrameHeight() * 1.3f) * 2.0f;
         const float center_x = ImMax(ImFloor((bar.min.x + bar.max.x) * 0.5f), bar.x + ui.header.group_gap + controls_w * 0.5f);
         _draw_play_controls(ctx, center_x, bar._row_y());
         layout.viewport.draw_header_controls(ctx, ImVec2(center_x + controls_w * 0.5f, bar.min.y), bar.max);
@@ -357,16 +286,10 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
         selection_version = ctx.selection->version;
         if (!ctx.selection->empty() || ctx.selection->environment) layout.well(details->default_zone()).active_name = details->layout_id;
     }
-    const bool select = edit_mode == WorldEditMode::SELECTION;
-    layout.viewport.allow_pick = select;
-    layout.viewport.allow_gizmo = select;
+    layout.viewport.allow_pick = true;
+    layout.viewport.allow_gizmo = true;
     layout.viewport.allow_debug_draw = true;
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
-}
-
-void WorldTab::draw_menu()
-{
-    layout.draw_menu();
 }
 
 }

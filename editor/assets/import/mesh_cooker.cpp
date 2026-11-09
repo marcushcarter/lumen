@@ -288,7 +288,7 @@ static void _apply_import_transform(const MeshCooker::CookSettings& p_settings, 
         r_src.joints.clear();
         r_src.inverse_binds.clear();
     }
-    const mat4 import = translate(mat4(1.0f), p_settings.translation) * mat4_cast(quat(radians(p_settings.rotation))) * glm::scale(mat4(1.0f), vec3(p_settings.scale));
+    const mat4 import = MeshCooker::import_matrix(p_settings);
     const mat4 import_inv = inverse(import);
     for (mat4& b : r_src.inverse_binds) b = b * import_inv;
     const bool rotate = p_settings.rotation != vec3(0.0f);
@@ -477,6 +477,11 @@ std::vector<uint32_t> MeshCooker::material_slots(const aiScene* p_scene)
 }
 
 unsigned MeshCooker::import_flags() { return aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality | aiProcess_FlipUVs; }
+
+mat4 MeshCooker::import_matrix(const CookSettings& p_settings)
+{
+    return translate(mat4(1.0f), p_settings.translation) * mat4_cast(quat(radians(p_settings.rotation))) * glm::scale(mat4(1.0f), vec3(p_settings.scale));
+}
 
 static vec3 _read_vec3(const toml::node_view<toml::node>& p_node, const vec3& p_fallback)
 {

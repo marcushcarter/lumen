@@ -18,13 +18,11 @@ struct TextureTab : AssetTab
     static constexpr float MAX_ZOOM = 64.0f;
     static constexpr float ZOOM_STEP = 1.2f;
     static constexpr float CHECKER_SIZE = 12.0f;
-    static constexpr float MIP_COMBO_WIDTH = 150.0f;
 
-    struct View { VkImageView view = VK_NULL_HANDLE; int32_t mip = -1; uint8_t mask = 0; };
+    struct View { VkImageView view = VK_NULL_HANDLE; uint8_t mask = 0; };
 
     uint8_t channels = TextureViewer::CHANNEL_ALL;
     bool normal_view = false;
-    int32_t mip = -1;
     float zoom = 1.0f;
     ImVec2 pan = ImVec2(0.0f, 0.0f);
     std::string usage;

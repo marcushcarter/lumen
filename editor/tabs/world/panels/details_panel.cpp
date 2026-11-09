@@ -46,14 +46,8 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     }
     if (ctx.selection->entities.size() > 1) ImGui::TextDisabled("%u entities selected, editing the last one", (uint32_t)ctx.selection->entities.size());
 
-    if (const EntityIdComponent* id = world.try_get<EntityIdComponent>(e)) {
-        char guid[Guid::BUFFER];
-        id->guid.to_chars(guid);
-        ImGui::TextDisabled("Entity %u  %s", e.index, guid);
-    }
-    if (const NameComponent* name = world.try_get<NameComponent>(e)) {
-        ImGui::TextDisabled("%s", name->name);
-    }
+    const NameComponent* name = world.try_get<NameComponent>(e);
+    ImGui::TextUnformatted(name && name->name[0] ? name->name : "Entity");
     Prefab* prefab = prefab_for(world, e);
     const uint64_t overrides = prefab ? prefab_overrides(world, e, *prefab) : 0;
     const auto component = [&](const char* p_key) {

@@ -17,17 +17,6 @@ namespace lumen {
 
 using Image = drivers::DeviceDriverVulkan::Image;
 
-static void _mip_label(const Image& p_image, int32_t p_mip, char* r_out, size_t p_size)
-{
-    if (p_mip < 0) {
-        std::snprintf(r_out, p_size, "Mip: Auto");
-        return;
-    }
-    const uint32_t w = std::max(1u, p_image.extent.width >> p_mip);
-    const uint32_t h = std::max(1u, p_image.extent.height >> p_mip);
-    std::snprintf(r_out, p_size, "Mip %d  (%ux%u)", p_mip, w, h);
-}
-
 static void _draw_checker(ImDrawList* p_dl, ImVec2 p_min, ImVec2 p_max, ImVec2 p_clip_min, ImVec2 p_clip_max)
 {
     const ImVec2 v0(std::max(p_min.x, p_clip_min.x), std::max(p_min.y, p_clip_min.y));
@@ -122,25 +111,6 @@ void TextureTab::_draw_toolbar(EditorContext& ctx)
     }
     bar.gap();
 
-    ImGui::BeginDisabled(!tex);
-    char label[64];
-    if (tex) {
-        if (mip >= (int32_t)tex->image.mip_levels) mip = -1;
-        _mip_label(tex->image, mip, label, sizeof(label));
-    } else {
-        std::snprintf(label, sizeof(label), "Mip: Auto");
-    }
-    bar.item(MIP_COMBO_WIDTH);
-    if (ImGui::BeginCombo("##mip", label)) {
-        for (int32_t m = -1; tex && m < (int32_t)tex->image.mip_levels; ++m) {
-            _mip_label(tex->image, m, label, sizeof(label));
-            if (ImGui::Selectable(label, m == mip)) mip = m;
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::EndDisabled();
-    bar.gap();
-
     char percent[16];
     std::snprintf(percent, sizeof(percent), "%.0f%%", zoom * 100.0f);
     bar.text(percent);
@@ -205,27 +175,16 @@ void TextureTab::_draw_canvas(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     if (set) dl->AddImage((ImTextureID)set, p0, p1);
     dl->AddRect(ImVec2(p0.x - 1.0f, p0.y - 1.0f), ImVec2(p1.x + 1.0f, p1.y + 1.0f), ui.color.line);
     dl->PopClipRect();
-
-    if (hovered) {
-        const int tx = (int)std::floor((io.MousePos.x - p0.x) / zoom);
-        const int ty = (int)std::floor((io.MousePos.y - p0.y) / zoom);
-        if (tx >= 0 && ty >= 0 && tx < (int)image.extent.width && ty < (int)image.extent.height) {
-            char coord[32];
-            std::snprintf(coord, sizeof(coord), "%d, %d", tx, ty);
-            const ImVec2 pad(ui.space.lg, ui.space.lg);
-            dl->AddText(ImVec2(p_min.x + pad.x, p_max.y - pad.y - ImGui::GetFontSize()), ui.color.text_dim, coord);
-        }
-    }
 }
 
 VkImageView TextureTab::_view(EditorContext& ctx, const Image& p_image)
 {
     const uint8_t mask = visible_channels(ctx);
     for (const View& v : _views) {
-        if (v.mip == mip && v.mask == mask) return v.view;
+        if (v.mask == mask) return v.view;
     }
-    const VkImageView view = ctx.texture_viewer->create_view(p_image, mip, mask);
-    if (view) _views.push_back({ view, mip, mask });
+    const VkImageView view = ctx.texture_viewer->create_view(p_image, -1, mask);
+    if (view) _views.push_back({ view, mask });
     return view;
 }
 

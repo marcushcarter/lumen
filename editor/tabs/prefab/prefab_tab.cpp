@@ -149,34 +149,6 @@ void PrefabTab::_frame(EditorContext& ctx)
     _framed = true;
 }
 
-void PrefabTab::_draw_toolbar(EditorContext& ctx)
-{
-    TabToolbar bar;
-    bar.begin();
-    bar.save(ctx, *this);
-    bar.gap();
-    if (bar.menu("Select")) {
-        if (ImGui::MenuItem("All")) {
-            selection.clear();
-            preview.view<EntityIdComponent>([&](Entity p_entity, const EntityIdComponent&) {
-                if (!preview.has<EditorHiddenTag>(p_entity)) selection.add(p_entity);
-            });
-        }
-        if (ImGui::MenuItem("None")) selection.clear();
-        bar.end_menu();
-    }
-    if (bar.menu("Add")) {
-        Entity parent = ENTITY_NULL;
-        const Entity primary = selection.primary();
-        if (preview.valid(primary)) parent = preview.is_folder(primary) ? primary : preview.parent(primary);
-        if (parent == ENTITY_NULL) parent = preview.find(root);
-        const Entity e = editor_spawn_menu_items(ctx, parent);
-        if (e != ENTITY_NULL) selection.select(e);
-        bar.end_menu();
-    }
-    bar.end();
-}
-
 void PrefabTab::on_tick(EditorContext& ctx)
 {
     AssetTab::on_tick(ctx);

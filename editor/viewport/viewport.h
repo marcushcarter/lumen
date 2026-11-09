@@ -15,6 +15,16 @@ namespace lumen {
 struct DebugViewCategory;
 struct EditorPlay;
 
+struct ViewportView
+{
+    int debug_view = 0;
+    bool show_bones = true;
+    bool show_collision = false;
+    bool show_debug_lines = true;
+};
+
+ViewportView& viewport_view();
+
 struct Viewport
 {
     static constexpr float LOOK_CLICK_SLOP = 3.0f;
@@ -25,7 +35,6 @@ struct Viewport
     TransformGizmo gizmo;
     drivers::CursorLockWin32 cursor_lock;
 
-    int selected_view = 0;
     float item_w = 240.0f;
     bool gizmo_world = true;
     bool popup_open_last_frame = false;
@@ -39,11 +48,6 @@ struct Viewport
     bool allow_debug_draw = false;
     bool has_bones = false;
     bool has_collision = false;
-    bool show_grid = true;
-    bool show_bones = false;
-    bool show_collision = true;
-    bool show_debug_lines = true;
-    bool fullscreen = false;
     const EditorPlay* play = nullptr;
     std::vector<Entity> _view_selection;
 
@@ -66,7 +70,7 @@ struct Viewport
     void _draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, float p_margin);
     void _draw_options(EditorContext& ctx);
     void _draw_view_menu();
-    uint32_t _debug_mask(bool p_playing) const;
+    uint32_t _debug_mask() const;
     void _submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live);
     void _draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);

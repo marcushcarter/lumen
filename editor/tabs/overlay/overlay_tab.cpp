@@ -25,7 +25,6 @@ Error OverlayTab::create(EditorContext& ctx)
         const bool weighted = mask.size() == rig_preview.skeleton_data().joint_count();
         rig_preview.draw_bones(debug_draw(), weighted ? mask.data() : nullptr);
     };
-    layout.viewport.show_bones = true;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);

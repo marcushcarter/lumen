@@ -37,6 +37,7 @@ struct DebugDraw
     static constexpr uint32_t CATEGORY_MASK = 0xFFu;
     static constexpr uint32_t FLAG_XRAY = 1u << 8;
     static constexpr uint32_t FLAG_POINT = 1u << 9;
+    static constexpr uint32_t FLAG_WIDTH = 1u << 10;
     static constexpr uint32_t POINT_RADIUS_SHIFT = 16;
     static constexpr float POINT_RADIUS_STEPS = 4.0f;
     static constexpr float POINT_RADIUS_MAX = 255.0f / POINT_RADIUS_STEPS;
@@ -56,6 +57,7 @@ struct DebugDraw
         DebugCategory category = DebugCategory::GENERAL;
         bool xray = false;
         float duration = 0.0f;
+        float width = 0.0f;
     };
 
     std::mutex mutex;

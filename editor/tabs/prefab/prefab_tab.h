@@ -30,7 +30,6 @@ struct PrefabTab : AssetTab
     Error _load(EditorContext& ctx);
     void _fix_roots();
     void _frame(EditorContext& ctx);
-    void _draw_toolbar(EditorContext& ctx) override;
     void reload(EditorContext& ctx);
 
     static void prefab_changed(EditorContext& ctx, Guid p_prefab, std::unique_ptr<Prefab> p_old, const PrefabTab* p_source);

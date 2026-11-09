@@ -48,6 +48,7 @@ struct GpuProfilerPanel : Panel
     const char* name() const override { return ICON_FA_CHART_AREA "  GPU Profiler"; }
     DockZone default_zone() const override { return DockZone::BOTTOM; }
     bool default_open() const override { return false; }
+    bool hidden() const override { return true; }
     ImVec2 window_padding() const override { return ui_style().dock.drawer_padding; }
     void draw_contents(EditorContext& ctx) override;
 };

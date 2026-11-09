@@ -363,7 +363,7 @@ struct CollisionPlan
 static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScene* p_scene)
 {
     CollisionPlan plan;
-    if (p_job.settings.mesh_settings.generate_collision) plan.cook = CollisionCooker::build(p_scene, p_job.settings.mesh_settings, plan.data);
+    if (p_job.settings.mesh_settings.generate_collision) plan.cook = CollisionCooker::build(p_scene, p_job.settings.mesh_settings.collision, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data);
     return plan;
 }
 

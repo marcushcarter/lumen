@@ -63,15 +63,9 @@ static void _gather(const aiScene* p_scene, const aiNode* p_node, const aiMatrix
     for (uint32_t c = 0; c < p_node->mNumChildren; c++) _gather(p_scene, p_node->mChildren[c], world, p_excluded, r_positions, r_indices);
 }
 
-static void _apply_transform(const MeshCooker::CookSettings& p_transform, std::vector<vec3>& r_positions)
+static void _apply_transform(const mat4& p_import, std::vector<vec3>& r_positions)
 {
-    const bool rotate = p_transform.rotation != vec3(0.0f);
-    const mat3 rot = mat3_cast(quat(radians(p_transform.rotation)));
-    for (vec3& p : r_positions) {
-        p *= p_transform.scale;
-        if (rotate) p = rot * p;
-        p += p_transform.translation;
-    }
+    for (vec3& p : r_positions) p = vec3(p_import * vec4(p, 1.0f));
 }
 
 static void _weld(std::vector<vec3>& r_positions, std::vector<uint32_t>& r_indices)
@@ -256,9 +250,8 @@ static void _fit_primitive(const std::vector<vec3>& p_points, CollisionType p_ty
     r_collision.half_height = std::max(half[axis] - r_collision.radius, CollisionCooker::MIN_PRIMITIVE_SIZE);
 }
 
-bool CollisionCooker::build(const aiScene* p_scene, const MeshCooker::CookSettings& p_mesh, LCollision& r_collision)
+bool CollisionCooker::build(const aiScene* p_scene, const CollisionSettings& p_settings, const mat4& p_import, LCollision& r_collision)
 {
-    const CollisionSettings& p_settings = p_mesh.collision;
     r_collision = LCollision{};
     r_collision.type = p_settings.type;
     if (!p_scene || !p_scene->mRootNode) return false;
@@ -277,7 +270,7 @@ bool CollisionCooker::build(const aiScene* p_scene, const MeshCooker::CookSettin
         return false;
     }
 
-    _apply_transform(p_mesh, positions);
+    _apply_transform(p_import, positions);
     _weld(positions, indices);
     _drop_degenerate(positions, indices);
     _cull_islands(positions, indices, p_settings.min_feature);
@@ -347,7 +340,7 @@ static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_st
     p_step.report(0.5f);
 
     LCollision collision;
-    if (!CollisionCooker::build(scene, p_job.settings, collision)) return FAILED;
+    if (!CollisionCooker::build(scene, p_job.settings.collision, MeshCooker::import_matrix(p_job.settings), collision)) return FAILED;
     if (p_step.cancelled()) return CANCELED;
     if (lmesh_write_collision(p_job.mesh_bin, p_job.staged_bin, collision.to_payload()) != LMeshCollisionWrite::OK) {
         log_write("CollisionCooker: couldn't write collision into '%s'.", p_job.mesh_bin.string().c_str());

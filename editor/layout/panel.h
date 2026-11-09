@@ -40,7 +40,8 @@ struct Panel
     virtual const char* name() const = 0;
     virtual DockZone default_zone() const { return DockZone::RIGHT_BOTTOM; }
     virtual bool default_open() const { return true; }
-    virtual bool closable() const { return true; }
+    virtual bool hidden() const { return false; }
+    virtual bool closable() const { return false; }
     virtual bool in_footer() const { return false; }
     virtual bool pinned() const { return false; }
 

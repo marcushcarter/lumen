@@ -16,7 +16,7 @@ static constexpr float GOLDEN_RATIO_CONJUGATE = 0.618033988749895f;
 
 void debug_draw_bone(DebugDraw& r_draw, const vec3& p_head, const vec3& p_tail, uint32_t p_color)
 {
-    r_draw.line(p_head, p_tail, { .color = p_color, .category = DebugCategory::BONES, .xray = true });
+    r_draw.line(p_head, p_tail, { .color = p_color, .category = DebugCategory::BONES, .xray = true, .width = BONE_LINE_WIDTH_PX });
 }
 
 void debug_draw_joint(DebugDraw& r_draw, const vec3& p_position, uint32_t p_color)

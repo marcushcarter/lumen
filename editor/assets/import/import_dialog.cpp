@@ -98,6 +98,20 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
         bool dag = mesh.dag_level == MeshDagLevel::CLUSTERED_DAG;
         if (ImGui::Checkbox("Build DAG", &dag)) mesh.dag_level = dag ? MeshDagLevel::CLUSTERED_DAG : MeshDagLevel::CLUSTERED;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Builds LODs. Turn off for small props and exact geometry.");
+        int verts = (int)mesh.max_verts;
+        if (ImGui::DragInt("Max Cluster Vertices", &verts, 1.0f, (int)MeshCooker::MIN_CLUSTER_VERTS, (int)LMESH_CLUSTER_MAX_VERTS, "%d", ImGuiSliderFlags_AlwaysClamp)) mesh.max_verts = (uint32_t)verts;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Most vertices one cluster may hold");
+        int tris = (int)mesh.max_tris;
+        if (ImGui::DragInt("Max Cluster Triangles", &tris, 1.0f, (int)MeshCooker::MIN_CLUSTER_TRIS, (int)LMESH_CLUSTER_MAX_TRIS, "%d", ImGuiSliderFlags_AlwaysClamp)) mesh.max_tris = (uint32_t)tris;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Most triangles one cluster may hold");
+        ImGui::BeginDisabled(!dag);
+        int group = (int)mesh.group_size;
+        if (ImGui::DragInt("Group Size", &group, 0.1f, (int)MeshCooker::MIN_GROUP_SIZE, (int)LMESH_PART_MAX_CLUSTERS, "%d", ImGuiSliderFlags_AlwaysClamp)) mesh.group_size = (uint32_t)group;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Clusters merged and simplified together for each coarser LOD");
+        int levels = (int)mesh.max_levels;
+        if (ImGui::DragInt("Max LOD Levels", &levels, 0.1f, 1, (int)MeshCooker::MAX_LOD_LEVELS, "%d", ImGuiSliderFlags_AlwaysClamp)) mesh.max_levels = (uint32_t)levels;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Most LOD levels built for the mesh");
+        ImGui::EndDisabled();
     }
     if (ui_category("Transform")) {
         ui_drag_float3_axes("Import Translation", &mesh.translation.x, 0.01f);

@@ -13,8 +13,9 @@ struct ContentBrowserPanel : Panel, AssetBrowser
 
     const char* name() const override { return ICON_FA_FOLDER "  Content Browser"; }
     bool in_footer() const override { return true; }
-    DockZone default_zone() const override { return DockZone::BOTTOM; }
+    bool closable() const override { return true; }
     bool default_open() const override { return false; }
+    DockZone default_zone() const override { return DockZone::BOTTOM; }
     ImVec2 window_padding() const override { return ui_style().dock.drawer_padding; }
     void draw_contents(EditorContext& ctx) override;
 

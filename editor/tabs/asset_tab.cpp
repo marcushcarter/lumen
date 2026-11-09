@@ -64,18 +64,10 @@ void AssetTab::_refresh_title()
     _title += path.stem().string();
 }
 
-AssetTab::ViewState AssetTab::view_state() const
-{
-    const Viewport& vp = layout.viewport;
-    return { vp.selected_view, vp.show_grid, vp.show_bones, vp.show_collision, vp.show_debug_lines };
-}
-
-void AssetTab::restore_view(const OrbitCamera& p_orbit, const ViewState& p_view)
+void AssetTab::restore_view(const OrbitCamera& p_orbit)
 {
     orbit = p_orbit;
     orbit.keep_view = true;
-    _view_restore = p_view;
-    _has_view_restore = true;
 }
 
 bool AssetTab::locked(const EditorContext& ctx) const
@@ -121,16 +113,6 @@ void AssetTab::_draw_lock(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
 void AssetTab::_draw_layout(EditorContext& ctx)
 {
-    if (_has_view_restore) {
-        Viewport& vp = layout.viewport;
-        vp.selected_view = _view_restore.selected_view;
-        vp.show_grid = _view_restore.show_grid;
-        vp.show_bones = _view_restore.show_bones;
-        vp.show_collision = _view_restore.show_collision;
-        vp.show_debug_lines = _view_restore.show_debug_lines;
-        _has_view_restore = false;
-    }
-
     const bool is_locked = locked(ctx);
     if (is_locked) ImGui::BeginDisabled();
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
@@ -173,9 +155,7 @@ void AssetTab::on_tick(EditorContext& ctx)
             return;
         }
         path = e->path;
-        char guid_text[Guid::BUFFER];
-        guid.to_chars(guid_text);
-        _tooltip = e->asset_path + "\n" + guid_text;
+        _tooltip = e->asset_path;
     }
     _refresh_title();
     _refresh_info(ctx);

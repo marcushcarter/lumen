@@ -6,6 +6,7 @@
 #include <core/rendering/renderer.h>
 #include <core/world/components.h>
 #include <editor/tabs/mesh/panels/mesh_details_panel.h>
+#include <editor/assets/import/mesh_cooker.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include <toml++/toml.hpp>
@@ -26,7 +27,6 @@ Error MeshTab::create(EditorContext& ctx)
         rig_preview.draw_bones(debug_draw());
         _draw_collision();
     };
-    layout.viewport.show_collision = false;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);

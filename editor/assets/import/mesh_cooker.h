@@ -1,6 +1,6 @@
 #pragma once
-#include <core/assets/lcollision.h>
 #include <editor/assets/import/asset_import_tracker.h>
+#include <editor/assets/import/collision_cooker.h>
 #include <core/assets/lmesh.h>
 #include <assimp/ProgressHandler.hpp>
 #include <filesystem>
@@ -23,23 +23,14 @@ struct AssimpImportProgress : Assimp::ProgressHandler
     }
 };
 
-struct CollisionSettings
-{
-    static constexpr float DEFAULT_ERROR = 0.02f;
-    static constexpr float DEFAULT_MIN_FEATURE = 0.15f;
-
-    CollisionType type = CollisionType::MESH;
-    float error = DEFAULT_ERROR;
-    float min_feature = DEFAULT_MIN_FEATURE;
-    bool exclude_masked = true;
-
-    bool operator==(const CollisionSettings&) const = default;
-};
-
 struct MeshCooker
 {
     static constexpr float GATHER_SHARE = 0.1f;
     static constexpr float BUILD_END = 0.92f;
+    static constexpr uint32_t MIN_CLUSTER_VERTS = 3;
+    static constexpr uint32_t MIN_CLUSTER_TRIS = 1;
+    static constexpr uint32_t MIN_GROUP_SIZE = 2;
+    static constexpr uint32_t MAX_LOD_LEVELS = 16;
 
     struct CookSettings {
         MeshDagLevel dag_level = MeshDagLevel::CLUSTERED_DAG;
@@ -67,6 +58,7 @@ struct MeshCooker
     };
 
     static unsigned import_flags();
+    static mat4 import_matrix(const CookSettings& p_settings);
     static bool load_settings(const std::filesystem::path& p_lmesh, CookSettings& r_settings, std::filesystem::path& r_source);
     static std::vector<uint32_t> material_slots(const aiScene* p_scene);
     static Error cook_scene(const Job& p_job, const aiScene* p_scene);

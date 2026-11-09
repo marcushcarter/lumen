@@ -20,7 +20,9 @@ static void _basis(const vec3& p_n, vec3& r_u, vec3& r_v)
 
 uint32_t DebugDraw::_flags(const Style& p_style)
 {
-    return ((uint32_t)p_style.category & CATEGORY_MASK) | (p_style.xray ? FLAG_XRAY : 0u);
+    uint32_t flags = ((uint32_t)p_style.category & CATEGORY_MASK) | (p_style.xray ? FLAG_XRAY : 0u);
+    if (p_style.width > 0.0f) flags |= FLAG_WIDTH | ((uint32_t)(std::clamp(p_style.width * 0.5f, 0.0f, POINT_RADIUS_MAX) * POINT_RADIUS_STEPS + 0.5f) << POINT_RADIUS_SHIFT);
+    return flags;
 }
 
 void DebugDraw::_push(const vec3& p_a, const vec3& p_b, uint32_t p_color, uint32_t p_flags, float p_duration)
@@ -53,7 +55,8 @@ void DebugDraw::point(const vec3& p_position, float p_radius_px, const Style& p_
 {
     const uint32_t radius = (uint32_t)(std::clamp(p_radius_px, 0.0f, POINT_RADIUS_MAX) * POINT_RADIUS_STEPS + 0.5f);
     std::lock_guard lock(mutex);
-    _push(p_position, p_position, p_style.color, _flags(p_style) | FLAG_POINT | (radius << POINT_RADIUS_SHIFT), p_style.duration);
+    const uint32_t flags = _flags(p_style) & ~(FLAG_WIDTH | (0xFFu << POINT_RADIUS_SHIFT));
+    _push(p_position, p_position, p_style.color, flags | FLAG_POINT | (radius << POINT_RADIUS_SHIFT), p_style.duration);
 }
 
 void DebugDraw::line(const vec3& p_a, const vec3& p_b, const Style& p_style)

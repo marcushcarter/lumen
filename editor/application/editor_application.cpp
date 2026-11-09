@@ -18,6 +18,7 @@
 #include <editor/tabs/overlay/overlay_tab.h>
 #include <editor/tabs/terrain/terrain_tab.h>
 #include <editor/tabs/prefab/prefab_tab.h>
+#include <editor/tabs/version_control/version_control_tab.h>
 #include <core/world/prefab.h>
 #include <editor/tabs/asset_tab.h>
 #include <algorithm>
@@ -332,7 +333,6 @@ void EditorApplication::_reload_tab(EditorTab* p_tab)
     const Guid guid = p_tab->guid;
     const AssetTab* old = static_cast<const AssetTab*>(p_tab);
     const OrbitCamera orbit = old->orbit;
-    const AssetTab::ViewState view = old->view_state();
     const std::filesystem::path path = old->path;
     EditorTab* previous = tabs.active == p_tab ? nullptr : tabs.active;
 
@@ -343,7 +343,7 @@ void EditorApplication::_reload_tab(EditorTab* p_tab)
     tabs.tabs.insert(tabs.tabs.begin() + (std::ptrdiff_t)std::min(index, tabs.tabs.size()), fresh);
     AssetTab* asset = static_cast<AssetTab*>(fresh);
     asset->path = path;
-    asset->restore_view(orbit, view);
+    asset->restore_view(orbit);
     if (previous) tabs.focus(previous);
 }
 
@@ -485,6 +485,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::TERRAIN: return "terrain";
         case TabKind::ASSET_MANAGER: return "asset_manager";
         case TabKind::PREFAB: return "prefab";
+        case TabKind::VERSION_CONTROL: return "version_control";
     }
     return "world";
 }
@@ -503,6 +504,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
     else if (p_name == "terrain") r_kind = TabKind::TERRAIN;
     else if (p_name == "prefab") r_kind = TabKind::PREFAB;
+    else if (p_name == "version_control") r_kind = TabKind::VERSION_CONTROL;
     else if (p_name == "asset_manager" || p_name == "content") r_kind = TabKind::ASSET_MANAGER;
     else return false;
     return true;
@@ -546,6 +548,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::OVERLAY: if (t.guid.valid()) opened = tabs.open<OverlayTab>(t.guid); break;
             case TabKind::TERRAIN: if (t.guid.valid()) opened = tabs.open<TerrainTab>(t.guid); break;
             case TabKind::PREFAB: if (t.guid.valid()) opened = tabs.open<PrefabTab>(t.guid); break;
+            case TabKind::VERSION_CONTROL: opened = tabs.open<VersionControlTab>(); break;
         }
         if (opened && i == saved.active) active = opened;
     }
@@ -1054,7 +1057,8 @@ void EditorApplication::_titlebar_editor_menu()
     }
 
     if (_topbar_menu("Window")) {
-        if (tabs.active != &asset_manager_tab) world_tab.draw_menu();
+        if (ImGui::MenuItem(VersionControlTab::TITLE)) tabs.open<VersionControlTab>();
+        ImGui::Separator();
         if (ImGui::BeginMenu("Display")) {
             int vsync = (int)settings.vsync_mode;
             if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, (int)std::size(VSYNC_MODE_NAMES))) {

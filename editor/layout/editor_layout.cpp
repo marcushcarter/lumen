@@ -31,6 +31,7 @@ void EditorLayout::shutdown()
 
 void EditorLayout::add_shared(Panel* p_panel)
 {
+    if (p_panel->hidden()) return;
     p_panel->_resolve_names();
     slots.push_back({ p_panel, p_panel->default_zone(), p_panel->default_open() });
 }
@@ -347,12 +348,9 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
         w->dropped = nullptr;
     }
     for (DockSlot& s : slots) {
-        if (!s.panel->pinned()) continue;
-        s.open = true;
-        s.zone = s.panel->default_zone();
+        if (s.panel->pinned()) s.open = true;
         well(s.zone).slots.push_back(&s);
     }
-    for (DockSlot& s : slots) if (!s.panel->pinned()) well(s.zone).slots.push_back(&s);
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -377,13 +375,6 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     area_max = end;
 
     const float body_y = origin.y;
-
-    if (viewport.fullscreen) {
-        _draw_scene(ctx, ImVec2(origin.x, body_y), end);
-        _toolbar = nullptr;
-        ImGui::End();
-        return;
-    }
 
     const float footer_y = end.y - TabStrip::height();
     const float body_max_y = ImMax(body_y + 1.0f, footer_y - gap);
@@ -502,18 +493,6 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
 
     _toolbar = nullptr;
     ImGui::End();
-}
-
-void EditorLayout::draw_menu()
-{
-    if (ImGui::BeginMenu("Panels")) {
-        for (DockSlot& s : slots) {
-            const bool was_open = s.open;
-            ImGui::MenuItem(s.panel->title, nullptr, &s.open, s.panel->closable() && !s.panel->pinned());
-            if (s.open && !was_open) open_panel(s);
-        }
-        ImGui::EndMenu();
-    }
 }
 
 }

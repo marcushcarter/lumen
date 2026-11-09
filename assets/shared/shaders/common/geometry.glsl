@@ -26,7 +26,6 @@ struct Mesh {
     uint cluster_base;
     uint cluster_count;
     uint slot_count;
-    uint skin_base;
     uint node_base;
     uint node_count;
     uint page_base;
@@ -84,6 +83,7 @@ layout(buffer_reference, scalar) readonly buffer GeometryBuffer {
     SkinVerticesBuffer skin_vertices;
     MeshBuffer meshes;
     UintBuffer cluster_vertex_base;
+    UintBuffer cluster_skin_delta;
     UintBuffer local_triangles;
     ClusterVertexBuffer cluster_vertices;
     MaterialBuffer materials;

@@ -26,6 +26,7 @@ struct GeometryAddresses
     VkDeviceAddress skin_vertices;
     VkDeviceAddress meshes;
     VkDeviceAddress cluster_vertex_base;
+    VkDeviceAddress cluster_skin_delta;
     VkDeviceAddress local_triangles;
     VkDeviceAddress cluster_vertices;
     VkDeviceAddress materials;
@@ -45,7 +46,6 @@ struct LMesh
     uint32_t cluster_base;
     uint32_t cluster_count;
     uint32_t slot_count;
-    uint32_t skin_base;
     uint32_t node_base;
     uint32_t node_count;
     uint32_t page_base;
@@ -98,6 +98,7 @@ struct GeometryPool
         PAGE_RESIDENT,
         PAGE_STAMP,
         GROUP_REFINED,
+        CLUSTER_SKIN_DELTA,
         COUNT,
     };
 
@@ -139,6 +140,7 @@ struct GeometryPool
         uint32_t tri, tri_count;
         uint32_t vertex, vertex_count;
         uint32_t cluster, cluster_count;
+        uint32_t skin, skin_count;
     };
 
     struct RetiredBuffer {
@@ -152,6 +154,7 @@ struct GeometryPool
         uint32_t tri = RangeAllocator::INVALID;
         uint32_t vertex = RangeAllocator::INVALID;
         uint32_t cluster = RangeAllocator::INVALID;
+        uint32_t skin = RangeAllocator::INVALID;
         uint32_t list_index = UINT32_MAX;
         uint64_t last_used = 0;
         PageState state = PageState::ABSENT;
@@ -297,10 +300,11 @@ struct GeometryPool
 
     bool _stage(ArenaKind p_kind, uint32_t p_offset, const void* p_data, VkDeviceSize p_bytes);
     bool _stage_bytes(ArenaKind p_kind, VkDeviceSize p_dst, const void* p_data, VkDeviceSize p_bytes);
-    void _page_clusters(const LMeshData& p_tables, uint32_t p_page, const StreamPage& p_slot, uint32_t p_group_base, std::vector<Cluster>& r_clusters, std::vector<uint32_t>& r_vbase, std::vector<uint32_t>& r_slots, std::vector<uint32_t>& r_bounds) const;
+    void _page_clusters(const LMeshData& p_tables, uint32_t p_page, const StreamPage& p_slot, uint32_t p_group_base, std::vector<Cluster>& r_clusters, std::vector<uint32_t>& r_vbase, std::vector<uint32_t>& r_skin, std::vector<uint32_t>& r_slots, std::vector<uint32_t>& r_bounds) const;
     void _retire_page(StreamPage& r_page, const LMeshPage& p_info);
     VkDeviceSize _staging_free() const;
-    static uint64_t _page_gpu_bytes(const LMeshPage& p_page, bool p_wide);
+    static uint64_t _page_gpu_bytes(const LMeshPage& p_page, bool p_wide, bool p_skinned);
+    static std::vector<JointBox> _joint_boxes(const std::vector<LMeshJointBox>& p_boxes);
     void _stream_tick();
     void _stream_read_requests();
     void _stream_take_results();

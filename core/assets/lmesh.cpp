@@ -646,14 +646,32 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     _append(resident, p_data.group_child_first.data(), p_data.group_child_first.size());
     _append(resident, p_data.group_child_pages.data(), p_data.group_child_pages.size());
 
+    std::vector<LMeshJointBox> joint_boxes;
+    if (skinned) {
+        const LMeshPayloadHeader& ph = p_data.header;
+        for (size_t v = 0; v < p_data.skin.size() && v < p_data.vertices.size(); v++) {
+            const SkinVertex& sv = p_data.skin[v];
+            const vec3 pos = ph.pos_min + vec3(p_data.vertices[v].position.position) / 65535.0f * ph.pos_extent;
+            for (int k = 0; k < 4; k++) {
+                if (sv.weights[k] == 0) continue;
+                const uint32_t j = sv.joints[k];
+                if (j >= joint_boxes.size()) joint_boxes.resize(j + 1, LMeshJointBox{ vec3(FLT_MAX), vec3(-FLT_MAX) });
+                joint_boxes[j].min = glm::min(joint_boxes[j].min, pos);
+                joint_boxes[j].max = glm::max(joint_boxes[j].max, pos);
+            }
+        }
+    }
+    const size_t joint_box_bytes = joint_boxes.size() * sizeof(LMeshJointBox);
+
     LMeshPayloadHeader header = p_data.header;
-    header.section_count = 3;
+    header.section_count = 4;
     header.group_child_page_count = (uint32_t)p_data.group_child_pages.size();
 
     const uint64_t sections_at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
     const uint64_t resident_at = sections_at + header.section_count * sizeof(LMeshSection);
     const uint64_t blobs_at = resident_at + resident.size();
-    const uint64_t collision_at = blobs_at + blobs.size();
+    const uint64_t joint_boxes_at = blobs_at + blobs.size();
+    const uint64_t collision_at = joint_boxes_at + joint_box_bytes;
     const uint64_t total = collision_at + p_data.collision.size();
     if (total > UINT32_MAX) {
         log_write("lmesh: '%s' would be over 4 GB.", p_bin.string().c_str());
@@ -662,9 +680,10 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     for (LMeshPage& page : pages) page.offset += blobs_at;
     std::memcpy(resident.data() + pages_at, pages.data(), pages.size() * sizeof(LMeshPage));
 
-    const LMeshSection sections[3] = {
+    const LMeshSection sections[4] = {
         { LMeshSectionType::RASTER_RESIDENT, 0, resident_at, resident.size() },
         { LMeshSectionType::RASTER_PAGES, 0, blobs_at, blobs.size() },
+        { LMeshSectionType::JOINT_BOXES, 0, joint_boxes_at, joint_box_bytes },
         { LMeshSectionType::COLLISION, 0, collision_at, p_data.collision.size() },
     };
 
@@ -684,9 +703,10 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
         _append(out, p_data.rig.inverse_binds.data(), p_data.rig.inverse_binds.size());
         _append(out, rig_names.data(), rig_names.size());
     }
-    _append(out, sections, 3);
+    _append(out, sections, 4);
     _append(out, resident.data(), resident.size());
     _append(out, blobs.data(), blobs.size());
+    _append(out, joint_boxes.data(), joint_boxes.size());
     _append(out, p_data.collision.data(), p_data.collision.size());
     if (out.size() != total) return false;
 
@@ -881,11 +901,20 @@ static const char* _open_streamed(std::ifstream& r_file, uint64_t p_file_size, L
     if (!_read(table, t, r_data.sections.data(), h.section_count)) return "truncated section table";
 
     const LMeshSection* resident = nullptr;
+    const LMeshSection* joint_boxes = nullptr;
     for (const LMeshSection& s : r_data.sections) {
         if (s.offset + s.size > p_file_size || s.offset + s.size < s.offset) return "section out of bounds";
         if (s.type == LMeshSectionType::RASTER_RESIDENT) resident = &s;
+        if (s.type == LMeshSectionType::JOINT_BOXES) joint_boxes = &s;
     }
     if (!resident) return "no raster section";
+    if (joint_boxes && joint_boxes->size) {
+        if (joint_boxes->size % sizeof(LMeshJointBox) || joint_boxes->size / sizeof(LMeshJointBox) > MESH_MAX_JOINTS) return "bad joint boxes";
+        const std::vector<uint8_t> boxes = _read_range(r_file, joint_boxes->offset, joint_boxes->size);
+        if (boxes.size() != joint_boxes->size) return "truncated joint boxes";
+        r_data.joint_boxes.resize(boxes.size() / sizeof(LMeshJointBox));
+        std::memcpy(r_data.joint_boxes.data(), boxes.data(), boxes.size());
+    }
 
     const std::vector<uint8_t> block = _read_range(r_file, resident->offset, resident->size);
     if (block.size() != resident->size) return "truncated raster section";

@@ -160,7 +160,15 @@ struct LMeshNode
 
 static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
-enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5 };
+enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6 };
+
+struct LMeshJointBox
+{
+    vec3 min;
+    vec3 max;
+};
+
+static_assert(sizeof(LMeshJointBox) == 24, "LMeshJointBox layout changed");
 
 struct LMeshSection
 {
@@ -222,6 +230,7 @@ struct LMeshData
     std::vector<SkinVertex> skin;
     std::vector<uint32_t> tri_slots;
     std::vector<uint8_t> collision;
+    std::vector<LMeshJointBox> joint_boxes;
 
     bool skinned() const { return (header.flags & (uint32_t)MeshFlags::SKINNED) != 0; }
     bool wide_slots() const { return (header.flags & (uint32_t)MeshFlags::WIDE_SLOTS) != 0; }

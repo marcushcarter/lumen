@@ -142,9 +142,9 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
     vec3 prev0 = tri.l0, prev1 = tri.l1, prev2 = tri.l2;
     if (o.skin_id != SKIN_NONE) {
         const uint joint_base = pc.camera.skins.data[o.skin_id].joint_base;
-        const uvec2 s0 = skin_vertex(pc.geometry, o.mesh_id, tri.cluster_vertex.x);
-        const uvec2 s1 = skin_vertex(pc.geometry, o.mesh_id, tri.cluster_vertex.y);
-        const uvec2 s2 = skin_vertex(pc.geometry, o.mesh_id, tri.cluster_vertex.z);
+        const uvec2 s0 = skin_vertex(pc.geometry, ref.y, tri.cluster_vertex.x);
+        const uvec2 s1 = skin_vertex(pc.geometry, ref.y, tri.cluster_vertex.y);
+        const uvec2 s2 = skin_vertex(pc.geometry, ref.y, tri.cluster_vertex.z);
         const SkinRows k0 = skin_blend(pc.camera, joint_base, s0, SKIN_CURR);
         const SkinRows k1 = skin_blend(pc.camera, joint_base, s1, SKIN_CURR);
         const SkinRows k2 = skin_blend(pc.camera, joint_base, s2, SKIN_CURR);

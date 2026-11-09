@@ -14,8 +14,8 @@ struct SkinRows {
     vec4 r2;
 };
 
-uvec2 skin_vertex(GeometryBuffer p_geometry, uint p_mesh_id, uint p_cluster_vertex) {
-    return p_geometry.skin_vertices.data[p_geometry.meshes.data[p_mesh_id].skin_base + p_cluster_vertex];
+uvec2 skin_vertex(GeometryBuffer p_geometry, uint p_cluster, uint p_cluster_vertex) {
+    return p_geometry.skin_vertices.data[p_geometry.cluster_skin_delta.data[p_cluster] + p_cluster_vertex];
 }
 
 SkinRows skin_blend(CameraBuffer p_camera, uint p_joint_base, uvec2 p_skin, uint p_frame) {

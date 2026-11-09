@@ -43,6 +43,7 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
     _arena_setup(ArenaKind::PAGE_RESIDENT, sizeof(uint32_t), 16u << 10, MAX_PAGES, 0, "geo_page_resident");
     _arena_setup(ArenaKind::PAGE_STAMP, sizeof(uint32_t), 16u << 10, MAX_PAGES, 0, "geo_page_stamp");
     _arena_setup(ArenaKind::GROUP_REFINED, sizeof(uint32_t), 16u << 10, MAX_GROUPS, 0, "geo_group_refined");
+    _arena_setup(ArenaKind::CLUSTER_SKIN_DELTA, sizeof(uint32_t), 64u << 10, MAX_CLUSTERS, 0, "geo_cluster_skin_delta");
 
     address_buffers.resize(frame_count);
     for (Buffer& b : address_buffers) {
@@ -146,6 +147,7 @@ void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDevic
     a.skin_vertices = _arena(ArenaKind::SKIN).buffer.device_address;
     a.meshes = _arena(ArenaKind::MESHES).buffer.device_address;
     a.cluster_vertex_base = _arena(ArenaKind::CLUSTER_VERTEX_BASE).buffer.device_address;
+    a.cluster_skin_delta = _arena(ArenaKind::CLUSTER_SKIN_DELTA).buffer.device_address;
     a.local_triangles = _arena(ArenaKind::LOCAL_TRIANGLES).buffer.device_address;
     a.cluster_vertices = _arena(ArenaKind::CLUSTER_VERTICES).buffer.device_address;
     a.materials = p_materials;
@@ -335,6 +337,7 @@ uint32_t GeometryPool::_allocate(RangeAllocator& r_alloc, ArenaKind p_kind, uint
 
     const uint32_t live = r_alloc.extent();
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_VERTEX_BASE, capacity, live) != Error::OK) return RangeAllocator::INVALID;
+    if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_SKIN_DELTA, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_SLOTS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::CLUSTERS && _arena_grow(ArenaKind::CLUSTER_BOUNDS, capacity, live) != Error::OK) return RangeAllocator::INVALID;
     if (p_kind == ArenaKind::GROUPS && _arena_grow(ArenaKind::GROUP_REFINED, capacity, live) != Error::OK) return RangeAllocator::INVALID;
@@ -377,6 +380,7 @@ void GeometryPool::_collect(uint64_t p_frame_number)
         tri_alloc.free(_retired_pages[i].tri, _retired_pages[i].tri_count);
         vertex_alloc.free(_retired_pages[i].vertex, _retired_pages[i].vertex_count);
         cluster_alloc.free(_retired_pages[i].cluster, _retired_pages[i].cluster_count);
+        skin_alloc.free(_retired_pages[i].skin, _retired_pages[i].skin_count);
         _retired_pages[i] = _retired_pages.back();
         _retired_pages.pop_back();
     }
@@ -513,9 +517,16 @@ bool GeometryPool::_hierarchy_depth(std::vector<LMeshNode>& r_nodes, const MeshR
     return r_depth <= MAX_NODE_DEPTH;
 }
 
-uint64_t GeometryPool::_page_gpu_bytes(const LMeshPage& p_page, bool p_wide)
+uint64_t GeometryPool::_page_gpu_bytes(const LMeshPage& p_page, bool p_wide, bool p_skinned)
 {
-    return (uint64_t)p_page.tri_count * sizeof(uint32_t) * (p_wide ? 2u : 1u) + (uint64_t)p_page.vertex_count * sizeof(ClusterVertex);
+    return (uint64_t)p_page.tri_count * sizeof(uint32_t) * (p_wide ? 2u : 1u) + (uint64_t)p_page.vertex_count * (sizeof(ClusterVertex) + (p_skinned ? sizeof(SkinVertex) : 0u));
+}
+
+std::vector<GeometryPool::JointBox> GeometryPool::_joint_boxes(const std::vector<LMeshJointBox>& p_boxes)
+{
+    std::vector<JointBox> out(p_boxes.size());
+    for (size_t i = 0; i < p_boxes.size(); i++) out[i] = { p_boxes[i].min, p_boxes[i].max };
+    return out;
 }
 
 uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
@@ -537,7 +548,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         return INVALID_MESH;
     }
 
-    const bool streamed = file_version >= LMESH_VERSION_STREAMED && !data.skinned();
+    const bool streamed = file_version >= LMESH_VERSION_STREAMED && (!data.skinned() || !data.joint_boxes.empty());
     if (streamed) return _load_streamed(p_guid, p_path, data, id);
     if (!data.has_page_data() && !lmesh_load(p_path, data, error)) {
         log_write("GeometryPool: %s: %s", name.c_str(), error.c_str());
@@ -582,6 +593,7 @@ uint32_t GeometryPool::_load_resident(Guid p_guid, const std::string& p_name, LM
     auto rebase_group = [&](uint32_t p_group) { return p_group == CLUSTER_GROUP_NONE ? CLUSTER_GROUP_NONE : p_group + r.group; };
     std::vector<Cluster> clusters(h.cluster_count);
     std::vector<uint32_t> cluster_vbase(h.cluster_count);
+    std::vector<uint32_t> cluster_skin(h.cluster_count, skinned ? r.skin - r.vertex : 0u);
     std::vector<uint32_t> cluster_slots(h.cluster_count);
     std::vector<uint32_t> cluster_bounds((size_t)h.cluster_count * 3);
     uint32_t mesh_max_tris = 0;
@@ -603,8 +615,8 @@ uint32_t GeometryPool::_load_resident(Guid p_guid, const std::string& p_name, LM
         return fail("cluster hierarchy is deeper than the traversal supports");
     }
 
-    std::vector<JointBox> joint_boxes;
-    if (skinned) {
+    std::vector<JointBox> joint_boxes = _joint_boxes(r_data.joint_boxes);
+    if (skinned && joint_boxes.empty()) {
         for (uint32_t v = 0; v < h.vertex_count; v++) {
             const SkinVertex& sv = r_data.skin[v];
             const vec3 pos = h.pos_min + vec3(r_data.vertices[v].position.position) / 65535.0f * h.pos_extent;
@@ -626,7 +638,6 @@ uint32_t GeometryPool::_load_resident(Guid p_guid, const std::string& p_name, LM
     m.cluster_base = r.cluster_count ? r.cluster : 0;
     m.cluster_count = h.cluster_count;
     m.slot_count = h.slot_count;
-    m.skin_base = skinned ? r.skin - r.vertex : 0;
     m.node_base = r.node_count ? r.node : 0;
     m.node_count = h.node_count;
     m.page_base = r.page_count ? r.page : 0;
@@ -646,6 +657,7 @@ uint32_t GeometryPool::_load_resident(Guid p_guid, const std::string& p_name, LM
     add(ArenaKind::TRI_SLOTS, r.tri, r_data.tri_slots.data(), r_data.tri_slots.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTERS, r.cluster, clusters.data(), clusters.size() * sizeof(Cluster));
     add(ArenaKind::CLUSTER_VERTEX_BASE, r.cluster, cluster_vbase.data(), cluster_vbase.size() * sizeof(uint32_t));
+    add(ArenaKind::CLUSTER_SKIN_DELTA, r.cluster, cluster_skin.data(), cluster_skin.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_SLOTS, r.cluster, cluster_slots.data(), cluster_slots.size() * sizeof(uint32_t));
     add(ArenaKind::CLUSTER_BOUNDS, r.cluster, cluster_bounds.data(), cluster_bounds.size() * sizeof(uint32_t));
     add(ArenaKind::GROUPS, r.group, r_data.groups.data(), r_data.groups.size() * sizeof(ClusterGroup));
@@ -676,6 +688,7 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
     auto fail = [&](const char* p_why) { log_write("GeometryPool: %s: %s", name.c_str(), p_why); return INVALID_MESH; };
     const LMeshPayloadHeader& h = r_tables.header;
     const bool wide = r_tables.wide_slots();
+    const bool skinned = r_tables.skinned();
 
     MeshRanges r;
     r.group_count = h.group_count;
@@ -735,6 +748,7 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
 
     std::vector<uint32_t> root_tris, root_slots;
     std::vector<ClusterVertex> root_vertices;
+    std::vector<SkinVertex> root_skin;
     std::vector<std::pair<uint32_t, uint32_t>> root_ranges;
     {
         std::ifstream f(p_path, std::ios::binary);
@@ -751,14 +765,16 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
                 sp.tri = _allocate(tri_alloc, ArenaKind::LOCAL_TRIANGLES, info.tri_count);
                 sp.vertex = _allocate(vertex_alloc, ArenaKind::CLUSTER_VERTICES, info.vertex_count);
                 sp.cluster = _allocate(cluster_alloc, ArenaKind::CLUSTERS, info.cluster_count);
-                if (sp.tri == RangeAllocator::INVALID || sp.vertex == RangeAllocator::INVALID || sp.cluster == RangeAllocator::INVALID || (wide && !_ensure_tri_slots(sp.tri + info.tri_count))) why = "geometry arenas exhausted";
+                if (skinned) sp.skin = _allocate(skin_alloc, ArenaKind::SKIN, info.vertex_count);
+                if (sp.tri == RangeAllocator::INVALID || sp.vertex == RangeAllocator::INVALID || sp.cluster == RangeAllocator::INVALID || (skinned && sp.skin == RangeAllocator::INVALID) || (wide && !_ensure_tri_slots(sp.tri + info.tri_count))) why = "geometry arenas exhausted";
             }
             if (why) {
                 for (uint32_t q = 0; q <= p; q++) {
                     tri_alloc.free(s.pages[q].tri, r_tables.pages[q].tri_count);
                     vertex_alloc.free(s.pages[q].vertex, r_tables.pages[q].vertex_count);
                     cluster_alloc.free(s.pages[q].cluster, r_tables.pages[q].cluster_count);
-                    if (q < p) _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(r_tables.pages[q], wide));
+                    skin_alloc.free(s.pages[q].skin, r_tables.pages[q].vertex_count);
+                    if (q < p) _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(r_tables.pages[q], wide, skinned));
                 }
                 _release(r);
                 return fail(why);
@@ -769,9 +785,10 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
             root_tris.insert(root_tris.end(), page.tris.begin(), page.tris.end());
             root_slots.insert(root_slots.end(), page.tri_slots.begin(), page.tri_slots.end());
             root_vertices.insert(root_vertices.end(), page.vertices.begin(), page.vertices.end());
+            root_skin.insert(root_skin.end(), page.skin.begin(), page.skin.end());
             for (uint32_t k = s.page_groups_first[p]; k < s.page_groups_first[p + 1]; k++) s.group_missing[s.page_groups[k]]--;
             s.resident_pages++;
-            _stream_resident_bytes += _page_gpu_bytes(info, wide);
+            _stream_resident_bytes += _page_gpu_bytes(info, wide, skinned);
         }
     }
 
@@ -779,8 +796,8 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
     for (const LMeshCluster& c : r_tables.clusters) mesh_max_tris = std::max(mesh_max_tris, c.tri_count);
 
     std::vector<std::vector<Cluster>> root_clusters(h.root_page_count);
-    std::vector<std::vector<uint32_t>> root_vbase(h.root_page_count), root_cslots(h.root_page_count), root_bounds(h.root_page_count);
-    for (uint32_t p = 0; p < h.root_page_count; p++) _page_clusters(r_tables, p, s.pages[p], r.group, root_clusters[p], root_vbase[p], root_cslots[p], root_bounds[p]);
+    std::vector<std::vector<uint32_t>> root_vbase(h.root_page_count), root_cskin(h.root_page_count), root_cslots(h.root_page_count), root_bounds(h.root_page_count);
+    for (uint32_t p = 0; p < h.root_page_count; p++) _page_clusters(r_tables, p, s.pages[p], r.group, root_clusters[p], root_vbase[p], root_cskin[p], root_cslots[p], root_bounds[p]);
 
     for (uint32_t i = 0; i < h.node_count; i++) {
         const LMeshNode& src = r_tables.nodes[i];
@@ -820,8 +837,10 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
         add(ArenaKind::LOCAL_TRIANGLES, sp.tri, root_tris.data() + root_ranges[p].first, (size_t)info.tri_count * sizeof(uint32_t));
         if (wide) add(ArenaKind::TRI_SLOTS, sp.tri, root_slots.data() + root_ranges[p].first, (size_t)info.tri_count * sizeof(uint32_t));
         add(ArenaKind::CLUSTER_VERTICES, sp.vertex, root_vertices.data() + root_ranges[p].second, (size_t)info.vertex_count * sizeof(ClusterVertex));
+        if (skinned) add(ArenaKind::SKIN, sp.skin, root_skin.data() + root_ranges[p].second, (size_t)info.vertex_count * sizeof(SkinVertex));
         add(ArenaKind::CLUSTERS, sp.cluster, root_clusters[p].data(), root_clusters[p].size() * sizeof(Cluster));
         add(ArenaKind::CLUSTER_VERTEX_BASE, sp.cluster, root_vbase[p].data(), root_vbase[p].size() * sizeof(uint32_t));
+        add(ArenaKind::CLUSTER_SKIN_DELTA, sp.cluster, root_cskin[p].data(), root_cskin[p].size() * sizeof(uint32_t));
         add(ArenaKind::CLUSTER_SLOTS, sp.cluster, root_cslots[p].data(), root_cslots[p].size() * sizeof(uint32_t));
         add(ArenaKind::CLUSTER_BOUNDS, sp.cluster, root_bounds[p].data(), root_bounds[p].size() * sizeof(uint32_t));
     }
@@ -837,7 +856,8 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
             tri_alloc.free(s.pages[p].tri, r_tables.pages[p].tri_count);
             vertex_alloc.free(s.pages[p].vertex, r_tables.pages[p].vertex_count);
             cluster_alloc.free(s.pages[p].cluster, r_tables.pages[p].cluster_count);
-            _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(r_tables.pages[p], wide));
+            skin_alloc.free(s.pages[p].skin, r_tables.pages[p].vertex_count);
+            _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(r_tables.pages[p], wide, skinned));
         }
         _release(r);
         return fail("upload failed");
@@ -851,12 +871,13 @@ uint32_t GeometryPool::_load_streamed(Guid p_guid, const std::filesystem::path& 
     const uint32_t tri_count = h.tri_count;
     const uint32_t cluster_count = h.cluster_count;
     LMeshRig rig = std::move(r_tables.rig);
+    std::vector<JointBox> joint_boxes = _joint_boxes(r_tables.joint_boxes);
     source->tables = std::make_shared<const LMeshData>(std::move(r_tables));
     s.source = std::move(source);
 
     _stream_total_pages += page_count;
     _stream_resident_pages += s.resident_pages;
-    _commit_id(p_id, p_guid, m, r, {}, std::move(rig));
+    _commit_id(p_id, p_guid, m, r, std::move(joint_boxes), std::move(rig));
     streams[p_id] = std::move(s);
     max_cluster_tris = std::max(max_cluster_tris, mesh_max_tris);
     max_node_depth = std::max(max_node_depth, mesh_depth);
@@ -875,12 +896,13 @@ void GeometryPool::_stream_forget(uint32_t p_mesh)
     }
     _stream_loading_bytes -= std::min(_stream_loading_bytes, reader.cancel(p_mesh));
     const bool wide = has_flag((MeshFlags)s.source->flags, MeshFlags::WIDE_SLOTS);
+    const bool skinned = has_flag((MeshFlags)s.source->flags, MeshFlags::SKINNED);
     for (uint32_t p = 0; p < (uint32_t)s.pages.size(); p++) {
         StreamPage& sp = s.pages[p];
         if (sp.state != PageState::RESIDENT) continue;
         const LMeshPage& info = s.source->tables->pages[p];
         _retire_page(sp, info);
-        _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(info, wide));
+        _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(info, wide, skinned));
         if (sp.list_index != UINT32_MAX) {
             const uint64_t moved = _resident_list.back();
             _resident_list[sp.list_index] = moved;
@@ -941,12 +963,13 @@ bool GeometryPool::_stage_bytes(ArenaKind p_kind, VkDeviceSize p_dst, const void
     return true;
 }
 
-void GeometryPool::_page_clusters(const LMeshData& p_tables, uint32_t p_page, const StreamPage& p_slot, uint32_t p_group_base, std::vector<Cluster>& r_clusters, std::vector<uint32_t>& r_vbase, std::vector<uint32_t>& r_slots, std::vector<uint32_t>& r_bounds) const
+void GeometryPool::_page_clusters(const LMeshData& p_tables, uint32_t p_page, const StreamPage& p_slot, uint32_t p_group_base, std::vector<Cluster>& r_clusters, std::vector<uint32_t>& r_vbase, std::vector<uint32_t>& r_skin, std::vector<uint32_t>& r_slots, std::vector<uint32_t>& r_bounds) const
 {
     const LMeshPage& info = p_tables.pages[p_page];
     auto rebase_group = [&](uint32_t p_group) { return p_group == CLUSTER_GROUP_NONE ? CLUSTER_GROUP_NONE : p_group + p_group_base; };
     r_clusters.resize(info.cluster_count);
     r_vbase.resize(info.cluster_count);
+    r_skin.assign(info.cluster_count, p_slot.skin != RangeAllocator::INVALID ? p_slot.skin - p_slot.vertex : 0u);
     r_slots.resize(info.cluster_count);
     r_bounds.resize((size_t)info.cluster_count * 3);
     for (uint32_t i = 0; i < info.cluster_count; i++) {
@@ -960,7 +983,9 @@ void GeometryPool::_page_clusters(const LMeshData& p_tables, uint32_t p_page, co
 
 void GeometryPool::_retire_page(StreamPage& r_page, const LMeshPage& p_info)
 {
-    _retired_pages.push_back({ frame_number, r_page.tri, p_info.tri_count, r_page.vertex, p_info.vertex_count, r_page.cluster, p_info.cluster_count });
+    const uint32_t skin_count = r_page.skin != RangeAllocator::INVALID ? p_info.vertex_count : 0u;
+    _retired_pages.push_back({ frame_number, r_page.tri, p_info.tri_count, r_page.vertex, p_info.vertex_count, r_page.cluster, p_info.cluster_count, r_page.skin, skin_count });
+    r_page.skin = RangeAllocator::INVALID;
     r_page.tri = RangeAllocator::INVALID;
     r_page.vertex = RangeAllocator::INVALID;
     r_page.cluster = RangeAllocator::INVALID;
@@ -973,36 +998,42 @@ bool GeometryPool::_page_install(uint32_t p_mesh, uint32_t p_page, const LMeshPa
     const LMeshData& tables = *s.source->tables;
     const LMeshPage& info = tables.pages[p_page];
     const bool wide = has_flag((MeshFlags)s.source->flags, MeshFlags::WIDE_SLOTS);
+    const bool skinned = has_flag((MeshFlags)s.source->flags, MeshFlags::SKINNED);
     const MeshRanges& r = mesh_ranges[p_mesh];
     const uint32_t group_count = s.page_groups_first[p_page + 1] - s.page_groups_first[p_page];
     const uint32_t leaf_count = s.page_leaves_first[p_page + 1] - s.page_leaves_first[p_page];
 
-    const VkDeviceSize need = (VkDeviceSize)info.tri_count * sizeof(uint32_t) * (wide ? 2u : 1u) + (VkDeviceSize)info.vertex_count * sizeof(ClusterVertex)
-        + (VkDeviceSize)info.cluster_count * (sizeof(Cluster) + 5 * sizeof(uint32_t)) + (VkDeviceSize)(group_count + leaf_count + 1) * (sizeof(uint32_t) + 16) + 8 * 16;
+    const VkDeviceSize need = (VkDeviceSize)info.tri_count * sizeof(uint32_t) * (wide ? 2u : 1u) + (VkDeviceSize)info.vertex_count * (sizeof(ClusterVertex) + (skinned ? sizeof(SkinVertex) : 0u))
+        + (VkDeviceSize)info.cluster_count * (sizeof(Cluster) + 6 * sizeof(uint32_t)) + (VkDeviceSize)(group_count + leaf_count + 1) * (sizeof(uint32_t) + 16) + 8 * 16;
     if (_staging_free() < need) return false;
 
     const uint32_t tri = _allocate(tri_alloc, ArenaKind::LOCAL_TRIANGLES, info.tri_count);
     const uint32_t vertex = _allocate(vertex_alloc, ArenaKind::CLUSTER_VERTICES, info.vertex_count);
     const uint32_t cluster = _allocate(cluster_alloc, ArenaKind::CLUSTERS, info.cluster_count);
-    if (tri == RangeAllocator::INVALID || vertex == RangeAllocator::INVALID || cluster == RangeAllocator::INVALID || (wide && !_ensure_tri_slots(tri + info.tri_count))) {
+    const uint32_t skin = skinned ? _allocate(skin_alloc, ArenaKind::SKIN, info.vertex_count) : RangeAllocator::INVALID;
+    if (tri == RangeAllocator::INVALID || vertex == RangeAllocator::INVALID || cluster == RangeAllocator::INVALID || (skinned && skin == RangeAllocator::INVALID) || (wide && !_ensure_tri_slots(tri + info.tri_count))) {
         tri_alloc.free(tri, info.tri_count);
         vertex_alloc.free(vertex, info.vertex_count);
         cluster_alloc.free(cluster, info.cluster_count);
+        skin_alloc.free(skin, info.vertex_count);
         return false;
     }
 
     _stage(ArenaKind::LOCAL_TRIANGLES, tri, p_data.tris.data(), p_data.tris.size() * sizeof(uint32_t));
     if (wide) _stage(ArenaKind::TRI_SLOTS, tri, p_data.tri_slots.data(), p_data.tri_slots.size() * sizeof(uint32_t));
     _stage(ArenaKind::CLUSTER_VERTICES, vertex, p_data.vertices.data(), p_data.vertices.size() * sizeof(ClusterVertex));
+    if (skinned) _stage(ArenaKind::SKIN, skin, p_data.skin.data(), p_data.skin.size() * sizeof(SkinVertex));
 
     sp.tri = tri;
     sp.vertex = vertex;
     sp.cluster = cluster;
+    sp.skin = skin;
     std::vector<Cluster> clusters;
-    std::vector<uint32_t> vbase, cslots, bounds;
-    _page_clusters(tables, p_page, sp, r.group, clusters, vbase, cslots, bounds);
+    std::vector<uint32_t> vbase, cskin, cslots, bounds;
+    _page_clusters(tables, p_page, sp, r.group, clusters, vbase, cskin, cslots, bounds);
     _stage(ArenaKind::CLUSTERS, cluster, clusters.data(), clusters.size() * sizeof(Cluster));
     _stage(ArenaKind::CLUSTER_VERTEX_BASE, cluster, vbase.data(), vbase.size() * sizeof(uint32_t));
+    _stage(ArenaKind::CLUSTER_SKIN_DELTA, cluster, cskin.data(), cskin.size() * sizeof(uint32_t));
     _stage(ArenaKind::CLUSTER_SLOTS, cluster, cslots.data(), cslots.size() * sizeof(uint32_t));
     _stage(ArenaKind::CLUSTER_BOUNDS, cluster, bounds.data(), bounds.size() * sizeof(uint32_t));
     for (uint32_t k = s.page_leaves_first[p_page]; k < s.page_leaves_first[p_page + 1]; k++) {
@@ -1025,7 +1056,7 @@ bool GeometryPool::_page_install(uint32_t p_mesh, uint32_t p_page, const LMeshPa
     _resident_list.push_back(((uint64_t)p_mesh << 32) | p_page);
     s.resident_pages++;
     _stream_resident_pages++;
-    _stream_resident_bytes += _page_gpu_bytes(info, wide);
+    _stream_resident_bytes += _page_gpu_bytes(info, wide, skinned);
     return true;
 }
 
@@ -1035,6 +1066,7 @@ void GeometryPool::_page_evict(uint32_t p_mesh, uint32_t p_page)
     StreamPage& sp = s.pages[p_page];
     const LMeshPage& info = s.source->tables->pages[p_page];
     const bool wide = has_flag((MeshFlags)s.source->flags, MeshFlags::WIDE_SLOTS);
+    const bool skinned = has_flag((MeshFlags)s.source->flags, MeshFlags::SKINNED);
     const MeshRanges& r = mesh_ranges[p_mesh];
 
     const uint32_t absent = PAGE_ABSENT;
@@ -1055,7 +1087,7 @@ void GeometryPool::_page_evict(uint32_t p_mesh, uint32_t p_page)
     sp.state = PageState::ABSENT;
     s.resident_pages--;
     _stream_resident_pages -= std::min(_stream_resident_pages, 1u);
-    _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(info, wide));
+    _stream_resident_bytes -= std::min(_stream_resident_bytes, _page_gpu_bytes(info, wide, skinned));
     stream_stats.evictions++;
 }
 
@@ -1195,7 +1227,7 @@ void GeometryPool::_stream_issue_loads()
         StreamPage& sp = s.pages[w.page];
         if (sp.state != PageState::ABSENT) continue;
         const LMeshPage& info = s.source->tables->pages[w.page];
-        const uint64_t bytes = _page_gpu_bytes(info, has_flag((MeshFlags)s.source->flags, MeshFlags::WIDE_SLOTS));
+        const uint64_t bytes = _page_gpu_bytes(info, has_flag((MeshFlags)s.source->flags, MeshFlags::WIDE_SLOTS), has_flag((MeshFlags)s.source->flags, MeshFlags::SKINNED));
         if (_stream_resident_bytes + _stream_loading_bytes + bytes > stream_budget && !_evict_for(bytes, evictions, candidates, cursor, built)) {
             if (!s.blocked) _blocked.push_back(w.mesh);
             s.blocked = true;

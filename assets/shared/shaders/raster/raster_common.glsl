@@ -27,7 +27,7 @@ vec4 raster_vertex(CameraBuffer p_camera, GeometryBuffer p_geometry, InstanceBuf
     vec3 p = p_geometry.meshes.data[mesh_id].pos_min + vertex_position_unorm(q.xy) * p_geometry.meshes.data[mesh_id].pos_extent;
     if (skin_id != SKIN_NONE) {
         const uint joint_base = p_camera.skins.data[skin_id].joint_base;
-        p = skin_point(skin_blend(p_camera, joint_base, skin_vertex(p_geometry, mesh_id, cluster_vertex), SKIN_CURR), p);
+        p = skin_point(skin_blend(p_camera, joint_base, skin_vertex(p_geometry, p_ref.y, cluster_vertex), SKIN_CURR), p);
     }
     r_uv = p_geometry.meshes.data[mesh_id].uv_min + vertex_uv_unorm(q.zw) * p_geometry.meshes.data[mesh_id].uv_extent;
     const mat4 model = p_transforms.data[transform_id].curr_mtx;

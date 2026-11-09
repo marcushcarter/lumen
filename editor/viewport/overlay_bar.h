@@ -25,6 +25,7 @@ struct OverlayBar
     bool toggle(const char* p_label, bool& p_active, ImVec2 p_size = ImVec2(0, 0));
     bool combo(const char* p_id, const char* p_preview, float p_width);
     bool begin_menu(const char* p_label, ImVec2 p_size = ImVec2(0, 0));
+    bool header_menu(const char* p_label);
     void end_menu();
 
     void gap(float p_w = -1.0f);

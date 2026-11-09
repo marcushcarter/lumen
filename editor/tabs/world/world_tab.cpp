@@ -366,6 +366,7 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
     const bool select = edit_mode == WorldEditMode::SELECTION;
     layout.viewport.allow_pick = select;
     layout.viewport.allow_gizmo = select;
+    layout.viewport.allow_debug_draw = true;
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
 }
 

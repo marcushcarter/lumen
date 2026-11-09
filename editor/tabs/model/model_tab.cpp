@@ -1,4 +1,5 @@
 #include <editor/tabs/model/model_tab.h>
+#include <core/rendering/debug_draw.h>
 #include <core/base/error.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
@@ -20,6 +21,7 @@ Error ModelTab::create(EditorContext& ctx)
     _refresh_title();
 
     _create_layout(ctx, "ModelHost");
+    layout.viewport.debug_lines = [this] { rig_preview.draw_bones(debug_draw()); };
     layout.add_panel<ModelDetailsPanel>()->tab = this;
 
     _create_preview();
@@ -47,6 +49,7 @@ Error ModelTab::save(EditorContext& ctx)
 
 void ModelTab::on_update(EditorContext& ctx, float p_dt)
 {
+    layout.viewport.has_bones = rig_preview.skinned;
     (void)p_dt;
     _draw_layout(ctx);
     _update_orbit();

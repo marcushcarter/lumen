@@ -13,7 +13,7 @@ void PostProcessFeature::_create_composite_pass()
         drivers::DeviceDriverVulkan::ImageCreateInfo ci{};
         ci.name = "DisplayColor";
         ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         if (ctx->frame->output_width && ctx->frame->output_height) {
             ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
             ci.fixed_width = ctx->frame->output_width;

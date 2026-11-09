@@ -14,6 +14,9 @@
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/play/editor_play.h>
+#include <core/rendering/debug_draw.h>
+#include <core/animation/bone_debug.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <IconsFontAwesome6.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
@@ -238,6 +241,10 @@ void Viewport::_draw_image(EditorContext& ctx)
         grid.grid_color = vec4(gc.x, gc.y, gc.z, gc.w);
         grid.axis_x_color = vec4(xc.x, xc.y, xc.z, xc.w);
         grid.axis_z_color = vec4(zc.x, zc.y, zc.z, zc.w);
+
+        const uint32_t debug_mask = _debug_mask(playing);
+        ctx.render_path->lines.mask = debug_mask;
+        _submit_debug_draw(ctx, debug_mask, live);
     }
     const char* vp_image = ctx.render_path ? ctx.render_path->ui.viewport_image(ctx.renderer->main_view.graph) : nullptr;
     RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
@@ -326,7 +333,54 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
         }
         right_overlay.end_menu();
     }
+    if (allow_grid || allow_debug_draw || has_bones) {
+        const bool header = _header_frame == ImGui::GetFrameCount();
+        const bool open = header ? right_overlay.header_menu("View###viewport_view") : right_overlay.begin_menu("View###viewport_view");
+        if (open) {
+            _draw_view_menu();
+            right_overlay.end_menu();
+        }
+    }
     right_overlay.end();
+}
+
+void Viewport::_draw_view_menu()
+{
+    const bool bones = allow_debug_draw || has_bones;
+    if (allow_grid) ImGui::MenuItem("Grid", nullptr, &show_grid);
+    if (allow_grid && (bones || allow_debug_draw)) ImGui::Separator();
+    if (bones) ImGui::MenuItem("Bones", nullptr, &show_bones);
+    if (!allow_debug_draw) return;
+    ImGui::MenuItem("Collision", nullptr, &show_collision);
+    ImGui::MenuItem("Debug Lines", nullptr, &show_debug_lines);
+}
+
+uint32_t Viewport::_debug_mask(bool p_playing) const
+{
+    if (p_playing) return 0;
+    uint32_t mask = 0;
+    if (show_bones && (allow_debug_draw || has_bones)) mask |= (uint32_t)DebugCategory::BONES;
+    if (!allow_debug_draw) return mask;
+    if (show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
+    if (show_collision) mask |= (uint32_t)DebugCategory::COLLISION;
+    return mask;
+}
+
+static void _draw_test_cube()
+{
+    debug_draw().box(translate(mat4(1.0f), vec3(0.0f, 1.0f, 0.0f)), vec3(1.0f), { .color = DebugDraw::YELLOW });
+}
+
+void Viewport::_submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live)
+{
+    if (p_mask == 0) return;
+    if (debug_lines) debug_lines();
+    if (!allow_debug_draw) return;
+    if (p_mask & (uint32_t)DebugCategory::GENERAL) _draw_test_cube();
+    if ((p_mask & (uint32_t)DebugCategory::BONES) && ctx.renderer) {
+        const World* world = p_live ? &play->runtime : ctx.world;
+        if (world) debug_draw_bones(debug_draw(), *world, *ctx.renderer);
+    }
 }
 
 void Viewport::_draw_options(EditorContext& ctx)
@@ -338,7 +392,6 @@ void Viewport::_draw_options(EditorContext& ctx)
     float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
     if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
     ImGui::PopItemWidth();
-    if (allow_grid) ImGui::Checkbox("Grid", &show_grid);
     if (options_controls) options_controls();
     ImGui::Checkbox("Fullscreen", &fullscreen);
 }

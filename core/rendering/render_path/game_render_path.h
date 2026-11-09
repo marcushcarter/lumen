@@ -10,6 +10,7 @@ struct GameRenderPath : SceneRenderPath
 
     void _register_features() override {
         SceneRenderPath::_register_features();
+        features.push_back(&lines);
         features.push_back(&present);
     }
 };

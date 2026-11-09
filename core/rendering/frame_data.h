@@ -1,6 +1,7 @@
 #pragma once
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/world_gpu.h>
+#include <core/rendering/debug_draw.h>
 #include <core/assets/guid.h>
 #include <core/world/world_settings.h>
 #include <core/base/error.h>
@@ -53,6 +54,8 @@ struct FrameData
     float texture_grad_scale = 1.0f;
 
     CameraUniform camera{};
+
+    std::vector<DebugLine> debug_lines;
 
     struct EntityCache {
         mat4 prev_mtx;

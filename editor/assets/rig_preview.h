@@ -9,6 +9,7 @@
 namespace lumen {
 
 struct Camera;
+struct DebugDraw;
 struct EditorContext;
 struct GeometryPool;
 
@@ -19,7 +20,6 @@ struct RigPreview
     LMeshRig rig;
     bool skinned = false;
     Guid skeleton;
-    bool show_bones = true;
     uint32_t missing_joints = 0;
     uint64_t version = 0;
 
@@ -38,8 +38,7 @@ struct RigPreview
     const LSkeleton& skeleton_data() const { return _skeleton; }
     void pose(const JointTransform* p_local);
     void apply(World& r_world, Entity p_entity) const;
-    void draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera, const float* p_weights = nullptr) const;
-    void draw_controls();
+    void draw_bones(DebugDraw& r_draw, const float* p_weights = nullptr) const;
     bool bounds(const GeometryPool& p_geometry, Guid p_mesh, vec3& r_center, float& r_radius) const;
     void _load_skeleton(EditorContext& ctx);
 

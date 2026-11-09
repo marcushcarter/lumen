@@ -23,6 +23,7 @@ struct EditorRenderPath : SceneRenderPath
         ui.viewport_fallback = "DisplayColor";
         features.push_back(&debug);
         features.push_back(&grid);
+        features.push_back(&lines);
         features.push_back(&outline);
         features.push_back(&pick);
         features.push_back(&ui);

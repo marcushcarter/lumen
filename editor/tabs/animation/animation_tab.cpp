@@ -1,4 +1,5 @@
 #include <editor/tabs/animation/animation_tab.h>
+#include <core/rendering/debug_draw.h>
 #include <core/assets/asset_common.h>
 #include <core/io/file_io.h>
 #include <core/project/project.h>
@@ -37,8 +38,8 @@ Error AnimationTab::create(EditorContext& ctx)
     _create_layout(ctx, "AnimationHost");
     layout.add_panel<AnimationDetailsPanel>()->tab = this;
     layout.add_panel<AnimationTimelinePanel>()->tab = this;
-    layout.viewport.overlay = [this](ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size) { rig_preview.draw_bones(p_draw_list, p_pos, p_size, orbit.camera); };
-    layout.viewport.options_controls = [this] { rig_preview.draw_controls(); };
+    layout.viewport.debug_lines = [this] { rig_preview.draw_bones(debug_draw()); };
+    layout.viewport.show_bones = true;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -77,6 +78,7 @@ Error AnimationTab::save(EditorContext& ctx)
 
 void AnimationTab::on_update(EditorContext& ctx, float p_dt)
 {
+    layout.viewport.has_bones = rig_preview.skinned;
     _draw_layout(ctx);
     _update_orbit();
     _poll_clip(ctx, false);

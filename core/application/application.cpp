@@ -1,5 +1,6 @@
 #include <core/application/application.h>
 #include <core/rendering/render_path/render_path.h>
+#include <core/rendering/debug_draw.h>
 #include <core/io/path.h>
 #include <core/version.h>
 #include <imgui.h>
@@ -201,6 +202,8 @@ Error Application::_frame()
     cpu.zone_begin("ImGui Render");
     imgui.render();
     cpu.zone_end();
+
+    debug_draw().consume(renderer.main_view.frame.debug_lines, (float)delta);
 
     cpu.zone_begin("Record");
     err = renderer.record();

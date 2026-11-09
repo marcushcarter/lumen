@@ -1,5 +1,6 @@
 #include <editor/assets/rig_preview.h>
 #include <core/animation/skinning.h>
+#include <core/animation/bone_debug.h>
 #include <core/project/project.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/world/camera.h>
@@ -106,35 +107,18 @@ bool RigPreview::bounds(const GeometryPool& p_geometry, Guid p_mesh, vec3& r_cen
     return true;
 }
 
-void RigPreview::draw_controls()
+void RigPreview::draw_bones(DebugDraw& r_draw, const float* p_weights) const
 {
-    if (!skinned) return;
-    ImGui::Checkbox("Bones", &show_bones);
-}
-
-void RigPreview::draw_bones(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size, const Camera& p_camera, const float* p_weights) const
-{
-    if (!show_bones || _global.empty() || p_size.x < 1.0f || p_size.y < 1.0f) return;
+    if (_global.empty()) return;
 
     const UiStyle& ui = ui_style();
-    const mat4 view_proj = p_camera.proj(p_size.x / p_size.y) * p_camera.view();
-    auto project = [&](const mat4& p_global, ImVec2& r_screen) {
-        const vec4 clip = view_proj * vec4(vec3(p_global[3]), 1.0f);
-        if (clip.w <= p_camera.near_z) return false;
-        r_screen = ImVec2(p_pos.x + (clip.x / clip.w * 0.5f + 0.5f) * p_size.x, p_pos.y + (0.5f - clip.y / clip.w * 0.5f) * p_size.y);
-        return true;
-    };
-
     const ImVec4 off = ImGui::ColorConvertU32ToFloat4(ui.color.text_dim);
     const ImVec4 on = ImGui::ColorConvertU32ToFloat4(ui.color.asset_overlay);
     for (size_t i = 0; i < _global.size(); ++i) {
-        ImVec2 joint;
-        if (!project(_global[i], joint)) continue;
-        const ImU32 color = p_weights ? ImGui::ColorConvertFloat4ToU32(ImLerp(off, on, p_weights[i])) : ui.color.asset_skeleton;
         const int32_t parent = _skeleton.parents[i];
-        ImVec2 from;
-        if (parent != SKELETON_NO_JOINT && project(_global[parent], from)) p_draw_list->AddLine(from, joint, color, ui.bones.bone_thickness);
-        p_draw_list->AddCircleFilled(joint, ui.bones.joint_radius, color);
+        if (parent == SKELETON_NO_JOINT || parent >= (int32_t)_global.size()) continue;
+        const ImU32 color = p_weights ? ImGui::ColorConvertFloat4ToU32(ImLerp(off, on, p_weights[i])) : ui.color.asset_skeleton;
+        debug_draw_bone(r_draw, vec3(_global[parent][3]), vec3(_global[i][3]), color);
     }
 }
 

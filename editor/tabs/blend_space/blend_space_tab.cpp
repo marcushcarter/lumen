@@ -1,4 +1,5 @@
 #include <editor/tabs/blend_space/blend_space_tab.h>
+#include <core/rendering/debug_draw.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <core/world/components.h>
@@ -20,8 +21,8 @@ Error BlendSpaceTab::create(EditorContext& ctx)
 
     _create_layout(ctx, "BlendSpaceHost");
     layout.add_panel<BlendSpaceDetailsPanel>()->tab = this;
-    layout.viewport.overlay = [this](ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size) { rig_preview.draw_bones(p_draw_list, p_pos, p_size, orbit.camera); };
-    layout.viewport.options_controls = [this] { rig_preview.draw_controls(); };
+    layout.viewport.debug_lines = [this] { rig_preview.draw_bones(debug_draw()); };
+    layout.viewport.show_bones = true;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -45,6 +46,7 @@ Error BlendSpaceTab::save(EditorContext& ctx)
 
 void BlendSpaceTab::on_update(EditorContext& ctx, float p_dt)
 {
+    layout.viewport.has_bones = rig_preview.skinned;
     _draw_layout(ctx);
     _update_orbit();
     _sync_preview(ctx);

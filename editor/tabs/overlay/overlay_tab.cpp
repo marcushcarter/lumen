@@ -1,4 +1,5 @@
 #include <editor/tabs/overlay/overlay_tab.h>
+#include <core/rendering/debug_draw.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <core/world/components.h>
@@ -20,11 +21,11 @@ Error OverlayTab::create(EditorContext& ctx)
 
     _create_layout(ctx, "OverlayHost");
     layout.add_panel<OverlayDetailsPanel>()->tab = this;
-    layout.viewport.overlay = [this](ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size) {
+    layout.viewport.debug_lines = [this] {
         const bool weighted = mask.size() == rig_preview.skeleton_data().joint_count();
-        rig_preview.draw_bones(p_draw_list, p_pos, p_size, orbit.camera, weighted ? mask.data() : nullptr);
+        rig_preview.draw_bones(debug_draw(), weighted ? mask.data() : nullptr);
     };
-    layout.viewport.options_controls = [this] { rig_preview.draw_controls(); };
+    layout.viewport.show_bones = true;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -48,6 +49,7 @@ Error OverlayTab::save(EditorContext& ctx)
 
 void OverlayTab::on_update(EditorContext& ctx, float p_dt)
 {
+    layout.viewport.has_bones = rig_preview.skinned;
     _draw_layout(ctx);
     _update_orbit();
     _sync_preview(ctx);

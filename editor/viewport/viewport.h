@@ -36,13 +36,19 @@ struct Viewport
     bool allow_look = false;
     bool allow_grid = true;
     bool allow_asset_drop = true;
+    bool allow_debug_draw = false;
+    bool has_bones = false;
     bool show_grid = true;
+    bool show_bones = false;
+    bool show_collision = true;
+    bool show_debug_lines = true;
     bool fullscreen = false;
     const EditorPlay* play = nullptr;
     std::vector<Entity> _view_selection;
 
     std::function<void(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size)> overlay;
     std::function<void()> options_controls;
+    std::function<void()> debug_lines;
 
     bool looking = false;
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
@@ -58,6 +64,9 @@ struct Viewport
     bool _view_item(const char* p_icon, const char* p_name, int p_id);
     void _draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, float p_margin);
     void _draw_options(EditorContext& ctx);
+    void _draw_view_menu();
+    uint32_t _debug_mask(bool p_playing) const;
+    void _submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live);
     void _draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);

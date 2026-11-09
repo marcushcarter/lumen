@@ -154,6 +154,33 @@ bool OverlayBar::begin_menu(const char* p_label, ImVec2 p_size)
     return open;
 }
 
+bool OverlayBar::header_menu(const char* p_label)
+{
+    const UiStyle& ui = ui_style();
+    const char* end = ImGui::FindRenderedTextEnd(p_label);
+    const float h = ImGui::GetFrameHeight();
+    const float w = ImGui::CalcTextSize(p_label, end).x + ui.header.menu_pad_x * 2.0f;
+    const ImVec2 a(_place(w), row_y);
+    const ImVec2 b(a.x + w, a.y + h);
+
+    ImGui::SetCursorScreenPos(a);
+    const ImGuiID popup_id = ImGui::GetID(p_label);
+    const bool open_now = ImGui::IsPopupOpen(popup_id, ImGuiPopupFlags_None);
+    const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(w, h), ImGuiButtonFlags_PressedOnClick);
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+    if (pressed && !open_now) ImGui::OpenPopupEx(popup_id);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (open_now || hovered) dl->AddRectFilled(a, b, ui.color.header_hover, ui.header.rounding);
+    ui_text_centered(dl, a, b, ui.color.pulldown_text, p_label, end);
+
+    ImGui::SetNextWindowPos(ImVec2(a.x, b.y + ui.menu.popup_offset), ImGuiCond_Always);
+    ui_menu_push_style();
+    const bool open = ImGui::BeginPopupEx(popup_id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    if (!open) ui_menu_pop_style();
+    return open;
+}
+
 void OverlayBar::end_menu()
 {
     ImGui::EndPopup();

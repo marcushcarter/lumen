@@ -12,6 +12,7 @@ namespace lumen {
 
 struct SharedPanels;
 struct DetailsPanel;
+struct TabToolbar;
 
 enum class WorldEditMode : uint8_t { SELECTION, COUNT };
 

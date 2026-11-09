@@ -31,6 +31,11 @@ void serialize(Archive& a, ParentComponent& r_c)
     a.field("parent", r_c.parent);
 }
 
+void serialize(Archive& a, PrefabInstanceComponent& r_c)
+{
+    a.field("prefab", r_c.prefab);
+}
+
 void serialize(Archive& a, EnvironmentSettings& r_c)
 {
     a.field("manual_ev100", r_c.manual_ev100);

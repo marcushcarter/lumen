@@ -1,4 +1,5 @@
 #pragma once
+#include <core/assets/asset_common.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>
 #include <cstdint>
@@ -14,6 +15,8 @@ struct World;
 struct WorldFile
 {
     static constexpr const char* SECTION = "world";
+    static constexpr const char* PREFAB_SECTION = "prefab";
+    static constexpr const char* KEY_ROOT = "root";
     static constexpr const char* KEY_ENVIRONMENT = "environment";
     static constexpr const char* KEY_LEGACY_FOLDERS = "folders";
     static constexpr const char* KEY_LEGACY_FOLDER = "folder";
@@ -22,6 +25,8 @@ struct WorldFile
     static constexpr const char* KEY_TAGS = "tags";
 
     Guid guid;
+    Guid root;
+    AssetType type = AssetType::WORLD;
 
     static Error read(const std::filesystem::path& p_path, World& r_world, bool p_editor, WorldFile& r_file);
     static Error write(const std::filesystem::path& p_path, World& r_world, const WorldFile& p_file);

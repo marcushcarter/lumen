@@ -2,9 +2,10 @@
 #include <core/assets/asset_common.h>
 #include <core/base/hash.h>
 #include <core/io/file_io.h>
-#include <core/world/archive.h>
+#include <core/world/toml_archive.h>
 #include <core/world/component_serialize.h>
 #include <core/world/world.h>
+#include <core/world/prefab.h>
 #include <toml++/toml.hpp>
 #include <algorithm>
 #include <unordered_map>
@@ -15,106 +16,6 @@
 #include <sstream>
 
 namespace lumen {
-
-/*****************/
-/**** WRITING ****/
-/*****************/
-
-struct TomlWriter : Archive
-{
-    toml::table& table;
-
-    explicit TomlWriter(toml::table& r_table) : table(r_table) {}
-
-    void field(const char* p_key, bool& r_value) override { table.insert_or_assign(p_key, r_value); }
-    void field(const char* p_key, int32_t& r_value) override { table.insert_or_assign(p_key, (int64_t)r_value); }
-    void field(const char* p_key, uint32_t& r_value) override { table.insert_or_assign(p_key, (int64_t)r_value); }
-    void field(const char* p_key, float& r_value) override { table.insert_or_assign(p_key, (double)r_value); }
-    void field(const char* p_key, vec2& r_value) override { table.insert_or_assign(p_key, toml::array{ (double)r_value.x, (double)r_value.y }); }
-    void field(const char* p_key, vec3& r_value) override { table.insert_or_assign(p_key, toml::array{ (double)r_value.x, (double)r_value.y, (double)r_value.z }); }
-    void field(const char* p_key, vec4& r_value) override { table.insert_or_assign(p_key, toml::array{ (double)r_value.x, (double)r_value.y, (double)r_value.z, (double)r_value.w }); }
-    void field(const char* p_key, uvec3& r_value) override { table.insert_or_assign(p_key, toml::array{ (int64_t)r_value.x, (int64_t)r_value.y, (int64_t)r_value.z }); }
-    void field(const char* p_key, quat& r_value) override { table.insert_or_assign(p_key, toml::array{ (double)r_value.x, (double)r_value.y, (double)r_value.z, (double)r_value.w }); }
-    void field(const char* p_key, Guid& r_value) override { table.insert_or_assign(p_key, r_value.valid() ? r_value.to_string() : std::string{}); }
-    void field(const char* p_key, std::string& r_value) override { table.insert_or_assign(p_key, r_value); }
-    void field(const char* p_key, char* r_text, size_t p_capacity) override { table.insert_or_assign(p_key, std::string(r_text, strnlen(r_text, p_capacity))); }
-};
-
-/*****************/
-/**** READING ****/
-/*****************/
-
-struct TomlReader : Archive
-{
-    const toml::table& table;
-
-    explicit TomlReader(const toml::table& p_table) : table(p_table) { loading = true; }
-
-    template <typename T>
-    void _number(const char* p_key, T& r_value)
-    {
-        if (const toml::node* n = table.get(p_key)) {
-            if (n->is_integer()) r_value = (T)n->as_integer()->get();
-            else if (n->is_floating_point()) r_value = (T)n->as_floating_point()->get();
-        }
-    }
-
-    template <int N>
-    bool _floats(const char* p_key, float (&r_out)[N])
-    {
-        const toml::array* list = table.get_as<toml::array>(p_key);
-        if (!list || list->size() != N) return false;
-        for (int i = 0; i < N; i++) {
-            const toml::node& n = (*list)[i];
-            if (n.is_floating_point()) r_out[i] = (float)n.as_floating_point()->get();
-            else if (n.is_integer()) r_out[i] = (float)n.as_integer()->get();
-            else return false;
-        }
-        return true;
-    }
-
-    void field(const char* p_key, bool& r_value) override { if (const toml::value<bool>* v = table.get_as<bool>(p_key)) r_value = v->get(); }
-    void field(const char* p_key, int32_t& r_value) override { _number(p_key, r_value); }
-    void field(const char* p_key, uint32_t& r_value) override { _number(p_key, r_value); }
-    void field(const char* p_key, float& r_value) override { _number(p_key, r_value); }
-    void field(const char* p_key, vec2& r_value) override { float f[2]; if (_floats(p_key, f)) r_value = vec2(f[0], f[1]); }
-    void field(const char* p_key, vec3& r_value) override { float f[3]; if (_floats(p_key, f)) r_value = vec3(f[0], f[1], f[2]); }
-    void field(const char* p_key, vec4& r_value) override { float f[4]; if (_floats(p_key, f)) r_value = vec4(f[0], f[1], f[2], f[3]); }
-    void field(const char* p_key, uvec3& r_value) override { float f[3]; if (_floats(p_key, f)) r_value = uvec3((uint32_t)f[0], (uint32_t)f[1], (uint32_t)f[2]); }
-    void field(const char* p_key, quat& r_value) override { float f[4]; if (_floats(p_key, f)) r_value = normalize(quat(f[3], f[0], f[1], f[2])); }
-    void field(const char* p_key, Guid& r_value) override { if (const toml::value<std::string>* v = table.get_as<std::string>(p_key)) r_value = Guid::from_string(v->get()); }
-    void field(const char* p_key, std::string& r_value) override { if (const toml::value<std::string>* v = table.get_as<std::string>(p_key)) r_value = v->get(); }
-    void field(const char* p_key, char* r_text, size_t p_capacity) override
-    {
-        if (const toml::value<std::string>* v = table.get_as<std::string>(p_key)) std::snprintf(r_text, p_capacity, "%s", v->get().c_str());
-    }
-};
-
-/*****************/
-/**** HASHING ****/
-/*****************/
-
-struct HashWriter : Archive
-{
-    uint64_t hash = HASH_FNV_OFFSET;
-
-    void _key(const char* p_key) { hash = hash_fnv(p_key, hash); }
-    void _value(uint64_t p_value) { hash = hash_fnv_step(hash, p_value); }
-    void _float(float p_value) { _value(std::bit_cast<uint32_t>(p_value)); }
-
-    void field(const char* p_key, bool& r_value) override { _key(p_key); _value(r_value); }
-    void field(const char* p_key, int32_t& r_value) override { _key(p_key); _value((uint32_t)r_value); }
-    void field(const char* p_key, uint32_t& r_value) override { _key(p_key); _value(r_value); }
-    void field(const char* p_key, float& r_value) override { _key(p_key); _float(r_value); }
-    void field(const char* p_key, vec2& r_value) override { _key(p_key); _float(r_value.x); _float(r_value.y); }
-    void field(const char* p_key, vec3& r_value) override { _key(p_key); _float(r_value.x); _float(r_value.y); _float(r_value.z); }
-    void field(const char* p_key, vec4& r_value) override { _key(p_key); _float(r_value.x); _float(r_value.y); _float(r_value.z); _float(r_value.w); }
-    void field(const char* p_key, uvec3& r_value) override { _key(p_key); _value(r_value.x); _value(r_value.y); _value(r_value.z); }
-    void field(const char* p_key, quat& r_value) override { _key(p_key); _float(r_value.x); _float(r_value.y); _float(r_value.z); _float(r_value.w); }
-    void field(const char* p_key, Guid& r_value) override { _key(p_key); _value(r_value.value); }
-    void field(const char* p_key, std::string& r_value) override { _key(p_key); hash = hash_fnv(r_value, hash); }
-    void field(const char* p_key, char* r_text, size_t p_capacity) override { _key(p_key); hash = hash_fnv(std::string_view(r_text, strnlen(r_text, p_capacity)), hash); }
-};
 
 /****************/
 /**** SHARED ****/
@@ -185,11 +86,38 @@ static void _write_entity(World& r_world, Entity p_entity, toml::table& r_table)
 
 static bool _tagged(const toml::array* p_tags, const char* p_key)
 {
-    if (!p_tags) return false;
-    for (const toml::node& tag : *p_tags) {
-        if (tag.value<std::string>() == p_key) return true;
+    return toml_has_string(p_tags, p_key);
+}
+
+static Prefab* _instance_prefab(const World& p_world, Entity p_entity)
+{
+    if (p_world.has<PrefabPartComponent>(p_entity)) return nullptr;
+    const PrefabInstanceComponent* instance = p_world.try_get<PrefabInstanceComponent>(p_entity);
+    return instance ? prefab_library().get(instance->prefab) : nullptr;
+}
+
+static bool _skip_part(const World& p_world, Entity p_entity)
+{
+    const PrefabPartComponent* part = p_world.try_get<PrefabPartComponent>(p_entity);
+    if (!part) return false;
+    const Entity root = p_world.find(part->instance);
+    return root != ENTITY_NULL && _instance_prefab(p_world, root) != nullptr;
+}
+
+static void _write_instance(World& r_world, Entity p_entity, Prefab& r_prefab, toml::table& r_table)
+{
+    r_table.insert_or_assign(WorldFile::KEY_GUID, r_world.try_get<EntityIdComponent>(p_entity)->guid.to_string());
+    toml::array tags;
+    for (const ComponentInfo& info : r_world.components) {
+        if (!info.key || !prefab_owned(info) || !info.has(r_world, p_entity)) continue;
+        toml::table c;
+        TomlWriter writer(c);
+        info.serialize(r_world, p_entity, writer);
+        if (c.empty()) tags.push_back(std::string(info.key));
+        else r_table.insert_or_assign(info.key, std::move(c));
     }
-    return false;
+    if (!tags.empty()) r_table.insert_or_assign(WorldFile::KEY_TAGS, std::move(tags));
+    prefab_capture(r_world, p_entity, r_prefab, r_table);
 }
 
 static void _read_entity(World& r_world, Entity p_entity, const toml::table& p_table, bool p_editor)
@@ -240,19 +168,26 @@ static bool _parse(std::string_view p_text, toml::table& r_table, const char* p_
 
 std::string WorldFile::write_text(World& r_world, const WorldFile& p_file)
 {
+    const bool prefab = p_file.type == AssetType::PREFAB;
     toml::table section;
 
-    toml::table environment;
-    TomlWriter env_writer(environment);
-    serialize(env_writer, r_world.environment);
-    section.insert_or_assign(KEY_ENVIRONMENT, std::move(environment));
+    if (!prefab) {
+        toml::table environment;
+        TomlWriter env_writer(environment);
+        serialize(env_writer, r_world.environment);
+        section.insert_or_assign(KEY_ENVIRONMENT, std::move(environment));
+    } else if (p_file.root.valid()) {
+        section.insert_or_assign(KEY_ROOT, p_file.root.to_string());
+    }
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);
     toml::array list;
     for (Entity e : entities) {
+        if (_skip_part(r_world, e)) continue;
         toml::table t;
-        _write_entity(r_world, e, t);
+        if (Prefab* instance = _instance_prefab(r_world, e)) _write_instance(r_world, e, *instance, t);
+        else _write_entity(r_world, e, t);
         list.push_back(std::move(t));
     }
     section.insert_or_assign(KEY_ENTITIES, std::move(list));
@@ -261,8 +196,8 @@ std::string WorldFile::write_text(World& r_world, const WorldFile& p_file)
         { "asset", toml::table{
             { "version", static_cast<int64_t>(LASSET_VERSION) },
             { "guid", p_file.guid.valid() ? p_file.guid.to_string() : std::string{} },
-            { "type", static_cast<int64_t>(AssetType::WORLD) } }},
-        { std::string(SECTION), std::move(section) },
+            { "type", static_cast<int64_t>(prefab ? AssetType::PREFAB : AssetType::WORLD) } }},
+        { std::string(prefab ? PREFAB_SECTION : SECTION), std::move(section) },
     };
     return _text(tbl);
 }
@@ -278,12 +213,15 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
     toml::table tbl;
     if (!_parse(p_text, tbl, "a world")) return FAILED;
     auto asset = tbl["asset"];
-    if (asset_type_from_u32((uint32_t)asset["type"].value_or<int64_t>(0)) != AssetType::WORLD) return FAILED;
+    const AssetType type = asset_type_from_u32((uint32_t)asset["type"].value_or<int64_t>(0));
+    if (type != AssetType::WORLD && type != AssetType::PREFAB) return FAILED;
 
     r_file = WorldFile{};
+    r_file.type = type;
     r_file.guid = Guid::from_string(asset["guid"].value_or(std::string{}));
-    const toml::table* section = tbl[SECTION].as_table();
+    const toml::table* section = tbl[type == AssetType::PREFAB ? PREFAB_SECTION : SECTION].as_table();
     if (!section) return OK;
+    r_file.root = Guid::from_string(section->get_as<std::string>(KEY_ROOT) ? section->get_as<std::string>(KEY_ROOT)->get() : std::string{});
 
     if (const toml::table* environment = section->get_as<toml::table>(KEY_ENVIRONMENT)) {
         TomlReader reader(*environment);
@@ -296,6 +234,7 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
     const toml::array* list = section->get_as<toml::array>(KEY_ENTITIES);
     if (!list) return OK;
     uint32_t renamed = 0;
+    std::vector<std::pair<Entity, const toml::table*>> instances;
     for (const toml::node& n : *list) {
         const toml::table* t = n.as_table();
         if (!t) continue;
@@ -306,10 +245,15 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
         }
         const Entity e = r_world.create_persistent(guid);
         _read_entity(r_world, e, *t, p_editor);
+        if (r_world.has<PrefabInstanceComponent>(e)) instances.emplace_back(e, t);
         if (const toml::table* old = t->get_as<toml::table>(KEY_LEGACY_FOLDER); old && !r_world.has<ParentComponent>(e)) {
             auto folder = legacy.find((*old)["folder"].value_or<int64_t>(-1));
             if (folder != legacy.end()) r_world.add<ParentComponent>(e, { folder->second.guid });
         }
+    }
+    for (const auto& [e, t] : instances) {
+        Prefab* prefab = prefab_library().get(r_world.try_get<PrefabInstanceComponent>(e)->prefab);
+        if (prefab) prefab_build(r_world, e, *prefab, t, p_editor);
     }
     if (!legacy.empty()) log_write("World File: converted %zu folders into folder entities.", legacy.size());
     if (renamed) log_write("World File: %u entities had a missing or duplicate guid and got a new one.", renamed);
@@ -335,7 +279,23 @@ uint64_t WorldFile::hash(World& r_world)
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);
-    for (Entity e : entities) _hash_entity(r_world, e, writer);
+    for (Entity e : entities) {
+        if (_skip_part(r_world, e)) continue;
+        Prefab* prefab = _instance_prefab(r_world, e);
+        if (!prefab) {
+            _hash_entity(r_world, e, writer);
+            continue;
+        }
+        writer._value(r_world.try_get<EntityIdComponent>(e)->guid.value);
+        for (const ComponentInfo& info : r_world.components) {
+            if (!info.key || !prefab_owned(info) || !info.has(r_world, e)) continue;
+            writer._key(info.key);
+            info.serialize(r_world, e, writer);
+        }
+        toml::table capture;
+        prefab_capture(r_world, e, *prefab, capture);
+        if (!capture.empty()) writer.hash = hash_fnv(_text(capture), writer.hash);
+    }
     return writer.hash;
 }
 

@@ -12,6 +12,7 @@
 #include <editor/tabs/model/model_tab.h>
 #include <editor/tabs/overlay/overlay_tab.h>
 #include <editor/tabs/terrain/terrain_tab.h>
+#include <editor/tabs/prefab/prefab_tab.h>
 #include <editor/tabs/texture/texture_tab.h>
 #include <editor/tabs/world/world_tab.h>
 #include <editor/tabs/tab_manager.h>
@@ -38,6 +39,7 @@ const char* AssetBrowser::icon_for(const std::filesystem::path& p_path, bool p_i
     if (ext == ".loverlay") return OverlayTab::ICON;
     if (ext == ".lworld") return ICON_FA_EARTH_AMERICAS;
     if (ext == ".lterrain") return TerrainTab::ICON;
+    if (ext == ".lprefab") return PrefabTab::ICON;
     return ICON_FA_FILE;
 }
 
@@ -54,6 +56,7 @@ std::string AssetBrowser::type_name(std::string p_ext)
     if (p_ext == ".loverlay") return "Overlay";
     if (p_ext == ".lworld") return "World";
     if (p_ext == ".lterrain") return "Terrain";
+    if (p_ext == ".lprefab") return "Prefab";
     if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
     for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
     return p_ext;
@@ -323,6 +326,7 @@ bool AssetBrowser::open_entry(EditorContext& ctx, const std::filesystem::path& p
         case AssetType::ANIMATION: ctx.tabs->open<AnimationTab>(info.guid)->path = p_path; break;
         case AssetType::BLEND_SPACE: ctx.tabs->open<BlendSpaceTab>(info.guid)->path = p_path; break;
         case AssetType::TERRAIN: ctx.tabs->open<TerrainTab>(info.guid)->path = p_path; break;
+        case AssetType::PREFAB: ctx.tabs->open<PrefabTab>(info.guid)->path = p_path; break;
         case AssetType::OVERLAY: ctx.tabs->open<OverlayTab>(info.guid)->path = p_path; break;
         case AssetType::MATERIAL: ctx.tabs->open<MaterialTab>(info.guid)->path = p_path; break;
         case AssetType::TEXTURE: ctx.tabs->open<TextureTab>(info.guid)->path = p_path; break;

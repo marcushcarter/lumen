@@ -7,7 +7,7 @@ namespace lumen {
 
 struct AssetManager : AssetBrowser
 {
-    enum class NewAsset : uint8_t { WORLD, TERRAIN, MODEL, MATERIAL, BLEND_SPACE, OVERLAY, COUNT };
+    enum class NewAsset : uint8_t { WORLD, PREFAB, TERRAIN, MODEL, MATERIAL, BLEND_SPACE, OVERLAY, COUNT };
 
     float split_x = 0.18f;
     float split_files = 0.3f;

@@ -425,10 +425,11 @@ void ui_category_flush()
     }
 }
 
-bool ui_category(const char* p_label, bool* r_remove)
+bool ui_category(const char* p_label, bool* r_remove, bool* r_revert)
 {
     ui_category_flush();
     if (r_remove) *r_remove = false;
+    if (r_revert) *r_revert = false;
     const UiStyle& ui = ui_style();
     const UiStyle::Details& d = ui.details;
     const UiStyle::PanelBox& pb = ui.panel_box;
@@ -445,6 +446,8 @@ bool ui_category(const char* p_label, bool* r_remove)
     const float button = ImGui::GetFrameHeight();
     const float grip_w = pb.grip_spacing * 4.0f + ui.space.md;
     const float button_x = max_x - grip_w - button;
+    const float revert_x = r_remove ? button_x - button : button_x;
+    const float buttons_x = r_revert ? revert_x : button_x;
 
     ImGui::PushID(p_label);
     ImGuiStorage* storage = ImGui::GetStateStorage();
@@ -453,7 +456,7 @@ bool ui_category(const char* p_label, bool* r_remove)
 
     const ImVec2 mouse = ImGui::GetMousePos();
     const bool in_row = ImGui::IsWindowHovered() && mouse.x >= min_x && mouse.x < max_x && mouse.y >= y0 && mouse.y < y1;
-    const bool hovered = in_row && !(r_remove && mouse.x >= button_x && mouse.x < button_x + button);
+    const bool hovered = in_row && !((r_remove || r_revert) && mouse.x >= buttons_x && mouse.x < button_x + button);
 
     const ImRect& clip = window->InnerClipRect;
     dl->PushClipRect(ImMax(ImVec2(min_x, y0), clip.Min), ImMin(ImVec2(max_x, y1), clip.Max), true);
@@ -462,7 +465,8 @@ bool ui_category(const char* p_label, bool* r_remove)
     const float chev = ImFloor(ImGui::GetFontSize() * 0.5f);
     ui_chevron(dl, ImVec2(ImFloor(min_x + d.arrow_x + chev * 0.5f) + 0.5f, cy + 0.5f), chev, open ? ImGuiDir_Down : ImGuiDir_Right, ui.color.text, ui.stroke.thin);
     const float text_y = ImFloor(y0 + (h - ImGui::GetFontSize()) * 0.5f);
-    dl->AddText(ImVec2(min_x + d.header_indent, text_y), ui.color.text, p_label, ImGui::FindRenderedTextEnd(p_label));
+    dl->AddText(ImVec2(min_x + d.header_indent, text_y), r_revert ? ui.color.accent : ui.color.text, p_label, ImGui::FindRenderedTextEnd(p_label));
+    if (r_revert) dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(min_x + ui.space.xxs * 2.0f, y1), ui.color.accent, pb.rounding, ImDrawFlags_RoundCornersLeft);
     _panel_grip(dl, ImVec2(max_x - ui.space.md, cy), ui_hex(0x6b6b6bff));
     dl->PopClipRect();
 
@@ -476,9 +480,17 @@ bool ui_category(const char* p_label, bool* r_remove)
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove component");
     }
+    if (r_revert) {
+        ImGui::SetCursorScreenPos(ImVec2(revert_x, y0 + (h - button) * 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
+        ImGui::PushStyleColor(ImGuiCol_Border, ui.color.transparent);
+        *r_revert = ImGui::Button(ICON_FA_ROTATE_LEFT "##revert", ImVec2(button, button));
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the prefab's value");
+    }
 
     ImGui::SetCursorScreenPos(ImVec2(min_x, y0));
-    if (ImGui::InvisibleButton("##header", ImVec2((r_remove ? button_x : max_x) - min_x, h))) {
+    if (ImGui::InvisibleButton("##header", ImVec2((r_remove || r_revert ? buttons_x : max_x) - min_x, h))) {
         open = !open;
         storage->SetBool(open_id, open);
     }

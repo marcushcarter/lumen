@@ -9,9 +9,11 @@
 #include <core/rendering/features/post/post_process_feature.h>
 #include <core/world/world.h>
 #include <core/world/components.h>
+#include <core/world/prefab.h>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
+#include <editor/tabs/prefab/prefab_tab.h>
 #include <editor/play/editor_play.h>
 #include <core/rendering/debug_draw.h>
 #include <core/animation/bone_debug.h>
@@ -197,11 +199,12 @@ void Viewport::_draw_image(EditorContext& ctx)
     uint32_t picked = PickFeature::NONE;
     if (allow_pick && ctx.render_path && ctx.world && ctx.selection && ctx.render_path->pick.take_result(picked)) {
         World& world = *ctx.world;
+        Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
+        const Entity root = prefab_root_of(world, e);
+        const Entity primary = ctx.selection->primary();
+        if (root != ENTITY_NULL && primary != e && primary != root && prefab_root_of(world, primary) != root) e = root;
         ctx.selection->clear();
-        if (picked != PickFeature::NONE) {
-            const Entity e = live ? play->to_authored(picked) : world.entity_at(picked);
-            if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
-        }
+        if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
     }
     if (ctx.render_path) ctx.render_path->outline.enabled = outline_on;
     if (outline_on && ctx.render_path && ctx.selection) {
@@ -261,7 +264,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         const bool image_hovered = ImGui::IsItemHovered();
         const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
         const bool gizmo_hot = !playing && allow_gizmo && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
-        pick_click = allow_pick && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
+        pick_click = allow_pick && !allow_look && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
         look_click = allow_look && !gizmo_hot && image_clicked;
         look_hover = allow_look && image_hovered;
         if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
@@ -283,6 +286,9 @@ void Viewport::_draw_image(EditorContext& ctx)
     }
     look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
     _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));
+    if (allow_pick && allow_look && look_clicked && !playing && ctx.render_path && size.x > 0.0f && size.y > 0.0f) {
+        ctx.render_path->pick.request((look_click_pos.x - pos.x) / size.x, 1.0f - (look_click_pos.y - pos.y) / size.y);
+    }
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)selected_view;
@@ -438,8 +444,10 @@ void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (!ImGui::BeginDragDropTargetCustom(ImRect(p_pos, ImVec2(p_pos.x + p_size.x, p_pos.y + p_size.y)), ImGui::GetID("##asset_drop"))) return;
     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
         const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
-        if (asset.type == AssetType::MODEL && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-            editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, asset.guid);
+        const bool prefab_ok = asset.type == AssetType::PREFAB && !ctx.prefab_tab;
+        if ((asset.type == AssetType::MODEL || prefab_ok) && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
+            if (asset.type == AssetType::MODEL) editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, asset.guid);
+            else editor_spawn_prefab(ctx, asset.guid, ENTITY_NULL);
         }
     }
     ImGui::EndDragDropTarget();

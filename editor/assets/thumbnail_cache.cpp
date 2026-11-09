@@ -8,6 +8,8 @@
 #include <core/base/hash.h>
 #include <core/rendering/renderer.h>
 #include <core/assets/lmesh.h>
+#include <core/world/prefab.h>
+#include <cfloat>
 #include <core/assets/lskeleton.h>
 #include <editor/ui/ui_style.h>
 #include <cfloat>
@@ -103,6 +105,7 @@ void ThumbnailCache::close(EditorContext& ctx)
         if (ctx.renderer) ctx.renderer->view_destroy(render_view);
         world.shutdown();
         entity = ENTITY_NULL;
+        extras.clear();
     }
 }
 
@@ -475,6 +478,29 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
                 if (m->materials[i].valid()) add_material(m->materials[i]);
             }
         } break;
+        case AssetType::PREFAB: {
+            const uint64_t stamp = _stamp(_asset_file(ctx, p_guid));
+            if (stamp == STAMP_MISSING) return false;
+            Prefab* prefab = prefab_library().get(p_guid);
+            if (!prefab) return false;
+            key = _mix(key, stamp);
+            prefab->world.view<ModelComponent>([&](Entity p_entity, const ModelComponent& p_model) {
+                if (r_job.pieces.size() >= MAX_PREFAB_PIECES) return;
+                uint64_t model_stamp = STAMP_MISSING;
+                const LModel* m = _parsed_model(ctx, p_model.model, model_stamp);
+                if (!m || !m->mesh.valid()) return;
+                key = _mix(_mix(_mix(_mix(key, p_model.model.value), model_stamp), m->mesh.value), _stamp(_content_file(ctx, m->mesh)));
+                r_job.pieces.push_back({ p_model.model, m->mesh, prefab->world.world_matrix(p_entity) });
+                for (const Guid material : m->materials) {
+                    if (!material.valid()) continue;
+                    add_material(material);
+                    if (std::find(r_job.materials.begin(), r_job.materials.end(), material) == r_job.materials.end()) r_job.materials.push_back(material);
+                }
+            });
+            if (r_job.pieces.empty()) return false;
+            r_job.model = r_job.pieces.front().model;
+            r_job.mesh = r_job.pieces.front().mesh;
+        } break;
         case AssetType::SKELETON: {
             const uint64_t stamp = _stamp(_content_file(ctx, p_guid));
             if (stamp == STAMP_MISSING) return false;
@@ -588,18 +614,29 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
     Renderer& r = *ctx.renderer;
 
     if (p_job.type == AssetType::SKELETON) return READY;
-    if (p_job.mesh == BuiltinMeshes::SPHERE) {
-        if (!BuiltinMeshes::ensure_sphere()) return FAIL;
-        r.geometry.load(BuiltinMeshes::SPHERE, BuiltinMeshes::sphere_bin());
-    } else if (!r.geometry.get(r.geometry.find(p_job.mesh))) {
-        const std::filesystem::path bin = _content_file(ctx, p_job.mesh);
-        if (_stamp(bin) == STAMP_MISSING) return FAIL;
-        r.geometry.load(p_job.mesh, bin);
+    std::vector<Guid> meshes{ p_job.mesh };
+    std::vector<Guid> model_list;
+    if (p_job.type == AssetType::MODEL) model_list.push_back(p_job.model);
+    for (const Piece& piece : p_job.pieces) {
+        if (std::find(meshes.begin(), meshes.end(), piece.mesh) == meshes.end()) meshes.push_back(piece.mesh);
+        if (std::find(model_list.begin(), model_list.end(), piece.model) == model_list.end()) model_list.push_back(piece.model);
     }
-    const uint32_t mesh_id = r.geometry.find(p_job.mesh);
-    if (!r.geometry.get(mesh_id)) return FAIL;
-    r.geometry.require(mesh_id);
-    if (!r.geometry.settled(mesh_id)) return WAIT;
+    bool settling = false;
+    for (const Guid mesh : meshes) {
+        if (mesh == BuiltinMeshes::SPHERE) {
+            if (!BuiltinMeshes::ensure_sphere()) return FAIL;
+            r.geometry.load(BuiltinMeshes::SPHERE, BuiltinMeshes::sphere_bin());
+        } else if (!r.geometry.get(r.geometry.find(mesh))) {
+            const std::filesystem::path bin = _content_file(ctx, mesh);
+            if (_stamp(bin) == STAMP_MISSING) return FAIL;
+            r.geometry.load(mesh, bin);
+        }
+        const uint32_t mesh_id = r.geometry.find(mesh);
+        if (!r.geometry.get(mesh_id)) return FAIL;
+        r.geometry.require(mesh_id);
+        settling = settling || !r.geometry.settled(mesh_id);
+    }
+    if (settling) return WAIT;
 
     for (Guid t : p_job.textures) {
         if (r.textures.get(t)) continue;
@@ -621,16 +658,17 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
         if (cached->second.material != parsed->second.material) return WAIT;
     }
 
-    if (p_job.type == AssetType::MODEL) {
-        auto parsed = models.find(p_job.model);
-        if (parsed == models.end() || parsed->second.model.guid != p_job.model) return FAIL;
-        const ModelCache::Entry* cached = r.models.get(p_job.model);
+    bool loading = false;
+    for (const Guid model : model_list) {
+        auto parsed = models.find(model);
+        if (parsed == models.end() || parsed->second.model.guid != model) return FAIL;
+        const ModelCache::Entry* cached = r.models.get(model);
         if (!cached || cached->mesh != parsed->second.model.mesh || cached->materials != parsed->second.model.materials) {
-            r.models.load(_asset_file(ctx, p_job.model));
-            return WAIT;
+            r.models.load(_asset_file(ctx, model));
+            loading = true;
         }
     }
-    return READY;
+    return loading ? WAIT : READY;
 }
 
 /****************/
@@ -641,7 +679,7 @@ VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_typ
 {
     if (!p_guid.valid() || !ctx.renderer) return VK_NULL_HANDLE;
     if (p_type == AssetType::TEXTURE) return _texture_view(ctx, p_guid);
-    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON && p_type != AssetType::ANIMATION && p_type != AssetType::OVERLAY) return VK_NULL_HANDLE;
+    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON && p_type != AssetType::ANIMATION && p_type != AssetType::OVERLAY && p_type != AssetType::PREFAB) return VK_NULL_HANDLE;
     Entry& e = entries[p_guid];
     if (e.type != p_type) {
         e.type = p_type;
@@ -717,14 +755,15 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         }
         if (_ensure_view(ctx) != Error::OK) return;
 
+        const bool prefab = next.type == AssetType::PREFAB;
         rig.invalidate();
-        rig.refresh(ctx, next.mesh, false);
+        rig.refresh(ctx, prefab ? Guid{} : next.mesh, false);
         if (next.type == AssetType::ANIMATION) _pose_animation(next.guid);
         if (next.type == AssetType::OVERLAY) _pose_overlay(ctx, next.guid);
         rig.apply(world, entity);
         vec3 center(0.0f);
         float bounds_radius = 0.0f;
-        const bool has_mesh = rig.bounds(r.geometry, next.mesh, center, bounds_radius);
+        const bool has_mesh = prefab ? _prefab_bounds(ctx, next, center, bounds_radius) : rig.bounds(r.geometry, next.mesh, center, bounds_radius);
         if (next.type == AssetType::SKELETON) {
             if (!_skeleton_bones(ctx, next, center, bounds_radius)) continue;
         } else if (!has_mesh) {
@@ -742,15 +781,55 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         next.camera.near_z = std::max(distance - radius * 1.5f, distance * 0.01f);
         next.camera.far_z = distance + radius * 2.0f;
 
-        if (next.type != AssetType::MODEL) r.models.set(next.model, next.mesh, next.materials);
+        if (next.type != AssetType::MODEL && !prefab) r.models.set(next.model, next.mesh, next.materials);
         if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && mc->model != next.model) {
             mc->model = next.model;
             world.touch(entity);
         }
+        _place_prefab(next);
         next.state = JobState::PREPARED;
         next.frame = r.frame_number;
         job = std::move(next);
         return;
+    }
+}
+
+bool ThumbnailCache::_prefab_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const
+{
+    const GeometryPool& geometry = ctx.renderer->geometry;
+    vec3 lo(FLT_MAX);
+    vec3 hi(-FLT_MAX);
+    bool any = false;
+    for (const Piece& piece : p_job.pieces) {
+        const LMesh* mesh = geometry.get(geometry.find(piece.mesh));
+        if (!mesh) continue;
+        const mat4& m = piece.matrix;
+        const float s = std::max(length(vec3(m[0])), std::max(length(vec3(m[1])), length(vec3(m[2]))));
+        const vec3 c = vec3(m * vec4(vec3(mesh->bounds_sphere), 1.0f));
+        const vec3 r(mesh->bounds_sphere.w * s);
+        lo = min(lo, c - r);
+        hi = max(hi, c + r);
+        any = true;
+    }
+    if (!any) return false;
+    r_center = (lo + hi) * 0.5f;
+    r_radius = length(hi - lo) * 0.5f;
+    return true;
+}
+
+void ThumbnailCache::_place_prefab(const Job& p_job)
+{
+    for (const Entity e : extras) world.destroy(e);
+    extras.clear();
+    TransformComponent* xf = world.try_get<TransformComponent>(entity);
+    if (!xf) return;
+    *xf = p_job.pieces.empty() ? TransformComponent{} : transform_from_matrix(p_job.pieces.front().matrix);
+    world.touch(entity);
+    for (size_t i = 1; i < p_job.pieces.size(); ++i) {
+        const Entity e = world.create();
+        world.add<TransformComponent>(e, transform_from_matrix(p_job.pieces[i].matrix));
+        world.add<ModelComponent>(e, { p_job.pieces[i].model });
+        extras.push_back(e);
     }
 }
 

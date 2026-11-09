@@ -5,6 +5,8 @@
 #include <core/assets/loverlay.h>
 #include <core/assets/lterrain.h>
 #include <core/assets/lworld.h>
+#include <core/world/world_file.h>
+#include <core/world/world.h>
 #include <core/base/error.h>
 #include <core/io/file_io.h>
 #include <core/io/path.h>
@@ -37,6 +39,7 @@ struct NewAssetDesc {
 
 static const NewAssetDesc NEW_ASSETS[] = {
     { ICON_FA_EARTH_AMERICAS, "World", "New World", ".lworld" },
+    { ICON_FA_BOX, "Prefab", "New Prefab", ".lprefab" },
     { ICON_FA_MOUNTAIN_SUN, "Terrain", "New Terrain", ".lterrain" },
     { ICON_FA_CUBES, "Model", "New Model", ".lmodel" },
     { ICON_FA_PALETTE, "Material", "New Material", ".lmaterial" },
@@ -56,7 +59,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".loverlay" || ext == ".lworld";
+    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".loverlay" || ext == ".lworld" || ext == ".lprefab";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -511,6 +514,20 @@ void AssetManager::_create_asset(EditorContext& ctx, NewAsset p_kind)
     Error err = Error::FAILED;
     switch (p_kind) {
         case NewAsset::WORLD: { LWorld a; a.guid = Guid::generate(); err = a.save(path); } break;
+        case NewAsset::PREFAB: {
+            World tmp;
+            tmp.initialize();
+            WorldFile file;
+            file.guid = Guid::generate();
+            file.root = Guid::generate();
+            file.type = AssetType::PREFAB;
+            const Entity prefab_root = tmp.create_persistent(file.root);
+            NameComponent name{};
+            std::snprintf(name.name, NameComponent::MAX_LENGTH, "%s", path.stem().string().c_str());
+            tmp.add<NameComponent>(prefab_root, name);
+            tmp.add<TransformComponent>(prefab_root);
+            err = WorldFile::write(path, tmp, file);
+        } break;
         case NewAsset::TERRAIN: { LTerrain a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MODEL: { LModel a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MATERIAL: { LMaterial a; a.guid = Guid::generate(); err = a.save(path); } break;

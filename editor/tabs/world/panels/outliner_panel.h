@@ -85,6 +85,7 @@ struct OutlinerPanel : Panel
     void _delete_selection(EditorContext& ctx);
     void _delete_now(EditorContext& ctx, bool p_keep_children);
     bool _can_drop(const EditorContext& ctx, Entity p_target) const;
+    void _asset_drop(EditorContext& ctx, Entity p_target);
     void _drop(EditorContext& ctx, Entity p_target);
     void _set_hidden(World& world, Entity p_entity, bool p_hidden);
     void _set_hidden_selection(EditorContext& ctx, bool p_hidden);

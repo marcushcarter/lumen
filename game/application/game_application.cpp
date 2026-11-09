@@ -4,6 +4,7 @@
 #include <core/project/project.h>
 #include <core/world/components.h>
 #include <core/world/world_file.h>
+#include <core/world/prefab.h>
 #include <imgui.h>
 #include <windows.h>
 #include <shellapi.h>
@@ -17,6 +18,7 @@ void GameApplication::_load_world()
         log_write("Game: no world to load, starting empty.");
         return;
     }
+    prefab_library().index(project.assets_dir);
     WorldFile file;
     if (WorldFile::read(world_path, world, false, file) != Error::OK) log_write("Game: failed to load the world '%s'.", world_path.string().c_str());
 }

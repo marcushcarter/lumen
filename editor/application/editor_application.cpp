@@ -17,6 +17,8 @@
 #include <editor/tabs/blend_space/blend_space_tab.h>
 #include <editor/tabs/overlay/overlay_tab.h>
 #include <editor/tabs/terrain/terrain_tab.h>
+#include <editor/tabs/prefab/prefab_tab.h>
+#include <core/world/prefab.h>
 #include <editor/tabs/asset_tab.h>
 #include <algorithm>
 #include <editor/ui/ui_style.h>
@@ -94,6 +96,11 @@ Error EditorApplication::on_init()
     _ctx.renderer = &renderer;
     _ctx.project = &project;
     _ctx.world = &world;
+    _ctx.main_world = &world;
+    prefab_library().resolve = [this](Guid p_guid) {
+        const AssetRegistry::Entry* e = assets.find(p_guid);
+        return e && e->type == AssetType::PREFAB ? e->path : std::filesystem::path{};
+    };
     _ctx.project_manager = &project_manager;
     _ctx.world_tab = &world_tab;
     _ctx.shared_panels = &shared_panels;
@@ -310,6 +317,7 @@ EditorTab* EditorApplication::_open_asset_tab(TabKind p_kind, Guid p_guid)
         case TabKind::BLEND_SPACE: return tabs.open<BlendSpaceTab>(p_guid);
         case TabKind::OVERLAY: return tabs.open<OverlayTab>(p_guid);
         case TabKind::TERRAIN: return tabs.open<TerrainTab>(p_guid);
+        case TabKind::PREFAB: return tabs.open<PrefabTab>(p_guid);
         default: return nullptr;
     }
 }
@@ -426,6 +434,7 @@ bool EditorApplication::close_project()
         thumbnails.close(ctx);
         assets.close();
         selection.clear();
+        prefab_library().clear();
         project_unload();
     };
     render_path_request(new ProjectManagerRenderPath());
@@ -475,6 +484,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::OVERLAY: return "overlay";
         case TabKind::TERRAIN: return "terrain";
         case TabKind::ASSET_MANAGER: return "asset_manager";
+        case TabKind::PREFAB: return "prefab";
     }
     return "world";
 }
@@ -492,6 +502,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "blend_space") r_kind = TabKind::BLEND_SPACE;
     else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
     else if (p_name == "terrain") r_kind = TabKind::TERRAIN;
+    else if (p_name == "prefab") r_kind = TabKind::PREFAB;
     else if (p_name == "asset_manager" || p_name == "content") r_kind = TabKind::ASSET_MANAGER;
     else return false;
     return true;
@@ -534,6 +545,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::BLEND_SPACE: if (t.guid.valid()) opened = tabs.open<BlendSpaceTab>(t.guid); break;
             case TabKind::OVERLAY: if (t.guid.valid()) opened = tabs.open<OverlayTab>(t.guid); break;
             case TabKind::TERRAIN: if (t.guid.valid()) opened = tabs.open<TerrainTab>(t.guid); break;
+            case TabKind::PREFAB: if (t.guid.valid()) opened = tabs.open<PrefabTab>(t.guid); break;
         }
         if (opened && i == saved.active) active = opened;
     }

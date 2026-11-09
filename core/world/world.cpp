@@ -17,6 +17,8 @@ Error World::initialize()
     component_register_saved<ModelComponent>("Model", "model");
     component_register_saved<ModelGridComponent>("Model Grid", "model_grid");
     component_register<PoseComponent>("Pose", false);
+    component_register_saved<PrefabInstanceComponent>("Prefab", "prefab", false);
+    component_register<PrefabPartComponent>("Prefab Part", false);
     component_register_saved<StaticTag>("Static", "static", false);
     component_register_saved<EditorHiddenTag>("Hidden", "hidden", false, true);
     component_register_saved<EditorExpandedTag>("Expanded", "expanded", false, true);

@@ -38,9 +38,6 @@ layout(push_constant) uniform Push {
     float px_per_unit;
 } pc;
 
-const float EDGE_SCALE = 2.5;
-const float EDGE_FAR_SIDE = 0.6;
-
 float linearize_depth(ivec2 coord) {
     float depth = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).r;
     depth = 1.0 - depth;
@@ -70,20 +67,6 @@ vec3 view_normal_from_depth(ivec2 coord, ivec2 size) {
     vec3 vN = vec3((vec2(cN) + 0.5) * ps - 0.5, 1.0) * linearize_depth(cN);
     vec3 vE = vec3((vec2(cE) + 0.5) * ps - 0.5, 1.0) * linearize_depth(cE);
     return normalize(cross(vC - vN, vC - vE));
-}
-
-float sobel_depth_edge(ivec2 coord, ivec2 size) {
-    ivec2 hi = size - 1;
-    float s[9];
-    for (int i = 0; i < 9; ++i) {
-        ivec2 c = clamp(coord + ivec2(i % 3 - 1, i / 3 - 1), ivec2(0), hi);
-        s[i] = log2(view_depth_at(c)) * EDGE_SCALE;
-    }
-    float gx = (s[0] + 2.0 * s[3] + s[6]) - (s[2] + 2.0 * s[5] + s[8]);
-    float gy = (s[0] + 2.0 * s[1] + s[2]) - (s[6] + 2.0 * s[7] + s[8]);
-    float avg = (s[0] + s[1] + s[2] + s[3] + s[5] + s[6] + s[7] + s[8]) * 0.125;
-    float side = s[4] <= avg ? 1.0 : EDGE_FAR_SIDE;
-    return clamp(length(vec2(gx, gy)), 0.0, 1.0) * side;
 }
 
 vec3 clay_normal(ivec2 coord, ivec2 size) {
@@ -268,19 +251,19 @@ void main() {
     } else if (pc.op == OP_TRIANGLES) {
         uvec2 v, ref;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) color = mix(hash_color(hash2(ref.y, v.y)), vec3(0.0), sobel_depth_edge(coord, size));
+        if (sample_vis(coord, v, ref)) color = hash_color(hash2(ref.y, v.y));
     } else if (pc.op == OP_CLUSTERS) {
         uvec2 v, ref;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) color = mix(hash_color(hash2(pc.instances.data[ref.x].mesh_id, ref.y)), vec3(0.0), sobel_depth_edge(coord, size));
+        if (sample_vis(coord, v, ref)) color = hash_color(hash2(pc.instances.data[ref.x].mesh_id, ref.y));
     } else if (pc.op == OP_INSTANCES) {
         uvec2 v, ref;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) color = mix(hash_color(ref.x + 1u), vec3(1.0), sobel_depth_edge(coord, size));
+        if (sample_vis(coord, v, ref)) color = hash_color(ref.x + 1u);
     } else if (pc.op == OP_MATERIAL_ID) {
         uvec2 v, ref;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) color = mix(hash_color(material_id(v, ref) + 1u), vec3(1.0), sobel_depth_edge(coord, size));
+        if (sample_vis(coord, v, ref)) color = hash_color(material_id(v, ref) + 1u);
     } else if (pc.op == OP_LOD_LEVEL) {
         uvec2 v, ref;
         color = vec3(0);
@@ -291,7 +274,7 @@ void main() {
                 float t = float(level - 1u) / float(max(LOD_HEAT_MAX_LEVEL - 1u, 1u));
                 base = color_map_viridis(1.0 - t);
             }
-            color = mix(base, vec3(0.0), sobel_depth_edge(coord, size));
+            color = base;
         }
     } else if (pc.op == OP_CLUSTER_ERROR) {
         uvec2 v, ref;
@@ -304,12 +287,12 @@ void main() {
                 float t = lod_self_error_px(pc.geometry, c, model, transform_max_scale(model), pc.camera.position.xyz, pc.px_per_unit) / LOD_THRESHOLD_PX;
                 base = t > 1.0 ? DEBUG_ERROR_COLOR : color_map_viridis(1.0 - t);
             }
-            color = mix(base, vec3(0.0), sobel_depth_edge(coord, size));
+            color = base;
         }
     } else if (pc.op == OP_STREAMING) {
         uvec2 v, ref;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) color = mix(streaming_color(ref), vec3(0.0), sobel_depth_edge(coord, size));
+        if (sample_vis(coord, v, ref)) color = streaming_color(ref);
     } else if (pc.op == OP_TRIANGLE_DENSITY) {
         uvec2 v, ref;
         color = vec3(0);
@@ -330,8 +313,7 @@ void main() {
             } else {
                 color = DEBUG_ERROR_COLOR;
             }
-            color = mix(color, vec3(0.0), sobel_depth_edge(coord, size));
-        }
+                    }
     } else if (pc.op == OP_OVERDRAW) {
         float n = floor(imageLoad(u_storage_rgba16f[nonuniformEXT(pc.out_slot)], coord).r + 0.5);
         float t = 0.0;

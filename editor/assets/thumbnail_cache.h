@@ -53,6 +53,14 @@ struct ThumbnailCache
         bool queued = false;
     };
 
+    static constexpr uint32_t MAX_PREFAB_PIECES = 512;
+
+    struct Piece {
+        Guid model;
+        Guid mesh;
+        mat4 matrix = mat4(1.0f);
+    };
+
     struct Job {
         Guid guid;
         AssetType type = AssetType::NONE;
@@ -63,6 +71,7 @@ struct ThumbnailCache
         std::vector<Guid> textures;
         std::vector<vec3> bones;
         std::vector<int32_t> bone_parents;
+        std::vector<Piece> pieces;
         JobState state = JobState::NONE;
         uint64_t frame = 0;
         uint64_t ticket = 0;
@@ -99,6 +108,7 @@ struct ThumbnailCache
     ThumbnailRenderPath* path = nullptr;
     World world;
     Entity entity = ENTITY_NULL;
+    std::vector<Entity> extras;
     Guid preview_sphere;
     Guid preview_mesh;
     RigPreview rig;
@@ -131,6 +141,8 @@ struct ThumbnailCache
 
     bool _resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job);
     bool _skeleton_bones(EditorContext& ctx, Job& r_job, vec3& r_center, float& r_radius);
+    bool _prefab_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const;
+    void _place_prefab(const Job& p_job);
     void _draw_bones(const Job& p_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);

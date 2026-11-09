@@ -14,6 +14,7 @@ struct World;
 struct EditorPlay;
 struct ProjectManager;
 struct WorldTab;
+struct PrefabTab;
 struct SharedPanels;
 struct TabManager;
 struct EditorSelection;
@@ -38,9 +39,11 @@ struct EditorContext
     Renderer* renderer = nullptr;
     Project* project = nullptr;
     World* world = nullptr;
+    World* main_world = nullptr;
 
     ProjectManager* project_manager = nullptr;
     WorldTab* world_tab = nullptr;
+    PrefabTab* prefab_tab = nullptr;
     SharedPanels* shared_panels = nullptr;
     TabManager* tabs = nullptr;
     EditorSelection* selection = nullptr;

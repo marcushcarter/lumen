@@ -6,7 +6,10 @@
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/world_tab.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
+#include <editor/tabs/prefab/prefab_tab.h>
+#include <editor/assets/asset_drag_payload.h>
 #include <core/world/world.h>
+#include <core/world/prefab.h>
 #include <core/world/components.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <imgui.h>
@@ -24,6 +27,7 @@ static bool _is_digit(char c) { return c >= '0' && c <= '9'; }
 static const char* _entity_icon(const World& world, Entity p_entity, bool p_open)
 {
     if (world.is_folder(p_entity)) return p_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
+    if (world.has<PrefabInstanceComponent>(p_entity) && !world.has<PrefabPartComponent>(p_entity)) return ICON_FA_BOX;
     if (world.has<ModelGridComponent>(p_entity)) return ICON_FA_TABLE_CELLS;
     if (world.has<ModelComponent>(p_entity)) return ICON_FA_CUBES;
     return ICON_FA_CIRCLE_DOT;
@@ -174,7 +178,7 @@ void OutlinerPanel::_emit(const World& world, uint32_t p_node, uint16_t p_depth)
 
 void OutlinerPanel::draw_contents(EditorContext& ctx)
 {
-    if (ctx.world_tab && !ctx.world_tab->has_world()) {
+    if (!ctx.prefab_tab && ctx.world_tab && !ctx.world_tab->has_world()) {
         ImGui::TextDisabled("No world open");
         return;
     }
@@ -242,7 +246,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
         ImGui::PopStyleVar(2);
         return;
     }
-    ImGui::TableSetupScrollFreeze(0, world_expanded ? 3 : 2);
+    const bool scene_rows = !ctx.prefab_tab;
+    ImGui::TableSetupScrollFreeze(0, !scene_rows ? 1 : world_expanded ? 3 : 2);
     ImGui::TableSetupColumn("##visibility", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, row_h);
     ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder);
 
@@ -253,8 +258,8 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::TableSetColumnIndex(1);
     ImGui::TableHeader(ImGui::TableGetColumnName(1));
 
-    _draw_world_row(ctx, row_h);
-    if (world_expanded) _draw_environment_row(ctx, row_h);
+    if (scene_rows) _draw_world_row(ctx, row_h);
+    if (scene_rows && world_expanded) _draw_environment_row(ctx, row_h);
 
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
@@ -285,6 +290,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::PushClipRect(inner.Min, inner.Max, false);
     if (ImGui::BeginDragDropTargetCustom(inner, ImGui::GetID("##root_drop"))) {
         if (ImGui::AcceptDragDropPayload(PAYLOAD)) _drop(ctx, ENTITY_NULL);
+        _asset_drop(ctx, ENTITY_NULL);
         ImGui::EndDragDropTarget();
     }
     ImGui::PopClipRect();
@@ -355,6 +361,7 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
         if (ImGui::AcceptDragDropPayload(PAYLOAD, ImGuiDragDropFlags_AcceptPeekOnly) && _can_drop(ctx, row.entity)) {
             if (ImGui::AcceptDragDropPayload(PAYLOAD)) _drop(ctx, row.entity);
         }
+        _asset_drop(ctx, row.entity);
         ImGui::EndDragDropTarget();
     }
     ui_menu_push_style();
@@ -365,7 +372,10 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     ui_menu_pop_style();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 text_col = ImGui::GetColorU32(hidden ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+    const bool prefab_root = world.has<PrefabInstanceComponent>(row.entity) && !world.has<PrefabPartComponent>(row.entity);
+    const bool prefab_part = world.has<PrefabPartComponent>(row.entity);
+    ImU32 text_col = ImGui::GetColorU32(hidden ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+    if (prefab_root || prefab_part) text_col = ui_with_alpha(ui.color.asset_prefab, hidden ? ui.alpha.disabled : prefab_root ? 1.0f : 0.8f);
     float x = cell.x + (float)row.depth * font;
     if (row.has_children) {
         ImGui::SetCursorScreenPos(ImVec2(x, cell.y));
@@ -493,6 +503,29 @@ void OutlinerPanel::_row_menu(EditorContext& ctx, const Row& p_row)
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
     if (ImGui::MenuItem(ICON_FA_ARROW_UP "  Move To Root")) _drop(ctx, ENTITY_NULL);
     ImGui::Separator();
+    if (!ctx.prefab_tab && ImGui::MenuItem(ICON_FA_BOX "  Create Prefab")) {
+        if (editor_create_prefab(ctx, _top_selection(ctx))) expect_world_change = true;
+    }
+    if (const Prefab* prefab = prefab_for(world, p_row.entity)) {
+        const Guid guid = prefab->guid;
+        const bool part = prefab_is_part(world, p_row.entity);
+        if (ImGui::BeginMenu(ICON_FA_BOX "  Prefab")) {
+            if (ImGui::MenuItem(ICON_FA_UP_RIGHT_FROM_SQUARE "  Open Prefab")) editor_open_prefab(ctx, guid);
+            if (part && ImGui::MenuItem(ICON_FA_ARROW_POINTER "  Select Instance")) ctx.selection->select(prefab_root_of(world, p_row.entity));
+            ImGui::Separator();
+            if (ImGui::MenuItem(part ? ICON_FA_ROTATE_LEFT "  Revert Entity" : ICON_FA_ROTATE_LEFT "  Revert Instance")) {
+                editor_revert_prefab(ctx, p_row.entity);
+                expect_world_change = true;
+            }
+            if (ImGui::MenuItem(ICON_FA_BOX_OPEN "  Unpack")) {
+                editor_unpack_prefab(ctx, p_row.entity);
+                expect_world_change = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turns the instance into plain entities that no longer follow the prefab");
+            ImGui::EndMenu();
+        }
+    }
+    ImGui::Separator();
     char del[48];
     snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
     if (ImGui::MenuItem(del, "Del")) _delete_selection(ctx);
@@ -597,6 +630,7 @@ void OutlinerPanel::_add(EditorContext& ctx, SpawnType p_type)
     const Entity primary = ctx.selection->primary();
     Entity parent = ENTITY_NULL;
     if (world.valid(primary)) parent = world.is_folder(primary) ? primary : world.parent(primary);
+    if (parent == ENTITY_NULL && ctx.prefab_tab) parent = world.find(ctx.prefab_tab->root);
     const Entity e = editor_spawn(ctx, p_type, parent);
     _rename_begin(world, e);
     scroll_to_selected = true;
@@ -642,6 +676,23 @@ void OutlinerPanel::_delete_now(EditorContext& ctx, bool p_keep_children)
     }
     expect_world_change = true;
     _clear_selection(ctx);
+}
+
+void OutlinerPanel::_asset_drop(EditorContext& ctx, Entity p_target)
+{
+    const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly);
+    if (!peek) return;
+    const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
+    const bool prefab = asset.type == AssetType::PREFAB && !ctx.prefab_tab;
+    if (!asset.guid.valid() || (!prefab && asset.type != AssetType::MODEL)) return;
+    if (!ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) return;
+    Entity parent = p_target;
+    if (parent == ENTITY_NULL && ctx.prefab_tab) parent = ctx.world->find(ctx.prefab_tab->root);
+    const Entity e = prefab ? editor_spawn_prefab(ctx, asset.guid, parent) : editor_spawn(ctx, SpawnType::MODEL, parent, asset.guid);
+    if (e != ENTITY_NULL) {
+        scroll_to_selected = true;
+        expect_world_change = true;
+    }
 }
 
 bool OutlinerPanel::_can_drop(const EditorContext& ctx, Entity p_target) const

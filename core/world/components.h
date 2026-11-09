@@ -47,6 +47,17 @@ struct ParentComponent
     Guid parent;
 };
 
+struct PrefabInstanceComponent
+{
+    Guid prefab;
+};
+
+struct PrefabPartComponent
+{
+    Guid instance;
+    Guid source;
+};
+
 struct StaticTag {};
 struct EditorHiddenTag {};
 struct EditorExpandedTag {};

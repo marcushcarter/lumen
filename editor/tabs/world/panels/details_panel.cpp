@@ -8,6 +8,9 @@
 #include <editor/assets/asset_field.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/world_tab.h>
+#include <editor/tabs/prefab/prefab_tab.h>
+#include <core/world/prefab.h>
+#include <cstring>
 #include <core/rendering/world_gpu.h>
 #include <core/rendering/renderer.h>
 #include <core/world/world.h>
@@ -18,7 +21,7 @@ namespace lumen {
 
 void DetailsPanel::draw_contents(EditorContext& ctx)
 {
-    if (ctx.world_tab && !ctx.world_tab->has_world()) {
+    if (!ctx.prefab_tab && ctx.world_tab && !ctx.world_tab->has_world()) {
         ImGui::TextDisabled("No world open");
         return;
     }
@@ -51,16 +54,30 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (const NameComponent* name = world.try_get<NameComponent>(e)) {
         ImGui::TextDisabled("%s", name->name);
     }
-    bool is_static = world.has<StaticTag>(e);
-    if (ImGui::Checkbox("Static", &is_static)) {
-        if (is_static) world.deferred_add<StaticTag>(e);
-        else world.deferred_remove<StaticTag>(e);
-    }
-    ImGui::Spacing();
+    Prefab* prefab = prefab_for(world, e);
+    const uint64_t overrides = prefab ? prefab_overrides(world, e, *prefab) : 0;
+    const auto component = [&](const char* p_key) {
+        for (uint32_t i = 0; i < (uint32_t)world.components.size(); i++) {
+            if (world.components[i].key && std::strcmp(world.components[i].key, p_key) == 0) return i;
+        }
+        return UINT32_MAX;
+    };
+    const auto overridden = [&](uint32_t p_index) { return p_index < 64 && (overrides >> p_index) & 1ull; };
+    bool revert_transform = false;
+    bool revert_model = false;
+    bool revert_grid = false;
+    const uint32_t transform_index = component("transform");
+    const uint32_t model_index = component("model");
+    const uint32_t grid_index = component("model_grid");
+    const uint32_t static_index = component("static");
+
+    bool revert_static = false;
+    bool revert_entity = false;
+    bool unpack = false;
 
     ui_field_push_style();
     if (TransformComponent* xf = world.try_get<TransformComponent>(e)) {
-        if (ui_category("Transform")) {
+        if (ui_category("Transform", nullptr, overridden(transform_index) || overridden(static_index) ? &revert_transform : nullptr)) {
             bool changed = false;
             changed |= ui_drag_float3_axes("Position", &xf->position.x, 0.1f);
             if (rotation_entity != e || rotation_seen != xf->rotation) {
@@ -82,12 +99,71 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
                 if (!std::isfinite(xf->rotation.x) || !std::isfinite(xf->rotation.y) || !std::isfinite(xf->rotation.z) || !std::isfinite(xf->rotation.w)) xf->rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
                 world.touch(e);
             }
+            bool is_static = world.has<StaticTag>(e);
+            if (ImGui::Checkbox("Static", &is_static)) {
+                if (is_static) world.deferred_add<StaticTag>(e);
+                else world.deferred_remove<StaticTag>(e);
+            }
+            if (prefab && overridden(static_index)) {
+                ImGui::SameLine();
+                ui_push_buttons(UiButton::NEUTRAL);
+                revert_static = ImGui::SmallButton(ICON_FA_ROTATE_LEFT "##revert_static");
+                ui_pop_buttons();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the prefab's value");
+            }
+        }
+    }
+
+    if (prefab && ui_category("Prefab")) {
+        const UiStyle& ui = ui_style();
+        const bool part = prefab_is_part(world, e);
+        ImGui::TextColored(ui_vec4(ui.color.asset_prefab), ICON_FA_BOX "  %s", prefab->path.stem().string().c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled(part ? "part of an instance" : "instance");
+
+        ui_push_buttons(UiButton::NEUTRAL);
+        if (ImGui::Button(ICON_FA_UP_RIGHT_FROM_SQUARE "  Open Prefab")) editor_open_prefab(ctx, prefab->guid);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Edit and save the prefab in its own tab");
+        if (part) {
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FA_ARROW_POINTER "  Select Instance")) ctx.selection->select(prefab_root_of(world, e));
+        }
+        ImGui::BeginDisabled(overrides == 0 && part);
+        if (ImGui::Button(part ? ICON_FA_ROTATE_LEFT "  Revert Entity" : ICON_FA_ROTATE_LEFT "  Revert Instance")) revert_entity = true;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip(part ? "Reset this entity to the prefab" : "Reset the whole instance to the prefab");
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_BOX_OPEN "  Unpack")) unpack = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turn the instance into plain entities that no longer follow the prefab");
+        ui_pop_buttons();
+
+        ImGui::Spacing();
+        if (overrides == 0) {
+            ImGui::TextDisabled("No overrides on this entity");
+        } else {
+            ImGui::TextDisabled("Overrides");
+            std::vector<std::string> fields;
+            for (uint32_t i = 0; i < (uint32_t)world.components.size() && i < 64; i++) {
+                if (!overridden(i)) continue;
+                const ComponentInfo& info = world.components[i];
+                prefab_overridden_fields(world, e, *prefab, i, fields);
+                std::string text = info.name;
+                if (!fields.empty()) {
+                    text += ": ";
+                    for (size_t f = 0; f < fields.size(); f++) text += (f ? ", " : "") + fields[f];
+                } else if (std::strcmp(info.key, "parent") == 0) {
+                    text += ": moved";
+                } else {
+                    text += info.has(world, e) ? ": added" : ": removed";
+                }
+                ImGui::TextColored(ui_vec4(ui.color.accent), "%s", text.c_str());
+            }
         }
     }
 
     if (ModelComponent* model = world.try_get<ModelComponent>(e)) {
         bool remove = false;
-        const bool o = ui_category("Model", &remove);
+        const bool o = ui_category("Model", &remove, overridden(model_index) ? &revert_model : nullptr);
         if (o && asset_field(ctx, "Model", "###model_field", model->model, AssetType::MODEL)) {
             world.touch(e);
         }
@@ -96,7 +172,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 
     if (ModelGridComponent* grid = world.try_get<ModelGridComponent>(e)) {
         bool remove = false;
-        const bool o = ui_category("Model Grid", &remove);
+        const bool o = ui_category("Model Grid", &remove, overridden(grid_index) ? &revert_grid : nullptr);
         if (o) {
             bool changed = asset_field(ctx, "Model", "###model_grid_field", grid->model, AssetType::MODEL);
             int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
@@ -115,6 +191,15 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
 
     ui_category_flush();
     ui_field_pop_style();
+    if (prefab && revert_transform) {
+        prefab_revert_component(world, e, *prefab, transform_index);
+        prefab_revert_component(world, e, *prefab, static_index);
+    }
+    if (prefab && revert_static) prefab_revert_component(world, e, *prefab, static_index);
+    if (prefab && revert_model) prefab_revert_component(world, e, *prefab, model_index);
+    if (prefab && revert_grid) prefab_revert_component(world, e, *prefab, grid_index);
+    if (revert_entity) editor_revert_prefab(ctx, e);
+    if (unpack) editor_unpack_prefab(ctx, e);
     ImGui::Dummy(ImVec2(0.0f, ui_style().panel_box.gap));
 
     ImGui::PushID("Add Component");

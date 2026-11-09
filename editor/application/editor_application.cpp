@@ -17,6 +17,8 @@
 #include <editor/tabs/blend_space/blend_space_tab.h>
 #include <editor/tabs/overlay/overlay_tab.h>
 #include <editor/tabs/terrain/terrain_tab.h>
+#include <editor/tabs/asset_tab.h>
+#include <algorithm>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <drivers/windows/dialogs_win32.h>
@@ -201,7 +203,7 @@ void EditorApplication::on_update(float p_dt)
         texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);
         thumbnails.update(ctx);
-        if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) tabs.active->save(ctx);
+        if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal) && !_tab_locked(tabs.active)) tabs.active->save(ctx);
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();
 
         const uint64_t signature = _tabs_hash();
@@ -275,8 +277,62 @@ void EditorApplication::_tick_imports()
                 break;
         }
     }
+    std::vector<EditorTab*> reload;
+    for (EditorTab* t : tabs.tabs) {
+        const std::filesystem::path* path = t->asset_path();
+        if (!path) continue;
+        const bool hit = std::any_of(imports.completed.begin(), imports.completed.end(), [&](const AssetImportTracker::Completed& c) { return c.dst == *path || c.guid == t->guid; });
+        if (hit) reload.push_back(t);
+    }
     imports.completed.clear();
     imports_notified = 0;
+    for (EditorTab* t : reload) _reload_tab(t);
+}
+
+EditorTab* EditorApplication::_open_asset_tab(TabKind p_kind, Guid p_guid)
+{
+    switch (p_kind) {
+        case TabKind::MODEL: return tabs.open<ModelTab>(p_guid);
+        case TabKind::MATERIAL: return tabs.open<MaterialTab>(p_guid);
+        case TabKind::TEXTURE: return tabs.open<TextureTab>(p_guid);
+        case TabKind::MESH: return tabs.open<MeshTab>(p_guid);
+        case TabKind::ANIMATION: return tabs.open<AnimationTab>(p_guid);
+        case TabKind::BLEND_SPACE: return tabs.open<BlendSpaceTab>(p_guid);
+        case TabKind::OVERLAY: return tabs.open<OverlayTab>(p_guid);
+        case TabKind::TERRAIN: return tabs.open<TerrainTab>(p_guid);
+        default: return nullptr;
+    }
+}
+
+void EditorApplication::_reload_tab(EditorTab* p_tab)
+{
+    EditorContext& ctx = _context();
+    const size_t index = tabs._index_of(p_tab->kind, p_tab->guid);
+    if (index == TabManager::NPOS || !p_tab->asset_path()) return;
+
+    const TabKind kind = p_tab->kind;
+    const Guid guid = p_tab->guid;
+    const AssetTab* old = static_cast<const AssetTab*>(p_tab);
+    const OrbitCamera orbit = old->orbit;
+    const AssetTab::ViewState view = old->view_state();
+    const std::filesystem::path path = old->path;
+    EditorTab* previous = tabs.active == p_tab ? nullptr : tabs.active;
+
+    tabs._remove_at(ctx, index);
+    EditorTab* fresh = _open_asset_tab(kind, guid);
+    if (!fresh) return;
+    tabs.tabs.pop_back();
+    tabs.tabs.insert(tabs.tabs.begin() + (std::ptrdiff_t)std::min(index, tabs.tabs.size()), fresh);
+    AssetTab* asset = static_cast<AssetTab*>(fresh);
+    asset->path = path;
+    asset->restore_view(orbit, view);
+    if (previous) tabs.focus(previous);
+}
+
+bool EditorApplication::_tab_locked(const EditorTab* p_tab)
+{
+    const std::filesystem::path* path = p_tab ? p_tab->asset_path() : nullptr;
+    return path && imports.importing(*path);
 }
 
 Error EditorApplication::open_project(const std::filesystem::path& p_root)
@@ -372,7 +428,7 @@ void EditorApplication::save_all()
 {
     EditorContext& ctx = _context();
     for (EditorTab* t : tabs.tabs) {
-        if (t->dirty()) t->save(ctx);
+        if (t->dirty() && !_tab_locked(t)) t->save(ctx);
     }
 }
 

@@ -112,6 +112,7 @@ void TextureTab::_draw_toolbar(EditorContext& ctx)
     TabToolbar bar;
     bar.begin();
     bar.save(ctx, *this);
+    _draw_reimport_buttons(ctx, bar);
     bar.gap();
 
     for (uint32_t i = 0; i < 4; i++) {

@@ -86,6 +86,9 @@ struct EditorApplication : Application
     void on_background_tick() override;
 
     void _tick_imports();
+    EditorTab* _open_asset_tab(TabKind p_kind, Guid p_guid);
+    void _reload_tab(EditorTab* p_tab);
+    bool _tab_locked(const EditorTab* p_tab);
     Error open_project(const std::filesystem::path& p_root);
     bool close_project();
     bool _confirm_cancel_imports(const wchar_t* p_action);

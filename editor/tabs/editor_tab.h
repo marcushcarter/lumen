@@ -4,6 +4,7 @@
 #include <editor/application/editor_context.h>
 #include <imgui.h>
 #include <cstdint>
+#include <filesystem>
 
 namespace lumen {
 
@@ -28,6 +29,7 @@ struct EditorTab
     virtual const char* tooltip() const { return nullptr; }
     virtual bool closable() const { return true; }
     virtual bool dirty() const { return false; }
+    virtual const std::filesystem::path* asset_path() const { return nullptr; }
     virtual const Camera* camera() const { return nullptr; }
     virtual const World* scene() const { return nullptr; }
     virtual bool shows_viewport() const { return false; }

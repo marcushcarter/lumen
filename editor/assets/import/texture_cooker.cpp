@@ -355,6 +355,27 @@ uint64_t TextureCooker::cost(const std::filesystem::path& p_src, const CookSetti
     return pw * ph * 4 / 3;
 }
 
+bool TextureCooker::load_settings(const std::filesystem::path& p_ltexture, CookSettings& r_settings, std::filesystem::path& r_source)
+{
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_ltexture.string()); }
+    catch (const toml::parse_error&) { return false; }
+    const toml::node_view<toml::node> rec = tbl["import"];
+    const std::string source = rec["source"].value_or(std::string());
+    if (source.empty()) return false;
+
+    r_source = std::filesystem::path(source);
+    r_settings.usage = texture_usage_from_name(tbl[asset_type_section(AssetType::TEXTURE)]["usage"].value_or(std::string()), r_settings.usage);
+    r_settings.quality = texture_quality_from_name(rec["quality"].value_or(std::string()), r_settings.quality);
+    r_settings.generate_mips = rec["generate_mips"].value_or(r_settings.generate_mips);
+    r_settings.max_size = (uint32_t)rec["max_size"].value_or((int64_t)r_settings.max_size);
+    r_settings.flip_green = rec["flip_green"].value_or(r_settings.flip_green);
+    r_settings.alpha_cutoff = (float)rec["alpha_cutoff"].value_or((double)r_settings.alpha_cutoff);
+    r_settings.rdo_lambda = (float)rec["rdo_lambda"].value_or((double)r_settings.rdo_lambda);
+    r_settings.source_channel = (int32_t)rec["source_channel"].value_or((int64_t)r_settings.source_channel);
+    return true;
+}
+
 void TextureCooker::import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const TextureCooker::CookSettings& p_settings)
 {
     Job job;

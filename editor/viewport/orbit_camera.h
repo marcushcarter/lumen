@@ -7,7 +7,6 @@ namespace lumen {
 
 struct OrbitCamera
 {
-    // looks at the target from +X, the same side the world tab's editor camera starts on
     static constexpr float DEFAULT_YAW = glm::half_pi<float>();
 
     Camera camera;
@@ -20,6 +19,7 @@ struct OrbitCamera
     float zoom_step = 0.1f;
     float min_distance = 0.01f;
     float max_distance = 50.0f;
+    bool keep_view = false;
 
     void rotate(float p_dx, float p_dy);
     void zoom(float p_wheel);

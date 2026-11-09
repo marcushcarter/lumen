@@ -26,9 +26,14 @@ void OrbitCamera::frame(glm::vec3 p_center, float p_radius)
 {
     const float radius = glm::max(p_radius, 0.001f);
     const float fit = radius / std::sin(camera.fov_y * 0.5f) * FRAME_MARGIN;
-    target = p_center;
     min_distance = glm::max(radius * MIN_RADIUS_SCALE, camera.near_z * 2.0f);
     max_distance = glm::max(fit * MAX_FIT_SCALE, min_distance);
+    if (keep_view) {
+        keep_view = false;
+        distance = glm::clamp(distance, min_distance, max_distance);
+        return;
+    }
+    target = p_center;
     distance = glm::clamp(fit, min_distance, max_distance);
 }
 

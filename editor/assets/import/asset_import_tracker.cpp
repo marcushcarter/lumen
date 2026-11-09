@@ -89,15 +89,62 @@ ImportSession* AssetImportTracker::find(const std::filesystem::path& p_dst) cons
     return nullptr;
 }
 
-float AssetImportTracker::progress(const std::filesystem::path& p_dst) const
+bool AssetImportTracker::path_contains(const std::filesystem::path& p_parent, const std::filesystem::path& p_child)
 {
-    const ImportSession* s = find(p_dst);
-    return s ? std::min(s->progress.load(std::memory_order_relaxed), 0.999f) : -1.0f;
+    const std::filesystem::path parent = p_parent.lexically_normal();
+    const std::filesystem::path child = p_child.lexically_normal();
+    auto pi = parent.begin();
+    auto ci = child.begin();
+    for (; pi != parent.end(); ++pi, ++ci) {
+        if (pi->empty() && std::next(pi) == parent.end()) break;
+        if (ci == child.end() || *pi != *ci) return false;
+    }
+    return ci != child.end();
 }
 
-void AssetImportTracker::cancel(const std::filesystem::path& p_dst)
+bool ImportSession::writes(const std::filesystem::path& p_path)
 {
-    if (ImportSession* s = find(p_dst)) s->cancel.store(true, std::memory_order_relaxed);
+    if (dst == p_path || AssetImportTracker::path_contains(dst, p_path)) return true;
+    std::lock_guard lock(outputs_mutex);
+    for (const Output& o : outputs) {
+        if (o.asset == p_path) return true;
+    }
+    return false;
+}
+
+bool ImportSession::touches(const std::filesystem::path& p_path)
+{
+    if (writes(p_path) || AssetImportTracker::path_contains(p_path, dst)) return true;
+    std::lock_guard lock(outputs_mutex);
+    for (const Output& o : outputs) {
+        if (AssetImportTracker::path_contains(p_path, o.asset)) return true;
+    }
+    return false;
+}
+
+float AssetImportTracker::progress(const std::filesystem::path& p_path) const
+{
+    for (const auto& s : sessions) {
+        if (s->cancel.load(std::memory_order_relaxed)) continue;
+        if (s->touches(p_path)) return std::min(s->progress.load(std::memory_order_relaxed), 0.999f);
+    }
+    return -1.0f;
+}
+
+bool AssetImportTracker::importing(const std::filesystem::path& p_path) const
+{
+    for (const auto& s : sessions) {
+        if (s->cancel.load(std::memory_order_relaxed)) continue;
+        if (s->writes(p_path)) return true;
+    }
+    return false;
+}
+
+void AssetImportTracker::cancel(const std::filesystem::path& p_path)
+{
+    for (const auto& s : sessions) {
+        if (s->touches(p_path)) s->cancel.store(true, std::memory_order_relaxed);
+    }
 }
 
 void AssetImportTracker::cancel_all()

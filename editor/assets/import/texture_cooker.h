@@ -40,6 +40,7 @@ struct TextureCooker
 
     static Error _cook(const Job& p_job);
     static uint64_t cost(const std::filesystem::path& p_src, const CookSettings& p_settings);
+    static bool load_settings(const std::filesystem::path& p_ltexture, CookSettings& r_settings, std::filesystem::path& r_source);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const CookSettings& p_settings = {});
 

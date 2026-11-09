@@ -53,6 +53,8 @@ struct ImportSession
     Staged stage(const Project& p_project, const std::filesystem::path& p_asset, Guid p_guid, bool p_content, bool p_notify);
     void unstage(const std::filesystem::path& p_asset);
     bool staged_exists(const std::filesystem::path& p_asset);
+    bool writes(const std::filesystem::path& p_path);
+    bool touches(const std::filesystem::path& p_path);
     void finish(Error p_err) { state.store(p_err == Error::OK ? State::DONE : State::FAILED, std::memory_order_release); }
     ImportStep step() { return { this, 0.0f, 1.0f }; }
 };
@@ -73,8 +75,10 @@ struct AssetImportTracker
 
     std::shared_ptr<ImportSession> begin(const Project& p_project, const std::filesystem::path& p_dst);
     ImportSession* find(const std::filesystem::path& p_dst) const;
-    float progress(const std::filesystem::path& p_dst) const;
-    void cancel(const std::filesystem::path& p_dst);
+    float progress(const std::filesystem::path& p_path) const;
+    bool importing(const std::filesystem::path& p_path) const;
+    static bool path_contains(const std::filesystem::path& p_parent, const std::filesystem::path& p_child);
+    void cancel(const std::filesystem::path& p_path);
     void cancel_all();
     void wait_all();
     uint32_t active_count() const;

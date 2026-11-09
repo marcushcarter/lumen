@@ -7,6 +7,11 @@
 #include <editor/panels/shared_panels.h>
 #include <editor/tabs/tab_manager.h>
 #include <editor/ui/tab_toolbar.h>
+#include <editor/assets/import/reimport.h>
+#include <editor/assets/import/asset_import_tracker.h>
+#include <editor/ui/ui_style.h>
+#include <editor/ui/ui_widgets.h>
+#include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <toml++/toml.hpp>
 #include <cstdio>
@@ -59,9 +64,87 @@ void AssetTab::_refresh_title()
     _title += path.stem().string();
 }
 
+AssetTab::ViewState AssetTab::view_state() const
+{
+    const Viewport& vp = layout.viewport;
+    return { vp.selected_view, vp.show_grid, vp.show_bones, vp.show_collision, vp.show_debug_lines };
+}
+
+void AssetTab::restore_view(const OrbitCamera& p_orbit, const ViewState& p_view)
+{
+    orbit = p_orbit;
+    orbit.keep_view = true;
+    _view_restore = p_view;
+    _has_view_restore = true;
+}
+
+bool AssetTab::locked(const EditorContext& ctx) const
+{
+    return ctx.imports && !path.empty() && ctx.imports->importing(path);
+}
+
+void AssetTab::_draw_lock(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
+{
+    const UiStyle& ui = ui_style();
+    ImDrawList* dl = ImGui::GetForegroundDrawList(ImGui::GetMainViewport());
+    dl->AddRectFilled(p_min, p_max, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg));
+
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 size(ImFloor(fs * 18.0f), ImFloor(fs * 6.0f));
+    const ImVec2 center(ImFloor((p_min.x + p_max.x) * 0.5f), ImFloor((p_min.y + p_max.y) * 0.5f));
+    const ImVec2 a(center.x - size.x * 0.5f, center.y - size.y * 0.5f);
+    const ImVec2 b(a.x + size.x, a.y + size.y);
+    const float pad = ImFloor(fs);
+    dl->AddRectFilled(a, b, ui.color.panel, ui.panel_box.rounding);
+    dl->AddRect(a, b, ui.color.outline, ui.panel_box.rounding);
+
+    const float progress = ImMax(ctx.imports->progress(path), 0.0f);
+    char label[64];
+    std::snprintf(label, sizeof(label), "Reimporting... %d%%", (int)(progress * 100.0f));
+    dl->AddText(ImVec2(a.x + pad, a.y + pad), ui.color.text, label);
+
+    const float bar_y = a.y + pad + ImGui::GetTextLineHeight() + ImFloor(pad * 0.5f);
+    const ImVec2 bar0(a.x + pad, bar_y);
+    const ImVec2 bar1(b.x - pad, bar_y + ImFloor(fs * 0.35f));
+    dl->AddRectFilled(bar0, bar1, ui.color.menu_field, ui.header.rounding);
+    if (progress > 0.0f) dl->AddRectFilled(bar0, ImVec2(bar0.x + (bar1.x - bar0.x) * progress, bar1.y), ui.color.accent, ui.header.rounding);
+
+    const ImVec2 btn_size(ImFloor(fs * 6.0f), ImGui::GetFrameHeight());
+    const ImVec2 btn0(b.x - pad - btn_size.x, b.y - pad - btn_size.y);
+    const ImVec2 btn1(btn0.x + btn_size.x, btn0.y + btn_size.y);
+    const bool hovered = ImGui::IsMouseHoveringRect(btn0, btn1, false);
+    dl->AddRectFilled(btn0, btn1, hovered ? ui.color.menu_field_hover : ui.color.menu_field, ui.header.rounding);
+    dl->AddRect(btn0, btn1, ui.color.outline, ui.header.rounding);
+    ui_text_centered(dl, btn0, btn1, ui.color.text, "Cancel", nullptr);
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) ctx.imports->cancel(path);
+}
+
 void AssetTab::_draw_layout(EditorContext& ctx)
 {
+    if (_has_view_restore) {
+        Viewport& vp = layout.viewport;
+        vp.selected_view = _view_restore.selected_view;
+        vp.show_grid = _view_restore.show_grid;
+        vp.show_bones = _view_restore.show_bones;
+        vp.show_collision = _view_restore.show_collision;
+        vp.show_debug_lines = _view_restore.show_debug_lines;
+        _has_view_restore = false;
+    }
+
+    const bool is_locked = locked(ctx);
+    if (is_locked) ImGui::BeginDisabled();
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
+    if (!is_locked) return;
+    ImGui::EndDisabled();
+    _draw_lock(ctx, layout.area_min, layout.area_max);
+}
+
+void AssetTab::_draw_reimport_buttons(EditorContext& ctx, TabToolbar& r_bar)
+{
+    if (reimport_kind == ReimportKind::NONE) return;
+    const bool clean = !dirty();
+    if (r_bar.button(ICON_FA_ROTATE "  Reimport", clean ? "Reimport from the source file with the saved settings" : "Save before reimporting", false, clean)) reimport_asset(ctx, path);
+    if (reimport_has_settings(reimport_kind) && r_bar.button(ICON_FA_SLIDERS "  Reimport With Settings", clean ? "Change the import settings, then reimport" : "Save before reimporting", false, clean)) reimport_with_settings(ctx, { path });
 }
 
 void AssetTab::_draw_toolbar(EditorContext& ctx)
@@ -69,6 +152,7 @@ void AssetTab::_draw_toolbar(EditorContext& ctx)
     TabToolbar bar;
     bar.begin();
     bar.save(ctx, *this);
+    _draw_reimport_buttons(ctx, bar);
     bar.end();
 }
 
@@ -125,6 +209,7 @@ void AssetTab::_refresh_info(EditorContext& ctx)
     try { tbl = toml::parse_file(path.string()); }
     catch (const toml::parse_error&) { return; }
     source = tbl["import"]["source"].value_or(std::string());
+    reimport_kind = reimport_target(path).kind;
 }
 
 }

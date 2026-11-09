@@ -34,7 +34,7 @@ static std::filesystem::path _texture_path(const std::filesystem::path& p_source
     return std::filesystem::exists(flat, ec) ? flat : std::filesystem::path{};
 }
 
-static void _fbx_to_meters(const aiScene* p_scene)
+void ModelCooker::fbx_to_meters(const aiScene* p_scene)
 {
     float unit_cm = 0.0f;
     if (!p_scene->mMetaData || !p_scene->mMetaData->Get("UnitScaleFactor", unit_cm) || unit_cm <= 0.0f) return;
@@ -105,10 +105,14 @@ static std::vector<TextureCooker::Job> _texture_jobs(const ModelCooker::Job& p_j
         TextureCooker::Job tex;
         tex.source = r.source;
         tex.dst_ltexture = dst;
-        tex.settings = p_job.settings.texture_settings;
-        tex.settings.usage = TextureUsage::COLOR;
-        tex.settings.source_channel = -1;
-        tex.settings.alpha_cutoff = r.alpha_cutoff;
+        std::filesystem::path saved_source;
+        std::error_code exists_ec;
+        if (!std::filesystem::exists(dst, exists_ec) || !TextureCooker::load_settings(dst, tex.settings, saved_source)) {
+            tex.settings = p_job.settings.texture_settings;
+            tex.settings.usage = TextureUsage::COLOR;
+            tex.settings.source_channel = -1;
+            tex.settings.alpha_cutoff = r.alpha_cutoff;
+        }
         std::filesystem::path content_bin;
         if (AssetImportTracker::resolve_import(*p_job.project, AssetType::TEXTURE, dst, tex.guid, content_bin) != Error::OK) {
             log_write("ModelCooker: '%s' exists and is not a texture.", dst.string().c_str());
@@ -324,6 +328,9 @@ uint32_t ModelCooker::_import_animations(const Job& p_job, const aiScene* p_scen
         AnimationCooker::Job job;
         job.source = p_job.source;
         job.clip = anim->mName.C_Str();
+        job.translation = p_job.settings.mesh_settings.translation;
+        job.rotation = p_job.settings.mesh_settings.rotation;
+        job.scale = p_job.settings.mesh_settings.scale;
         std::error_code ec;
         if (std::filesystem::exists(dst, ec)) {
             try { job.loop = toml::parse_file(dst.string())[asset_type_section(AssetType::ANIMATION)]["loop"].value_or(true); }
@@ -363,7 +370,27 @@ Error ModelCooker::_import(const Job& p_job)
         log_write("ModelCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return FAILED;
     }
-    _fbx_to_meters(scene);
+    fbx_to_meters(scene);
+    if (p_job.mesh_only) {
+        if (scene->mNumMeshes == 0) {
+            log_write("ModelCooker: '%s' no longer contains a mesh.", p_job.source.string().c_str());
+            return FAILED;
+        }
+        MeshCooker::Job mesh;
+        mesh.source = p_job.source;
+        mesh.skeleton = _import_skeleton(p_job, scene);
+        mesh.guid = p_job.mesh_guid;
+        mesh.settings = p_job.settings.mesh_settings;
+        const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, true);
+        mesh.dst_lmesh = mesh_staged.asset;
+        mesh.content_bin = mesh_staged.content_bin;
+        mesh.step = root.sub(READ_END, 1.0f);
+        if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
+        const uint32_t slot_count = (uint32_t)MeshCooker::material_slots(scene).size();
+        if (p_job.model_slots && slot_count != p_job.model_slots) log_write("ModelCooker: '%s' now has %u material slots but its model has %u. Reimport the model to update its materials.", p_job.dst_lmesh.filename().string().c_str(), slot_count, p_job.model_slots);
+        root.report(1.0f);
+        return OK;
+    }
     if (scene->mNumMeshes == 0 && scene->mNumAnimations > 0) {
         const uint32_t imported = _import_animations(p_job, scene, p_job.anim_dir, {}, true);
         if (root.cancelled()) return CANCELED;
@@ -467,12 +494,121 @@ void ModelCooker::import_async(EditorContext& ctx, const std::filesystem::path& 
         job.model_guid = Guid::generate();
     }
 
-    std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, loc.folder);
-    if (!session) return;
-    job.session = session.get();
-    job_system().run_background_owned([job, session]{
+    _launch(ctx, job, job.dst_dir);
+}
+
+Error ModelCooker::_launch(EditorContext& ctx, Job& r_job, const std::filesystem::path& p_session_dst)
+{
+    std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, p_session_dst);
+    if (!session) return Error::FAILED;
+    r_job.session = session.get();
+    job_system().run_background_owned([job = r_job, session]{
         session->finish(ModelCooker::_import(job));
     }, nullptr, "Model Import");
+    return Error::OK;
+}
+
+std::filesystem::path ModelCooker::find_mesh(const std::filesystem::path& p_folder, Guid p_mesh)
+{
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(p_folder, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (it->path().extension() != ".lmesh") continue;
+        const AssetInfo info = read_asset_info(it->path());
+        if (info.valid() && info.type == AssetType::MESH && info.guid == p_mesh) return it->path();
+    }
+    return {};
+}
+
+Error ModelCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_lmodel, const Settings* p_override)
+{
+    using enum Error;
+    LModel model;
+    if (model.load(p_lmodel) != OK) {
+        log_write("Reimport failed: couldn't read '%s'.", p_lmodel.string().c_str());
+        return FAILED;
+    }
+    if (model.import.source.empty()) {
+        log_write("Reimport failed: '%s' has no import source.", p_lmodel.filename().string().c_str());
+        return FAILED;
+    }
+    const std::filesystem::path source(model.import.source);
+    std::error_code ec;
+    if (!std::filesystem::exists(source, ec)) {
+        log_write("Reimport failed: source '%s' no longer exists.", source.string().c_str());
+        return FAILED;
+    }
+
+    const std::filesystem::path folder = p_lmodel.parent_path();
+    Job job;
+    job.project = ctx.project;
+    job.source = source;
+    job.dst_dir = folder;
+    job.anim_dir = folder.parent_path();
+    job.dst_lmodel = p_lmodel;
+    job.model_guid = model.guid;
+    job.settings.name = p_lmodel.stem().wstring();
+    job.settings.mode = model.import.mode;
+
+    job.dst_lmesh = model.mesh.valid() ? find_mesh(folder, model.mesh) : std::filesystem::path();
+    std::filesystem::path saved_source;
+    if (job.dst_lmesh.empty()) job.dst_lmesh = folder / (job.settings.name + L".lmesh");
+    else MeshCooker::load_settings(job.dst_lmesh, job.settings.mesh_settings, saved_source);
+    if (p_override) {
+        job.settings.mesh_settings = p_override->mesh_settings;
+        job.settings.mode = p_override->mode;
+    }
+
+    std::filesystem::path mesh_content_bin;
+    if (AssetImportTracker::resolve_import(*ctx.project, AssetType::MESH, job.dst_lmesh, job.mesh_guid, mesh_content_bin) != OK) {
+        log_write("Reimport failed: '%s' exists and is not a mesh.", job.dst_lmesh.string().c_str());
+        return FAILED;
+    }
+    if (_launch(ctx, job, job.dst_dir) != OK) return FAILED;
+    log_write("Reimporting '%s' from '%s'.", p_lmodel.filename().string().c_str(), source.string().c_str());
+    return OK;
+}
+
+Error ModelCooker::reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const MeshCooker::CookSettings* p_override)
+{
+    using enum Error;
+    const AssetInfo info = read_asset_info(p_lmesh);
+    if (!info.valid() || info.type != AssetType::MESH) return FAILED;
+
+    Job job;
+    std::filesystem::path source;
+    if (!MeshCooker::load_settings(p_lmesh, job.settings.mesh_settings, source)) {
+        log_write("Reimport failed: '%s' has no import source.", p_lmesh.filename().string().c_str());
+        return FAILED;
+    }
+    std::error_code ec;
+    if (!std::filesystem::exists(source, ec)) {
+        log_write("Reimport failed: source '%s' no longer exists.", source.string().c_str());
+        return FAILED;
+    }
+
+    const std::filesystem::path folder = p_lmesh.parent_path();
+    job.project = ctx.project;
+    job.source = source;
+    job.dst_dir = folder;
+    job.anim_dir = folder.parent_path();
+    job.dst_lmesh = p_lmesh;
+    job.mesh_guid = info.guid;
+    job.settings.name = p_lmesh.stem().wstring();
+    job.mesh_only = true;
+    if (p_override) job.settings.mesh_settings = *p_override;
+
+    for (auto it = std::filesystem::directory_iterator(folder, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (it->path().extension() != ".lmodel") continue;
+        LModel model;
+        if (model.load(it->path()) != OK || model.mesh != info.guid) continue;
+        job.model_slots = (uint32_t)model.materials.size();
+        job.settings.mode = model.import.mode;
+        break;
+    }
+
+    if (_launch(ctx, job, p_lmesh) != OK) return FAILED;
+    log_write("Reimporting '%s' from '%s'.", p_lmesh.filename().string().c_str(), source.string().c_str());
+    return OK;
 }
 
 }

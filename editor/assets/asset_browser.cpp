@@ -314,6 +314,10 @@ std::string AssetBrowser::_relative(const std::filesystem::path& p_path) const
 
 bool AssetBrowser::open_entry(EditorContext& ctx, const std::filesystem::path& p_path)
 {
+    if (ctx.imports && ctx.imports->importing(p_path)) {
+        log_write("'%s' is being imported. It can be opened once the import finishes.", p_path.filename().string().c_str());
+        return false;
+    }
     const AssetInfo info = read_asset_info(p_path);
     if (!info.valid()) return false;
     switch (info.type) {

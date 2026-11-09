@@ -53,6 +53,8 @@ struct EditorLayout
     std::vector<std::unique_ptr<Panel>> owned;
     std::vector<DockSlot> slots;
     std::function<void(EditorContext&, ImVec2, ImVec2)> center;
+    ImVec2 area_min = ImVec2(0.0f, 0.0f);
+    ImVec2 area_max = ImVec2(0.0f, 0.0f);
 
     float split_left = DEFAULT_SPLIT_LEFT;
     float split_right = DEFAULT_SPLIT_RIGHT;

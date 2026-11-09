@@ -50,6 +50,7 @@ struct MeshCooker
     };
 
     static unsigned import_flags();
+    static bool load_settings(const std::filesystem::path& p_lmesh, CookSettings& r_settings, std::filesystem::path& r_source);
     static std::vector<uint32_t> material_slots(const aiScene* p_scene);
     static Error cook_scene(const Job& p_job, const aiScene* p_scene);
 };

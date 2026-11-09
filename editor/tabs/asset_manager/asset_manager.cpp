@@ -13,12 +13,14 @@
 #include <drivers/windows/dialogs_win32.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/import/import_dialog.h>
+#include <editor/assets/import/reimport.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <toml++/toml.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <IconsFontAwesome6.h>
+#include <algorithm>
 #include <cstdio>
 #include <iterator>
 #include <sstream>
@@ -174,7 +176,7 @@ AssetBrowser::ItemResult AssetManager::_draw_item(EditorContext& ctx, const Item
     ImGui::SetNextItemAllowOverlap();
     result.clicked = ImGui::InvisibleButton("##row", p_size);
     const bool hovered = ImGui::IsItemHovered();
-    const bool context = ImGui::IsItemClicked(ImGuiMouseButton_Right);
+    const bool context = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Right));
     result.activated = !renaming && hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     if (context && !selected && !p_item.importing) _select_only(path);
 
@@ -476,6 +478,15 @@ void AssetManager::_context_menu(EditorContext& ctx, const std::filesystem::path
     if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin(p_row);
     if (_duplicable(p_row) && ImGui::MenuItem(ICON_FA_COPY "  Duplicate")) _duplicate_selection(ctx);
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
+    if (!any_folder) {
+        const bool reimportable = std::any_of(selection.begin(), selection.end(), [](const std::filesystem::path& p) { return can_reimport(p); });
+        if (reimportable) {
+            ImGui::Separator();
+            const bool has_settings = std::any_of(selection.begin(), selection.end(), [](const std::filesystem::path& p) { return reimport_has_settings(reimport_target(p).kind); });
+            if (ImGui::MenuItem(ICON_FA_ROTATE "  Reimport")) reimport_assets(ctx, selection);
+            if (ImGui::MenuItem(ICON_FA_SLIDERS "  Reimport With Settings...", nullptr, false, has_settings)) reimport_with_settings(ctx, selection);
+        }
+    }
     ImGui::Separator();
     char del[48];
     std::snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);

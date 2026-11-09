@@ -36,6 +36,8 @@ struct ModelCooker
         Guid model_guid;
         Guid mesh_guid;
         Settings settings;
+        bool mesh_only = false;
+        uint32_t model_slots = 0;
         ImportSession* session = nullptr;
     };
 
@@ -43,7 +45,13 @@ struct ModelCooker
     static Guid _import_skeleton(const Job& p_job, const aiScene* p_scene);
     static uint32_t _import_animations(const Job& p_job, const aiScene* p_scene, const std::filesystem::path& p_dir, Guid p_skeleton, bool p_notify);
 
+    static Error _launch(EditorContext& ctx, Job& r_job, const std::filesystem::path& p_session_dst);
+    static void fbx_to_meters(const aiScene* p_scene);
+
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings = {});
+    static std::filesystem::path find_mesh(const std::filesystem::path& p_folder, Guid p_mesh);
+    static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmodel, const Settings* p_override = nullptr);
+    static Error reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const MeshCooker::CookSettings* p_override = nullptr);
 };
 
 }

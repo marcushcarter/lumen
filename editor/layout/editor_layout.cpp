@@ -373,6 +373,8 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 extent = ImGui::GetContentRegionAvail();
     const ImVec2 end(origin.x + extent.x, origin.y + extent.y);
+    area_min = origin;
+    area_max = end;
 
     const float body_y = origin.y;
 

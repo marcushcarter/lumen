@@ -1,8 +1,11 @@
 #include <editor/panels/content_browser_panel.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
+#include <editor/assets/import/reimport.h>
+#include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
 
 namespace lumen {
 
@@ -55,7 +58,6 @@ ImVec2 ContentBrowserPanel::_item_size(float p_avail_w) const
 
 AssetBrowser::ItemResult ContentBrowserPanel::_draw_item(EditorContext& ctx, const Item& p_item, ImVec2 p_size)
 {
-    (void)ctx;
     const UiStyle& ui = ui_style();
     const float pad = ui.asset_browser.card_pad;
     const bool selected = _is_selected(*p_item.path);
@@ -65,6 +67,17 @@ AssetBrowser::ItemResult ContentBrowserPanel::_draw_item(EditorContext& ctx, con
     ItemResult result;
     result.clicked = ImGui::InvisibleButton("##card", p_size);
     const bool hovered = ImGui::IsItemHovered();
+    const bool context = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Right));
+    if (!p_item.importing && context && !selected) _select_only(*p_item.path);
+    ui_context_menu_push_style();
+    if (!p_item.importing && ImGui::BeginPopupContextItem("##card_menu")) {
+        const bool reimportable = std::any_of(selection.begin(), selection.end(), [](const std::filesystem::path& p) { return can_reimport(p); });
+        const bool has_settings = std::any_of(selection.begin(), selection.end(), [](const std::filesystem::path& p) { return reimport_has_settings(reimport_target(p).kind); });
+        if (ImGui::MenuItem(ICON_FA_ROTATE "  Reimport", nullptr, false, reimportable)) reimport_assets(ctx, selection);
+        if (ImGui::MenuItem(ICON_FA_SLIDERS "  Reimport With Settings...", nullptr, false, has_settings)) reimport_with_settings(ctx, selection);
+        ImGui::EndPopup();
+    }
+    ui_context_menu_pop_style();
     result.activated = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     if (!p_item.importing) _drag_source(p_item);
 

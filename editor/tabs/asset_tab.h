@@ -2,11 +2,14 @@
 #include <core/world/world.h>
 #include <editor/layout/editor_layout.h>
 #include <editor/tabs/editor_tab.h>
+#include <editor/assets/import/reimport_kind.h>
 #include <editor/viewport/orbit_camera.h>
 #include <filesystem>
 #include <string>
 
 namespace lumen {
+
+struct TabToolbar;
 
 struct AssetTab : EditorTab
 {
@@ -21,10 +24,26 @@ struct AssetTab : EditorTab
     std::string _title;
 
     std::string source;
+    ReimportKind reimport_kind = ReimportKind::NONE;
     uint64_t disk_size = 0;
     std::string _tooltip;
     std::filesystem::file_time_type _info_time{};
     double _info_poll = -1.0e9;
+
+    struct ViewState {
+        int selected_view = 0;
+        bool show_grid = true;
+        bool show_bones = false;
+        bool show_collision = true;
+        bool show_debug_lines = true;
+    };
+    ViewState _view_restore;
+    bool _has_view_restore = false;
+
+    ViewState view_state() const;
+    void restore_view(const OrbitCamera& p_orbit, const ViewState& p_view);
+    bool locked(const EditorContext& ctx) const;
+    void _draw_lock(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 
     virtual const char* _icon() const = 0;
     bool _resolve_path(EditorContext& ctx);
@@ -35,9 +54,11 @@ struct AssetTab : EditorTab
     void _refresh_title();
     void _draw_layout(EditorContext& ctx);
     virtual void _draw_toolbar(EditorContext& ctx);
+    void _draw_reimport_buttons(EditorContext& ctx, TabToolbar& r_bar);
     void draw_import() const;
 
     const char* tooltip() const override { return _tooltip.empty() ? nullptr : _tooltip.c_str(); }
+    const std::filesystem::path* asset_path() const override { return path.empty() ? nullptr : &path; }
 
     const Camera* camera() const override { return &orbit.camera; }
     const World* scene() const override { return &preview; }

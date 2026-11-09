@@ -16,7 +16,6 @@
 #include <editor/play/editor_play.h>
 #include <core/rendering/debug_draw.h>
 #include <core/animation/bone_debug.h>
-#include <glm/gtc/matrix_transform.hpp>
 #include <IconsFontAwesome6.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
@@ -366,17 +365,11 @@ uint32_t Viewport::_debug_mask(bool p_playing) const
     return mask;
 }
 
-static void _draw_test_cube()
-{
-    debug_draw().box(translate(mat4(1.0f), vec3(0.0f, 1.0f, 0.0f)), vec3(1.0f), { .color = DebugDraw::YELLOW });
-}
-
 void Viewport::_submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live)
 {
     if (p_mask == 0) return;
     if (debug_lines) debug_lines();
     if (!allow_debug_draw) return;
-    if (p_mask & (uint32_t)DebugCategory::GENERAL) _draw_test_cube();
     if ((p_mask & (uint32_t)DebugCategory::BONES) && ctx.renderer) {
         const World* world = p_live ? &play->runtime : ctx.world;
         if (world) debug_draw_bones(debug_draw(), *world, *ctx.renderer);

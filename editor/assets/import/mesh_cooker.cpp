@@ -478,6 +478,37 @@ std::vector<uint32_t> MeshCooker::material_slots(const aiScene* p_scene)
 
 unsigned MeshCooker::import_flags() { return aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals | aiProcess_GenUVCoords | aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality | aiProcess_FlipUVs; }
 
+static vec3 _read_vec3(const toml::node_view<toml::node>& p_node, const vec3& p_fallback)
+{
+    const toml::array* arr = p_node.as_array();
+    if (!arr || arr->size() != 3) return p_fallback;
+    vec3 v = p_fallback;
+    for (size_t i = 0; i < 3; i++) v[(int)i] = (float)(*arr)[i].value_or((double)p_fallback[(int)i]);
+    return v;
+}
+
+bool MeshCooker::load_settings(const std::filesystem::path& p_lmesh, CookSettings& r_settings, std::filesystem::path& r_source)
+{
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lmesh.string()); }
+    catch (const toml::parse_error&) { return false; }
+    const toml::node_view<toml::node> rec = tbl["import"];
+    const std::string source = rec["source"].value_or(std::string());
+    if (source.empty()) return false;
+
+    r_source = std::filesystem::path(source);
+    r_settings.translation = _read_vec3(rec["translation"], r_settings.translation);
+    r_settings.rotation = _read_vec3(rec["rotation"], r_settings.rotation);
+    r_settings.scale = (float)rec["scale"].value_or((double)r_settings.scale);
+    r_settings.load_skeleton = rec["load_skeleton"].value_or(r_settings.load_skeleton);
+    r_settings.dag_level = mesh_dag_level_from_name(rec["dag_level"].value_or(std::string()), r_settings.dag_level);
+    r_settings.max_verts = (uint32_t)rec["max_verts"].value_or((int64_t)r_settings.max_verts);
+    r_settings.max_tris = (uint32_t)rec["max_tris"].value_or((int64_t)r_settings.max_tris);
+    r_settings.group_size = (uint32_t)rec["group_size"].value_or((int64_t)r_settings.group_size);
+    r_settings.max_levels = (uint32_t)rec["max_levels"].value_or((int64_t)r_settings.max_levels);
+    return true;
+}
+
 Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
 {
     using enum Error;

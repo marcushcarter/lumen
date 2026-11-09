@@ -26,9 +26,9 @@ void serialize(Archive& a, ModelGridComponent& r_c)
     a.field("spacing", r_c.spacing);
 }
 
-void serialize(Archive& a, EditorFolderComponent& r_c)
+void serialize(Archive& a, ParentComponent& r_c)
 {
-    a.field("folder", r_c.folder);
+    a.field("parent", r_c.parent);
 }
 
 void serialize(Archive& a, EnvironmentSettings& r_c)

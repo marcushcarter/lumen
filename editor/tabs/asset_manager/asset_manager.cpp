@@ -540,13 +540,13 @@ void AssetManager::_add_asset_menu(EditorContext& ctx)
 
 void AssetManager::_common_assets_menu(EditorContext& ctx)
 {
-    _add_asset_menu(ctx);
-    ImGui::Separator();
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  New Folder")) {
         _clear_selection();
         _new_folder(ctx);
     }
     if (ImGui::MenuItem(ICON_FA_FILE_IMPORT "  Import...")) _import(ctx);
+    ImGui::Separator();
+    _add_asset_menu(ctx);
 }
 
 }

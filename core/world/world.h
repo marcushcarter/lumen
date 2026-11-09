@@ -34,6 +34,9 @@ static constexpr Entity ENTITY_NULL = { Entity::INVALID_INDEX, 0 };
 
 template <typename... Xs> using Exclude = entt::exclude_t<Xs...>;
 
+TransformComponent transform_from_matrix(const mat4& p_matrix);
+mat4 transform_matrix(const TransformComponent& p_transform);
+
 struct World;
 struct Archive;
 
@@ -85,11 +88,31 @@ struct World
     void destroy(Entity p_entity);
     Entity find(Guid p_guid) const;
     Entity entity_at(uint32_t p_index) const;
+
+    /*******************/
+    /**** HIERARCHY ****/
+    /*******************/
+
+    static constexpr uint32_t MAX_DEPTH = 64;
+
+    Entity parent(Entity p_entity) const;
+    bool is_ancestor(Entity p_ancestor, Entity p_entity) const;
+    bool set_parent(Entity p_entity, Entity p_parent);
+    void children(Entity p_entity, std::vector<Entity>& r_children) const;
+    void subtree(Entity p_entity, std::vector<Entity>& r_entities) const;
+    void destroy_subtree(Entity p_entity);
+    mat4 local_matrix(Entity p_entity) const;
+    mat4 world_matrix(Entity p_entity) const;
+    mat4 parent_matrix(Entity p_entity) const;
+    TransformComponent world_transform(Entity p_entity) const;
+    void set_world_matrix(Entity p_entity, const mat4& p_world);
     bool valid(Entity p_entity) const { return p_entity.index != Entity::INVALID_INDEX && registry.valid(_to_id(p_entity)); }
+    bool has_children(Entity p_entity) const;
+    bool is_folder(Entity p_entity) const;
     void touch(Entity p_entity) {
         if (!valid(p_entity)) return;
         _record(p_entity);
-        if (_is_static(p_entity)) static_version++;
+        if (_is_static(p_entity) || has_children(p_entity)) static_version++;
     }
 
     /*****************/

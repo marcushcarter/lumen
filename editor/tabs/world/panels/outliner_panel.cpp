@@ -3,7 +3,6 @@
 #include <editor/ui/tab_strip.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
-#include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/world_tab.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
@@ -22,11 +21,18 @@ namespace lumen {
 
 static bool _is_digit(char c) { return c >= '0' && c <= '9'; }
 
-static const char* _entity_icon(const World& world, Entity p_entity)
+static const char* _entity_icon(const World& world, Entity p_entity, bool p_open)
 {
+    if (world.is_folder(p_entity)) return p_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
     if (world.has<ModelGridComponent>(p_entity)) return ICON_FA_TABLE_CELLS;
     if (world.has<ModelComponent>(p_entity)) return ICON_FA_CUBES;
     return ICON_FA_CIRCLE_DOT;
+}
+
+static const char* _entity_name(const World& world, Entity p_entity)
+{
+    const NameComponent* n = world.try_get<NameComponent>(p_entity);
+    return n && n->name[0] ? n->name : nullptr;
 }
 
 static void _entity_label(const char* p_name, Entity p_entity, char (&r_label)[96])
@@ -59,128 +65,111 @@ static int _natural_cmp(const char* a, const char* b)
     return (unsigned char)*a - (unsigned char)*b;
 }
 
-static int _label_cmp(const OutlinerPanel::Item& a, const OutlinerPanel::Item& b)
+const OutlinerPanel::Node* OutlinerPanel::_node(Entity p_entity) const
 {
-    const int c = _natural_cmp(a.name ? a.name : "Entity", b.name ? b.name : "Entity");
-    if (c) return c;
-    return a.entity.index < b.entity.index ? -1 : (a.entity.index > b.entity.index ? 1 : 0);
+    if (p_entity.index >= node_of.size() || node_of[p_entity.index] == NONE) return nullptr;
+    const Node& n = nodes[node_of[p_entity.index]];
+    return n.entity == p_entity ? &n : nullptr;
 }
 
-uint32_t OutlinerPanel::_slot(const EditorFolders& folders, uint32_t p_folder) const
+void OutlinerPanel::_refresh(const World& world)
 {
-    return folders.valid(p_folder) ? p_folder : (uint32_t)folders.folders.size();
-}
-
-void OutlinerPanel::_refresh(const World& world, const EditorFolders& folders)
-{
-    const bool user = dirty || folders_version != folders.version;
-    const bool world_changed = world_version != world.structure_version;
-    if (!user && !world_changed) return;
-
-    const bool order = user || entity_version != world.entity_version;
+    const bool world_changed = world_version != world.structure_version || entity_version != world.entity_version;
+    if (!dirty && !world_changed) return;
     const double now = ImGui::GetTime();
-    if (!user && !expect_world_change && last_rebuild >= 0.0 && now - last_rebuild < WORLD_REFRESH_INTERVAL) return;
+    if (!dirty && !expect_world_change && last_rebuild >= 0.0 && now - last_rebuild < WORLD_REFRESH_INTERVAL) return;
     expect_world_change = false;
     last_rebuild = now;
-    _rebuild(world, folders, order);
+    _rebuild(world);
 }
 
-void OutlinerPanel::_rebuild(const World& world, const EditorFolders& folders, bool p_full)
+void OutlinerPanel::_rebuild(const World& world)
 {
     world_version = world.structure_version;
     entity_version = world.entity_version;
-    folders_version = folders.version;
     dirty = false;
 
-    const uint32_t folder_count = (uint32_t)folders.folders.size();
-    const uint32_t slots = folder_count + 1;
-    const uint32_t root = folder_count;
     const bool filtering = filter[0] != '\0';
-
-    if (p_full) {
-        items.clear();
-        char label[96];
-        world.view<EntityIdComponent>([&](Entity e, const EntityIdComponent&) {
-            const NameComponent* n = world.try_get<NameComponent>(e);
-            Item it;
-            it.slot = _slot(folders, folders.entity_folder(world, e));
-            it.entity = e;
-            it.name = n && n->name[0] ? n->name : nullptr;
-            it.match = true;
-            if (filtering) {
-                _entity_label(it.name, e, label);
-                it.match = ImStristr(label, nullptr, filter, nullptr) != nullptr;
-            }
-            items.push_back(it);
-        });
-        std::sort(items.begin(), items.end(), [&](const Item& a, const Item& b) {
-            if (a.slot != b.slot) return a.slot < b.slot;
-            const int c = _label_cmp(a, b);
-            return sort_ascending ? c < 0 : c > 0;
-        });
-        for (Item& it : items) it.name = nullptr;
-        item_begin.assign(slots + 1, 0);
-        for (const Item& it : items) item_begin[it.slot + 1]++;
-        for (uint32_t s = 0; s < slots; s++) item_begin[s + 1] += item_begin[s];
-
-        folder_order.clear();
-        for (uint32_t f = 0; f < folder_count; f++) {
-            if (folders.folders[f].alive) folder_order.push_back(f);
+    nodes.clear();
+    char label[96];
+    uint32_t max_index = 0;
+    world.view<EntityIdComponent>([&](Entity e, const EntityIdComponent&) {
+        Node n{};
+        n.entity = e;
+        n.parent = NONE;
+        n.folder = world.is_folder(e);
+        n.match = true;
+        if (filtering) {
+            _entity_label(_entity_name(world, e), e, label);
+            n.match = ImStristr(label, nullptr, filter, nullptr) != nullptr;
         }
-        const bool folders_descending = !sort_ascending;
-        std::sort(folder_order.begin(), folder_order.end(), [&](uint32_t a, uint32_t b) {
-            const uint32_t pa = _slot(folders, folders.folders[a].parent);
-            const uint32_t pb = _slot(folders, folders.folders[b].parent);
-            if (pa != pb) return pa < pb;
-            const int c = _natural_cmp(folders.folders[a].name, folders.folders[b].name);
-            if (c == 0) return a < b;
-            return folders_descending ? c > 0 : c < 0;
-        });
-        folder_begin.assign(slots + 1, 0);
-        for (const uint32_t f : folder_order) folder_begin[_slot(folders, folders.folders[f].parent) + 1]++;
-        for (uint32_t s = 0; s < slots; s++) folder_begin[s + 1] += folder_begin[s];
+        nodes.push_back(n);
+        max_index = std::max(max_index, e.index);
+    });
+    node_of.assign((size_t)max_index + 1, NONE);
+    for (uint32_t i = 0; i < (uint32_t)nodes.size(); i++) node_of[nodes[i].entity.index] = i;
+    for (Node& n : nodes) {
+        const Entity p = world.parent(n.entity);
+        if (const Node* pn = _node(p)) n.parent = (uint32_t)(pn - nodes.data());
     }
 
-    folder_total.assign(slots, 0);
-    folder_hidden.assign(slots, 0);
-    folder_matches.assign(slots, 0);
-    for (const Item& it : items) {
-        const bool hidden = world.has<EditorHiddenTag>(it.entity);
-        for (uint32_t s = it.slot; ; s = _slot(folders, folders.folders[s].parent)) {
-            folder_total[s]++;
-            folder_hidden[s] += hidden ? 1u : 0u;
-            folder_matches[s] += it.match ? 1u : 0u;
-            if (s == root) break;
+    order.resize(nodes.size());
+    for (uint32_t i = 0; i < (uint32_t)nodes.size(); i++) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
+        const Node& na = nodes[a];
+        const Node& nb = nodes[b];
+        if (na.parent != nb.parent) return na.parent < nb.parent;
+        if (na.folder != nb.folder) return na.folder;
+        const char* la = _entity_name(world, na.entity);
+        const char* lb = _entity_name(world, nb.entity);
+        const int c = _natural_cmp(la ? la : "Entity", lb ? lb : "Entity");
+        if (c) return sort_ascending ? c < 0 : c > 0;
+        return na.entity.index < nb.entity.index;
+    });
+    roots.clear();
+    for (uint32_t i = 0; i < (uint32_t)order.size(); i++) {
+        Node& n = nodes[order[i]];
+        if (n.parent == NONE) {
+            roots.push_back(order[i]);
+            continue;
         }
+        Node& p = nodes[n.parent];
+        if (p.child_count == 0) p.first_child = i;
+        p.child_count++;
     }
-    if (filtering) {
-        for (const uint32_t f : folder_order) {
-            if (!ImStristr(folders.folders[f].name, nullptr, filter, nullptr)) continue;
-            for (uint32_t s = f; ; s = _slot(folders, folders.folders[s].parent)) {
-                folder_matches[s]++;
-                if (s == root) break;
-            }
-        }
+
+    std::vector<uint32_t> walk(roots.begin(), roots.end());
+    for (size_t i = 0; i < walk.size(); i++) {
+        const Node& n = nodes[walk[i]];
+        for (uint32_t c = 0; c < n.child_count; c++) walk.push_back(order[n.first_child + c]);
+    }
+    for (uint32_t i : walk) {
+        Node& n = nodes[i];
+        n.subtree = 1;
+        n.subtree_hidden = world.has<EditorHiddenTag>(n.entity) ? 1u : 0u;
+        n.matches = n.match ? 1u : 0u;
+    }
+    for (size_t i = walk.size(); i-- > 0;) {
+        const Node& n = nodes[walk[i]];
+        if (n.parent == NONE) continue;
+        Node& p = nodes[n.parent];
+        p.subtree += n.subtree;
+        p.subtree_hidden += n.subtree_hidden;
+        p.matches += n.matches;
     }
 
     rows.clear();
-    _emit(folders, root, 0);
+    for (uint32_t r : roots) _emit(world, r, 0);
 }
 
-void OutlinerPanel::_emit(const EditorFolders& folders, uint32_t p_slot, uint16_t p_depth)
+void OutlinerPanel::_emit(const World& world, uint32_t p_node, uint16_t p_depth)
 {
+    const Node& n = nodes[p_node];
     const bool filtering = filter[0] != '\0';
-    const uint32_t root = (uint32_t)folders.folders.size();
-    for (uint32_t i = folder_begin[p_slot]; i < folder_begin[p_slot + 1]; i++) {
-        const uint32_t f = folder_order[i];
-        if (filtering && folder_matches[f] == 0) continue;
-        rows.push_back({ ENTITY_NULL, f, p_depth, RowKind::FOLDER });
-        if (filtering || folders.folders[f].expanded) _emit(folders, f, (uint16_t)(p_depth + 1));
-    }
-    const uint32_t folder = p_slot == root ? EditorFolders::ROOT : p_slot;
-    for (uint32_t i = item_begin[p_slot]; i < item_begin[p_slot + 1]; i++) {
-        if (items[i].match) rows.push_back({ items[i].entity, folder, p_depth, RowKind::ENTITY });
-    }
+    if (filtering && n.matches == 0) return;
+    rows.push_back({ n.entity, p_depth, n.child_count > 0 });
+    if (!filtering && !world.has<EditorExpandedTag>(n.entity)) return;
+    for (uint32_t c = 0; c < n.child_count; c++) _emit(world, order[n.first_child + c], (uint16_t)(p_depth + 1));
 }
 
 void OutlinerPanel::draw_contents(EditorContext& ctx)
@@ -189,20 +178,18 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
         ImGui::TextDisabled("No world open");
         return;
     }
-    if (!ctx.world || !ctx.selection || !ctx.folders) return;
+    if (!ctx.world || !ctx.selection) return;
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
     EditorSelection& selection = *ctx.selection;
 
-    if (rename_kind == RowKind::FOLDER && rename_folder != NONE && !folders.valid(rename_folder)) _rename_end();
-    if (rename_kind == RowKind::ENTITY && rename_entity != ENTITY_NULL && !world.valid(rename_entity)) _rename_end();
+    if (rename_entity != ENTITY_NULL && !world.valid(rename_entity)) _rename_end();
 
     if (selection.primary() != last_primary) {
         last_primary = selection.primary();
         if (last_primary != ENTITY_NULL) _reveal(ctx, last_primary);
     }
 
-    _refresh(world, folders);
+    _refresh(world);
 
     _draw_toolbar(ctx);
     const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
@@ -210,10 +197,7 @@ void OutlinerPanel::draw_contents(EditorContext& ctx)
     _draw_footer(ctx);
 
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
-            if (world.valid(selection.primary())) _rename_begin_entity(world, selection.primary());
-            else if (folders.valid(selection.primary_folder())) _rename_begin_folder(folders, selection.primary_folder());
-        }
+        if (ImGui::IsKeyPressed(ImGuiKey_F2, false) && world.valid(selection.primary())) _rename_begin(world, selection.primary());
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) _delete_selection(ctx);
     }
 }
@@ -222,23 +206,32 @@ void OutlinerPanel::_draw_toolbar(EditorContext& ctx)
 {
     const UiStyle& ui = ui_style();
     const float pad_x = ui.outliner.pad_x;
-    const float bw = ImGui::GetFrameHeight();
-    const float spacing = ImGui::GetStyle().ItemSpacing.x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
-    if (ui_search_bar("##outliner_search", filter, sizeof(filter), -(bw * 2.0f + spacing * 2.0f + pad_x))) dirty = true;
 
-    ui_push_buttons(UiButton::GHOST);
+    const char* label = ICON_FA_PLUS "  Add";
+    const float bw = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    if (ui_search_bar("##outliner_search", filter, sizeof(filter), -(bw + spacing + pad_x))) dirty = true;
     ImGui::SameLine();
-    if (ui_icon_button(ICON_FA_SQUARE_PLUS, bw, "Create entity")) _new_entity(ctx);
-    ImGui::SameLine();
-    if (ui_icon_button(ICON_FA_FOLDER_PLUS, bw, "Create folder (moves the selection into it)")) _new_folder(ctx);
+    ui_push_buttons(UiButton::PRIMARY);
+    if (ImGui::Button(label, ImVec2(bw, 0.0f))) ImGui::OpenPopup("##outliner_add");
     ui_pop_buttons();
+
+    const ImVec2 bmax = ImGui::GetItemRectMax();
+    ImGui::SetNextWindowPos(ImVec2(bmax.x, bmax.y + ui.menu.popup_offset), ImGuiCond_Appearing, ImVec2(1.0f, 0.0f));
+    ui_context_menu_push_style();
+    if (ImGui::BeginPopup("##outliner_add")) {
+        if (ImGui::MenuItem(ICON_FA_FOLDER "  Folder")) _add(ctx, SpawnType::FOLDER);
+        ImGui::Separator();
+        if (ImGui::MenuItem(ICON_FA_CIRCLE_DOT "  Empty")) _add(ctx, SpawnType::EMPTY);
+        ImGui::EndPopup();
+    }
+    ui_context_menu_pop_style();
 }
 
 void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
     const UiStyle::Outliner& style = ui_style().outliner;
     const float row_h = ImMax(ImGui::GetFrameHeight(), ImGui::GetFontSize() + style.row_pad_y * 2.0f);
 
@@ -256,9 +249,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
     ImGui::TableSetColumnIndex(0);
     ImGui::TableHeader("##visibility");
-    {
-        ui_text_centered(ImGui::GetWindowDrawList(), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_EYE);
-    }
+    ui_text_centered(ImGui::GetWindowDrawList(), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImGuiCol_Text), ICON_FA_EYE);
     ImGui::TableSetColumnIndex(1);
     ImGui::TableHeader(ImGui::TableGetColumnName(1));
 
@@ -267,23 +258,20 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
 
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
-            if (specs->SpecsCount > 0) {
-                sort_ascending = specs->Specs[0].SortDirection != ImGuiSortDirection_Descending;
-            }
+            if (specs->SpecsCount > 0) sort_ascending = specs->Specs[0].SortDirection != ImGuiSortDirection_Descending;
             specs->SpecsDirty = false;
-            _rebuild(world, folders, true);
+            _rebuild(world);
         }
     }
 
     if (scroll_to_selected) {
         scroll_to_selected = false;
-        for (uint32_t i = 0; i < (uint32_t)rows.size(); i++) {
-            if (rows[i].kind != RowKind::ENTITY || rows[i].entity != ctx.selection->primary()) continue;
-            const float y = (float)i * row_h;
+        const int index = _row_find(ctx.selection->primary());
+        if (index >= 0) {
+            const float y = (float)index * row_h;
             const float view_h = ImGui::GetWindowHeight() - ImGui::TableGetHeaderRowHeight() - row_h;
             const float scroll = ImGui::GetScrollY();
             if (y < scroll || y + row_h > scroll + view_h) ImGui::SetScrollY(y - (view_h - row_h) * 0.5f);
-            break;
         }
     }
 
@@ -296,7 +284,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     const ImRect inner = ImGui::GetCurrentWindow()->Rect();
     ImGui::PushClipRect(inner.Min, inner.Max, false);
     if (ImGui::BeginDragDropTargetCustom(inner, ImGui::GetID("##root_drop"))) {
-        if (ImGui::AcceptDragDropPayload(PAYLOAD)) _drop(ctx, EditorFolders::ROOT);
+        if (ImGui::AcceptDragDropPayload(PAYLOAD)) _drop(ctx, ENTITY_NULL);
         ImGui::EndDragDropTarget();
     }
     ImGui::PopClipRect();
@@ -305,7 +293,7 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ui_menu_push_style();
     if (ImGui::BeginPopupContextWindow("##outliner_empty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         if (ImGui::BeginMenu(ICON_FA_PLUS "  Add Entity")) {
-            editor_spawn_menu_items(ctx, EditorFolders::ROOT);
+            if (editor_spawn_menu_items(ctx, ENTITY_NULL) != ENTITY_NULL) expect_world_change = true;
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  New Folder")) {
@@ -323,31 +311,26 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
 void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
     EditorSelection& selection = *ctx.selection;
-    const Row p_row = rows[p_index];
-    const bool is_folder = p_row.kind == RowKind::FOLDER;
-    const bool selected = _row_selected(selection, p_row);
-    const bool hidden = is_folder ? folder_total[p_row.folder] > 0 && folder_hidden[p_row.folder] == folder_total[p_row.folder] : world.has<EditorHiddenTag>(p_row.entity);
-    const bool v_open = is_folder && (filter[0] != '\0' || folders.folders[p_row.folder].expanded);
+    const Row row = rows[p_index];
+    const Node* node = _node(row.entity);
+    const bool folder = node && node->folder;
+    const bool selected = selection.contains(row.entity);
+    const bool self_hidden = world.has<EditorHiddenTag>(row.entity);
+    const uint32_t descendants = node ? node->subtree - 1 : 0u;
+    const uint32_t hidden_descendants = node ? node->subtree_hidden - (self_hidden ? 1u : 0u) : 0u;
+    const bool hidden = self_hidden || (folder && descendants > 0 && hidden_descendants == descendants);
+    const bool open = row.has_children && (filter[0] != '\0' || world.has<EditorExpandedTag>(row.entity));
     const UiStyle& ui = ui_style();
     const float font = ImGui::GetFontSize();
     const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
 
     char label[96];
-    const char* icon;
-    if (is_folder) {
-        snprintf(label, sizeof(label), "%s", folders.folders[p_row.folder].name);
-        icon = v_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
-    } else {
-        const NameComponent* n = world.try_get<NameComponent>(p_row.entity);
-        _entity_label(n && n->name[0] ? n->name : nullptr, p_row.entity, label);
-        icon = _entity_icon(world, p_row.entity);
-    }
+    _entity_label(_entity_name(world, row.entity), row.entity, label);
+    const char* icon = _entity_icon(world, row.entity, open);
 
     ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
-    ImGui::PushID(is_folder ? "f" : "e");
-    ImGui::PushID((int)(is_folder ? p_row.folder : p_row.entity.index));
+    ImGui::PushID((int)row.entity.index);
 
     ImGui::TableSetColumnIndex(1);
     const ImVec2 cell = ImGui::GetCursorScreenPos();
@@ -356,14 +339,12 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     if (ImGui::Selectable("##row", selected, sel_flags, ImVec2(0.0f, content_h))) {
         const ImGuiIO& io = ImGui::GetIO();
         _click(ctx, p_index, io.KeyCtrl, io.KeyShift);
-        if (is_folder && !io.KeyCtrl && !io.KeyShift && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-            folders.folders[p_row.folder].expanded = !folders.folders[p_row.folder].expanded;
-            dirty = true;
-        }
+        if (row.has_children && !io.KeyCtrl && !io.KeyShift && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) _set_expanded(world, row.entity, !open);
     }
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) _select_only(ctx, p_index);
-    if (!_renaming(p_row) && ImGui::BeginDragDropSource()) {
-        if (!_row_selected(selection, p_row)) _select_only(ctx, p_index);
+    const bool context = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Right));
+    if (context && !selected) _select_only(ctx, p_index);
+    if (rename_entity != row.entity && ImGui::BeginDragDropSource()) {
+        if (!selection.contains(row.entity)) _select_only(ctx, p_index);
         const DragPayload payload{ selection.count() };
         ImGui::SetDragDropPayload(PAYLOAD, &payload, sizeof(payload));
         if (payload.count > 1) ImGui::Text(ICON_FA_LAYER_GROUP "  %u items", payload.count);
@@ -371,38 +352,35 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
         ImGui::EndDragDropSource();
     }
     if (ImGui::BeginDragDropTarget()) {
-        if (ImGui::AcceptDragDropPayload(PAYLOAD, ImGuiDragDropFlags_AcceptPeekOnly) && _can_drop(ctx, p_row.folder)) {
-            if (ImGui::AcceptDragDropPayload(PAYLOAD)) _drop(ctx, p_row.folder);
+        if (ImGui::AcceptDragDropPayload(PAYLOAD, ImGuiDragDropFlags_AcceptPeekOnly) && _can_drop(ctx, row.entity)) {
+            if (ImGui::AcceptDragDropPayload(PAYLOAD)) _drop(ctx, row.entity);
         }
         ImGui::EndDragDropTarget();
     }
     ui_menu_push_style();
     if (ImGui::BeginPopupContextItem("##row_menu")) {
-        _row_menu(ctx, p_row);
+        _row_menu(ctx, row);
         ImGui::EndPopup();
     }
     ui_menu_pop_style();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 text_col = ImGui::GetColorU32(hidden ? ImGuiCol_TextDisabled : ImGuiCol_Text);
-    float x = cell.x + (float)p_row.depth * font;
-    if (is_folder) {
+    float x = cell.x + (float)row.depth * font;
+    if (row.has_children) {
         ImGui::SetCursorScreenPos(ImVec2(x, cell.y));
-        if (ImGui::InvisibleButton("##arrow", ImVec2(font, content_h))) {
-            folders.folders[p_row.folder].expanded = !folders.folders[p_row.folder].expanded;
-            dirty = true;
-        }
+        if (ImGui::InvisibleButton("##arrow", ImVec2(font, content_h))) _set_expanded(world, row.entity, !open);
         const ImU32 arrow_col = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-        ImGui::RenderArrow(dl, ImVec2(x, text_y + font * ui.outliner.arrow_offset_scale), arrow_col, v_open ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
+        ImGui::RenderArrow(dl, ImVec2(x, text_y + font * ui.outliner.arrow_offset_scale), arrow_col, open ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
     }
     x += font;
 
     const float icon_w = font * ui.outliner.icon_width_scale;
     const ImVec2 icon_size = ImGui::CalcTextSize(icon);
-    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), is_folder ? ui.color.folder : text_col, icon);
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), folder ? ui.color.folder : text_col, icon);
     x += icon_w + ui.outliner.icon_gap;
 
-    if (_renaming(p_row)) {
+    if (rename_entity == row.entity) {
         const UiRename rename = ui_inline_rename(ImVec2(x, text_y), -FLT_MIN, rename_buffer, sizeof(rename_buffer), rename_focus);
         if (rename != UiRename::NONE) {
             if (rename == UiRename::COMMIT) _rename_commit(ctx);
@@ -417,9 +395,7 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
     const float eye_w = ImMax(1.0f, ImGui::GetContentRegionAvail().x);
     if (ImGui::InvisibleButton("##eye", ImVec2(eye_w, content_h))) {
         if (selected) _set_hidden_selection(ctx, !hidden);
-        else if (is_folder) _set_hidden(world, folders, p_row.folder, !hidden);
-        else if (hidden) world.deferred_remove<EditorHiddenTag>(p_row.entity);
-        else world.deferred_add<EditorHiddenTag>(p_row.entity);
+        else _set_hidden(world, row.entity, !hidden);
         expect_world_change = true;
     }
     const bool eye_hovered = ImGui::IsItemHovered();
@@ -431,7 +407,6 @@ void OutlinerPanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
         ImGui::GetWindowDrawList()->AddText(ImVec2(ImFloor(eye_pos.x + (eye_w - ts.x) * 0.5f), text_y), ImGui::GetColorU32(eye_hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), eye);
     }
 
-    ImGui::PopID();
     ImGui::PopID();
 }
 
@@ -482,7 +457,7 @@ void OutlinerPanel::_draw_environment_row(EditorContext& ctx, float p_row_h)
     const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
     if (ImGui::Selectable("##row", selection.environment, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, content_h))) {
         selection.select_environment();
-        has_anchor = false;
+        anchor = ENTITY_NULL;
         last_primary = ENTITY_NULL;
     }
 
@@ -499,59 +474,43 @@ void OutlinerPanel::_draw_environment_row(EditorContext& ctx, float p_row_h)
 
 void OutlinerPanel::_draw_footer(EditorContext& ctx)
 {
+    uint32_t entities = 0;
+    for (const Node& n : nodes) entities += n.folder ? 0u : 1u;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ui_style().outliner.pad_x);
-    ImGui::TextDisabled("%u entities (%u selected)", (uint32_t)items.size(), ctx.selection->count());
+    ImGui::TextDisabled("%u entities (%u selected)", entities, ctx.selection->count());
 }
 
 void OutlinerPanel::_row_menu(EditorContext& ctx, const Row& p_row)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
     const uint32_t count = ctx.selection->count();
-    if (ImGui::BeginMenu(ICON_FA_PLUS "  Add Entity")) {
-        editor_spawn_menu_items(ctx, p_row.folder);
+    if (ImGui::BeginMenu(ICON_FA_PLUS "  Add Child")) {
+        if (editor_spawn_menu_items(ctx, p_row.entity) != ENTITY_NULL) expect_world_change = true;
         ImGui::EndMenu();
     }
     ImGui::Separator();
-    if (p_row.kind == RowKind::FOLDER) {
-        if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  New Subfolder")) {
-            const uint32_t f = folders.create("New Folder", p_row.folder);
-            folders.folders[p_row.folder].expanded = true;
-            _rename_begin_folder(folders, f);
-        }
-        if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin_folder(folders, p_row.folder);
-    } else {
-        if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin_entity(world, p_row.entity);
-    }
+    if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin(world, p_row.entity);
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
-    if (ImGui::MenuItem(ICON_FA_ARROW_UP "  Move To Root")) _drop(ctx, EditorFolders::ROOT);
+    if (ImGui::MenuItem(ICON_FA_ARROW_UP "  Move To Root")) _drop(ctx, ENTITY_NULL);
     ImGui::Separator();
     char del[48];
     snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
     if (ImGui::MenuItem(del, "Del")) _delete_selection(ctx);
-    if (!ctx.selection->folders.empty()) {
-        if (ImGui::MenuItem(ICON_FA_FOLDER_MINUS "  Delete Folder Only")) _delete_now(ctx, true);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the folder and moves its contents to the parent folder");
+    bool any_children = false;
+    for (const Entity e : ctx.selection->entities) {
+        const Node* n = _node(e);
+        any_children = any_children || (n && n->child_count > 0);
+    }
+    if (any_children) {
+        if (ImGui::MenuItem(ICON_FA_FOLDER_MINUS "  Delete, Keep Children")) _delete_now(ctx, true);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the selected entities and moves their children up one level");
     }
 }
 
-bool OutlinerPanel::_row_selected(const EditorSelection& selection, const Row& p_row) const
-{
-    return p_row.kind == RowKind::FOLDER ? selection.contains_folder(p_row.folder) : selection.contains(p_row.entity);
-}
-
-void OutlinerPanel::_row_add(EditorSelection& selection, const Row& p_row) const
-{
-    if (p_row.kind == RowKind::FOLDER) selection.add_folder(p_row.folder);
-    else selection.add(p_row.entity);
-}
-
-int OutlinerPanel::_row_find(const Row& p_row) const
+int OutlinerPanel::_row_find(Entity p_entity) const
 {
     for (int i = 0; i < (int)rows.size(); i++) {
-        const Row& r = rows[i];
-        if (r.kind != p_row.kind) continue;
-        if (r.kind == RowKind::FOLDER ? r.folder == p_row.folder : r.entity == p_row.entity) return i;
+        if (rows[i].entity == p_entity) return i;
     }
     return -1;
 }
@@ -559,19 +518,17 @@ int OutlinerPanel::_row_find(const Row& p_row) const
 void OutlinerPanel::_click(EditorContext& ctx, int p_index, bool p_ctrl, bool p_shift)
 {
     EditorSelection& selection = *ctx.selection;
-    const Row row = rows[p_index];
-    const int from = p_shift && has_anchor ? _row_find(anchor) : -1;
+    const Entity e = rows[p_index].entity;
+    const int from = p_shift && anchor != ENTITY_NULL ? _row_find(anchor) : -1;
     if (from >= 0) {
         if (!p_ctrl) selection.clear();
         const int lo = ImMin(from, p_index);
         const int hi = ImMax(from, p_index);
-        for (int i = lo; i <= hi; i++) _row_add(selection, rows[i]);
-        _row_add(selection, row);
+        for (int i = lo; i <= hi; i++) selection.add(rows[i].entity);
+        selection.add(e);
     } else if (p_ctrl) {
-        if (row.kind == RowKind::FOLDER) selection.toggle_folder(row.folder);
-        else selection.toggle(row.entity);
-        anchor = row;
-        has_anchor = true;
+        selection.toggle(e);
+        anchor = e;
     } else {
         _select_only(ctx, p_index);
     }
@@ -580,203 +537,164 @@ void OutlinerPanel::_click(EditorContext& ctx, int p_index, bool p_ctrl, bool p_
 
 void OutlinerPanel::_select_only(EditorContext& ctx, int p_index)
 {
-    ctx.selection->clear();
-    _row_add(*ctx.selection, rows[p_index]);
-    anchor = rows[p_index];
-    has_anchor = true;
+    ctx.selection->select(rows[p_index].entity);
+    anchor = rows[p_index].entity;
     last_primary = ctx.selection->primary();
 }
 
 void OutlinerPanel::_clear_selection(EditorContext& ctx)
 {
     ctx.selection->clear();
-    has_anchor = false;
+    anchor = ENTITY_NULL;
     last_primary = ENTITY_NULL;
+}
+
+void OutlinerPanel::_set_expanded(World& world, Entity p_entity, bool p_expanded)
+{
+    if (world.has<EditorExpandedTag>(p_entity) == p_expanded) return;
+    if (p_expanded) world.deferred_add<EditorExpandedTag>(p_entity);
+    else world.deferred_remove<EditorExpandedTag>(p_entity);
+    expect_world_change = true;
 }
 
 void OutlinerPanel::_reveal(EditorContext& ctx, Entity p_entity)
 {
-    EditorFolders& folders = *ctx.folders;
-    for (uint32_t f = folders.entity_folder(*ctx.world, p_entity); f != EditorFolders::ROOT && folders.valid(f); f = folders.folders[f].parent) {
-        folders.folders[f].expanded = true;
-    }
-    dirty = true;
+    World& world = *ctx.world;
+    uint32_t steps = 0;
+    for (Entity e = world.parent(p_entity); e != ENTITY_NULL && steps < World::MAX_DEPTH; e = world.parent(e), steps++) _set_expanded(world, e, true);
     scroll_to_selected = true;
+}
+
+std::vector<Entity> OutlinerPanel::_top_selection(const EditorContext& ctx) const
+{
+    const World& world = *ctx.world;
+    std::vector<Entity> out;
+    for (const Entity e : ctx.selection->entities) {
+        if (!world.valid(e)) continue;
+        bool nested = false;
+        for (const Entity o : ctx.selection->entities) nested = nested || (o != e && world.is_ancestor(o, e));
+        if (!nested) out.push_back(e);
+    }
+    return out;
 }
 
 void OutlinerPanel::_new_folder(EditorContext& ctx)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
-    const EditorSelection& selection = *ctx.selection;
-    uint32_t parent = EditorFolders::ROOT;
-    if (world.valid(selection.primary())) parent = folders.entity_folder(world, selection.primary());
-    else if (folders.valid(selection.primary_folder())) parent = folders.folders[selection.primary_folder()].parent;
-    const uint32_t f = folders.create("New Folder", parent);
-    folders.expand_to(parent);
-    if (!selection.empty()) _drop(ctx, f);
-    _rename_begin_folder(folders, f);
-    dirty = true;
+    const std::vector<Entity> moving = _top_selection(ctx);
+    const Entity primary = ctx.selection->primary();
+    const Entity parent = world.valid(primary) ? world.parent(primary) : ENTITY_NULL;
+    const Entity folder = editor_spawn(ctx, SpawnType::FOLDER, parent);
+    for (const Entity e : moving) world.set_parent(e, folder);
+    if (!moving.empty()) world.add<EditorExpandedTag>(folder);
+    _rename_begin(world, folder);
+    expect_world_change = true;
 }
 
-void OutlinerPanel::_new_entity(EditorContext& ctx)
+void OutlinerPanel::_add(EditorContext& ctx, SpawnType p_type)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
-    const EditorSelection& selection = *ctx.selection;
-    uint32_t folder = EditorFolders::ROOT;
-    if (world.valid(selection.primary())) folder = folders.entity_folder(world, selection.primary());
-    else if (folders.valid(selection.primary_folder())) folder = selection.primary_folder();
-    const Entity e = editor_spawn(ctx, SpawnType::EMPTY, folder);
-    folders.expand_to(folder);
-    _rename_begin_entity(world, e);
+    const Entity primary = ctx.selection->primary();
+    Entity parent = ENTITY_NULL;
+    if (world.valid(primary)) parent = world.is_folder(primary) ? primary : world.parent(primary);
+    const Entity e = editor_spawn(ctx, p_type, parent);
+    _rename_begin(world, e);
     scroll_to_selected = true;
-    dirty = true;
+    expect_world_change = true;
 }
 
 void OutlinerPanel::_delete_selection(EditorContext& ctx)
 {
-    const EditorFolders& folders = *ctx.folders;
-    const EditorSelection& selection = *ctx.selection;
-    uint32_t entities = 0;
-    uint32_t subfolders = 0;
-    uint32_t top_folders = 0;
-    uint32_t first = NONE;
-    for (const uint32_t f : selection.folders) {
-        if (!folders.valid(f)) continue;
-        bool nested = false;
-        for (const uint32_t o : selection.folders) nested = nested || (o != f && folders.is_ancestor(o, f));
-        if (nested) continue;
-        uint32_t sub = 0;
-        entities += folders.count_contents(*ctx.world, f, sub);
-        subfolders += sub;
-        if (first == NONE) first = f;
-        top_folders++;
+    const World& world = *ctx.world;
+    const std::vector<Entity> top = _top_selection(ctx);
+    uint32_t children = 0;
+    for (const Entity e : top) {
+        const Node* n = _node(e);
+        children += n ? n->subtree - 1 : 0u;
     }
-    if (entities == 0 && subfolders == 0) {
+    if (children == 0) {
         _delete_now(ctx, false);
         return;
     }
 
-    const std::wstring counts = std::to_wstring(entities) + L" entities and " + std::to_wstring(subfolders) + L" subfolders?";
-    const std::wstring heading = top_folders == 1 ? L"Delete \"" + std::filesystem::path(reinterpret_cast<const char8_t*>(folders.folders[first].name)).wstring() + L"\" with " + counts : L"Delete " + std::to_wstring(top_folders) + L" folders with " + counts;
-    if (drivers::Win32Dialogs::confirm(top_folders == 1 ? L"Delete Folder" : L"Delete Folders", heading.c_str(), L"This can't be undone.")) _delete_now(ctx, false);
+    char label[96];
+    _entity_label(_entity_name(world, top.front()), top.front(), label);
+    const std::wstring counts = std::to_wstring(children) + (children == 1 ? L" child?" : L" children?");
+    const std::wstring heading = top.size() == 1 ? L"Delete \"" + std::filesystem::path(reinterpret_cast<const char8_t*>(label)).wstring() + L"\" and its " + counts : L"Delete " + std::to_wstring(top.size()) + L" entities and their " + counts;
+    if (drivers::Win32Dialogs::confirm(L"Delete", heading.c_str(), L"This can't be undone.")) _delete_now(ctx, false);
 }
 
-void OutlinerPanel::_delete_now(EditorContext& ctx, bool p_keep_contents)
+void OutlinerPanel::_delete_now(EditorContext& ctx, bool p_keep_children)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
-    EditorSelection& selection = *ctx.selection;
-    for (const Entity e : selection.entities) {
-        bool covered = false;
-        if (!p_keep_contents) {
-            const uint32_t ef = folders.entity_folder(world, e);
-            for (const uint32_t f : selection.folders) covered = covered || (ef != EditorFolders::ROOT && folders.is_ancestor(f, ef));
+    const std::vector<Entity> top = _top_selection(ctx);
+    std::vector<Entity> list;
+    for (const Entity e : top) {
+        if (p_keep_children) {
+            const Entity up = world.parent(e);
+            world.children(e, list);
+            for (const Entity c : list) world.set_parent(c, up);
+            world.deferred_destroy(e);
+            continue;
         }
-        if (!covered) world.deferred_destroy(e);
+        world.subtree(e, list);
+        for (const Entity d : list) world.deferred_destroy(d);
     }
-    for (const uint32_t f : selection.folders) {
-        if (p_keep_contents) folders.destroy(world, f);
-        else folders.destroy_recursive(world, f);
-    }
-    if (!selection.entities.empty() || !p_keep_contents) expect_world_change = true;
+    expect_world_change = true;
     _clear_selection(ctx);
-    dirty = true;
 }
 
-bool OutlinerPanel::_can_drop(const EditorContext& ctx, uint32_t p_target) const
+bool OutlinerPanel::_can_drop(const EditorContext& ctx, Entity p_target) const
 {
-    if (p_target == EditorFolders::ROOT) return true;
-    for (const uint32_t f : ctx.selection->folders) {
-        if (ctx.folders->is_ancestor(f, p_target)) return false;
+    if (p_target == ENTITY_NULL) return true;
+    const World& world = *ctx.world;
+    for (const Entity e : ctx.selection->entities) {
+        if (e == p_target || world.is_ancestor(e, p_target)) return false;
     }
     return true;
 }
 
-void OutlinerPanel::_drop(EditorContext& ctx, uint32_t p_target)
+void OutlinerPanel::_drop(EditorContext& ctx, Entity p_target)
 {
     World& world = *ctx.world;
-    EditorFolders& folders = *ctx.folders;
-    const EditorSelection& selection = *ctx.selection;
     if (!_can_drop(ctx, p_target)) return;
+    bool moved = false;
+    for (const Entity e : _top_selection(ctx)) moved = world.set_parent(e, p_target) || moved;
+    if (moved && world.valid(p_target)) _set_expanded(world, p_target, true);
+    expect_world_change = true;
+}
 
-    auto under_selected = [&](uint32_t p_folder) {
-        for (uint32_t f = p_folder; f != EditorFolders::ROOT && folders.valid(f); f = folders.folders[f].parent) {
-            if (selection.contains_folder(f)) return true;
-        }
-        return false;
-    };
-    std::vector<uint32_t> move_folders;
-    std::vector<Entity> move_entities;
-    for (const uint32_t f : selection.folders) {
-        if (folders.valid(f) && !under_selected(folders.folders[f].parent)) move_folders.push_back(f);
-    }
-    for (const Entity e : selection.entities) {
-        if (world.valid(e) && !under_selected(folders.entity_folder(world, e))) move_entities.push_back(e);
-    }
-    for (const uint32_t f : move_folders) folders.set_parent(f, p_target);
-    for (const Entity e : move_entities) folders.entity_set_folder(world, e, p_target);
-    if (folders.valid(p_target)) {
-        folders.folders[p_target].expanded = true;
-        dirty = true;
+void OutlinerPanel::_set_hidden(World& world, Entity p_entity, bool p_hidden)
+{
+    std::vector<Entity> list;
+    world.subtree(p_entity, list);
+    for (const Entity e : list) {
+        if (world.has<EditorHiddenTag>(e) == p_hidden) continue;
+        if (p_hidden) world.deferred_add<EditorHiddenTag>(e);
+        else world.deferred_remove<EditorHiddenTag>(e);
     }
 }
 
 void OutlinerPanel::_set_hidden_selection(EditorContext& ctx, bool p_hidden)
 {
     World& world = *ctx.world;
-    for (const uint32_t f : ctx.selection->folders) {
-        if (ctx.folders->valid(f)) _set_hidden(world, *ctx.folders, f, p_hidden);
-    }
-    for (const Entity e : ctx.selection->entities) {
-        if (!world.valid(e) || world.has<EditorHiddenTag>(e) == p_hidden) continue;
-        if (p_hidden) world.deferred_add<EditorHiddenTag>(e);
-        else world.deferred_remove<EditorHiddenTag>(e);
-    }
+    for (const Entity e : _top_selection(ctx)) _set_hidden(world, e, p_hidden);
     expect_world_change = true;
 }
 
-void OutlinerPanel::_set_hidden(World& world, const EditorFolders& folders, uint32_t p_slot, bool p_hidden)
+void OutlinerPanel::_rename_begin(const World& world, Entity p_entity)
 {
-    for (uint32_t i = item_begin[p_slot]; i < item_begin[p_slot + 1]; i++) {
-        const Entity e = items[i].entity;
-        if (world.has<EditorHiddenTag>(e) == p_hidden) continue;
-        if (p_hidden) world.deferred_add<EditorHiddenTag>(e);
-        else world.deferred_remove<EditorHiddenTag>(e);
-    }
-    for (uint32_t i = folder_begin[p_slot]; i < folder_begin[p_slot + 1]; i++) _set_hidden(world, folders, folder_order[i], p_hidden);
-}
-
-void OutlinerPanel::_rename_begin_entity(const World& world, Entity p_entity)
-{
-    const NameComponent* n = world.try_get<NameComponent>(p_entity);
+    if (!world.valid(p_entity)) return;
     char label[96];
-    _entity_label(n && n->name[0] ? n->name : nullptr, p_entity, label);
+    _entity_label(_entity_name(world, p_entity), p_entity, label);
     snprintf(rename_buffer, sizeof(rename_buffer), "%s", label);
-    rename_kind = RowKind::ENTITY;
     rename_entity = p_entity;
-    rename_folder = NONE;
-    rename_focus = true;
-}
-
-void OutlinerPanel::_rename_begin_folder(const EditorFolders& folders, uint32_t p_folder)
-{
-    if (!folders.valid(p_folder)) return;
-    snprintf(rename_buffer, sizeof(rename_buffer), "%s", folders.folders[p_folder].name);
-    rename_kind = RowKind::FOLDER;
-    rename_folder = p_folder;
-    rename_entity = ENTITY_NULL;
     rename_focus = true;
 }
 
 void OutlinerPanel::_rename_commit(EditorContext& ctx)
 {
     if (rename_buffer[0] == '\0') return;
-    if (rename_kind == RowKind::FOLDER) {
-        ctx.folders->rename(rename_folder, rename_buffer);
-        return;
-    }
     World& world = *ctx.world;
     if (!world.valid(rename_entity)) return;
     if (NameComponent* n = world.try_get<NameComponent>(rename_entity)) {
@@ -792,15 +710,8 @@ void OutlinerPanel::_rename_commit(EditorContext& ctx)
 
 void OutlinerPanel::_rename_end()
 {
-    rename_folder = NONE;
     rename_entity = ENTITY_NULL;
     rename_focus = false;
-}
-
-bool OutlinerPanel::_renaming(const Row& p_row) const
-{
-    if (p_row.kind == RowKind::FOLDER) return rename_kind == RowKind::FOLDER && rename_folder == p_row.folder;
-    return rename_kind == RowKind::ENTITY && rename_entity == p_row.entity;
 }
 
 }

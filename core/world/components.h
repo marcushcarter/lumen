@@ -42,13 +42,13 @@ struct PoseComponent
     std::vector<mat4> skin;
 };
 
+struct ParentComponent
+{
+    Guid parent;
+};
+
 struct StaticTag {};
 struct EditorHiddenTag {};
-
-struct EditorFolderComponent
-{
-    static constexpr uint32_t ROOT = 0xFFFFFFFF;
-    uint32_t folder = ROOT;
-};
+struct EditorExpandedTag {};
 
 }

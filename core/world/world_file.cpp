@@ -7,6 +7,7 @@
 #include <core/world/world.h>
 #include <toml++/toml.hpp>
 #include <algorithm>
+#include <unordered_map>
 #include <bit>
 #include <cstdio>
 #include <cstring>
@@ -126,15 +127,45 @@ static void _sorted_entities(const World& p_world, std::vector<Entity>& r_entiti
     std::sort(r_entities.begin(), r_entities.end(), [](Entity a, Entity b) { return a.index < b.index; });
 }
 
-static void _serialize_folder(Archive& a, WorldFolder& r_folder)
+struct LegacyFolder
 {
-    a.field("index", r_folder.index);
-    a.field("guid", r_folder.guid);
-    int32_t parent = r_folder.parent == WorldFolder::ROOT ? -1 : (int32_t)r_folder.parent;
-    a.field("parent", parent);
-    r_folder.parent = parent < 0 ? WorldFolder::ROOT : (uint32_t)parent;
-    a.field("name", r_folder.name);
-    a.field("expanded", r_folder.expanded);
+    Guid guid;
+    int64_t parent = -1;
+    std::string name;
+    bool expanded = true;
+};
+
+static std::unordered_map<int64_t, LegacyFolder> _legacy_folders(const toml::array* p_folders)
+{
+    std::unordered_map<int64_t, LegacyFolder> out;
+    if (!p_folders) return out;
+    for (const toml::node& n : *p_folders) {
+        const toml::table* t = n.as_table();
+        if (!t) continue;
+        LegacyFolder f;
+        const int64_t index = (*t)["index"].value_or<int64_t>(-1);
+        f.guid = Guid::from_string((*t)["guid"].value_or(std::string{}));
+        if (!f.guid.valid()) f.guid = Guid::generate();
+        f.parent = (*t)["parent"].value_or<int64_t>(-1);
+        f.name = (*t)["name"].value_or(std::string("Folder"));
+        f.expanded = (*t)["expanded"].value_or(true);
+        if (index >= 0) out[index] = std::move(f);
+    }
+    return out;
+}
+
+static void _add_legacy_folders(World& r_world, const std::unordered_map<int64_t, LegacyFolder>& p_folders, bool p_editor)
+{
+    for (const auto& [index, f] : p_folders) {
+        if (r_world.find(f.guid) != ENTITY_NULL) continue;
+        const Entity e = r_world.create_persistent(f.guid);
+        NameComponent name{};
+        std::snprintf(name.name, NameComponent::MAX_LENGTH, "%s", f.name.c_str());
+        r_world.add<NameComponent>(e, name);
+        if (p_editor && f.expanded) r_world.add<EditorExpandedTag>(e);
+        auto parent = p_folders.find(f.parent);
+        if (parent != p_folders.end() && parent->first != index) r_world.add<ParentComponent>(e, { parent->second.guid });
+    }
 }
 
 static void _write_entity(World& r_world, Entity p_entity, toml::table& r_table)
@@ -216,15 +247,6 @@ std::string WorldFile::write_text(World& r_world, const WorldFile& p_file)
     serialize(env_writer, r_world.environment);
     section.insert_or_assign(KEY_ENVIRONMENT, std::move(environment));
 
-    toml::array folders;
-    for (WorldFolder f : p_file.folders) {
-        toml::table t;
-        TomlWriter writer(t);
-        _serialize_folder(writer, f);
-        folders.push_back(std::move(t));
-    }
-    section.insert_or_assign(KEY_FOLDERS, std::move(folders));
-
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);
     toml::array list;
@@ -268,16 +290,8 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
         serialize(reader, r_world.environment);
     }
 
-    if (const toml::array* folders = section->get_as<toml::array>(KEY_FOLDERS); folders && p_editor) {
-        for (const toml::node& n : *folders) {
-            const toml::table* t = n.as_table();
-            if (!t) continue;
-            WorldFolder f;
-            TomlReader reader(*t);
-            _serialize_folder(reader, f);
-            r_file.folders.push_back(std::move(f));
-        }
-    }
+    const std::unordered_map<int64_t, LegacyFolder> legacy = _legacy_folders(section->get_as<toml::array>(KEY_LEGACY_FOLDERS));
+    _add_legacy_folders(r_world, legacy, p_editor);
 
     const toml::array* list = section->get_as<toml::array>(KEY_ENTITIES);
     if (!list) return OK;
@@ -290,8 +304,14 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
             guid = Guid::generate();
             renamed++;
         }
-        _read_entity(r_world, r_world.create_persistent(guid), *t, p_editor);
+        const Entity e = r_world.create_persistent(guid);
+        _read_entity(r_world, e, *t, p_editor);
+        if (const toml::table* old = t->get_as<toml::table>(KEY_LEGACY_FOLDER); old && !r_world.has<ParentComponent>(e)) {
+            auto folder = legacy.find((*old)["folder"].value_or<int64_t>(-1));
+            if (folder != legacy.end()) r_world.add<ParentComponent>(e, { folder->second.guid });
+        }
     }
+    if (!legacy.empty()) log_write("World File: converted %zu folders into folder entities.", legacy.size());
     if (renamed) log_write("World File: %u entities had a missing or duplicate guid and got a new one.", renamed);
     return OK;
 }
@@ -308,11 +328,10 @@ Error WorldFile::read(const std::filesystem::path& p_path, World& r_world, bool 
     return read_text(ss.str(), r_world, p_editor, r_file);
 }
 
-uint64_t WorldFile::hash(World& r_world, const std::vector<WorldFolder>& p_folders)
+uint64_t WorldFile::hash(World& r_world)
 {
     HashWriter writer;
     serialize(writer, r_world.environment);
-    for (WorldFolder f : p_folders) _serialize_folder(writer, f);
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);

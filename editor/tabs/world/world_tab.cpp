@@ -6,7 +6,6 @@
 #include <core/rendering/render_path/editor_render_path.h>
 #include <editor/panels/shared_panels.h>
 #include <editor/assets/asset_registry.h>
-#include <editor/tabs/world/scene/editor_folders.h>
 #include <core/world/world_file.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <drivers/windows/window_driver_win32.h>
@@ -95,9 +94,7 @@ const std::filesystem::path* WorldTab::_path(EditorContext& ctx) const
 
 uint64_t WorldTab::_compute_hash(EditorContext& ctx) const
 {
-    std::vector<WorldFolder> folders;
-    ctx.folders->to_file(folders);
-    return WorldFile::hash(*ctx.world, folders);
+    return WorldFile::hash(*ctx.world);
 }
 
 bool WorldTab::_confirm_discard() const
@@ -111,7 +108,6 @@ bool WorldTab::_confirm_discard() const
 void WorldTab::_unload(EditorContext& ctx)
 {
     ctx.world->unload();
-    ctx.folders->clear();
     ctx.selection->clear();
     guid = Guid{};
     _hash = _saved_hash = 0;
@@ -131,7 +127,6 @@ void WorldTab::_load(EditorContext& ctx, Guid p_world)
         ctx.world->unload();
         return;
     }
-    ctx.folders->from_file(file.folders);
     guid = p_world;
     _hash = _saved_hash = _compute_hash(ctx);
     _hash_poll = ImGui::GetTime();
@@ -141,7 +136,6 @@ Error WorldTab::write(EditorContext& ctx, const std::filesystem::path& p_path) c
 {
     WorldFile file;
     file.guid = guid;
-    ctx.folders->to_file(file.folders);
     return WorldFile::write(p_path, *ctx.world, file);
 }
 
@@ -295,7 +289,7 @@ void WorldTab::_draw_header_menus(EditorContext& ctx, TabToolbar& r_bar)
         r_bar.end_menu();
     }
     if (r_bar.menu("Add", world)) {
-        const Entity e = editor_spawn_menu_items(ctx, EditorFolders::ROOT);
+        const Entity e = editor_spawn_menu_items(ctx, ENTITY_NULL);
         if (e != ENTITY_NULL && ctx.selection) ctx.selection->select(e);
         r_bar.end_menu();
     }

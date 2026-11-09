@@ -1,5 +1,4 @@
 #include <editor/tabs/world/scene/editor_spawn.h>
-#include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/application/editor_context.h>
 #include <core/world/components.h>
@@ -10,19 +9,21 @@
 
 namespace lumen {
 
-Entity editor_spawn(EditorContext& ctx, SpawnType p_type, uint32_t p_folder, Guid p_model)
+Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid p_model)
 {
     World& world = *ctx.world;
     const Camera& cam = ctx.renderer->main_view.camera;
 
     const Entity e = world.create_persistent(Guid::generate());
-    TransformComponent xf;
-    xf.position = cam.position + cam.forward() * SPAWN_DISTANCE;
-    world.add<TransformComponent>(e, xf);
-
     NameComponent name{};
     snprintf(name.name, NameComponent::MAX_LENGTH, "%s", SPAWN_NAMES[(int)p_type]);
     world.add<NameComponent>(e, name);
+
+    if (p_type != SpawnType::FOLDER) {
+        TransformComponent xf;
+        xf.position = cam.position + cam.forward() * SPAWN_DISTANCE;
+        world.add<TransformComponent>(e, xf);
+    }
 
     switch (p_type) {
         case SpawnType::MODEL:
@@ -39,18 +40,20 @@ Entity editor_spawn(EditorContext& ctx, SpawnType p_type, uint32_t p_folder, Gui
             break;
     }
 
-    if (p_folder != EditorFolders::ROOT) ctx.folders->entity_set_folder(world, e, p_folder);
+    if (world.valid(p_parent)) {
+        world.set_parent(e, p_parent);
+        if (!world.has<EditorExpandedTag>(p_parent)) world.add<EditorExpandedTag>(p_parent);
+    }
     ctx.selection->select(e);
     return e;
 }
 
-Entity editor_spawn_menu_items(EditorContext& ctx, uint32_t p_folder)
+Entity editor_spawn_menu_items(EditorContext& ctx, Entity p_parent)
 {
     Entity e = ENTITY_NULL;
-    if (ImGui::MenuItem(ICON_FA_CIRCLE_DOT "  Empty")) e = editor_spawn(ctx, SpawnType::EMPTY, p_folder);
+    if (ImGui::MenuItem(ICON_FA_FOLDER "  Folder")) e = editor_spawn(ctx, SpawnType::FOLDER, p_parent);
     ImGui::Separator();
-    if (ImGui::MenuItem(ICON_FA_CUBES "  Model")) e = editor_spawn(ctx, SpawnType::MODEL, p_folder);
-    if (ImGui::MenuItem(ICON_FA_TABLE_CELLS "  Model Grid")) e = editor_spawn(ctx, SpawnType::MODEL_GRID, p_folder);
+    if (ImGui::MenuItem(ICON_FA_CIRCLE_DOT "  Empty")) e = editor_spawn(ctx, SpawnType::EMPTY, p_parent);
     return e;
 }
 

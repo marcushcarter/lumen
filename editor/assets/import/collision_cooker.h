@@ -19,6 +19,7 @@ struct CollisionCooker
     static Error write(const std::filesystem::path& p_file, Guid p_mesh, LCollision& r_collision);
     static bool has_collision(const std::filesystem::path& p_lmesh);
     static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings);
+    static Error remove(EditorContext& ctx, const std::filesystem::path& p_lmesh);
 };
 
 }

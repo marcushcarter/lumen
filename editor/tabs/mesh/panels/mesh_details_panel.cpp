@@ -5,6 +5,7 @@
 #include <editor/ui/ui_widgets.h>
 #include <editor/assets/import/import_dialog.h>
 #include <editor/assets/import/collision_cooker.h>
+#include <drivers/windows/dialogs_win32.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
@@ -77,6 +78,15 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
             ImGui::SameLine();
             if (ImGui::Button("Revert")) c.edit = c.settings;
             if (!changed) ImGui::EndDisabled();
+
+            ImGui::Spacing();
+            ui_push_buttons(UiButton::DANGER);
+            const bool remove = ImGui::Button(ICON_FA_TRASH_CAN "  Delete Collision");
+            ui_pop_buttons();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the collision and turns Generate Collision off for this mesh");
+            if (remove && drivers::Win32Dialogs::ask(L"Lumen Editor", L"Delete this mesh's collision?", L"Generate Collision is turned off so reimports won't bring it back. You can generate it again from here.", L"Delete", L"Cancel")) {
+                CollisionCooker::remove(ctx, tab->path);
+            }
         }
 
         if (locked) ImGui::EndDisabled();

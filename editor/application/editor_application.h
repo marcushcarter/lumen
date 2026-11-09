@@ -20,7 +20,6 @@
 #include <editor/tabs/asset_manager/asset_manager_tab.h>
 #include <editor/tabs/settings/editor_settings_tab.h>
 #include <editor/tabs/tab_manager.h>
-#include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/world_tab.h>
 #include <editor/viewport/editor_camera.h>
@@ -44,7 +43,6 @@ struct EditorApplication : Application
     ProjectManager project_manager;
     AssetImportTracker imports;
     AssetRegistry assets;
-    EditorFolders folders;
     EditorSelection selection;
     TextureViewer texture_viewer;
     ImportDialog import_dialog;

@@ -12,7 +12,6 @@
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/tabs/world/scene/editor_selection.h>
 #include <editor/tabs/world/scene/editor_spawn.h>
-#include <editor/tabs/world/scene/editor_folders.h>
 #include <editor/play/editor_play.h>
 #include <core/rendering/debug_draw.h>
 #include <core/animation/bone_debug.h>
@@ -131,7 +130,7 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const W
     for (const Entity e : p_entities) {
         const TransformComponent* xf = world.try_get<TransformComponent>(e);
         if (!xf || world.has<EditorHiddenTag>(e)) continue;
-        const mat4 mvp = view_proj * translate(mat4(1.0f), xf->position) * mat4_cast(xf->rotation) * glm::scale(mat4(1.0f), xf->scale);
+        const mat4 mvp = view_proj * world.world_matrix(e);
         if (const ModelComponent* m = world.try_get<ModelComponent>(e)) {
             const uint32_t mesh_index = renderer.models.mesh_index(m->model);
             const PoseComponent* pose = world.has<StaticTag>(e) ? nullptr : world.try_get<PoseComponent>(e);
@@ -159,11 +158,11 @@ bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool
         return false;
     }
     const Entity selected = ctx.selection->primary();
-    TransformComponent* xf = ctx.world->try_get<TransformComponent>(selected);
-    if (!xf) {
+    if (!ctx.world->has<TransformComponent>(selected)) {
         gizmo.reset();
         return false;
     }
+    TransformComponent xf = ctx.world->world_transform(selected);
 
     const ImGuiIO& io = ImGui::GetIO();
     const Camera& cam = ctx.renderer->main_view.camera;
@@ -181,8 +180,8 @@ bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool
 
     const bool input_ok = ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
     bool changed = false;
-    const bool hot = gizmo.update(frame, gizmo_world, p_hover_ok && input_ok, *xf, changed);
-    if (changed) ctx.world->touch(selected);
+    const bool hot = gizmo.update(frame, gizmo_world, p_hover_ok && input_ok, xf, changed);
+    if (changed) ctx.world->set_world_matrix(selected, transform_matrix(xf));
     return hot;
 }
 
@@ -435,12 +434,12 @@ void Viewport::_draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size
 
 void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 {
-    if (!ctx.world || !ctx.selection || !ctx.folders) return;
+    if (!ctx.world || !ctx.selection) return;
     if (!ImGui::BeginDragDropTargetCustom(ImRect(p_pos, ImVec2(p_pos.x + p_size.x, p_pos.y + p_size.y)), ImGui::GetID("##asset_drop"))) return;
     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
         const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
         if (asset.type == AssetType::MODEL && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-            editor_spawn(ctx, SpawnType::MODEL, EditorFolders::ROOT, asset.guid);
+            editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, asset.guid);
         }
     }
     ImGui::EndDragDropTarget();

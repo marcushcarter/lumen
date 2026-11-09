@@ -23,7 +23,6 @@ struct EditorSettings;
 struct EditorResources;
 struct AssetImportTracker;
 struct AssetRegistry;
-struct EditorFolders;
 struct TextureViewer;
 struct ImportDialog;
 struct ReferencesDialog;
@@ -52,7 +51,6 @@ struct EditorContext
     EditorResources* resources = nullptr;
     AssetImportTracker* imports = nullptr;
     AssetRegistry* assets = nullptr;
-    EditorFolders* folders = nullptr;
     TextureViewer* texture_viewer = nullptr;
     ImportDialog* import_dialog = nullptr;
     ReferencesDialog* references_dialog = nullptr;

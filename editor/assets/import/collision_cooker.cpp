@@ -6,6 +6,7 @@
 #include <core/assets/asset_common.h>
 #include <core/base/jobs.h>
 #include <core/io/file_io.h>
+#include <core/io/path.h>
 #include <core/project/project.h>
 #include <assimp/config.h>
 #include <assimp/Importer.hpp>
@@ -372,6 +373,26 @@ static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_st
     ss << tbl;
     if (!write_file_atomic(p_job.staged_record, ss.str())) return FAILED;
     p_step.report(1.0f);
+    return OK;
+}
+
+Error CollisionCooker::remove(EditorContext& ctx, const std::filesystem::path& p_lmesh)
+{
+    using enum Error;
+    const AssetInfo info = read_asset_info(p_lmesh);
+    if (!info.valid() || info.type != AssetType::MESH || !ctx.project) return FAILED;
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lmesh.string()); }
+    catch (const toml::parse_error&) { return FAILED; }
+    if (toml::table* rec = tbl["import"].as_table()) rec->insert_or_assign("generate_collision", false);
+    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->erase("collision");
+    std::ostringstream ss;
+    ss << tbl;
+    if (!write_file_atomic(p_lmesh, ss.str())) return FAILED;
+    const std::filesystem::path file = ctx.project->collision_path(info.guid);
+    std::error_code ec;
+    if (std::filesystem::exists(file, ec)) Paths::remove_to_recycle(file);
+    log_write("Removed the collision of '%s'.", p_lmesh.filename().string().c_str());
     return OK;
 }
 

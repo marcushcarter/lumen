@@ -40,7 +40,7 @@ void debug_draw_bones(DebugDraw& r_draw, const World& p_world, const Renderer& p
     std::vector<vec3> joints;
     std::vector<uint8_t> valid;
 
-    p_world.view<TransformComponent, ModelComponent, PoseComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity, const TransformComponent& p_xf, const ModelComponent& p_model, const PoseComponent& p_pose) {
+    p_world.view<TransformComponent, ModelComponent, PoseComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model, const PoseComponent& p_pose) {
         if (p_pose.skin.empty()) return;
         uint32_t mesh_index, slot_base;
         p_renderer.models.lookup(p_model.model, mesh_index, slot_base);
@@ -55,7 +55,7 @@ void debug_draw_bones(DebugDraw& r_draw, const World& p_world, const Renderer& p
         joints.assign(joint_count, vec3(0.0f));
         valid.assign(joint_count, 0);
 
-        const mat4 model = translate(mat4(1.0f), p_xf.position) * mat4_cast(p_xf.rotation) * scale(mat4(1.0f), p_xf.scale);
+        const mat4 model = p_world.world_matrix(p_entity);
         const size_t count = std::min({ p_pose.skin.size(), rig->inverse_binds.size(), map.size() });
         for (size_t j = 0; j < count; j++) {
             const int32_t s = map[j];

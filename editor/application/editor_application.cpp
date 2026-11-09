@@ -104,7 +104,6 @@ Error EditorApplication::on_init()
     _ctx.resources = &resources;
     _ctx.imports = &imports;
     _ctx.assets = &assets;
-    _ctx.folders = &folders;
     _ctx.texture_viewer = &texture_viewer;
     _ctx.import_dialog = &import_dialog;
     _ctx.references_dialog = &references_dialog;
@@ -205,7 +204,7 @@ void EditorApplication::on_update(float p_dt)
         if (loading_marker && !pending_render_path) _clear_loading_marker();
         _tick_imports();
         assets.tick();
-        selection.prune(world, folders);
+        selection.prune(world);
 
         _play_shortcuts();
         tabs.update(ctx, p_dt);
@@ -360,7 +359,6 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
 
     AssetImportTracker::clear_staging(project);
     assets.open(project.assets_dir);
-    folders.clear();
     selection.clear();
     render_path_request(new EditorRenderPath());
     project_manager.add_recent(project.root, project.name);
@@ -426,7 +424,6 @@ bool EditorApplication::close_project()
         world_tab.reset();
         thumbnails.close(ctx);
         assets.close();
-        folders.clear();
         selection.clear();
         project_unload();
     };

@@ -7,6 +7,7 @@
 namespace lumen {
 
 struct DebugDraw;
+struct CollisionCache;
 
 struct PhysicsWorldSettings
 {
@@ -25,6 +26,7 @@ struct PhysicsWorld
     struct Impl;
     std::unique_ptr<Impl> impl;
     float accumulator = 0.0f;
+    const CollisionCache* collision_cache = nullptr;
 
     PhysicsWorld();
     ~PhysicsWorld();

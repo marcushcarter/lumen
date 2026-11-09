@@ -14,6 +14,7 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/import/import_dialog.h>
 #include <editor/assets/import/reimport.h>
+#include <editor/assets/references_dialog.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <toml++/toml.hpp>
@@ -411,7 +412,7 @@ void AssetManager::_delete_folder(EditorContext& ctx, const std::filesystem::pat
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton" || ext == ".lanim") _delete_content(ctx, it->path());
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton" || ext == ".lanim" || ext == ".lcollision") _delete_content(ctx, it->path());
     }
     Paths::remove_to_recycle(p_folder);
 }
@@ -486,6 +487,12 @@ void AssetManager::_context_menu(EditorContext& ctx, const std::filesystem::path
             if (ImGui::MenuItem(ICON_FA_ROTATE "  Reimport")) reimport_assets(ctx, selection);
             if (ImGui::MenuItem(ICON_FA_SLIDERS "  Reimport With Settings...", nullptr, false, has_settings)) reimport_with_settings(ctx, selection);
         }
+    }
+    const AssetInfo info = count == 1 && !any_folder ? read_asset_info(p_row) : AssetInfo{};
+    if (info.valid() && ctx.references_dialog) {
+        ImGui::Separator();
+        if (ImGui::MenuItem(ICON_FA_MAGNIFYING_GLASS "  Find References")) ctx.references_dialog->open(ctx, info.guid, ReferencesDialog::Mode::FIND);
+        if (ImGui::MenuItem(ICON_FA_RIGHT_LEFT "  Replace References...")) ctx.references_dialog->open(ctx, info.guid, ReferencesDialog::Mode::REPLACE);
     }
     ImGui::Separator();
     char del[48];

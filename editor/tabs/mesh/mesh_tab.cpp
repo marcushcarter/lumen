@@ -6,8 +6,10 @@
 #include <core/rendering/renderer.h>
 #include <core/world/components.h>
 #include <editor/tabs/mesh/panels/mesh_details_panel.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include <toml++/toml.hpp>
+#include <algorithm>
 #include <sstream>
 
 namespace lumen {
@@ -20,7 +22,11 @@ Error MeshTab::create(EditorContext& ctx)
 
     _create_layout(ctx, "MeshHost");
     layout.add_panel<MeshDetailsPanel>()->tab = this;
-    layout.viewport.debug_lines = [this] { rig_preview.draw_bones(debug_draw()); };
+    layout.viewport.debug_lines = [this] {
+        rig_preview.draw_bones(debug_draw());
+        _draw_collision();
+    };
+    layout.viewport.show_collision = open_with_collision;
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -57,10 +63,15 @@ Error MeshTab::save(EditorContext& ctx)
 void MeshTab::on_update(EditorContext& ctx, float p_dt)
 {
     layout.viewport.has_bones = rig_preview.skinned;
+    layout.viewport.has_collision = collision.loaded;
     (void)p_dt;
     _draw_layout(ctx);
     _update_orbit();
     _refresh_stats(ctx);
+    if (ImGui::GetTime() - _collision_poll >= STATS_POLL_S) {
+        _collision_poll = ImGui::GetTime();
+        _refresh_collision(ctx);
+    }
     rig_preview.refresh(ctx, guid, dirty());
     if (rig_preview.version != _applied_version) {
         rig_preview.apply(preview, _preview_entity);
@@ -94,6 +105,80 @@ void MeshTab::_refresh_stats(EditorContext& ctx)
     _stats_time = t;
     _framed = false;
     if (!lmesh_read_stats(bin, mesh_stats)) mesh_stats = {};
+}
+
+void MeshTab::_refresh_collision(EditorContext& ctx)
+{
+    if (!ctx.project || path.empty()) return;
+    toml::table tbl;
+    try { tbl = toml::parse_file(path.string()); }
+    catch (const toml::parse_error&) { return; }
+    collision.generate = tbl["import"]["generate_collision"].value_or(true);
+    const Guid guid_now = Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["collision"].value_or(std::string()));
+
+    if (guid_now != collision.guid) {
+        collision = CollisionView{ .guid = guid_now, .generate = collision.generate };
+        collision.path = CollisionCooker::find(path.parent_path(), guid_now);
+        CollisionCooker::Record record;
+        if (!collision.path.empty() && CollisionCooker::load_record(collision.path, record)) collision.settings = record.settings;
+        collision.edit = collision.settings;
+    }
+    if (!collision.guid.valid()) return;
+
+    const std::filesystem::path bin = ctx.project->content_path(collision.guid);
+    std::error_code ec;
+    const std::filesystem::file_time_type t = std::filesystem::last_write_time(bin, ec);
+    if (ec || t == collision.time) return;
+    collision.time = t;
+    CollisionCooker::Record record;
+    if (!collision.path.empty() && CollisionCooker::load_record(collision.path, record)) {
+        if (collision.edit == collision.settings) collision.edit = record.settings;
+        collision.settings = record.settings;
+    }
+    collision.loaded = collision.data.load_cooked(bin) == Error::OK;
+    collision.edges.clear();
+    if (!collision.loaded) return;
+
+    std::vector<uint64_t> keys;
+    keys.reserve(collision.data.indices.size());
+    for (size_t i = 0; i + 2 < collision.data.indices.size(); i += 3) {
+        for (int e = 0; e < 3; e++) {
+            const uint32_t a = collision.data.indices[i + e];
+            const uint32_t b = collision.data.indices[i + (e + 1) % 3];
+            keys.push_back(((uint64_t)std::min(a, b) << 32) | std::max(a, b));
+        }
+    }
+    std::sort(keys.begin(), keys.end());
+    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    collision.edges.reserve(keys.size() * 2);
+    for (uint64_t k : keys) {
+        collision.edges.push_back((uint32_t)(k >> 32));
+        collision.edges.push_back((uint32_t)k);
+    }
+}
+
+void MeshTab::_draw_collision() const
+{
+    if (!collision.loaded) return;
+    const LCollision& c = collision.data;
+    const DebugDraw::Style style{ .color = DebugDraw::GREEN, .category = DebugCategory::COLLISION };
+    DebugDraw& draw = debug_draw();
+    switch (c.type) {
+        case CollisionType::BOX:
+            draw.box(translate(mat4(1.0f), c.center) * mat4_cast(c.rotation), c.half_extents, style);
+            return;
+        case CollisionType::SPHERE:
+            draw.sphere(c.center, c.radius, style);
+            return;
+        case CollisionType::CAPSULE: {
+            const vec3 axis = c.rotation * vec3(0.0f, 1.0f, 0.0f);
+            draw.capsule(c.center - axis * c.half_height, c.center + axis * c.half_height, c.radius, style);
+            return;
+        }
+        default:
+            for (size_t i = 0; i + 1 < collision.edges.size(); i += 2) draw.line(c.vertices[collision.edges[i]], c.vertices[collision.edges[i + 1]], style);
+            return;
+    }
 }
 
 }

@@ -38,6 +38,7 @@ struct Viewport
     bool allow_asset_drop = true;
     bool allow_debug_draw = false;
     bool has_bones = false;
+    bool has_collision = false;
     bool show_grid = true;
     bool show_bones = false;
     bool show_collision = true;

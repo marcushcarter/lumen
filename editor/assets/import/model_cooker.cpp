@@ -2,6 +2,7 @@
 #include <editor/application/editor_context.h>
 #include <editor/assets/import/animation_cooker.h>
 #include <editor/assets/import/skeleton_cooker.h>
+#include <editor/assets/import/collision_cooker.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/lmaterial.h>
@@ -353,6 +354,61 @@ uint32_t ModelCooker::_import_animations(const Job& p_job, const aiScene* p_scen
     return imported;
 }
 
+struct CollisionPlan
+{
+    bool cook = false;
+    Guid guid;
+    std::filesystem::path dst;
+    LCollision data;
+};
+
+static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScene* p_scene)
+{
+    CollisionPlan plan;
+    if (!p_job.settings.mesh_settings.generate_collision) return plan;
+
+    const Guid existing = CollisionCooker::mesh_collision(p_job.dst_lmesh);
+    std::filesystem::path path = CollisionCooker::find(p_job.dst_dir, existing);
+    if (!path.empty()) {
+        CollisionCooker::Record record;
+        if (CollisionCooker::load_record(path, record) && record.source.generic_string() != p_job.source.generic_string()) {
+            plan.guid = existing;
+            return plan;
+        }
+    } else {
+        path = p_job.dst_dir / (p_job.dst_lmesh.stem().wstring() + L".lcollision");
+    }
+
+    std::filesystem::path content_bin;
+    if (AssetImportTracker::resolve_import(*p_job.project, AssetType::COLLISION, path, plan.guid, content_bin) != Error::OK) {
+        log_write("ModelCooker: '%s' exists and is not a collision asset.", path.string().c_str());
+        plan.guid = {};
+        return plan;
+    }
+    if (!CollisionCooker::build(p_scene, p_job.settings.collision, p_job.settings.mesh_settings, plan.data)) {
+        plan.guid = {};
+        return plan;
+    }
+    plan.cook = true;
+    plan.dst = path;
+    return plan;
+}
+
+static void _write_collision(const ModelCooker::Job& p_job, CollisionPlan& r_plan)
+{
+    if (!r_plan.cook) return;
+    const ImportSession::Staged staged = p_job.session->stage(*p_job.project, r_plan.dst, r_plan.guid, true, false);
+    CollisionCooker::Job job;
+    job.source = p_job.source;
+    job.dst_lcollision = staged.asset;
+    job.content_bin = staged.content_bin;
+    job.guid = r_plan.guid;
+    job.mesh = p_job.mesh_guid;
+    job.settings = p_job.settings.collision;
+    job.transform = p_job.settings.mesh_settings;
+    if (CollisionCooker::cook(job, r_plan.data) != Error::OK) p_job.session->unstage(r_plan.dst);
+}
+
 Error ModelCooker::_import(const Job& p_job)
 {
     using enum Error;
@@ -376,9 +432,11 @@ Error ModelCooker::_import(const Job& p_job)
             log_write("ModelCooker: '%s' no longer contains a mesh.", p_job.source.string().c_str());
             return FAILED;
         }
+        CollisionPlan collision = _plan_collision(p_job, scene);
         MeshCooker::Job mesh;
         mesh.source = p_job.source;
         mesh.skeleton = _import_skeleton(p_job, scene);
+        mesh.collision = collision.guid;
         mesh.guid = p_job.mesh_guid;
         mesh.settings = p_job.settings.mesh_settings;
         const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, true);
@@ -386,6 +444,7 @@ Error ModelCooker::_import(const Job& p_job)
         mesh.content_bin = mesh_staged.content_bin;
         mesh.step = root.sub(READ_END, 1.0f);
         if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
+        _write_collision(p_job, collision);
         const uint32_t slot_count = (uint32_t)MeshCooker::material_slots(scene).size();
         if (p_job.model_slots && slot_count != p_job.model_slots) log_write("ModelCooker: '%s' now has %u material slots but its model has %u. Reimport the model to update its materials.", p_job.dst_lmesh.filename().string().c_str(), slot_count, p_job.model_slots);
         root.report(1.0f);
@@ -421,9 +480,11 @@ Error ModelCooker::_import(const Job& p_job)
         return root.sub(from, at);
     };
 
+    CollisionPlan collision = _plan_collision(p_job, scene);
     MeshCooker::Job mesh;
     mesh.source = p_job.source;
     mesh.skeleton = _import_skeleton(p_job, scene);
+    mesh.collision = collision.guid;
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
     const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, false);
@@ -431,6 +492,7 @@ Error ModelCooker::_import(const Job& p_job)
     mesh.content_bin = mesh_staged.content_bin;
     mesh.step = next_step(mesh_cost);
     if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
+    _write_collision(p_job, collision);
     _import_animations(p_job, scene, p_job.dst_dir, mesh.skeleton, false);
 
     for (size_t i = 0; i < textures.size(); i++) {
@@ -552,9 +614,13 @@ Error ModelCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_l
     job.dst_lmesh = model.mesh.valid() ? find_mesh(folder, model.mesh) : std::filesystem::path();
     std::filesystem::path saved_source;
     if (job.dst_lmesh.empty()) job.dst_lmesh = folder / (job.settings.name + L".lmesh");
-    else MeshCooker::load_settings(job.dst_lmesh, job.settings.mesh_settings, saved_source);
+    else {
+        MeshCooker::load_settings(job.dst_lmesh, job.settings.mesh_settings, saved_source);
+        CollisionCooker::load_for_mesh(job.dst_lmesh, job.settings.collision);
+    }
     if (p_override) {
         job.settings.mesh_settings = p_override->mesh_settings;
+        job.settings.collision = p_override->collision;
         job.settings.mode = p_override->mode;
     }
 
@@ -568,7 +634,7 @@ Error ModelCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_l
     return OK;
 }
 
-Error ModelCooker::reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const MeshCooker::CookSettings* p_override)
+Error ModelCooker::reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const Settings* p_override)
 {
     using enum Error;
     const AssetInfo info = read_asset_info(p_lmesh);
@@ -595,7 +661,11 @@ Error ModelCooker::reimport_mesh(EditorContext& ctx, const std::filesystem::path
     job.mesh_guid = info.guid;
     job.settings.name = p_lmesh.stem().wstring();
     job.mesh_only = true;
-    if (p_override) job.settings.mesh_settings = *p_override;
+    CollisionCooker::load_for_mesh(p_lmesh, job.settings.collision);
+    if (p_override) {
+        job.settings.mesh_settings = p_override->mesh_settings;
+        job.settings.collision = p_override->collision;
+    }
 
     for (auto it = std::filesystem::directory_iterator(folder, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
         if (it->path().extension() != ".lmodel") continue;

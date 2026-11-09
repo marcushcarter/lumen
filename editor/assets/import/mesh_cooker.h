@@ -33,6 +33,7 @@ struct MeshCooker
         vec3 rotation = vec3(0.0f);
         float scale = 1.0f;
         bool load_skeleton = true;
+        bool generate_collision = true;
         uint32_t max_verts = 64;
         uint32_t max_tris = 64;
         uint32_t group_size = 8;
@@ -46,6 +47,7 @@ struct MeshCooker
         Guid guid;
         CookSettings settings;
         Guid skeleton;
+        Guid collision;
         ImportStep step;
     };
 

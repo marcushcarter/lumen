@@ -12,12 +12,16 @@
 #include <Jolt/Renderer/DebugRendererSimple.h>
 #endif
 #include <core/physics/physics_types.h>
+#include <core/assets/guid.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
 #include <memory>
 #include <string_view>
 
 namespace lumen {
 
 struct DebugDraw;
+struct CollisionCache;
+enum class CollisionType : uint8_t;
 
 namespace jolt {
 
@@ -100,6 +104,7 @@ DebugRenderer* debug_renderer();
 #endif
 
 const Layers& layers();
+const JPH::Shape* collision_shape(const CollisionCache& p_cache, Guid p_guid, CollisionType& r_type);
 JPH::JobSystem* jobs();
 
 }

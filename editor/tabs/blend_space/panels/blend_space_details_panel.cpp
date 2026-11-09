@@ -259,29 +259,31 @@ void BlendSpaceDetailsPanel::draw_contents(EditorContext& ctx)
     LBlendSpace& space = tab->space;
     ui_field_push_style();
 
-    asset_field(ctx, "Preview Mesh", "###blend_space_preview_mesh", space.preview_mesh, AssetType::MESH);
-    if (!space.preview_mesh.valid() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Empty uses the first mesh that matches the samples' clips");
-    if (ImGui::BeginCombo("Kind", blend_space_kind_name(space.kind))) {
-        for (BlendSpaceKind k : { BlendSpaceKind::ONE_D, BlendSpaceKind::TWO_D }) {
-            if (ImGui::Selectable(blend_space_kind_name(k), k == space.kind)) space.kind = k;
+    if (ui_category("Blend Space")) {
+        if (ImGui::BeginCombo("Kind", blend_space_kind_name(space.kind))) {
+            for (BlendSpaceKind k : { BlendSpaceKind::ONE_D, BlendSpaceKind::TWO_D }) {
+                if (ImGui::Selectable(blend_space_kind_name(k), k == space.kind)) space.kind = k;
+            }
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("1D blends along one value; 2D blends by direction and speed");
+        char axis[NAME_SIZE];
+        std::snprintf(axis, sizeof(axis), "%s", space.axis.c_str());
+        if (ImGui::InputText("Axis", axis, sizeof(axis))) space.axis = axis;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The value that drives this blend, like speed in m/s");
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("1D blends along one value; 2D blends by direction and speed");
-    char axis[NAME_SIZE];
-    std::snprintf(axis, sizeof(axis), "%s", space.axis.c_str());
-    if (ImGui::InputText("Axis", axis, sizeof(axis))) space.axis = axis;
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The value that drives this blend, like speed in m/s");
 
-    ImGui::Spacing();
-    ImGui::Checkbox("Play", &tab->playing);
-    if (space.kind == BlendSpaceKind::TWO_D) _draw_pad(ctx);
-    else _draw_axis(ctx);
+    if (ui_category("Preview")) {
+        asset_field(ctx, "Preview Mesh", "###blend_space_preview_mesh", space.preview_mesh, AssetType::MESH);
+        if (!space.preview_mesh.valid() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Empty uses the first mesh that matches the samples' clips");
+        ImGui::Checkbox("Play", &tab->playing);
+        if (space.kind == BlendSpaceKind::TWO_D) _draw_pad(ctx);
+        else _draw_axis(ctx);
+    }
 
-    ImGui::Spacing();
     char header[48];
     std::snprintf(header, sizeof(header), "Samples (%zu)###samples", space.samples.size());
-    if (ui_category(header, nullptr, true)) _draw_samples(ctx);
+    if (ui_category(header)) _draw_samples(ctx);
     std::snprintf(header, sizeof(header), "Preview Overlays (%zu)###preview_overlays", tab->preview_overlays.size());
     if (ui_category(header)) _draw_overlays(ctx);
 

@@ -58,7 +58,7 @@ bool ui_property_grid_begin(const char* p_id, float p_label_ratio = -1.0f);
 void ui_property(const char* p_label);
 void ui_property_grid_end();
 
-bool ui_category(const char* p_label, bool* r_remove = nullptr, bool p_default_open = false);
+bool ui_category(const char* p_label, bool* r_remove = nullptr);
 void ui_category_flush();
 void ui_chevron(ImDrawList* p_dl, ImVec2 p_center, float p_size, ImGuiDir p_dir, ImU32 p_color, float p_thickness);
 

@@ -16,18 +16,6 @@
 
 namespace lumen {
 
-void DetailsPanel::_draw_environment(EditorContext& ctx)
-{
-    EnvironmentSettings& env = ctx.world->environment;
-    ImGui::TextDisabled("Environment");
-    ImGui::Spacing();
-    ui_field_push_style();
-    if (ui_category("Exposure")) {
-        ImGui::DragFloat("EV100", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-    }
-    ui_field_pop_style();
-}
-
 void DetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (ctx.world_tab && !ctx.world_tab->has_world()) {
@@ -37,7 +25,15 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (!ctx.world || !ctx.selection) return;
     World& world = *ctx.world;
     if (ctx.selection->environment) {
-        _draw_environment(ctx);
+        EnvironmentSettings& env = world.environment;
+        ImGui::TextDisabled("Environment");
+        ImGui::Spacing();
+        ui_field_push_style();
+        if (ui_category("Exposure")) {
+            ImGui::DragFloat("EV100", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        }
+        ui_category_flush();
+        ui_field_pop_style();
         return;
     }
     const Entity e = ctx.selection->primary();

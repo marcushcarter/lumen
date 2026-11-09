@@ -425,7 +425,7 @@ void ui_category_flush()
     }
 }
 
-bool ui_category(const char* p_label, bool* r_remove, bool p_default_open)
+bool ui_category(const char* p_label, bool* r_remove)
 {
     ui_category_flush();
     if (r_remove) *r_remove = false;
@@ -449,7 +449,7 @@ bool ui_category(const char* p_label, bool* r_remove, bool p_default_open)
     ImGui::PushID(p_label);
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##open");
-    bool open = storage->GetBool(open_id, p_default_open);
+    bool open = storage->GetBool(open_id, false);
 
     const ImVec2 mouse = ImGui::GetMousePos();
     const bool in_row = ImGui::IsWindowHovered() && mouse.x >= min_x && mouse.x < max_x && mouse.y >= y0 && mouse.y < y1;

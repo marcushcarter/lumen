@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <core/assets/guid.h>
 #include <cstdint>
 
 namespace lumen {
@@ -24,7 +25,7 @@ static constexpr uint32_t PHYSICS_QUERY_ALL_SOLID = PHYSICS_QUERY_WORLD | physic
 
 enum class PhysicsMotion : uint8_t { STATIC, KINEMATIC, DYNAMIC };
 
-enum class PhysicsShapeType : uint8_t { BOX, SPHERE, CAPSULE };
+enum class PhysicsShapeType : uint8_t { BOX, SPHERE, CAPSULE, ASSET };
 
 struct PhysicsShape
 {
@@ -32,10 +33,12 @@ struct PhysicsShape
     vec3 half_extents = vec3(0.5f);
     float radius = 0.5f;
     float half_height = 0.5f;
+    Guid collision;
 
     static PhysicsShape box(const vec3& p_half_extents) { return { PhysicsShapeType::BOX, p_half_extents, 0.0f, 0.0f }; }
     static PhysicsShape sphere(float p_radius) { return { PhysicsShapeType::SPHERE, vec3(0.0f), p_radius, 0.0f }; }
     static PhysicsShape capsule(float p_half_height, float p_radius) { return { PhysicsShapeType::CAPSULE, vec3(0.0f), p_radius, p_half_height }; }
+    static PhysicsShape asset(Guid p_collision) { PhysicsShape s; s.type = PhysicsShapeType::ASSET; s.collision = p_collision; return s; }
 };
 
 struct PhysicsBodyId
@@ -52,6 +55,7 @@ struct PhysicsBodyDesc
     PhysicsShape shape;
     vec3 position = vec3(0.0f);
     quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+    vec3 scale = vec3(1.0f);
     PhysicsMotion motion = PhysicsMotion::STATIC;
     PhysicsLayer layer = PhysicsLayer::STATIC;
     float mass = 0.0f;

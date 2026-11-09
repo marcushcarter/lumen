@@ -20,7 +20,6 @@ struct OverlayDetailsPanel : Panel
     bool pinned() const override { return true; }
 
     bool _joint_picker(const char* p_popup_id, std::string& r_name);
-    void _draw_preview(EditorContext& ctx);
     void _draw_joints(EditorContext& ctx, std::vector<std::string>& r_names, const char* p_add_label);
     void _draw_warnings(EditorContext& ctx);
     void draw_contents(EditorContext& ctx) override;

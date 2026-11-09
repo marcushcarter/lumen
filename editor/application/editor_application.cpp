@@ -107,6 +107,15 @@ Error EditorApplication::on_init()
     _ctx.folders = &folders;
     _ctx.texture_viewer = &texture_viewer;
     _ctx.import_dialog = &import_dialog;
+    _ctx.references_dialog = &references_dialog;
+    _ctx.reload_asset_tabs = [this](const std::vector<std::filesystem::path>& p_paths) {
+        std::vector<EditorTab*> reload;
+        for (EditorTab* t : tabs.tabs) {
+            const std::filesystem::path* path = t->asset_path();
+            if (path && std::find(p_paths.begin(), p_paths.end(), *path) != p_paths.end()) reload.push_back(t);
+        }
+        for (EditorTab* t : reload) _reload_tab(t);
+    };
     _ctx.thumbnails = &thumbnails;
     _ctx.open_project_callback = [this](const std::filesystem::path& p_root) { open_project(p_root); };
     _ctx.close_project_callback = [this] { close_project(); };
@@ -202,6 +211,7 @@ void EditorApplication::on_update(float p_dt)
         tabs.update(ctx, p_dt);
         texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);
+        references_dialog.draw(ctx);
         thumbnails.update(ctx);
         if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal) && !_tab_locked(tabs.active)) tabs.active->save(ctx);
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();

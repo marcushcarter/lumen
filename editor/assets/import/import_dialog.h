@@ -9,9 +9,10 @@ namespace lumen {
 
 struct EditorContext;
 
-enum class ImportKind : uint8_t { NONE, TEXTURE, MODEL, MESH };
+enum class ImportKind : uint8_t { NONE, TEXTURE, MODEL, MESH, COLLISION };
 
 ImportKind import_kind(const std::filesystem::path& p_src);
+void collision_settings_fields(CollisionCooker::Settings& r_settings);
 
 struct ImportDialog
 {
@@ -40,6 +41,7 @@ struct ImportDialog
     void _draw_header(Pending& r_pending);
     void _draw_model(ModelCooker::Settings& r_settings, bool p_materials);
     void _draw_texture(TextureCooker::CookSettings& r_settings);
+    void _draw_collision(CollisionCooker::Settings& r_settings, bool* r_generate);
     void _draw_footer(EditorContext& ctx, Pending& r_pending);
     void _start(EditorContext& ctx, Pending& r_pending);
     void _next();

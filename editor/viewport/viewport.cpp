@@ -332,7 +332,7 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
         }
         right_overlay.end_menu();
     }
-    if (allow_grid || allow_debug_draw || has_bones) {
+    if (allow_grid || allow_debug_draw || has_bones || has_collision) {
         const bool header = _header_frame == ImGui::GetFrameCount();
         const bool open = header ? right_overlay.header_menu("View###viewport_view") : right_overlay.begin_menu("View###viewport_view");
         if (open) {
@@ -346,12 +346,12 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
 void Viewport::_draw_view_menu()
 {
     const bool bones = allow_debug_draw || has_bones;
+    const bool collision = allow_debug_draw || has_collision;
     if (allow_grid) ImGui::MenuItem("Grid", nullptr, &show_grid);
-    if (allow_grid && (bones || allow_debug_draw)) ImGui::Separator();
+    if (allow_grid && (bones || collision)) ImGui::Separator();
     if (bones) ImGui::MenuItem("Bones", nullptr, &show_bones);
-    if (!allow_debug_draw) return;
-    ImGui::MenuItem("Collision", nullptr, &show_collision);
-    ImGui::MenuItem("Debug Lines", nullptr, &show_debug_lines);
+    if (collision) ImGui::MenuItem("Collision", nullptr, &show_collision);
+    if (allow_debug_draw) ImGui::MenuItem("Debug Lines", nullptr, &show_debug_lines);
 }
 
 uint32_t Viewport::_debug_mask(bool p_playing) const
@@ -359,9 +359,8 @@ uint32_t Viewport::_debug_mask(bool p_playing) const
     if (p_playing) return 0;
     uint32_t mask = 0;
     if (show_bones && (allow_debug_draw || has_bones)) mask |= (uint32_t)DebugCategory::BONES;
-    if (!allow_debug_draw) return mask;
-    if (show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
-    if (show_collision) mask |= (uint32_t)DebugCategory::COLLISION;
+    if (show_collision && (allow_debug_draw || has_collision)) mask |= (uint32_t)DebugCategory::COLLISION;
+    if (allow_debug_draw && show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
     return mask;
 }
 

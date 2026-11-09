@@ -2,6 +2,8 @@
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/assets/import/reimport.h>
+#include <editor/assets/references_dialog.h>
+#include <core/assets/asset_common.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -75,6 +77,12 @@ AssetBrowser::ItemResult ContentBrowserPanel::_draw_item(EditorContext& ctx, con
         const bool has_settings = std::any_of(selection.begin(), selection.end(), [](const std::filesystem::path& p) { return reimport_has_settings(reimport_target(p).kind); });
         if (ImGui::MenuItem(ICON_FA_ROTATE "  Reimport", nullptr, false, reimportable)) reimport_assets(ctx, selection);
         if (ImGui::MenuItem(ICON_FA_SLIDERS "  Reimport With Settings...", nullptr, false, has_settings)) reimport_with_settings(ctx, selection);
+        const AssetInfo info = selection.size() == 1 ? read_asset_info(selection.front()) : AssetInfo{};
+        if (info.valid() && ctx.references_dialog) {
+            ImGui::Separator();
+            if (ImGui::MenuItem(ICON_FA_MAGNIFYING_GLASS "  Find References")) ctx.references_dialog->open(ctx, info.guid, ReferencesDialog::Mode::FIND);
+            if (ImGui::MenuItem(ICON_FA_RIGHT_LEFT "  Replace References...")) ctx.references_dialog->open(ctx, info.guid, ReferencesDialog::Mode::REPLACE);
+        }
         ImGui::EndPopup();
     }
     ui_context_menu_pop_style();

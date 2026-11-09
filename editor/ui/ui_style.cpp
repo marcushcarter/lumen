@@ -473,6 +473,7 @@ void UiStyle::_build_colors()
     color.asset_overlay = IM_COL32(236, 178, 84, 255);
     color.asset_world = IM_COL32(122, 156, 240, 255);
     color.asset_terrain = IM_COL32(150, 186, 104, 255);
+    color.asset_collision = IM_COL32(112, 200, 140, 255);
 
     color.overlay = ImGui::GetColorU32(ui_hex4_over(0x303030b3, P::VIEWPORT_BACK));
     color.overlay_hover = ImGui::GetColorU32(ui_hex4_over(0x454545d0, P::VIEWPORT_BACK));

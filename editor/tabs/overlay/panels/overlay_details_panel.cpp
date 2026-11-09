@@ -43,33 +43,6 @@ bool OverlayDetailsPanel::_joint_picker(const char* p_popup_id, std::string& r_n
     return picked;
 }
 
-void OverlayDetailsPanel::_draw_preview(EditorContext& ctx)
-{
-    LOverlay& overlay = tab->overlay;
-    asset_field(ctx, "Preview Blend Space", "###overlay_preview_blend_space", overlay.preview_blend_space, AssetType::BLEND_SPACE);
-    ImGui::Checkbox("Play", &tab->playing);
-    ImGui::SliderFloat("Weight", &tab->preview_weight, 0.0f, 1.0f, "%.2f");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the overlay is faded in");
-
-    const LBlendSpace* space = tab->blend_space(ctx);
-    if (!space || space->samples.empty()) return;
-    float lo = FLT_MAX;
-    float hi = -FLT_MAX;
-    for (const BlendSample& s : space->samples) {
-        lo = std::min(lo, s.position);
-        hi = std::max(hi, s.position);
-    }
-    const float span = hi - lo;
-    const float margin = span > 0.0f ? span * AXIS_MARGIN : 1.0f;
-    const char* axis = space->axis.empty() ? "Value" : space->axis.c_str();
-    if (space->kind == BlendSpaceKind::TWO_D) {
-        ImGui::SliderFloat(axis, &tab->preview_value, 0.0f, std::max(hi, 0.0f) + margin, "%.2f");
-        ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
-    } else {
-        ImGui::SliderFloat(axis, &tab->preview_value, lo - margin, hi + margin, "%.2f");
-    }
-}
-
 void OverlayDetailsPanel::_draw_joints(EditorContext& ctx, std::vector<std::string>& r_names, const char* p_add_label)
 {
     (void)ctx;
@@ -141,31 +114,55 @@ void OverlayDetailsPanel::draw_contents(EditorContext& ctx)
     LOverlay& overlay = tab->overlay;
     ui_field_push_style();
 
-    asset_field(ctx, "Source", "###overlay_source", overlay.source, AssetType::ANIMATION);
-    if (ImGui::BeginCombo("Mode", overlay_mode_name(overlay.mode))) {
-        for (OverlayMode m : { OverlayMode::OVERRIDE, OverlayMode::ADDITIVE }) {
-            if (ImGui::Selectable(overlay_mode_name(m), m == overlay.mode)) overlay.mode = m;
+    if (ui_category("Overlay")) {
+        asset_field(ctx, "Source", "###overlay_source", overlay.source, AssetType::ANIMATION);
+        if (ImGui::BeginCombo("Mode", overlay_mode_name(overlay.mode))) {
+            for (OverlayMode m : { OverlayMode::OVERRIDE, OverlayMode::ADDITIVE }) {
+                if (ImGui::Selectable(overlay_mode_name(m), m == overlay.mode)) overlay.mode = m;
+            }
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Override replaces the masked joints; additive adds on top of them");
+        if (overlay.mode == OverlayMode::ADDITIVE) {
+            asset_field(ctx, "Reference", "###overlay_reference", overlay.reference, AssetType::ANIMATION);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The source adds its difference from this clip's first frame");
+        }
+        ImGui::DragFloat("Fade", &overlay.fade, 0.01f, 0.0f, 5.0f, "%.2f s");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Time to fade in and out in game");
+        int depth = (int)overlay.mask.depth;
+        if (ImGui::SliderInt("Blend Depth", &depth, 0, MAX_DEPTH)) overlay.mask.depth = (uint32_t)depth;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Joints below a branch reach full weight over this many levels");
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Override replaces the masked joints; additive adds on top of them");
-    if (overlay.mode == OverlayMode::ADDITIVE) {
-        asset_field(ctx, "Reference", "###overlay_reference", overlay.reference, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The source adds its difference from this clip's first frame");
+
+    if (ui_category("Preview")) {
+        asset_field(ctx, "Preview Blend Space", "###overlay_preview_blend_space", overlay.preview_blend_space, AssetType::BLEND_SPACE);
+        ImGui::Checkbox("Play", &tab->playing);
+        ImGui::SliderFloat("Weight", &tab->preview_weight, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the overlay is faded in");
+
+        const LBlendSpace* space = tab->blend_space(ctx);
+        if (space && !space->samples.empty()) {
+            float lo = FLT_MAX;
+            float hi = -FLT_MAX;
+            for (const BlendSample& s : space->samples) {
+                lo = std::min(lo, s.position);
+                hi = std::max(hi, s.position);
+            }
+            const float span = hi - lo;
+            const float margin = span > 0.0f ? span * AXIS_MARGIN : 1.0f;
+            const char* axis = space->axis.empty() ? "Value" : space->axis.c_str();
+            if (space->kind == BlendSpaceKind::TWO_D) {
+                ImGui::SliderFloat(axis, &tab->preview_value, 0.0f, std::max(hi, 0.0f) + margin, "%.2f");
+                ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
+            } else {
+                ImGui::SliderFloat(axis, &tab->preview_value, lo - margin, hi + margin, "%.2f");
+            }
+        }
     }
-    ImGui::DragFloat("Fade", &overlay.fade, 0.01f, 0.0f, 5.0f, "%.2f s");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Time to fade in and out in game");
-    int depth = (int)overlay.mask.depth;
-    if (ImGui::SliderInt("Blend Depth", &depth, 0, MAX_DEPTH)) overlay.mask.depth = (uint32_t)depth;
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Joints below a branch reach full weight over this many levels");
 
-    ImGui::Spacing();
-    _draw_preview(ctx);
-
-    ImGui::Spacing();
     char header[48];
     std::snprintf(header, sizeof(header), "Branches (%zu)###branches", overlay.mask.branches.size());
-    if (ui_category(header, nullptr, true)) {
+    if (ui_category(header)) {
         if (overlay.mask.branches.empty()) ImGui::TextDisabled("No branches, the whole body is used");
         _draw_joints(ctx, overlay.mask.branches, "Add Branch");
     }

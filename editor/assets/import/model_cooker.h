@@ -2,6 +2,7 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/import/mesh_cooker.h>
 #include <editor/assets/import/texture_cooker.h>
+#include <editor/assets/import/collision_cooker.h>
 #include <core/assets/lmodel.h>
 #include <filesystem>
 #include <memory>
@@ -24,6 +25,7 @@ struct ModelCooker
         ModelImportMode mode = ModelImportMode::FULL;
         MeshCooker::CookSettings mesh_settings;
         TextureCooker::CookSettings texture_settings;
+        CollisionCooker::Settings collision;
     };
 
     struct Job {
@@ -51,7 +53,7 @@ struct ModelCooker
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings = {});
     static std::filesystem::path find_mesh(const std::filesystem::path& p_folder, Guid p_mesh);
     static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmodel, const Settings* p_override = nullptr);
-    static Error reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const MeshCooker::CookSettings* p_override = nullptr);
+    static Error reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const Settings* p_override = nullptr);
 };
 
 }

@@ -238,6 +238,7 @@ struct UiStyle
         ImU32 asset_overlay;
         ImU32 asset_world;
         ImU32 asset_terrain;
+        ImU32 asset_collision;
 
         ImU32 overlay;
         ImU32 overlay_hover;

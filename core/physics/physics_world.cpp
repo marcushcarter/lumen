@@ -1,5 +1,6 @@
 #include <core/physics/physics_world.h>
 #include <core/physics/jolt_bridge.h>
+#include <core/physics/collision_cache.h>
 #include <core/rendering/debug_draw.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -32,9 +33,22 @@ struct PhysicsWorld::Impl
 static constexpr float MIN_SHAPE_SIZE = 1e-3f;
 static constexpr float MIN_DIRECTION_LENGTH = 1e-6f;
 
-static JPH::RefConst<JPH::Shape> _make_shape(const PhysicsShape& p_shape)
+static JPH::RefConst<JPH::Shape> _make_shape(const PhysicsShape& p_shape, const CollisionCache* p_cache, PhysicsMotion p_motion)
 {
     switch (p_shape.type) {
+        case PhysicsShapeType::ASSET: {
+            CollisionType type = CollisionType::MESH;
+            const JPH::Shape* shape = p_cache ? jolt::collision_shape(*p_cache, p_shape.collision, type) : nullptr;
+            if (!shape) {
+                log_write("Physics: collision asset %s isn't loaded.", p_shape.collision.to_string().c_str());
+                return nullptr;
+            }
+            if (type == CollisionType::MESH && p_motion != PhysicsMotion::STATIC) {
+                log_write("Physics: triangle mesh collision can only be used on static bodies.");
+                return nullptr;
+            }
+            return shape;
+        }
         case PhysicsShapeType::BOX: {
             const vec3 half = max(p_shape.half_extents, vec3(MIN_SHAPE_SIZE));
             const float convex = std::min(JPH::cDefaultConvexRadius, std::min(half.x, std::min(half.y, half.z)) * 0.5f);
@@ -96,8 +110,13 @@ void PhysicsWorld::shutdown()
 PhysicsBodyId PhysicsWorld::create_body(const PhysicsBodyDesc& p_desc)
 {
     if (!impl) return {};
-    JPH::RefConst<JPH::Shape> shape = _make_shape(p_desc.shape);
+    JPH::RefConst<JPH::Shape> shape = _make_shape(p_desc.shape, collision_cache, p_desc.motion);
     if (!shape) return {};
+    if (p_desc.scale != vec3(1.0f)) {
+        JPH::Shape::ShapeResult scaled = shape->ScaleShape(to_jph(p_desc.scale));
+        if (scaled.HasError()) log_write("Physics: couldn't scale shape: %s", scaled.GetError().c_str());
+        else shape = scaled.Get();
+    }
 
     const PhysicsLayer layer = p_desc.motion == PhysicsMotion::STATIC && p_desc.layer != PhysicsLayer::TRIGGER ? PhysicsLayer::STATIC : p_desc.layer;
     JPH::BodyCreationSettings settings(shape, to_jph_r(p_desc.position), to_jph(normalize(p_desc.rotation)), _motion(p_desc.motion), to_jph(layer));

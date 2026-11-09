@@ -7,17 +7,6 @@
 
 namespace lumen {
 
-void AnimationDetailsPanel::_draw_stats(EditorContext& ctx)
-{
-    const LAnimation& clip = tab->clip;
-    const AssetRegistry::Entry* skeleton = ctx.assets ? ctx.assets->find(clip.skeleton) : nullptr;
-    if (tab->disk_size) ImGui::Text("Disk Size: %s", fmt_bytes(tab->disk_size));
-    ImGui::Text("Skeleton: %s", skeleton ? skeleton->name.c_str() : "None");
-    ImGui::Text("Duration: %.2fs", clip.duration);
-    ImGui::Text("Frames: %u @ %.0f fps", clip.frame_count, clip.sample_rate);
-    ImGui::Text("Tracks: %u", clip.track_count());
-}
-
 void AnimationDetailsPanel::_draw_warnings(EditorContext& ctx)
 {
     (void)ctx;
@@ -33,11 +22,21 @@ void AnimationDetailsPanel::draw_contents(EditorContext& ctx)
     ui_field_push_style();
 
     tab->draw_import();
-    _draw_stats(ctx);
 
-    ImGui::Spacing();
-    asset_field(ctx, "Preview Mesh", "###animation_preview_mesh", tab->preview_mesh, AssetType::MESH);
-    ImGui::Checkbox("Loop", &tab->loop);
+    if (ui_category("Info")) {
+        const LAnimation& clip = tab->clip;
+        const AssetRegistry::Entry* skeleton = ctx.assets ? ctx.assets->find(clip.skeleton) : nullptr;
+        if (tab->disk_size) ImGui::Text("Disk Size: %s", fmt_bytes(tab->disk_size));
+        ImGui::Text("Skeleton: %s", skeleton ? skeleton->name.c_str() : "None");
+        ImGui::Text("Duration: %.2fs", clip.duration);
+        ImGui::Text("Frames: %u @ %.0f fps", clip.frame_count, clip.sample_rate);
+        ImGui::Text("Tracks: %u", clip.track_count());
+    }
+
+    if (ui_category("Preview")) {
+        asset_field(ctx, "Preview Mesh", "###animation_preview_mesh", tab->preview_mesh, AssetType::MESH);
+        ImGui::Checkbox("Loop", &tab->loop);
+    }
 
     ui_category_flush();
     _draw_warnings(ctx);

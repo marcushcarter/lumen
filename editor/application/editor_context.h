@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <filesystem>
+#include <vector>
 #include <drivers/windows/window_driver_win32.h>
 
 namespace lumen {
@@ -25,6 +26,7 @@ struct AssetRegistry;
 struct EditorFolders;
 struct TextureViewer;
 struct ImportDialog;
+struct ReferencesDialog;
 struct ThumbnailCache;
 
 struct EditorContext
@@ -53,11 +55,13 @@ struct EditorContext
     EditorFolders* folders = nullptr;
     TextureViewer* texture_viewer = nullptr;
     ImportDialog* import_dialog = nullptr;
+    ReferencesDialog* references_dialog = nullptr;
     ThumbnailCache* thumbnails = nullptr;
 
     std::function<void(const std::filesystem::path&)> open_project_callback;
     std::function<void()> close_project_callback;
     std::function<void()> save_all_callback;
+    std::function<void(const std::vector<std::filesystem::path>&)> reload_asset_tabs;
     std::function<void(std::function<void()>)> reload_project_callback;
 
     std::function<bool(const std::filesystem::path&)> run_is_running;

@@ -53,11 +53,13 @@ void ModelDetailsPanel::draw_contents(EditorContext& ctx)
     LModel& m = tab->model;
     ui_field_push_style();
 
-    asset_field(ctx, "Mesh", "###model_mesh", m.mesh, AssetType::MESH);
+    if (ui_category("Model")) {
+        asset_field(ctx, "Mesh", "###model_mesh", m.mesh, AssetType::MESH);
+    }
 
     char header[48];
     std::snprintf(header, sizeof(header), "Materials (%u)###materials", std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)m.materials.size()));
-    if (ui_category(header, nullptr, true)) _draw_materials(ctx);
+    if (ui_category(header)) _draw_materials(ctx);
 
     ui_category_flush();
     _draw_warnings(ctx);

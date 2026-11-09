@@ -18,4 +18,5 @@ PUBLIC
     stb
     meshoptimizer
     entt
+    Jolt
 )

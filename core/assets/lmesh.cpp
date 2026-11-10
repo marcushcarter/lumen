@@ -566,6 +566,161 @@ void lmesh_page_slice(const LMeshData& p_data, uint32_t p_page, LMeshPageData& r
     if (p_data.wide_slots()) r_out.tri_slots.assign(p_data.tri_slots.begin() + page.tri_first, p_data.tri_slots.begin() + page.tri_first + page.tri_count);
 }
 
+static uint32_t _bits_for(uint32_t p_range)
+{
+    uint32_t bits = 0;
+    while (bits < 32 && (p_range >> bits) != 0) bits++;
+    return bits;
+}
+
+struct BitWriter
+{
+    std::vector<uint32_t>& words;
+    uint64_t bit;
+
+    BitWriter(std::vector<uint32_t>& r_words) : words(r_words), bit((uint64_t)r_words.size() * 32) {}
+
+    void put(uint32_t p_value, uint32_t p_count)
+    {
+        if (p_count == 0) return;
+        const size_t need = (size_t)((bit + p_count + 31) / 32);
+        if (words.size() < need) words.resize(need, 0u);
+        const size_t w = (size_t)(bit >> 5);
+        const uint32_t s = (uint32_t)(bit & 31);
+        const uint32_t v = p_count >= 32 ? p_value : p_value & ((1u << p_count) - 1u);
+        words[w] |= v << s;
+        if (s + p_count > 32) words[w + 1] |= v >> (32 - s);
+        bit += p_count;
+    }
+};
+
+static uint32_t _quantize_normal(int16_t p_snorm)
+{
+    const float n = glm::clamp((float)p_snorm / 32767.0f, -1.0f, 1.0f);
+    const float scale = (float)((1u << LMESH_NORMAL_BITS) - 1u);
+    return (uint32_t)glm::round((n * 0.5f + 0.5f) * scale);
+}
+
+void lmesh_pack_page(const LMeshData& p_tables, uint32_t p_page, const LMeshPageData& p_data, LMeshPackedPage& r_out)
+{
+    r_out.positions.clear();
+    r_out.attributes.clear();
+    r_out.skin.clear();
+    r_out.clusters.clear();
+    r_out.cones.clear();
+    const LMeshPage& page = p_tables.pages[p_page];
+    const LMeshPayloadHeader& h = p_tables.header;
+    const bool skinned = p_tables.skinned() && p_data.skin.size() == p_data.vertices.size();
+    r_out.clusters.resize(page.cluster_count);
+    r_out.cones.assign(page.cluster_count, LMESH_CONE_NONE);
+    std::vector<float> cone_points;
+    std::vector<unsigned int> cone_indices;
+
+    for (uint32_t i = 0; i < page.cluster_count; i++) {
+        const LMeshCluster& c = p_tables.clusters[page.cluster_first + i];
+        LMeshClusterStreams& s = r_out.clusters[i];
+        const ClusterVertex* verts = p_data.vertices.data() + c.vertex_offset;
+
+        u16vec3 lo(UINT16_MAX), hi(0);
+        u16vec2 uv_lo(UINT16_MAX), uv_hi(0);
+        for (uint32_t v = 0; v < c.vertex_count; v++) {
+            lo = glm::min(lo, verts[v].position.position);
+            hi = glm::max(hi, verts[v].position.position);
+            uv_lo = glm::min(uv_lo, verts[v].attributes.uv);
+            uv_hi = glm::max(uv_hi, verts[v].attributes.uv);
+        }
+        if (c.vertex_count == 0) {
+            lo = hi = u16vec3(0);
+            uv_lo = uv_hi = u16vec2(0);
+        }
+        const uint32_t px = _bits_for(hi.x - lo.x), py = _bits_for(hi.y - lo.y), pz = _bits_for(hi.z - lo.z);
+        const uint32_t pu = _bits_for(uv_hi.x - uv_lo.x), pv = _bits_for(uv_hi.y - uv_lo.y);
+
+        s.position = (uint32_t)r_out.positions.size();
+        s.attribute = (uint32_t)r_out.attributes.size();
+        s.skin = (uint32_t)r_out.skin.size();
+        s.pos_lo_xy = (uint32_t)lo.x | ((uint32_t)lo.y << 16);
+        s.pos_lo_z_count = (uint32_t)lo.z | (c.vertex_count << 16);
+        s.uv_lo = (uint32_t)uv_lo.x | ((uint32_t)uv_lo.y << 16);
+        s.bits = px | (py << 5) | (pz << 10) | (pu << 15) | (pv << 20);
+        s.skin_format = 0;
+
+        if (c.tri_count > 0 && c.vertex_count > 0 && (uint64_t)c.tri_offset + c.tri_count <= p_data.tris.size()) {
+            cone_points.resize((size_t)c.vertex_count * 3);
+            for (uint32_t v = 0; v < c.vertex_count; v++) {
+                const vec3 pos = h.pos_min + vec3(verts[v].position.position) / 65535.0f * h.pos_extent;
+                cone_points[(size_t)v * 3 + 0] = pos.x;
+                cone_points[(size_t)v * 3 + 1] = pos.y;
+                cone_points[(size_t)v * 3 + 2] = pos.z;
+            }
+            cone_indices.resize((size_t)c.tri_count * 3);
+            for (uint32_t t = 0; t < c.tri_count; t++) {
+                const uint32_t lt = p_data.tris[c.tri_offset + t];
+                cone_indices[(size_t)t * 3 + 0] = lt & 0xFFu;
+                cone_indices[(size_t)t * 3 + 1] = (lt >> 8) & 0xFFu;
+                cone_indices[(size_t)t * 3 + 2] = (lt >> 16) & 0xFFu;
+            }
+            const meshopt_Bounds b = meshopt_computeClusterBounds(cone_indices.data(), cone_indices.size(), cone_points.data(), c.vertex_count, sizeof(float) * 3);
+            if (b.cone_cutoff_s8 < 127) r_out.cones[i] = (uint32_t)(uint8_t)b.cone_axis_s8[0] | ((uint32_t)(uint8_t)b.cone_axis_s8[1] << 8) | ((uint32_t)(uint8_t)b.cone_axis_s8[2] << 16) | ((uint32_t)(uint8_t)b.cone_cutoff_s8 << 24);
+        }
+
+        BitWriter pw(r_out.positions);
+        BitWriter aw(r_out.attributes);
+        for (uint32_t v = 0; v < c.vertex_count; v++) {
+            const u16vec3 q = verts[v].position.position;
+            pw.put(q.x - lo.x, px);
+            pw.put(q.y - lo.y, py);
+            pw.put(q.z - lo.z, pz);
+            const VertexAttributes& a = verts[v].attributes;
+            aw.put(_quantize_normal(a.normal.x), LMESH_NORMAL_BITS);
+            aw.put(_quantize_normal(a.normal.y), LMESH_NORMAL_BITS);
+            aw.put(a.uv.x - uv_lo.x, pu);
+            aw.put(a.uv.y - uv_lo.y, pv);
+        }
+
+        if (!skinned) continue;
+        const SkinVertex* skin = p_data.skin.data() + c.vertex_offset;
+        uint32_t influences = 1, joint_lo = 255, joint_hi = 0;
+        for (uint32_t v = 0; v < c.vertex_count; v++) {
+            uint32_t n = 0;
+            for (int k = 0; k < 4; k++) {
+                if (skin[v].weights[k] == 0) continue;
+                n++;
+                joint_lo = std::min<uint32_t>(joint_lo, skin[v].joints[k]);
+                joint_hi = std::max<uint32_t>(joint_hi, skin[v].joints[k]);
+            }
+            influences = std::max(influences, n);
+        }
+        if (joint_lo > joint_hi) joint_lo = joint_hi = 0;
+        const uint32_t joint_bits = _bits_for(joint_hi - joint_lo);
+        s.skin_format = influences | (joint_bits << 3) | (joint_lo << 8);
+
+        BitWriter sw(r_out.skin);
+        for (uint32_t v = 0; v < c.vertex_count; v++) {
+            uint32_t joints[4] = { joint_lo, joint_lo, joint_lo, joint_lo };
+            uint32_t weights[4] = {};
+            uint32_t n = 0;
+            for (int k = 0; k < 4; k++) {
+                if (skin[v].weights[k] == 0) continue;
+                uint32_t at = n++;
+                while (at > 0 && weights[at - 1] < skin[v].weights[k]) {
+                    joints[at] = joints[at - 1];
+                    weights[at] = weights[at - 1];
+                    at--;
+                }
+                joints[at] = skin[v].joints[k];
+                weights[at] = skin[v].weights[k];
+            }
+            for (uint32_t k = 0; k < influences; k++) sw.put(joints[k] - joint_lo, joint_bits);
+            for (uint32_t k = 0; k + 1 < influences; k++) sw.put(weights[k], LMESH_WEIGHT_BITS);
+        }
+    }
+
+    r_out.positions.resize(r_out.positions.size() + LMESH_STREAM_PAD_WORDS, 0u);
+    r_out.attributes.resize(r_out.attributes.size() + LMESH_STREAM_PAD_WORDS, 0u);
+    if (skinned) r_out.skin.resize(r_out.skin.size() + LMESH_STREAM_PAD_WORDS, 0u);
+}
+
 const char* lmesh_validate(const LMeshData& p_data)
 {
     if (const char* why = lmesh_validate_tables(p_data)) return why;

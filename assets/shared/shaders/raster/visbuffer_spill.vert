@@ -9,6 +9,7 @@ layout(push_constant) uniform Push {
     TransformBuffer transforms;
     ClusterRefsBuffer cluster_refs;
     VisibleClusterBuffer visible;
+    SkinCacheBuffer skin_cache;
     uint bin;
     uint sampler_index;
 } pc;
@@ -30,5 +31,5 @@ void main() {
     }
     const uint local = (lt >> (8u * (uint(gl_VertexIndex) % 3u))) & 0xFFu;
     vec2 uv;
-    gl_Position = raster_vertex(pc.camera, pc.geometry, pc.instances, pc.transforms, ref, local, uv);
+    gl_Position = raster_vertex(pc.camera, pc.geometry, pc.instances, pc.transforms, pc.skin_cache, ref_idx, ref, local, uv);
 }

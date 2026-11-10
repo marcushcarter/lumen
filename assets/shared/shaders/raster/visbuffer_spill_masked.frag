@@ -10,6 +10,7 @@ layout(push_constant) uniform Push {
     TransformBuffer transforms;
     ClusterRefsBuffer cluster_refs;
     VisibleClusterBuffer visible;
+    SkinCacheBuffer skin_cache;
     uint bin;
     uint sampler_index;
 } pc;

@@ -23,15 +23,16 @@ struct GeometryAddresses
     VkDeviceAddress slot_table;
     VkDeviceAddress clusters;
     VkDeviceAddress groups;
-    VkDeviceAddress skin_vertices;
+    VkDeviceAddress skin;
     VkDeviceAddress meshes;
-    VkDeviceAddress cluster_vertex_base;
-    VkDeviceAddress cluster_skin_delta;
+    VkDeviceAddress cluster_streams;
     VkDeviceAddress local_triangles;
-    VkDeviceAddress cluster_vertices;
+    VkDeviceAddress positions;
+    VkDeviceAddress attributes;
     VkDeviceAddress materials;
     VkDeviceAddress cluster_slots;
     VkDeviceAddress cluster_bounds;
+    VkDeviceAddress cluster_cones;
     VkDeviceAddress nodes;
     VkDeviceAddress page_resident;
     VkDeviceAddress page_stamp;
@@ -60,11 +61,12 @@ struct GeometryPool
 {
     static constexpr uint32_t MAX_TRIS = 32u * 1024 * 1024;
     static constexpr uint32_t MAX_CLUSTERS = 4u * 1024 * 1024;
-    static constexpr uint32_t MAX_CLUSTER_VERTS = 64u * 1024 * 1024;
+    static constexpr uint32_t MAX_POSITION_WORDS = 128u * 1024 * 1024;
+    static constexpr uint32_t MAX_ATTRIBUTE_WORDS = 128u * 1024 * 1024;
     static constexpr uint32_t RASTER_CLUSTER_TRIS = LMESH_CLUSTER_MAX_TRIS;
     static constexpr uint32_t RASTER_CLUSTER_VERTS = LMESH_CLUSTER_MAX_VERTS;
     static constexpr uint32_t MAX_GROUPS = 512u * 1024;
-    static constexpr uint32_t MAX_SKIN_VERTS = 4u * 1024 * 1024;
+    static constexpr uint32_t MAX_SKIN_WORDS = 8u * 1024 * 1024;
     static constexpr uint32_t MAX_MESHES = 64u * 1024;
     static constexpr uint32_t MAX_NODES = 8u * 1024 * 1024;
     static constexpr uint32_t MAX_PAGES = 4u * 1024 * 1024;
@@ -89,16 +91,17 @@ struct GeometryPool
         GROUPS,
         SKIN,
         MESHES,
-        CLUSTER_VERTEX_BASE,
+        CLUSTER_STREAMS,
         LOCAL_TRIANGLES,
-        CLUSTER_VERTICES,
+        POSITIONS,
         CLUSTER_SLOTS,
         CLUSTER_BOUNDS,
         NODES,
         PAGE_RESIDENT,
         PAGE_STAMP,
         GROUP_REFINED,
-        CLUSTER_SKIN_DELTA,
+        ATTRIBUTES,
+        CLUSTER_CONES,
         COUNT,
     };
 
@@ -115,7 +118,8 @@ struct GeometryPool
     };
 
     struct MeshRanges {
-        uint32_t vertex = RangeAllocator::INVALID, vertex_count = 0;
+        uint32_t position = RangeAllocator::INVALID, position_count = 0;
+        uint32_t attribute = RangeAllocator::INVALID, attribute_count = 0;
         uint32_t tri = RangeAllocator::INVALID, tri_count = 0;
         uint32_t cluster = RangeAllocator::INVALID, cluster_count = 0;
         uint32_t group = RangeAllocator::INVALID, group_count = 0;
@@ -138,7 +142,8 @@ struct GeometryPool
     struct RetiredPage {
         uint64_t frame;
         uint32_t tri, tri_count;
-        uint32_t vertex, vertex_count;
+        uint32_t position, position_count;
+        uint32_t attribute, attribute_count;
         uint32_t cluster, cluster_count;
         uint32_t skin, skin_count;
     };
@@ -152,9 +157,13 @@ struct GeometryPool
 
     struct StreamPage {
         uint32_t tri = RangeAllocator::INVALID;
-        uint32_t vertex = RangeAllocator::INVALID;
+        uint32_t position = RangeAllocator::INVALID;
+        uint32_t position_count = 0;
+        uint32_t attribute = RangeAllocator::INVALID;
+        uint32_t attribute_count = 0;
         uint32_t cluster = RangeAllocator::INVALID;
         uint32_t skin = RangeAllocator::INVALID;
+        uint32_t skin_count = 0;
         uint32_t list_index = UINT32_MAX;
         uint64_t last_used = 0;
         PageState state = PageState::ABSENT;
@@ -224,7 +233,8 @@ struct GeometryPool
     Arena arenas[ARENA_COUNT];
     std::vector<drivers::DeviceDriverVulkan::Buffer> address_buffers;
 
-    RangeAllocator vertex_alloc;
+    RangeAllocator position_alloc;
+    RangeAllocator attribute_alloc;
     RangeAllocator tri_alloc;
     RangeAllocator cluster_alloc;
     RangeAllocator group_alloc;
@@ -300,7 +310,10 @@ struct GeometryPool
 
     bool _stage(ArenaKind p_kind, uint32_t p_offset, const void* p_data, VkDeviceSize p_bytes);
     bool _stage_bytes(ArenaKind p_kind, VkDeviceSize p_dst, const void* p_data, VkDeviceSize p_bytes);
-    void _page_clusters(const LMeshData& p_tables, uint32_t p_page, const StreamPage& p_slot, uint32_t p_group_base, std::vector<Cluster>& r_clusters, std::vector<uint32_t>& r_vbase, std::vector<uint32_t>& r_skin, std::vector<uint32_t>& r_slots, std::vector<uint32_t>& r_bounds) const;
+    void _page_clusters(const LMeshData& p_tables, uint32_t p_page, uint32_t p_tri, uint32_t p_group_base, std::vector<Cluster>& r_clusters, std::vector<uint32_t>& r_slots, std::vector<uint32_t>& r_bounds) const;
+    static void _rebase_streams(std::vector<LMeshClusterStreams>& r_streams, uint32_t p_position, uint32_t p_attribute, uint32_t p_skin);
+    bool _allocate_page(StreamPage& r_page, const LMeshPage& p_info, const LMeshPackedPage& p_packed, bool p_wide);
+    void _free_page(StreamPage& r_page, const LMeshPage& p_info);
     void _retire_page(StreamPage& r_page, const LMeshPage& p_info);
     VkDeviceSize _staging_free() const;
     static uint64_t _page_gpu_bytes(const LMeshPage& p_page, bool p_wide, bool p_skinned);
@@ -309,7 +322,7 @@ struct GeometryPool
     void _stream_read_requests();
     void _stream_take_results();
     void _stream_issue_loads();
-    bool _page_install(uint32_t p_mesh, uint32_t p_page, const LMeshPageData& p_data);
+    bool _page_install(uint32_t p_mesh, uint32_t p_page, const LMeshPageData& p_data, const LMeshPackedPage& p_packed);
     void _page_evict(uint32_t p_mesh, uint32_t p_page);
     bool _evict_for(uint64_t p_bytes, uint32_t& r_budget_evictions, std::vector<uint64_t>& r_candidates, size_t& r_cursor, bool& r_built);
     void _stream_forget(uint32_t p_mesh);

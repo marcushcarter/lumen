@@ -1,0 +1,98 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/geometry.glsl"
+#include "common/camera.glsl"
+#include "common/instances.glsl"
+#include "common/skinning.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
+layout(buffer_reference, scalar) readonly buffer VisibleClusterBuffer { uint count; uint data[]; };
+
+layout(push_constant) uniform Push {
+    CameraBuffer camera;
+    GeometryBuffer geometry;
+    InstanceBuffer instances;
+    ClusterRefsBuffer cluster_refs;
+    VisibleClusterBuffer visible;
+    SkinCacheBuffer skin_cache;
+} pc;
+
+const uint GROUP_SIZE = 64u;
+
+shared uint s_offset[GROUP_SIZE + 1u];
+shared uint s_cluster[GROUP_SIZE];
+shared uint s_mesh[GROUP_SIZE];
+shared uint s_joint_base[GROUP_SIZE];
+shared uint s_base;
+
+void main() {
+    const uint lid = gl_LocalInvocationIndex;
+    const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    const uint slot = group * GROUP_SIZE + lid;
+    if (group * GROUP_SIZE >= pc.visible.count) return;
+
+    uint count = 0u;
+    uint ref_index = 0u;
+    bool skinned = false;
+    if (slot < pc.visible.count) {
+        ref_index = pc.visible.data[slot];
+        const uvec2 ref = pc.cluster_refs.data[ref_index];
+        const uint skin_id = pc.instances.data[ref.x].skin_id;
+        if (skin_id != SKIN_NONE) {
+            skinned = true;
+            count = cluster_vertex_count(cluster_streams(pc.geometry, ref.y));
+            s_cluster[lid] = ref.y;
+            s_mesh[lid] = pc.instances.data[ref.x].mesh_id;
+            s_joint_base[lid] = pc.camera.skins.data[skin_id].joint_base;
+        }
+    }
+    s_offset[lid + 1u] = count;
+    barrier();
+
+    if (lid == 0u) {
+        s_offset[0] = 0u;
+        for (uint i = 1u; i <= GROUP_SIZE; i++) s_offset[i] += s_offset[i - 1u];
+        const uint total = s_offset[GROUP_SIZE];
+        uint base = SKIN_CACHE_NONE;
+        if (total > 0u) {
+            base = atomicAdd(pc.skin_cache.count, total);
+            if (base + total > pc.skin_cache.capacity || base + total < base) base = SKIN_CACHE_NONE;
+        }
+        s_base = base;
+    }
+    barrier();
+
+    const uint base = s_base;
+    if (skinned) pc.skin_cache.refs.data[ref_index] = base == SKIN_CACHE_NONE ? SKIN_CACHE_NONE : base + s_offset[lid];
+    if (base == SKIN_CACHE_NONE) return;
+
+    const uint total = s_offset[GROUP_SIZE];
+    for (uint i = lid; i < total; i += GROUP_SIZE) {
+        uint lo = 0u;
+        uint hi = GROUP_SIZE;
+        while (hi - lo > 1u) {
+            const uint mid = (lo + hi) >> 1u;
+            if (s_offset[mid] <= i) lo = mid;
+            else hi = mid;
+        }
+        const uint local = i - s_offset[lo];
+        const ClusterStreams streams = cluster_streams(pc.geometry, s_cluster[lo]);
+        const uint mesh_id = s_mesh[lo];
+        const vec3 p = stream_position(pc.geometry, streams, local, pc.geometry.meshes.data[mesh_id].pos_min, pc.geometry.meshes.data[mesh_id].pos_extent);
+        const vec3 n = oct_decode_unnormalized(stream_normal_oct(pc.geometry, streams, local));
+        uvec4 joints;
+        vec4 weights;
+        stream_skin(pc.geometry, streams, local, joints, weights);
+        const SkinRows curr = skin_blend(pc.camera, s_joint_base[lo], joints, weights, SKIN_CURR);
+        const SkinRows prev = skin_blend(pc.camera, s_joint_base[lo], joints, weights, SKIN_PREV);
+        const vec3 sn = skin_direction(curr, n);
+        const uint out_index = base + i;
+        pc.skin_cache.positions.data[out_index] = skin_point(curr, p);
+        pc.skin_cache.prev_positions.data[out_index] = skin_point(prev, p);
+        pc.skin_cache.normals.data[out_index] = packSnorm2x16(oct_encode(dot(sn, sn) > 0.0 ? sn : vec3(0.0, 0.0, 1.0)));
+    }
+}

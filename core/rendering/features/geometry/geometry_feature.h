@@ -22,6 +22,8 @@ struct GeometryFeature : Feature
     static constexpr uint32_t COMPACT_SHRINK_FRAMES = 300;
     static constexpr uint64_t COMPACT_INDEX_LIMIT_TRIS = 0xFFFFFFFFull / 3ull;
     static constexpr uint32_t MAX_TRAVERSE_LEVELS = 16;
+    static constexpr uint32_t SKIN_CACHE_VERTS = 512u * 1024;
+    static constexpr uint32_t SKIN_CACHE_HEADER_SIZE = 64;
 
     struct CullStats {
         uint32_t refs;
@@ -52,10 +54,11 @@ struct GeometryFeature : Feature
         VkDeviceAddress cluster_refs_addr;
         VkDeviceAddress list_a_addr;
         VkDeviceAddress list_b_addr;
+        VkDeviceAddress skin_list_addr;
         uint32_t hiz_index;
         uint32_t hiz_mips;
         uint32_t hiz_enabled;
-        uint32_t _pad;
+        uint32_t skin_enabled;
         float screen_size[2];
     };
 
@@ -65,6 +68,7 @@ struct GeometryFeature : Feature
     bool mesh_shading = true;
     bool task_shading = true;
     bool compact_raster_frame = true;
+    bool skin_frame = false;
 
     float contribution_px = 1.0f;
     bool hiz_history = false;
@@ -100,6 +104,8 @@ struct GeometryFeature : Feature
     RenderGraph::Pass node_seed_pass;
     RenderGraph::Pass cluster_cull_args_pass;
     RenderGraph::Pass cluster_cull_pass;
+    RenderGraph::Pass skin_pass;
+    RenderGraph::Pass skin_pass_2;
     RenderGraph::Pass hiz_build_pass;
     RenderGraph::Pass instance_cull_pass_2;
     RenderGraph::Pass node_seed_pass_2;
@@ -127,6 +133,7 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline visbuffer_compact_pipes[RASTER_BIN_COUNT];
     drivers::DeviceDriverVulkan::Pipeline visbuffer_spill_pipes[RASTER_BIN_COUNT];
     drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
+    drivers::DeviceDriverVulkan::Pipeline skin_clusters_pipe;
 
     void _compact_update(bool p_feedback, const uint64_t* p_demand);
     bool _compact_reserve(const uint32_t* p_bin_tris);
@@ -140,6 +147,7 @@ struct GeometryFeature : Feature
     void _create_node_traverse_pass(RenderGraph::Pass& r_pass, bool p_late, uint32_t p_level);
     void _create_cluster_cull_args_pass();
     void _create_cluster_cull_pass();
+    void _create_skin_pass(RenderGraph::Pass& r_pass, bool p_late);
     void _create_hiz_pass(RenderGraph::Pass& r_build, const char* p_build_name, const char* p_args);
     void _create_cluster_retest_args_pass();
     void _create_cluster_retest_pass();

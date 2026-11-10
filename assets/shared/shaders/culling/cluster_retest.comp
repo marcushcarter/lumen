@@ -12,6 +12,7 @@
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/hiz.glsl"
+#include "culling/cone_cull.glsl"
 
 layout(local_size_x = 64) in;
 
@@ -27,10 +28,11 @@ layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
     ClusterRetestBuffer cluster_retest;
     ClusterListBuffer visible_clusters;
+    ClusterListBuffer skin_clusters;
     uint hiz_index;
     uint hiz_mips;
     uint hiz_enabled;
-    uint _pad;
+    uint skin_enabled;
     vec2 screen_size;
 } pc;
 
@@ -40,23 +42,36 @@ void main() {
 
     uint ref_idx = 0u;
     bool occluded = false;
+    bool backfacing = false;
+    bool skinned = false;
     if (valid) {
         ref_idx = pc.cluster_retest.data[id];
-        if (pc.hiz_enabled != 0u) {
-            uvec2 ref = pc.cluster_refs.data[ref_idx];
-            Instance instance = pc.instances.data[ref.x];
-            mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
+        uvec2 ref = pc.cluster_refs.data[ref_idx];
+        Instance instance = pc.instances.data[ref.x];
+        mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
+        skinned = instance.skin_id != SKIN_NONE;
+        backfacing = cluster_backfacing(pc.camera, pc.geometry, instance, model, ref.y);
+        if (!backfacing && !skinned && pc.hiz_enabled != 0u) {
             vec3 box_min, box_extent;
             cluster_box(pc.geometry, pc.geometry.meshes.data[instance.mesh_id], ref.y, box_min, box_extent);
-            occluded = instance.skin_id == SKIN_NONE && hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, box_min, box_extent);
+            occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, box_min, box_extent);
         }
     }
 
-    bool keep = valid && !occluded;
+    bool keep = valid && !backfacing && !occluded;
+    bool to_skin = keep && skinned && pc.skin_enabled != 0u;
     uvec4 kb = subgroupBallot(keep);
+    uvec4 sb = subgroupBallot(to_skin);
     uint kn = subgroupBallotBitCount(kb);
+    uint sn = subgroupBallotBitCount(sb);
     uint base = 0u;
-    if (subgroupElect() && kn > 0u) base = atomicAdd(pc.visible_clusters.count, kn);
+    uint sbase = 0u;
+    if (subgroupElect()) {
+        if (kn > 0u) base = atomicAdd(pc.visible_clusters.count, kn);
+        if (sn > 0u) sbase = atomicAdd(pc.skin_clusters.count, sn);
+    }
     base = subgroupBroadcastFirst(base);
+    sbase = subgroupBroadcastFirst(sbase);
     if (keep) pc.visible_clusters.data[base + subgroupBallotExclusiveBitCount(kb)] = ref_idx;
+    if (to_skin) pc.skin_clusters.data[sbase + subgroupBallotExclusiveBitCount(sb)] = ref_idx;
 }

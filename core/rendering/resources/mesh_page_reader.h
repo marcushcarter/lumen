@@ -35,6 +35,7 @@ struct MeshPageReader
         uint32_t bytes = 0;
         const char* error = nullptr;
         LMeshPageData data;
+        LMeshPackedPage packed;
     };
 
     static constexpr uint32_t MAX_WORKERS = 4;

@@ -12,6 +12,7 @@ layout(push_constant) uniform Push {
     CompactPrimBuffer prims;
     CompactDrawArgs args;
     CompactMaterialBuffer materials;
+    SkinCacheBuffer skin_cache;
     uint phase;
     uint bin;
     uint sampler_index;
@@ -22,6 +23,7 @@ layout(location = 0) out vec2 v_uv;
 
 void main() {
     const uint slot = uint(gl_VertexIndex) >> COMPACT_LOCAL_BITS;
-    const uvec2 ref = pc.cluster_refs.data[pc.visible.data[slot]];
-    gl_Position = raster_vertex(pc.camera, pc.geometry, pc.instances, pc.transforms, ref, uint(gl_VertexIndex) & COMPACT_LOCAL_MASK, v_uv);
+    const uint ref_index = pc.visible.data[slot];
+    const uvec2 ref = pc.cluster_refs.data[ref_index];
+    gl_Position = raster_vertex(pc.camera, pc.geometry, pc.instances, pc.transforms, pc.skin_cache, ref_index, ref, uint(gl_VertexIndex) & COMPACT_LOCAL_MASK, v_uv);
 }

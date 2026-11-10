@@ -245,6 +245,34 @@ struct LMeshPageData
     std::vector<uint32_t> tri_slots;
 };
 
+static constexpr uint32_t LMESH_NORMAL_BITS = 12;
+static constexpr uint32_t LMESH_WEIGHT_BITS = 8;
+static constexpr uint32_t LMESH_STREAM_PAD_WORDS = 2;
+static constexpr uint32_t LMESH_CONE_NONE = 0x7F000000u;
+
+struct LMeshClusterStreams
+{
+    uint32_t position;
+    uint32_t attribute;
+    uint32_t skin;
+    uint32_t pos_lo_xy;
+    uint32_t pos_lo_z_count;
+    uint32_t uv_lo;
+    uint32_t bits;
+    uint32_t skin_format;
+};
+
+static_assert(sizeof(LMeshClusterStreams) == 32, "LMeshClusterStreams must match the GPU ClusterStreams layout");
+
+struct LMeshPackedPage
+{
+    std::vector<uint32_t> positions;
+    std::vector<uint32_t> attributes;
+    std::vector<uint32_t> skin;
+    std::vector<LMeshClusterStreams> clusters;
+    std::vector<uint32_t> cones;
+};
+
 struct LMeshStats
 {
     uint64_t disk_size = 0;
@@ -267,6 +295,7 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
 bool lmesh_open(const std::filesystem::path& p_bin, LMeshData& r_tables, uint32_t& r_version, std::string& r_error);
 const char* lmesh_decode_page(const uint8_t* p_blob, size_t p_size, const LMeshPage& p_page, uint32_t p_flags, LMeshPageData& r_out);
 void lmesh_page_slice(const LMeshData& p_data, uint32_t p_page, LMeshPageData& r_out);
+void lmesh_pack_page(const LMeshData& p_tables, uint32_t p_page, const LMeshPageData& p_data, LMeshPackedPage& r_out);
 bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::string& r_error);
 
 bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats);

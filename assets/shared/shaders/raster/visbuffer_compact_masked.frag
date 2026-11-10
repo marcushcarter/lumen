@@ -13,6 +13,7 @@ layout(push_constant) uniform Push {
     CompactPrimBuffer prims;
     CompactDrawArgs args;
     CompactMaterialBuffer materials;
+    SkinCacheBuffer skin_cache;
     uint phase;
     uint bin;
     uint sampler_index;

@@ -164,6 +164,7 @@ void MeshPageReader::_run()
             const LMeshPage& info = src.tables->pages[r.page];
             res.error = lmesh_decode_page(blob.data() + (info.offset - start), info.size, info, src.flags, res.data);
             if (!res.error) res.error = lmesh_validate_page(*src.tables, r.page, res.data);
+            if (!res.error) lmesh_pack_page(*src.tables, r.page, res.data, res.packed);
         }
 
         std::lock_guard<std::mutex> lock(mutex);

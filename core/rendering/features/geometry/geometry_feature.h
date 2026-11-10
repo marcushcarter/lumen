@@ -24,6 +24,14 @@ struct GeometryFeature : Feature
     static constexpr uint32_t MAX_TRAVERSE_LEVELS = 16;
     static constexpr uint32_t SKIN_CACHE_VERTS = 512u * 1024;
     static constexpr uint32_t SKIN_CACHE_HEADER_SIZE = 64;
+    static constexpr uint32_t REF_MIN = 64u * 1024;
+    static constexpr uint32_t REF_GRANULE = 64u * 1024;
+    static constexpr uint32_t REF_SHRINK_FRAMES = 300;
+
+    struct RefFeedback {
+        uint32_t count;
+        uint32_t requested;
+    };
 
     struct CullStats {
         uint32_t refs;
@@ -69,6 +77,13 @@ struct GeometryFeature : Feature
     bool task_shading = true;
     bool compact_raster_frame = true;
     bool skin_frame = false;
+    uint32_t ref_capacity = 1;
+    uint32_t ref_target = 0;
+    uint32_t ref_demand = 0;
+    uint32_t ref_low_frames = 0;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> ref_feedback;
+    std::vector<uint8_t> ref_feedback_written;
+    std::vector<uint32_t> ref_feedback_capacity;
 
     float contribution_px = 1.0f;
     bool hiz_history = false;
@@ -120,6 +135,7 @@ struct GeometryFeature : Feature
     RenderGraph::Pass compact_feedback_pass;
     RenderGraph::Pass material_resolve_pass;
     RenderGraph::Pass stats_pass;
+    RenderGraph::Pass ref_feedback_pass;
 
     drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline node_seed_pipe;
@@ -156,6 +172,8 @@ struct GeometryFeature : Feature
     void _create_compact_feedback_pass();
     void _create_material_resolve_pass();
     void _create_stats_pass();
+    void _create_ref_feedback_pass();
+    void _ref_update(uint32_t p_slot);
 
     Error create_resources() override;
     Error create_pipelines() override;

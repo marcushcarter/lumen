@@ -35,7 +35,7 @@ static constexpr uint32_t LMESH_LOCAL_SLOT_OVERFLOW = 255;
 static constexpr uint32_t LMESH_CLUSTER_SLOT_MIXED = 0xFFFFFFFFu;
 static constexpr uint32_t LMESH_PAGE_BYTES = 64u * 1024;
 static constexpr uint32_t LMESH_PART_MAX_CLUSTERS = 32;
-static constexpr uint32_t LMESH_NODE_FANOUT = 8;
+static constexpr uint32_t LMESH_NODE_FANOUT = 16;
 static constexpr uint32_t LMESH_NODE_INNER = 0xFFFFFFFFu;
 
 struct Vertex

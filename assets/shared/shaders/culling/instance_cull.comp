@@ -19,6 +19,7 @@ layout(local_size_x = 64) in;
 #define INSTANCE_CULL_LATE 1u
 
 layout(buffer_reference, scalar) buffer InstanceListBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) readonly buffer CandidateBuffer { uint data[]; };
 
 layout(push_constant) uniform Push {
     CameraBuffer camera;
@@ -27,6 +28,7 @@ layout(push_constant) uniform Push {
     TransformBuffer transforms;
     InstanceListBuffer visible_instances;
     InstanceListBuffer occluded_instances;
+    CandidateBuffer candidates;
     vec2 screen_size;
     uint instance_count;
     float px_per_unit;
@@ -54,7 +56,7 @@ void main() {
     bool to_occluded = false;
 
     if (valid) {
-        instance_id = late ? pc.occluded_instances.data[id] : id;
+        instance_id = late ? pc.occluded_instances.data[id] : pc.candidates.data[id];
         Instance instance = pc.instances.data[instance_id];
         mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
         Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];

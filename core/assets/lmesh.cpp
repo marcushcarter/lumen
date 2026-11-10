@@ -146,6 +146,92 @@ static const char* _split_clusters(const std::vector<Cluster>& p_in, const std::
 
 static void _compute_child_pages(LMeshData& r_data);
 
+struct NodeLeaf
+{
+    LMeshNode node;
+    bool root;
+    uint32_t level;
+};
+
+static void _build_nodes(const std::vector<NodeLeaf>& p_leaves, std::vector<LMeshNode>& r_nodes)
+{
+    struct TreeNode {
+        LMeshNode node{};
+        std::vector<uint32_t> kids;
+    };
+    r_nodes.clear();
+    if (p_leaves.empty()) return;
+    std::vector<TreeNode> tree;
+    tree.reserve(p_leaves.size() * 2);
+    for (const NodeLeaf& leaf : p_leaves) {
+        TreeNode t;
+        t.node = leaf.node;
+        tree.push_back(std::move(t));
+    }
+
+    auto merge_layer = [&](const std::vector<uint32_t>& p_layer) {
+        std::vector<uint32_t> up;
+        for (size_t i = 0; i < p_layer.size(); i += LMESH_NODE_FANOUT) {
+            TreeNode t;
+            std::vector<vec4> cull, lod;
+            float err = 0.0f;
+            for (size_t k = i; k < std::min(p_layer.size(), i + LMESH_NODE_FANOUT); k++) {
+                const LMeshNode& kid = tree[p_layer[k]].node;
+                t.kids.push_back(p_layer[k]);
+                cull.push_back(kid.cull_sphere);
+                lod.push_back(kid.lod_sphere);
+                err = glm::max(err, kid.max_parent_error);
+            }
+            t.node.cull_sphere = _sphere_union(cull);
+            t.node.lod_sphere = _sphere_union(lod);
+            t.node.max_parent_error = err;
+            t.node.page = LMESH_NODE_INNER;
+            up.push_back((uint32_t)tree.size());
+            tree.push_back(std::move(t));
+        }
+        return up;
+    };
+
+    std::vector<uint32_t> run_roots;
+    for (uint32_t i = 0; i < (uint32_t)p_leaves.size();) {
+        uint32_t j = i;
+        std::vector<uint32_t> layer;
+        while (j < p_leaves.size() && p_leaves[j].root == p_leaves[i].root && p_leaves[j].level == p_leaves[i].level) layer.push_back(j++);
+        while (layer.size() > 1) layer = merge_layer(layer);
+        run_roots.push_back(layer[0]);
+        i = j;
+    }
+    while (run_roots.size() > 1) run_roots = merge_layer(run_roots);
+
+    std::vector<uint32_t> order{ run_roots[0] };
+    for (size_t h = 0; h < order.size(); h++) {
+        const TreeNode& t = tree[order[h]];
+        LMeshNode out = t.node;
+        if (!t.kids.empty()) {
+            out.first = (uint32_t)order.size();
+            out.count = (uint32_t)t.kids.size();
+            order.insert(order.end(), t.kids.begin(), t.kids.end());
+        }
+        r_nodes.push_back(out);
+    }
+}
+
+static void _rebuild_nodes(LMeshData& r_data)
+{
+    std::vector<NodeLeaf> leaves;
+    for (const LMeshNode& n : r_data.nodes) {
+        if (n.page == LMESH_NODE_INNER || n.count == 0 || n.first >= r_data.clusters.size()) continue;
+        const LMeshCluster& c = r_data.clusters[n.first];
+        NodeLeaf leaf{ n, c.parent_group == CLUSTER_GROUP_NONE, 0u };
+        if (c.self_group != CLUSTER_GROUP_NONE && c.self_group < r_data.groups.size()) leaf.level = r_data.groups[c.self_group].level;
+        leaves.push_back(leaf);
+    }
+    if (leaves.empty()) return;
+    std::sort(leaves.begin(), leaves.end(), [](const NodeLeaf& a, const NodeLeaf& b) { return a.node.first < b.node.first; });
+    _build_nodes(leaves, r_data.nodes);
+    r_data.header.node_count = (uint32_t)r_data.nodes.size();
+}
+
 const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
 {
     r_data = {};
@@ -367,14 +453,10 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
         r_data.pages.push_back(page);
     }
 
-    struct TreeNode {
-        LMeshNode node{};
-        std::vector<uint32_t> kids;
-    };
-    std::vector<TreeNode> tree;
-    tree.reserve(parts.size() * 2);
+    std::vector<NodeLeaf> leaves;
+    leaves.reserve(parts.size());
     for (const Part& part : parts) {
-        TreeNode t;
+        NodeLeaf t{ {}, part.root, part.level };
         std::vector<vec4> spheres;
         for (uint32_t i = 0; i < (uint32_t)part.clusters.size(); i++) spheres.push_back(r_data.clusters[part.first_cluster + i].cull_sphere);
         t.node.cull_sphere = _sphere_union(spheres);
@@ -388,54 +470,9 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
         t.node.first = part.first_cluster;
         t.node.count = (uint32_t)part.clusters.size();
         t.node.page = part.page;
-        tree.push_back(std::move(t));
+        leaves.push_back(t);
     }
-
-    auto merge_layer = [&](const std::vector<uint32_t>& p_layer) {
-        std::vector<uint32_t> up;
-        for (size_t i = 0; i < p_layer.size(); i += LMESH_NODE_FANOUT) {
-            TreeNode t;
-            std::vector<vec4> cull, lod;
-            float err = 0.0f;
-            for (size_t k = i; k < std::min(p_layer.size(), i + LMESH_NODE_FANOUT); k++) {
-                const LMeshNode& kid = tree[p_layer[k]].node;
-                t.kids.push_back(p_layer[k]);
-                cull.push_back(kid.cull_sphere);
-                lod.push_back(kid.lod_sphere);
-                err = glm::max(err, kid.max_parent_error);
-            }
-            t.node.cull_sphere = _sphere_union(cull);
-            t.node.lod_sphere = _sphere_union(lod);
-            t.node.max_parent_error = err;
-            t.node.page = LMESH_NODE_INNER;
-            up.push_back((uint32_t)tree.size());
-            tree.push_back(std::move(t));
-        }
-        return up;
-    };
-
-    std::vector<uint32_t> run_roots;
-    for (uint32_t i = 0; i < (uint32_t)parts.size();) {
-        uint32_t j = i;
-        std::vector<uint32_t> layer;
-        while (j < parts.size() && parts[j].root == parts[i].root && parts[j].level == parts[i].level) layer.push_back(j++);
-        while (layer.size() > 1) layer = merge_layer(layer);
-        run_roots.push_back(layer[0]);
-        i = j;
-    }
-    while (run_roots.size() > 1) run_roots = merge_layer(run_roots);
-
-    std::vector<uint32_t> order{ run_roots[0] };
-    for (size_t h = 0; h < order.size(); h++) {
-        const TreeNode& t = tree[order[h]];
-        LMeshNode out = t.node;
-        if (!t.kids.empty()) {
-            out.first = (uint32_t)order.size();
-            out.count = (uint32_t)t.kids.size();
-            order.insert(order.end(), t.kids.begin(), t.kids.end());
-        }
-        r_data.nodes.push_back(out);
-    }
+    _build_nodes(leaves, r_data.nodes);
 
     uint32_t lod0_tris = 0;
     uint32_t max_level = 0;
@@ -956,6 +993,7 @@ static const char* _parse_v5(const std::vector<uint8_t>& p_bytes, LMeshData& r_d
         page.vertex_count = v5.vertex_count;
     }
     _compute_child_pages(r_data);
+    _rebuild_nodes(r_data);
     return nullptr;
 }
 
@@ -1092,6 +1130,8 @@ static const char* _open_streamed(std::ifstream& r_file, uint64_t p_file_size, L
         if (page.offset + page.size > p_file_size) return "page out of bounds";
         if ((uint64_t)page.tri_bytes + page.vertex_bytes + page.skin_bytes > page.size) return "page streams out of bounds";
     }
+    if (const char* why = lmesh_validate_tables(r_data)) return why;
+    _rebuild_nodes(r_data);
     return lmesh_validate_tables(r_data);
 }
 

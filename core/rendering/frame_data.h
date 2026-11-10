@@ -2,6 +2,7 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/world_gpu.h>
 #include <core/rendering/debug_draw.h>
+#include <core/rendering/instance_bvh.h>
 #include <core/assets/guid.h>
 #include <core/world/world_settings.h>
 #include <core/base/error.h>
@@ -14,6 +15,10 @@ struct StaticInstances
 {
     std::vector<Instance> instances;
     std::vector<Transform> transforms;
+    std::vector<uint32_t> cluster_counts;
+    std::vector<vec3> bounds_min;
+    std::vector<vec3> bounds_max;
+    InstanceBvh bvh;
     uint32_t cluster_ref_capacity = 0;
 
     uint64_t version = 0;
@@ -27,6 +32,10 @@ struct StaticInstances
     void clear() {
         instances.clear();
         transforms.clear();
+        cluster_counts.clear();
+        bounds_min.clear();
+        bounds_max.clear();
+        bvh.clear();
         cluster_ref_capacity = 0;
         world_version = UINT64_MAX;
         geometry_version = UINT64_MAX;
@@ -41,7 +50,9 @@ struct FrameData
     std::vector<Transform> transforms_scratch;
     std::vector<SkinInstance> skins_scratch;
     std::vector<JointMatrices> joints_scratch;
+    std::vector<uint32_t> candidates;
     uint32_t instance_count = 0;
+    uint32_t candidate_count = 0;
     uint32_t cluster_ref_capacity = 0;
 
     DirectLight direct_light{ vec3(0.0f, -1.0f, 0.0f), 0.0f, vec3(0.0f), 0.0f };

@@ -28,6 +28,7 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
     using enum Error;
 
     r_view.instance_buffers.resize(frame_count);
+    r_view.candidate_buffers.resize(frame_count);
     r_view.transform_buffers.resize(frame_count);
     r_view.camera_buffers.resize(frame_count);
     r_view.direct_light_buffers.resize(frame_count);
@@ -36,6 +37,7 @@ Error Renderer::_view_create_buffers(RenderView& r_view)
 
     for (uint32_t i = 0; i < frame_count; i++) {
         r_view.instance_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Instance),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instances"});
+        r_view.candidate_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(uint32_t),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "instance_candidates"});
         r_view.transform_buffers[i] = dd->buffer_create({.size = (VkDeviceSize)MAX_INSTANCES * sizeof(Transform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "transforms"});
         r_view.camera_buffers[i] = dd->buffer_create({.size = sizeof(CameraUniform),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "camera"});
         r_view.direct_light_buffers[i] = dd->buffer_create({.size = sizeof(DirectLight),.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,.device_local = false,.host_visible = true,.pool = dd->bar_pool(),.name = "direct_light"});
@@ -50,6 +52,7 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
 {
     for (size_t i = 0; i < r_view.instance_buffers.size(); i++) {
         dd->buffer_free(r_view.instance_buffers[i]);
+        dd->buffer_free(r_view.candidate_buffers[i]);
         dd->buffer_free(r_view.transform_buffers[i]);
         dd->buffer_free(r_view.camera_buffers[i]);
         dd->buffer_free(r_view.direct_light_buffers[i]);
@@ -57,6 +60,7 @@ void Renderer::_view_destroy_buffers(RenderView& r_view)
         dd->buffer_free(r_view.joint_buffers[i]);
     }
     r_view.instance_buffers.clear();
+    r_view.candidate_buffers.clear();
     r_view.transform_buffers.clear();
     r_view.camera_buffers.clear();
     r_view.direct_light_buffers.clear();
@@ -360,6 +364,27 @@ static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)
     return (uint32_t)std::min<uint64_t>((uint64_t)p_a + p_b, MAX_CLUSTER_REFS);
 }
 
+static void _world_box(const LMesh& p_mesh, const mat4& p_model, vec3& r_min, vec3& r_max)
+{
+    const vec3 half = p_mesh.pos_extent * 0.5f;
+    const vec3 center = vec3(p_model * vec4(p_mesh.pos_min + half, 1.0f));
+    vec3 extent(0.0f);
+    for (int r = 0; r < 3; r++) extent[r] = std::abs(p_model[0][r]) * half.x + std::abs(p_model[1][r]) * half.y + std::abs(p_model[2][r]) * half.z;
+    r_min = center - extent;
+    r_max = center + extent;
+}
+
+static void _static_add(StaticInstances& r_static, const LMesh& p_mesh, uint32_t p_mesh_index, uint32_t p_entity, uint32_t p_slot_base, const mat4& p_model)
+{
+    vec3 lo, hi;
+    _world_box(p_mesh, p_model, lo, hi);
+    r_static.instances.push_back(Instance{ p_mesh_index, (uint32_t)r_static.transforms.size(), p_entity, p_slot_base });
+    r_static.transforms.push_back(Transform{ p_model, p_model });
+    r_static.cluster_counts.push_back(p_mesh.cluster_count);
+    r_static.bounds_min.push_back(lo);
+    r_static.bounds_max.push_back(hi);
+}
+
 static bool _model_sane(const mat4& p_m)
 {
     constexpr float LIMIT = 1e7f;
@@ -415,9 +440,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
 
     StaticInstances& static_insts = frame.static_insts;
     if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version || static_insts.model_version != models.version) {
-        static_insts.instances.clear();
-        static_insts.transforms.clear();
-        static_insts.cluster_ref_capacity = 0;
+        static_insts.clear();
         p_world.view<TransformComponent, ModelComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model, const StaticTag&) {
             if (static_insts.instances.size() >= MAX_INSTANCES) return;
             uint32_t mesh_index, slot_base;
@@ -426,9 +449,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
             if (!mesh) return;
             const mat4 model = p_world.world_matrix(p_entity);
             if (!_model_sane(model)) return;
-            static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, slot_base });
-            static_insts.transforms.push_back(Transform{ model, model });
-            static_insts.cluster_ref_capacity = _ref_capacity_add(static_insts.cluster_ref_capacity, mesh->cluster_count);
+            _static_add(static_insts, *mesh, mesh_index, p_entity.index, slot_base, model);
         });
         p_world.view<TransformComponent, ModelGridComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelGridComponent& p_grid, const StaticTag&) {
             uint32_t mesh_index, slot_base;
@@ -438,12 +459,10 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
             const mat4 root = p_world.world_matrix(p_entity);
             if (!_model_sane(root)) return;
             _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)static_insts.instances.size(), [&](vec3 p_offset) {
-                const mat4 model = root * translate(mat4(1.0f), p_offset);
-                static_insts.instances.push_back(Instance{ mesh_index, (uint32_t)static_insts.transforms.size(), p_entity.index, slot_base });
-                static_insts.transforms.push_back(Transform{ model, model });
-                static_insts.cluster_ref_capacity = _ref_capacity_add(static_insts.cluster_ref_capacity, mesh->cluster_count);
+                _static_add(static_insts, *mesh, mesh_index, p_entity.index, slot_base, root * translate(mat4(1.0f), p_offset));
             });
         });
+        static_insts.bvh.build(static_insts.bounds_min, static_insts.bounds_max);
         static_insts.world_version = p_world.static_version;
         static_insts.geometry_version = geometry.version;
         static_insts.model_version = models.version;
@@ -502,7 +521,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     });
 
     frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
-    frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, static_insts.cluster_ref_capacity);
 
     // Camera.
     {
@@ -538,6 +556,11 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.px_per_unit = 0.5f * (float)height / std::tan(camera.fov_y * 0.5f) * r_view.lod_bias;
         frame.hiz_history_valid = !r_view.camera_cut_pending && !r_view.hiz_reset_pending;
     }
+
+    static_insts.bvh.cull(frame.camera.frustum_planes, frame.candidates);
+    for (uint32_t i : frame.candidates) frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, static_insts.cluster_counts[i]);
+    for (uint32_t i = base; i < frame.instance_count; i++) frame.candidates.push_back(i);
+    frame.candidate_count = (uint32_t)frame.candidates.size();
 
     // Environment.
     {
@@ -579,6 +602,13 @@ void Renderer::_frame_upload(RenderView& r_view)
         dd->buffer_flush(ib, i_off, (VkDeviceSize)dynamic_count * sizeof(Instance));
         dd->buffer_update(tb, frame.transforms_scratch.data(), (VkDeviceSize)dynamic_count * sizeof(Transform), t_off);
         dd->buffer_flush(tb, t_off, (VkDeviceSize)dynamic_count * sizeof(Transform));
+    }
+
+    if (frame.candidate_count != 0) {
+        drivers::DeviceDriverVulkan::Buffer& cand = r_view.candidate_buffers[current_frame];
+        const VkDeviceSize bytes = (VkDeviceSize)frame.candidate_count * sizeof(uint32_t);
+        dd->buffer_update(cand, frame.candidates.data(), bytes);
+        dd->buffer_flush(cand, 0, bytes);
     }
 
     drivers::DeviceDriverVulkan::Buffer& sb = r_view.skin_buffers[current_frame];
@@ -702,6 +732,7 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
     graph.import_buffer("DirectLight", &r_view.direct_light_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Geometry", &geometry.address_buffer(current_frame), VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Instances", &r_view.instance_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+    graph.import_buffer("InstanceCandidates", &r_view.candidate_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     graph.import_buffer("Transforms", &r_view.transform_buffers[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
 }
 

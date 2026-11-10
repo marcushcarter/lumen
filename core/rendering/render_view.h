@@ -31,6 +31,7 @@ struct RenderView
     uint32_t jitter_index = 0;
 
     std::vector<drivers::DeviceDriverVulkan::Buffer> instance_buffers;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> candidate_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> transform_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> camera_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> direct_light_buffers;

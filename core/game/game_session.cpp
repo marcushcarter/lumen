@@ -12,11 +12,13 @@ void GameSession::begin(World& r_world, const Camera& p_camera)
     frame = 0;
     mode = Mode::PLAYING;
     for (GameSystem* s : systems) s->start(*this);
+    player.start(*this);
 }
 
 void GameSession::end()
 {
     if (!active()) return;
+    player.stop(*this);
     for (auto it = systems.rbegin(); it != systems.rend(); ++it) (*it)->stop(*this);
     mode = Mode::STOPPED;
     world = nullptr;
@@ -37,7 +39,9 @@ void GameSession::update(float p_dt)
     if (mode != Mode::PLAYING || !world) return;
     time += p_dt;
     frame++;
+    player.pre_update(*this, p_dt);
     for (GameSystem* s : systems) s->update(*this, p_dt);
+    player.post_update(*this, p_dt);
     world->deferred_flush();
 }
 

@@ -3,6 +3,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <core/assets/guid.h>
 #include <cstdint>
+#include <vector>
 
 namespace lumen {
 
@@ -41,6 +42,13 @@ struct PhysicsShape
     static PhysicsShape mesh_collision(Guid p_mesh) { PhysicsShape s; s.type = PhysicsShapeType::MESH_COLLISION; s.mesh = p_mesh; return s; }
 };
 
+struct PhysicsShapePart
+{
+    PhysicsShape shape;
+    vec3 position = vec3(0.0f);
+    quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+};
+
 struct PhysicsBodyId
 {
     static constexpr uint32_t INVALID = 0xFFFFFFFFu;
@@ -53,6 +61,7 @@ struct PhysicsBodyId
 struct PhysicsBodyDesc
 {
     PhysicsShape shape;
+    std::vector<PhysicsShapePart> parts;
     vec3 position = vec3(0.0f);
     quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
     vec3 scale = vec3(1.0f);
@@ -63,6 +72,36 @@ struct PhysicsBodyDesc
     float restitution = 0.0f;
     bool sensor = false;
     uint64_t user_data = 0;
+};
+
+struct PhysicsCharacterId
+{
+    static constexpr uint32_t INVALID = 0xFFFFFFFFu;
+    uint32_t value = INVALID;
+
+    bool valid() const { return value != INVALID; }
+};
+
+struct PhysicsCharacterDesc
+{
+    float radius = 0.35f;
+    float height = 1.8f;
+    float max_slope = 50.0f;
+    float mass = 70.0f;
+    float max_strength = 100.0f;
+    vec3 position = vec3(0.0f);
+    quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+    uint64_t user_data = 0;
+};
+
+struct PhysicsCharacterState
+{
+    vec3 position = vec3(0.0f);
+    vec3 velocity = vec3(0.0f);
+    vec3 ground_normal = vec3(0.0f, 1.0f, 0.0f);
+    vec3 ground_velocity = vec3(0.0f);
+    bool on_ground = false;
+    bool on_steep_ground = false;
 };
 
 struct PhysicsQuery

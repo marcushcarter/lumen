@@ -18,6 +18,9 @@ Error World::initialize()
     component_register_saved<ModelGridComponent>("Model Grid", "model_grid");
     component_register<PoseComponent>("Pose", false);
     component_register_saved<AnimationComponent>("Animation", "animation");
+    component_register_saved<CollisionComponent>("Collision", "collision");
+    component_register_saved<CharacterComponent>("Character", "character");
+    component_register<CharacterStateComponent>("Character State", false);
     component_register_saved<PrefabInstanceComponent>("Prefab", "prefab", false);
     component_register<PrefabPartComponent>("Prefab Part", false);
     component_register_saved<StaticTag>("Static", "static", false);
@@ -57,6 +60,7 @@ void World::unload()
     _deferred.clear();
     _by_guid.clear();
     environment = {};
+    player = {};
     if (track_changes) changed_all = true;
     static_version++;
     structure_version++;

@@ -16,6 +16,7 @@ struct EditorCamera
     float angle = 0.0f;
 
     void update(float p_dt);
+    void set_pose(const vec3& p_position, const quat& p_rotation);
 };
 
 }

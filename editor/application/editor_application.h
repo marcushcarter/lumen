@@ -77,6 +77,7 @@ struct EditorApplication : Application
     toml::table _project_state_legacy;
 
     EditorCamera editor_camera;
+    bool _was_playing = false;
 
     EditorContext& _context();
 

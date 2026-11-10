@@ -79,6 +79,17 @@ struct GeometryPool
     static constexpr uint32_t STREAM_REQUEST_CAPACITY = 64u * 1024;
     static constexpr uint32_t STREAM_REQUEST_RESIDENT_BIT = 0x80000000u;
     static constexpr VkDeviceSize STREAM_STAGING_BYTES = 16ull * 1024 * 1024;
+    static constexpr uint32_t UPLOAD_CHUNK_WORDS = 4096;
+    static constexpr uint32_t UPLOAD_MAX_COMMANDS = 64u * 1024;
+
+    struct UploadCommand {
+        uint64_t dst;
+        uint32_t src;
+        uint32_t words;
+    };
+
+    drivers::DeviceDriverVulkan::Pipeline upload_pipe;
+    std::vector<UploadCommand> _upload_commands;
     static constexpr uint32_t STREAM_MAX_IN_FLIGHT = 256;
     static constexpr uint32_t STREAM_MAX_EVICT_PER_FRAME = 256;
     static constexpr uint64_t STREAM_EVICT_AGE_FRAMES = 120;
@@ -201,8 +212,16 @@ struct GeometryPool
 
     struct StagingSlot {
         drivers::DeviceDriverVulkan::Buffer buffer;
+        drivers::DeviceDriverVulkan::Buffer commands;
         VkDeviceSize used = 0;
+        uint32_t commands_used = 0;
         std::vector<StagedCopy> copies;
+
+        void reset() {
+            used = 0;
+            commands_used = 0;
+            copies.clear();
+        }
     };
 
     struct Wanted {

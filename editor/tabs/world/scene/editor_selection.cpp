@@ -5,10 +5,11 @@ namespace lumen {
 
 void EditorSelection::clear()
 {
-    if (empty() && !environment) return;
+    if (empty() && !environment && !player) return;
     for (const Entity e : entities) entity_marks[e.index] = 0;
     entities.clear();
     environment = false;
+    player = false;
     version++;
 }
 
@@ -25,11 +26,19 @@ void EditorSelection::select_environment()
     version++;
 }
 
+void EditorSelection::select_player()
+{
+    clear();
+    player = true;
+    version++;
+}
+
 void EditorSelection::add(Entity p_entity)
 {
     if (p_entity == ENTITY_NULL) return;
-    if (environment) {
+    if (environment || player) {
         environment = false;
+        player = false;
         version++;
     }
     if (contains(p_entity)) {

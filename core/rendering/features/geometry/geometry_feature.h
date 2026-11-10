@@ -23,7 +23,17 @@ struct GeometryFeature : Feature
     static constexpr uint64_t COMPACT_INDEX_LIMIT_TRIS = 0xFFFFFFFFull / 3ull;
     static constexpr uint32_t MAX_TRAVERSE_LEVELS = 16;
     static constexpr uint32_t SKIN_CACHE_VERTS = 512u * 1024;
-    static constexpr uint32_t SKIN_CACHE_HEADER_SIZE = 64;
+    static constexpr uint32_t SKIN_REFS_ALIGN = 16;
+
+    struct SkinHeader {
+        uint32_t count;
+        uint32_t capacity;
+        uint32_t _pad[2];
+        VkDeviceAddress refs;
+        VkDeviceAddress positions;
+        VkDeviceAddress prev_positions;
+        VkDeviceAddress normals;
+    };
     static constexpr uint32_t REF_MIN = 64u * 1024;
     static constexpr uint32_t REF_GRANULE = 64u * 1024;
     static constexpr uint32_t REF_SHRINK_FRAMES = 300;
@@ -82,6 +92,7 @@ struct GeometryFeature : Feature
     uint32_t ref_demand = 0;
     uint32_t ref_low_frames = 0;
     std::vector<drivers::DeviceDriverVulkan::Buffer> ref_feedback;
+    std::vector<drivers::DeviceDriverVulkan::Buffer> skin_headers;
     std::vector<uint8_t> ref_feedback_written;
     std::vector<uint32_t> ref_feedback_capacity;
 
@@ -174,6 +185,7 @@ struct GeometryFeature : Feature
     void _create_stats_pass();
     void _create_ref_feedback_pass();
     void _ref_update(uint32_t p_slot);
+    VkDeviceSize _skin_refs_bytes() const { return ((VkDeviceSize)std::max(1u, ref_capacity) * sizeof(uint32_t) + SKIN_REFS_ALIGN - 1) / SKIN_REFS_ALIGN * SKIN_REFS_ALIGN; }
 
     Error create_resources() override;
     Error create_pipelines() override;

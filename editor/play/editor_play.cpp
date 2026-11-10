@@ -10,6 +10,9 @@ Error EditorPlay::initialize()
     using enum Error;
     Error err = runtime.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    character_system.physics = &physics_system;
+    session.systems = { &physics_system, &character_system };
+    session.physics = &physics_system.physics;
     return runtime.load();
 }
 
@@ -99,6 +102,7 @@ void EditorPlay::_clone()
     runtime.load();
     std::memcpy((void*)&_environment, &authored->environment, sizeof(EnvironmentSettings));
     runtime.environment = authored->environment;
+    runtime.player = authored->player;
     std::vector<Entity> entities;
     authored->view<EntityIdComponent>([&](Entity p_entity, const EntityIdComponent&) { entities.push_back(p_entity); });
     for (const Entity e : entities) _sync_entity(e);
@@ -113,6 +117,7 @@ void EditorPlay::_mirror()
         return;
     }
     _sync_environment();
+    runtime.player = a.player;
     if (a.changed.empty() && a.destroyed.empty()) return;
 
     for (const uint64_t guid : a.destroyed) {

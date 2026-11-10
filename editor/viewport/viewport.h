@@ -1,4 +1,5 @@
 #pragma once
+#include <core/physics/collision_preview.h>
 #include <editor/viewport/overlay_bar.h>
 #include <editor/viewport/transform_gizmo.h>
 #include <editor/application/editor_context.h>
@@ -47,6 +48,7 @@ struct Viewport
     bool allow_asset_drop = true;
     bool allow_debug_draw = false;
     bool allow_play_capture = false;
+    CollisionPreview collision_preview;
     bool has_bones = false;
     bool has_collision = false;
     const EditorPlay* play = nullptr;

@@ -77,7 +77,7 @@ void PoseSystem::update(World& r_world, const Renderer& p_renderer, float p_dt)
         if (!binding || !skeleton) return;
         anims.skeleton = &skeleton->skeleton;
         _local = skeleton->skeleton.rest;
-        const bool posed = evaluator.blend_pose(anims, skeleton->skeleton, *space, 0.0f, 0.0f, p_dt, r_anim.phase, _local.data());
+        const bool posed = evaluator.blend_pose(anims, skeleton->skeleton, *space, r_anim.speed, r_anim.direction, p_dt, r_anim.phase, _local.data());
         anims.skeleton = nullptr;
         if (!posed) return;
         _global.resize(skeleton->skeleton.joint_count());

@@ -64,6 +64,7 @@ void DebugViewFeature::_overdraw_raster_execute(RenderGraph::CommandList& cl, ui
         VkDeviceAddress prims_addr;
         VkDeviceAddress args_addr;
         VkDeviceAddress materials_addr;
+        VkDeviceAddress skin_cache_addr;
         uint32_t phase;
         uint32_t bin;
         uint32_t sampler_index;

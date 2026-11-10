@@ -381,6 +381,10 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_li
     if (p_mask == 0) return;
     if (debug_lines) debug_lines();
     if (!allow_debug_draw) return;
+    if ((p_mask & (uint32_t)DebugCategory::COLLISION) && ctx.renderer && ctx.project) {
+        const World* world = p_live ? &play->runtime : ctx.world;
+        if (world) collision_preview.draw_world(debug_draw(), *world, *ctx.renderer, *ctx.project);
+    }
     if ((p_mask & (uint32_t)DebugCategory::BONES) && ctx.renderer) {
         const World* world = p_live ? &play->runtime : ctx.world;
         if (world) debug_draw_bones(debug_draw(), *world, *ctx.renderer);

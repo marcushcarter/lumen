@@ -11,6 +11,7 @@ struct EditorSelection
     std::vector<uint32_t> entity_marks;
     uint64_t version = 0;
     bool environment = false;
+    bool player = false;
 
     bool empty() const { return entities.empty(); }
     uint32_t count() const { return (uint32_t)entities.size(); }
@@ -23,6 +24,7 @@ struct EditorSelection
     void clear();
     void select(Entity p_entity);
     void select_environment();
+    void select_player();
     void add(Entity p_entity);
     void remove(Entity p_entity);
     void toggle(Entity p_entity);

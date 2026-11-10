@@ -1,5 +1,6 @@
 #pragma once
 #include <core/world/camera.h>
+#include <core/game/player.h>
 #include <cstdint>
 #include <vector>
 
@@ -7,6 +8,7 @@ namespace lumen {
 
 struct World;
 struct Input;
+struct PhysicsWorld;
 struct GameSession;
 
 struct GameSystem
@@ -23,6 +25,8 @@ struct GameSession
 
     World* world = nullptr;
     const Input* input = nullptr;
+    const PhysicsWorld* physics = nullptr;
+    Player player;
     Camera camera;
     Mode mode = Mode::STOPPED;
     double time = 0.0;

@@ -46,6 +46,11 @@ Error GameApplication::on_init()
     _load_world();
     update_camera(0.0f);
     session.input = &input;
+    physics_system.renderer = &renderer;
+    physics_system.project = &project;
+    character_system.physics = &physics_system;
+    session.systems = { &physics_system, &character_system };
+    session.physics = &physics_system.physics;
     session.begin(world, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());

@@ -62,6 +62,7 @@ struct World
     Camera default_camera;
     Camera* active_camera = &default_camera;
     EnvironmentSettings environment;
+    PlayerSettings player;
 
     uint64_t static_version = 0;
     uint64_t structure_version = 0;

@@ -131,6 +131,8 @@ Error EditorApplication::on_init()
     _ctx.play = &play;
     _ctx.input = &input;
     play.session.input = &input;
+    play.physics_system.renderer = &renderer;
+    play.physics_system.project = &project;
     _ctx.pie_is_playing = [this] { return play.active(); };
     _ctx.pie_toggle_play = [this] {
         if (play.active()) play.stop();
@@ -185,6 +187,8 @@ void EditorApplication::_play_start()
 
 void EditorApplication::on_simulate(float p_dt)
 {
+    if (_was_playing && !play.playing()) editor_camera.set_pose(play.session.camera.position, play.session.camera.rotation);
+    _was_playing = play.playing();
     if (!play.playing() || tabs.active != &world_tab) input.release();
     if (!play.active()) return;
     if (!project.loaded() || !world_tab.has_world() || world_tab.guid != play.world_guid) {

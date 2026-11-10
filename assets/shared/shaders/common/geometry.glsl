@@ -135,13 +135,15 @@ const uint STREAM_WEIGHT_BITS = 8u;
 const float STREAM_GRID_SCALE = 1.0 / 65535.0;
 const float STREAM_NORMAL_SCALE = 2.0 / 4095.0;
 
-const uint STREAM_POSITIONS = 0u;
-const uint STREAM_ATTRIBUTES = 1u;
-const uint STREAM_SKIN = 2u;
+uvec3 positions_window(GeometryBuffer p_geometry, uint p_word) {
+    return uvec3(p_geometry.positions.data[p_word], p_geometry.positions.data[p_word + 1u], p_geometry.positions.data[p_word + 2u]);
+}
 
-uvec3 stream_window(GeometryBuffer p_geometry, uint p_stream, uint p_word) {
-    if (p_stream == STREAM_POSITIONS) return uvec3(p_geometry.positions.data[p_word], p_geometry.positions.data[p_word + 1u], p_geometry.positions.data[p_word + 2u]);
-    if (p_stream == STREAM_ATTRIBUTES) return uvec3(p_geometry.attributes.data[p_word], p_geometry.attributes.data[p_word + 1u], p_geometry.attributes.data[p_word + 2u]);
+uvec3 attributes_window(GeometryBuffer p_geometry, uint p_word) {
+    return uvec3(p_geometry.attributes.data[p_word], p_geometry.attributes.data[p_word + 1u], p_geometry.attributes.data[p_word + 2u]);
+}
+
+uvec3 skin_window(GeometryBuffer p_geometry, uint p_word) {
     return uvec3(p_geometry.skin.data[p_word], p_geometry.skin.data[p_word + 1u], p_geometry.skin.data[p_word + 2u]);
 }
 
@@ -169,8 +171,8 @@ vec3 stream_position(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p
     const uint by = (p_streams.bits >> 5u) & 31u;
     const uint bz = (p_streams.bits >> 10u) & 31u;
     const uint bit = p_local * (bx + by + bz);
-    const uvec3 w = stream_window(p_geometry, STREAM_POSITIONS, p_streams.position + (bit >> 5u));
     const uint o = bit & 31u;
+    const uvec3 w = positions_window(p_geometry, p_streams.position + (bit >> 5u));
     const uvec3 lo = uvec3(p_streams.pos_lo_xy & 0xFFFFu, p_streams.pos_lo_xy >> 16u, p_streams.pos_lo_z_count & 0xFFFFu);
     const uvec3 q = lo + uvec3(window_bits(w, o, bx), window_bits(w, o + bx, by), window_bits(w, o + bx + by, bz));
     return p_pos_min + vec3(q) * STREAM_GRID_SCALE * p_pos_extent;
@@ -184,9 +186,8 @@ uint stream_attribute_bit(ClusterStreams p_streams, uint p_local) {
 
 vec2 stream_normal_oct(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local) {
     const uint bit = stream_attribute_bit(p_streams, p_local);
-    const uint w = p_streams.attrib + (bit >> 5u);
-    const uvec2 pair = uvec2(p_geometry.attributes.data[w], p_geometry.attributes.data[w + 1u]);
     const uint o = bit & 31u;
+    const uvec3 pair = attributes_window(p_geometry, p_streams.attrib + (bit >> 5u));
     const uint v = o == 0u ? pair.x : (pair.x >> o) | (pair.y << (32u - o));
     const uint nx = bitfieldExtract(v, 0, int(STREAM_NORMAL_BITS));
     const uint ny = bitfieldExtract(v, int(STREAM_NORMAL_BITS), int(STREAM_NORMAL_BITS));
@@ -197,8 +198,8 @@ vec2 stream_uv(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local
     const uint bu = (p_streams.bits >> 15u) & 31u;
     const uint bv = (p_streams.bits >> 20u) & 31u;
     const uint bit = stream_attribute_bit(p_streams, p_local) + 2u * STREAM_NORMAL_BITS;
-    const uvec3 w = stream_window(p_geometry, STREAM_ATTRIBUTES, p_streams.attrib + (bit >> 5u));
     const uint o = bit & 31u;
+    const uvec3 w = attributes_window(p_geometry, p_streams.attrib + (bit >> 5u));
     const uvec2 q = uvec2(p_streams.uv_lo & 0xFFFFu, p_streams.uv_lo >> 16u) + uvec2(window_bits(w, o, bu), window_bits(w, o + bu, bv));
     return p_uv_min + vec2(q) * STREAM_GRID_SCALE * p_uv_extent;
 }
@@ -214,8 +215,8 @@ void stream_skin(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_loc
         return;
     }
     const uint bit = p_local * (influences * joint_bits + (influences - 1u) * STREAM_WEIGHT_BITS);
-    const uvec3 w = stream_window(p_geometry, STREAM_SKIN, p_streams.skin + (bit >> 5u));
     const uint o = bit & 31u;
+    const uvec3 w = skin_window(p_geometry, p_streams.skin + (bit >> 5u));
     for (uint k = 0u; k < influences; k++) r_joints[k] = joint_lo + window_bits(w, o + k * joint_bits, joint_bits);
     const uint weight_bit = o + influences * joint_bits;
     uint rest = 255u;

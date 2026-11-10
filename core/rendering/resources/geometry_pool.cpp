@@ -3,6 +3,7 @@
 #include <core/assets/lmesh.h>
 #include <core/base/console.h>
 #include <core/base/strings.h>
+#include <core/io/embedded_resource.h>
 #include <string>
 #include <algorithm>
 #include <cstdlib>
@@ -69,8 +70,18 @@ Error GeometryPool::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
 
     staging.resize(frame_count);
     for (StagingSlot& s : staging) {
-        s.buffer = dd->buffer_create({ .size = STREAM_STAGING_BYTES, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT, .device_local = false, .host_visible = true, .pool = dd->upload_pool, .name = "geo_stream_staging" });
+        s.buffer = dd->buffer_create({ .size = STREAM_STAGING_BYTES, .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->upload_pool, .name = "geo_stream_staging" });
         LUMEN_ERR_FAIL_COND_V_MSG(!s.buffer.buffer, FAILED, "GeometryPool: stream staging allocation failed.");
+        s.commands = dd->buffer_create({ .size = (VkDeviceSize)UPLOAD_MAX_COMMANDS * sizeof(UploadCommand), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->upload_pool, .name = "geo_upload_commands" });
+        LUMEN_ERR_FAIL_COND_V_MSG(!s.commands.buffer, FAILED, "GeometryPool: upload command allocation failed.");
+    }
+
+    {
+        EmbeddedResource::Blob blob = EmbeddedResource::load(L"SHADERS_RASTER_UPLOAD_SCATTER_COMP");
+        VkShaderModule cs = dd->shader_create({ .stage = drivers::DeviceDriverVulkan::ShaderStage::COMPUTE, .glsl = (const char*)blob.data, .glsl_size = blob.size, .name = "raster/upload_scatter.comp" });
+        upload_pipe = dd->compute_pipeline_create({ cs, "raster/upload_scatter.comp" });
+        dd->shader_free(cs);
+        LUMEN_ERR_FAIL_COND_V_MSG(!upload_pipe.pipeline, FAILED, "GeometryPool: upload pipeline creation failed.");
     }
 
     reader.start();
@@ -131,8 +142,12 @@ void GeometryPool::shutdown()
     for (Buffer& b : request_readback) dd->buffer_free(b);
     request_readback.clear();
     request_written.clear();
-    for (StagingSlot& s : staging) dd->buffer_free(s.buffer);
+    for (StagingSlot& s : staging) {
+        dd->buffer_free(s.buffer);
+        dd->buffer_free(s.commands);
+    }
     staging.clear();
+    dd->pipeline_free(upload_pipe);
 }
 
 void GeometryPool::begin_frame(uint64_t p_frame_number, uint32_t p_slot, VkDeviceAddress p_slot_table, VkDeviceAddress p_materials)
@@ -179,12 +194,13 @@ void GeometryPool::record_begin(VkCommandBuffer p_cmd)
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mb;
 
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier2(p_cmd, &dep);
+
     if (!_pending_growth.empty()) {
-        mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-        mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-        mb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier2(p_cmd, &dep);
         for (size_t i = 0; i < _pending_growth.size(); i++) {
             const PendingGrowth& g = _pending_growth[i];
             const VkBufferCopy region{ 0, 0, g.bytes };
@@ -203,20 +219,39 @@ void GeometryPool::record_begin(VkCommandBuffer p_cmd)
     StagingSlot& st = staging[current_slot];
     if (!st.copies.empty()) {
         dd->buffer_flush(st.buffer, 0, st.used);
-        std::vector<VkBufferCopy> regions;
-        for (uint32_t k = 0; k < ARENA_COUNT; k++) {
-            regions.clear();
-            for (const StagedCopy& c : st.copies) {
-                if ((uint32_t)c.kind == k) regions.push_back({ c.src, c.dst, c.size });
-            }
-            const Arena& a = arenas[k];
-            if (!regions.empty() && a.buffer.buffer) vkCmdCopyBuffer(p_cmd, st.buffer.buffer, a.buffer.buffer, (uint32_t)regions.size(), regions.data());
+        _upload_commands.clear();
+        for (const StagedCopy& c : st.copies) {
+            const Arena& a = arenas[(uint32_t)c.kind];
+            if (!a.buffer.buffer) continue;
+            const uint32_t words = (uint32_t)(c.size / 4);
+            for (uint32_t o = 0; o < words; o += UPLOAD_CHUNK_WORDS) _upload_commands.push_back({ a.buffer.device_address + c.dst + (VkDeviceSize)o * 4, (uint32_t)(c.src / 4) + o, std::min(UPLOAD_CHUNK_WORDS, words - o) });
+        }
+        if (!_upload_commands.empty()) {
+            const VkDeviceSize bytes = (VkDeviceSize)_upload_commands.size() * sizeof(UploadCommand);
+            dd->buffer_update(st.commands, _upload_commands.data(), bytes);
+            dd->buffer_flush(st.commands, 0, bytes);
+
+            mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+            mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            mb.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            vkCmdPipelineBarrier2(p_cmd, &dep);
+
+            struct {
+                VkDeviceAddress commands;
+                VkDeviceAddress source;
+                uint32_t count;
+            } pc{ st.commands.device_address, st.buffer.device_address, (uint32_t)_upload_commands.size() };
+            dd->command_bind_pipeline(p_cmd, upload_pipe);
+            dd->command_bind_push_constants(p_cmd, sizeof(pc), &pc);
+            const uint32_t groups = (uint32_t)_upload_commands.size();
+            vkCmdDispatch(p_cmd, std::min(groups, 65535u), (groups + 65534u) / 65535u, 1);
         }
         st.copies.clear();
     }
 
-    mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-    mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
     vkCmdPipelineBarrier2(p_cmd, &dep);
@@ -452,8 +487,7 @@ void GeometryPool::clear()
     _flush_growth();
     stream_stats = {};
     for (StagingSlot& s : staging) {
-        s.copies.clear();
-        s.used = 0;
+        s.reset();
     }
     std::fill(request_written.begin(), request_written.end(), (uint8_t)0);
 
@@ -969,12 +1003,16 @@ bool GeometryPool::_stage_bytes(ArenaKind p_kind, VkDeviceSize p_dst, const void
 {
     if (p_bytes == 0) return true;
     if (current_slot >= staging.size()) return false;
+    LUMEN_ERR_FAIL_COND_V_MSG((p_dst & 3) || (p_bytes & 3), false, "GeometryPool: staged uploads must be whole words.");
     StagingSlot& st = staging[current_slot];
+    const uint32_t commands = (uint32_t)((p_bytes / 4 + UPLOAD_CHUNK_WORDS - 1) / UPLOAD_CHUNK_WORDS);
+    if (st.commands_used + commands > UPLOAD_MAX_COMMANDS) return false;
     const VkDeviceSize at = (st.used + 15) & ~(VkDeviceSize)15;
     if (at + p_bytes > STREAM_STAGING_BYTES) return false;
     dd->buffer_update(st.buffer, p_data, p_bytes, at);
     st.copies.push_back({ p_kind, at, p_dst, p_bytes });
     st.used = at + p_bytes;
+    st.commands_used += commands;
     stream_stats.uploaded_bytes += p_bytes;
     return true;
 }
@@ -1071,34 +1109,53 @@ bool GeometryPool::_page_install(uint32_t p_mesh, uint32_t p_page, const LMeshPa
     if (_staging_free() < need) return false;
     if (!_allocate_page(sp, info, p_packed, wide)) return false;
 
-    _stage(ArenaKind::LOCAL_TRIANGLES, sp.tri, p_data.tris.data(), p_data.tris.size() * sizeof(uint32_t));
-    if (wide) _stage(ArenaKind::TRI_SLOTS, sp.tri, p_data.tri_slots.data(), p_data.tri_slots.size() * sizeof(uint32_t));
-    _stage(ArenaKind::POSITIONS, sp.position, p_packed.positions.data(), p_packed.positions.size() * sizeof(uint32_t));
-    _stage(ArenaKind::ATTRIBUTES, sp.attribute, p_packed.attributes.data(), p_packed.attributes.size() * sizeof(uint32_t));
-    if (skinned) _stage(ArenaKind::SKIN, sp.skin, p_packed.skin.data(), p_packed.skin.size() * sizeof(uint32_t));
+    StagingSlot& st = staging[current_slot];
+    const size_t copies_before = st.copies.size();
+    const VkDeviceSize used_before = st.used;
+    const uint32_t commands_before = st.commands_used;
+    const uint64_t uploaded_before = stream_stats.uploaded_bytes;
+    bool staged = true;
+    staged &= _stage(ArenaKind::LOCAL_TRIANGLES, sp.tri, p_data.tris.data(), p_data.tris.size() * sizeof(uint32_t));
+    if (wide) staged &= _stage(ArenaKind::TRI_SLOTS, sp.tri, p_data.tri_slots.data(), p_data.tri_slots.size() * sizeof(uint32_t));
+    staged &= _stage(ArenaKind::POSITIONS, sp.position, p_packed.positions.data(), p_packed.positions.size() * sizeof(uint32_t));
+    staged &= _stage(ArenaKind::ATTRIBUTES, sp.attribute, p_packed.attributes.data(), p_packed.attributes.size() * sizeof(uint32_t));
+    if (skinned) staged &= _stage(ArenaKind::SKIN, sp.skin, p_packed.skin.data(), p_packed.skin.size() * sizeof(uint32_t));
 
     std::vector<Cluster> clusters;
     std::vector<uint32_t> cslots, bounds;
     _page_clusters(tables, p_page, sp.tri, r.group, clusters, cslots, bounds);
     std::vector<LMeshClusterStreams> cluster_streams = p_packed.clusters;
     _rebase_streams(cluster_streams, sp.position, sp.attribute, sp.skin);
-    _stage(ArenaKind::CLUSTERS, sp.cluster, clusters.data(), clusters.size() * sizeof(Cluster));
-    _stage(ArenaKind::CLUSTER_STREAMS, sp.cluster, cluster_streams.data(), cluster_streams.size() * sizeof(LMeshClusterStreams));
-    _stage(ArenaKind::CLUSTER_CONES, sp.cluster, p_packed.cones.data(), p_packed.cones.size() * sizeof(uint32_t));
-    _stage(ArenaKind::CLUSTER_SLOTS, sp.cluster, cslots.data(), cslots.size() * sizeof(uint32_t));
-    _stage(ArenaKind::CLUSTER_BOUNDS, sp.cluster, bounds.data(), bounds.size() * sizeof(uint32_t));
+    staged &= _stage(ArenaKind::CLUSTERS, sp.cluster, clusters.data(), clusters.size() * sizeof(Cluster));
+    staged &= _stage(ArenaKind::CLUSTER_STREAMS, sp.cluster, cluster_streams.data(), cluster_streams.size() * sizeof(LMeshClusterStreams));
+    staged &= _stage(ArenaKind::CLUSTER_CONES, sp.cluster, p_packed.cones.data(), p_packed.cones.size() * sizeof(uint32_t));
+    staged &= _stage(ArenaKind::CLUSTER_SLOTS, sp.cluster, cslots.data(), cslots.size() * sizeof(uint32_t));
+    staged &= _stage(ArenaKind::CLUSTER_BOUNDS, sp.cluster, bounds.data(), bounds.size() * sizeof(uint32_t));
     for (uint32_t k = s.page_leaves_first[p_page]; k < s.page_leaves_first[p_page + 1]; k++) {
         const uint32_t leaf = s.page_leaves[k];
         const uint32_t first = sp.cluster + (tables.nodes[leaf].first - info.cluster_first);
-        _stage_bytes(ArenaKind::NODES, (VkDeviceSize)(r.node + leaf) * sizeof(LMeshNode) + offsetof(LMeshNode, first), &first, sizeof(uint32_t));
+        staged &= _stage_bytes(ArenaKind::NODES, (VkDeviceSize)(r.node + leaf) * sizeof(LMeshNode) + offsetof(LMeshNode, first), &first, sizeof(uint32_t));
     }
 
     const uint32_t resident = PAGE_STREAMED;
-    _stage(ArenaKind::PAGE_RESIDENT, r.page + p_page, &resident, sizeof(uint32_t));
+    staged &= _stage(ArenaKind::PAGE_RESIDENT, r.page + p_page, &resident, sizeof(uint32_t));
     const uint32_t refined = 1u;
     for (uint32_t k = s.page_groups_first[p_page]; k < s.page_groups_first[p_page + 1]; k++) {
         const uint32_t g = s.page_groups[k];
-        if (s.group_missing[g] > 0 && --s.group_missing[g] == 0) _stage(ArenaKind::GROUP_REFINED, r.group + g, &refined, sizeof(uint32_t));
+        if (s.group_missing[g] == 1) staged &= _stage(ArenaKind::GROUP_REFINED, r.group + g, &refined, sizeof(uint32_t));
+    }
+
+    if (!staged) {
+        st.copies.resize(copies_before);
+        st.used = used_before;
+        st.commands_used = commands_before;
+        stream_stats.uploaded_bytes = uploaded_before;
+        _free_page(sp, info);
+        return false;
+    }
+    for (uint32_t k = s.page_groups_first[p_page]; k < s.page_groups_first[p_page + 1]; k++) {
+        const uint32_t g = s.page_groups[k];
+        if (s.group_missing[g] > 0) s.group_missing[g]--;
     }
 
     sp.state = PageState::RESIDENT;
@@ -1295,8 +1352,7 @@ void GeometryPool::_stream_issue_loads()
 void GeometryPool::_stream_tick()
 {
     if (current_slot < staging.size()) {
-        staging[current_slot].used = 0;
-        staging[current_slot].copies.clear();
+        staging[current_slot].reset();
     }
     stream_stats.loads = 0;
     stream_stats.evictions = 0;

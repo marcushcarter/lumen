@@ -259,7 +259,18 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::TableHeader(ImGui::TableGetColumnName(1));
 
     if (scene_rows) _draw_world_row(ctx, row_h);
-    if (scene_rows && world_expanded) _draw_environment_row(ctx, row_h);
+    if (scene_rows && world_expanded) {
+        if (_draw_settings_row(row_h, "environment", ICON_FA_CLOUD_SUN, "Environment", ctx.selection->environment)) {
+            ctx.selection->select_environment();
+            anchor = ENTITY_NULL;
+            last_primary = ENTITY_NULL;
+        }
+        if (_draw_settings_row(row_h, "player", ICON_FA_GAMEPAD, "Player", ctx.selection->player)) {
+            ctx.selection->select_player();
+            anchor = ENTITY_NULL;
+            last_primary = ENTITY_NULL;
+        }
+    }
 
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
         if (specs->SpecsDirty) {
@@ -453,33 +464,29 @@ void OutlinerPanel::_draw_world_row(EditorContext& ctx, float p_row_h)
     ImGui::PopID();
 }
 
-void OutlinerPanel::_draw_environment_row(EditorContext& ctx, float p_row_h)
+bool OutlinerPanel::_draw_settings_row(float p_row_h, const char* p_id, const char* p_icon, const char* p_label, bool p_selected)
 {
-    EditorSelection& selection = *ctx.selection;
     const UiStyle& ui = ui_style();
     const float font = ImGui::GetFontSize();
     const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
 
     ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
-    ImGui::PushID("environment");
+    ImGui::PushID(p_id);
     ImGui::TableSetColumnIndex(1);
     const ImVec2 cell = ImGui::GetCursorScreenPos();
     const float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
-    if (ImGui::Selectable("##row", selection.environment, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, content_h))) {
-        selection.select_environment();
-        anchor = ENTITY_NULL;
-        last_primary = ENTITY_NULL;
-    }
+    const bool clicked = ImGui::Selectable("##row", p_selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, content_h));
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 text_col = ImGui::GetColorU32(ImGuiCol_Text);
     float x = cell.x + font * 2.0f;
     const float icon_w = font * ui.outliner.icon_width_scale;
-    const ImVec2 icon_size = ImGui::CalcTextSize(ICON_FA_CLOUD_SUN);
-    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), text_col, ICON_FA_CLOUD_SUN);
+    const ImVec2 icon_size = ImGui::CalcTextSize(p_icon);
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), text_col, p_icon);
     x += icon_w + ui.outliner.icon_gap;
-    dl->AddText(ImVec2(x, text_y), text_col, "Environment");
+    dl->AddText(ImVec2(x, text_y), text_col, p_label);
     ImGui::PopID();
+    return clicked;
 }
 
 void OutlinerPanel::_draw_footer(EditorContext& ctx)

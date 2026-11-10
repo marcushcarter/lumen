@@ -503,8 +503,8 @@ void GeometryFeature::_create_skin_pass(RenderGraph::Pass& r_pass, bool p_late)
     r_pass.setup = [this, p_late](RenderGraph::Builder& b) {
         if (!p_late) {
             drivers::DeviceDriverVulkan::BufferCreateInfo cache_ci{};
-            cache_ci.size = SKIN_CACHE_HEADER_SIZE + (VkDeviceSize)std::max(1u, ref_capacity) * sizeof(uint32_t) + (VkDeviceSize)SKIN_CACHE_VERTS * (2 * sizeof(vec3) + sizeof(uint32_t));
-            cache_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            cache_ci.size = _skin_refs_bytes() + (VkDeviceSize)SKIN_CACHE_VERTS * (2 * sizeof(vec3) + sizeof(uint32_t));
+            cache_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             cache_ci.device_local = true;
             b.create_buffer("SkinCache", cache_ci);
         }
@@ -514,7 +514,7 @@ void GeometryFeature::_create_skin_pass(RenderGraph::Pass& r_pass, bool p_late)
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer(p_late ? "SkinClusters2" : "SkinClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer(p_late ? "ClusterRetestArgs" : "ClusterCullArgs", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-        b.write_buffer("SkinCache", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_buffer("SkinCache", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
         auto* cache = cl.graph->buffer("SkinCache");
@@ -522,34 +522,16 @@ void GeometryFeature::_create_skin_pass(RenderGraph::Pass& r_pass, bool p_late)
         auto* list = cl.graph->buffer(p_late ? "SkinClusters2" : "SkinClusters");
         if (!cache || !args || !list) return;
 
+        drivers::DeviceDriverVulkan::Buffer& header_buffer = skin_headers[cl.graph->current_frame];
         if (!p_late) {
-            const uint32_t refs = std::max(1u, ref_capacity);
-            struct Header {
-                uint32_t count;
-                uint32_t capacity;
-                uint32_t _pad[2];
-                VkDeviceAddress refs;
-                VkDeviceAddress positions;
-                VkDeviceAddress prev_positions;
-                VkDeviceAddress normals;
-            } header{};
-            static_assert(sizeof(Header) <= SKIN_CACHE_HEADER_SIZE);
+            SkinHeader header{};
             header.capacity = SKIN_CACHE_VERTS;
-            header.refs = cache->device_address + SKIN_CACHE_HEADER_SIZE;
-            header.positions = header.refs + (VkDeviceSize)refs * sizeof(uint32_t);
+            header.refs = cache->device_address;
+            header.positions = header.refs + _skin_refs_bytes();
             header.prev_positions = header.positions + (VkDeviceSize)SKIN_CACHE_VERTS * sizeof(vec3);
             header.normals = header.prev_positions + (VkDeviceSize)SKIN_CACHE_VERTS * sizeof(vec3);
-            cl.update_buffer("Skin cache header", *cache, &header, sizeof(header));
-
-            VkMemoryBarrier2 mb{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-            mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-            mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            mb.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-            dep.memoryBarrierCount = 1;
-            dep.pMemoryBarriers = &mb;
-            vkCmdPipelineBarrier2(cl.cmd, &dep);
+            ctx->dd->buffer_update(header_buffer, &header, sizeof(header));
+            ctx->dd->buffer_flush(header_buffer, 0, sizeof(header));
         }
 
         struct Push {
@@ -565,7 +547,7 @@ void GeometryFeature::_create_skin_pass(RenderGraph::Pass& r_pass, bool p_late)
         pc.instances_addr = cl.graph->buffer("Instances")->device_address;
         pc.cluster_refs_addr = cl.graph->buffer("ClusterRefs")->device_address;
         pc.visible_addr = list->device_address;
-        pc.skin_cache_addr = cache->device_address;
+        pc.skin_cache_addr = header_buffer.device_address;
 
         cl.dd->command_bind_pipeline(cl.cmd, skin_clusters_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
@@ -870,7 +852,7 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         pc.prims_addr = prims ? prims->device_address : 0;
         pc.args_addr = args->device_address;
         pc.materials_addr = materials ? materials->device_address : 0;
-        pc.skin_cache_addr = skin_cache ? skin_cache->device_address : 0;
+        pc.skin_cache_addr = skin_cache ? skin_headers[cl.graph->current_frame].device_address : 0;
         pc.phase = p_late ? 1u : 0u;
         pc.sampler_index = material_sampler.bindless_sampler;
         pc.material_base = compact_bin_base[RASTER_BIN_MASKED];
@@ -994,7 +976,7 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.transforms_addr = xf->device_address;
         pc.cluster_refs_addr = refs->device_address;
         pc.shading_tiles_addr = tiles->device_address;
-        pc.skin_cache_addr = skin_cache ? skin_cache->device_address : 0;
+        pc.skin_cache_addr = skin_cache ? skin_headers[cl.graph->current_frame].device_address : 0;
         pc.vis_index = vis->bindless_sampled;
         pc.normal_slot = normal->bindless_storage;
         pc.motion_slot = motion->bindless_storage;
@@ -1197,6 +1179,12 @@ Error GeometryFeature::create_resources()
         LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "GeometryFeature: stats readback allocation failed.");
     }
 
+    skin_headers.resize(ctx->dd->frame_count);
+    for (drivers::DeviceDriverVulkan::Buffer& b : skin_headers) {
+        b = ctx->dd->buffer_create({ .size = sizeof(SkinHeader), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, .device_local = false, .host_visible = true, .pool = ctx->dd->bar_pool(), .name = "skin_cache_header" });
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, Error::FAILED, "GeometryFeature: skin cache header allocation failed.");
+    }
+
     ref_feedback.resize(ctx->dd->frame_count);
     ref_feedback_written.assign(ctx->dd->frame_count, 0);
     ref_feedback_capacity.assign(ctx->dd->frame_count, 0);
@@ -1299,6 +1287,8 @@ void GeometryFeature::destroy_resources()
     for (drivers::DeviceDriverVulkan::Buffer& b : compact_feedback) ctx->dd->buffer_free(b);
     compact_feedback.clear();
     compact_feedback_written.clear();
+    for (drivers::DeviceDriverVulkan::Buffer& b : skin_headers) ctx->dd->buffer_free(b);
+    skin_headers.clear();
     for (drivers::DeviceDriverVulkan::Buffer& b : ref_feedback) ctx->dd->buffer_free(b);
     ref_feedback.clear();
     ref_feedback_written.clear();

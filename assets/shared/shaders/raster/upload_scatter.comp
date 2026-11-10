@@ -1,0 +1,30 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 64) in;
+
+struct UploadCommand {
+    uvec2 dst;
+    uint src;
+    uint words;
+};
+
+layout(buffer_reference, scalar) readonly buffer UploadSource { uint data[]; };
+layout(buffer_reference, scalar) writeonly buffer UploadTarget { uint data[]; };
+layout(buffer_reference, scalar) readonly buffer UploadCommands { UploadCommand data[]; };
+
+layout(push_constant) uniform Push {
+    UploadCommands commands;
+    UploadSource source;
+    uint count;
+} pc;
+
+void main() {
+    const uint c = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (c >= pc.count) return;
+    const UploadCommand cmd = pc.commands.data[c];
+    UploadTarget dst = UploadTarget(cmd.dst);
+    for (uint w = gl_LocalInvocationID.x; w < cmd.words; w += 64u) dst.data[w] = pc.source.data[cmd.src + w];
+}

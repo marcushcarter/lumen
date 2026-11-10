@@ -1,6 +1,8 @@
 #include <editor/assets/content_cooker.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
+#include <core/assets/lblendspace.h>
+#include <core/animation/anim_library.h>
 #include <core/project/project.h>
 #include <system_error>
 
@@ -48,6 +50,30 @@ void ContentCooker::_cook_file(const Project& p_project, const std::filesystem::
     r_result.cooked++;
 }
 
+void ContentCooker::_cook_blend_space(const Project& p_project, const std::filesystem::path& p_source, Result& r_result)
+{
+    LBlendSpace space;
+    if (space.load(p_source) != Error::OK || !space.guid.valid()) {
+        log_write("Cook: couldn't read '%s'.", p_source.string().c_str());
+        r_result.failed++;
+        return;
+    }
+    const std::filesystem::path cooked = AnimLibrary::cooked_space_path(p_project.content_dir, space.guid);
+    std::error_code ec;
+    const auto cooked_time = std::filesystem::last_write_time(cooked, ec);
+    if (!ec && cooked_time >= std::filesystem::last_write_time(p_source, ec) && !ec) {
+        r_result.current++;
+        return;
+    }
+    std::filesystem::create_directories(cooked.parent_path(), ec);
+    if (!std::filesystem::copy_file(p_source, cooked, std::filesystem::copy_options::overwrite_existing, ec)) {
+        log_write("Cook: couldn't write '%s'.", cooked.string().c_str());
+        r_result.failed++;
+        return;
+    }
+    r_result.cooked++;
+}
+
 ContentCooker::Result ContentCooker::cook(const Project& p_project)
 {
     Result result;
@@ -59,6 +85,7 @@ ContentCooker::Result ContentCooker::cook(const Project& p_project)
         const std::filesystem::path ext = it->path().extension();
         if (ext == ".lmodel") _cook_file(p_project, it->path(), AssetType::MODEL, result);
         else if (ext == ".lmaterial") _cook_file(p_project, it->path(), AssetType::MATERIAL, result);
+        else if (ext == AnimLibrary::SPACE_EXTENSION) _cook_blend_space(p_project, it->path(), result);
     }
     if (ec) {
         log_write("Cook: couldn't scan '%s' (%s).", p_project.assets_dir.string().c_str(), ec.message().c_str());

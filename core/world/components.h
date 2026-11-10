@@ -42,6 +42,12 @@ struct PoseComponent
     std::vector<mat4> skin;
 };
 
+struct AnimationComponent
+{
+    Guid blend_space;
+    float phase = 0.0f;
+};
+
 struct ParentComponent
 {
     Guid parent;

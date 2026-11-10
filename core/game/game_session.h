@@ -6,6 +6,7 @@
 namespace lumen {
 
 struct World;
+struct Input;
 struct GameSession;
 
 struct GameSystem
@@ -21,6 +22,7 @@ struct GameSession
     enum class Mode : uint8_t { STOPPED, PLAYING, PAUSED };
 
     World* world = nullptr;
+    const Input* input = nullptr;
     Camera camera;
     Mode mode = Mode::STOPPED;
     double time = 0.0;

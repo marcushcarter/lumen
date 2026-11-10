@@ -217,16 +217,16 @@ void WorldTab::_draw_play_controls(EditorContext& ctx, float p_center_x, float p
     const ImVec2 size(bw, h);
     float x = box_min.x;
 
-    PlayButton primary{ ICON_FA_PLAY "##primary", has_world() ? "Play (F5)" : "No world open", has_world() && (bool)ctx.pie_toggle_play, ui.color.success_text };
-    if (playing && paused) primary = { ICON_FA_PLAY "##primary", "Resume playing (F8)", (bool)ctx.pie_toggle_pause, ui.color.success_text };
-    else if (playing) primary = { ICON_FA_PAUSE "##primary", "Pause and edit (F8)", (bool)ctx.pie_toggle_pause, ui.color.text };
+    PlayButton primary{ ICON_FA_PLAY "##primary", has_world() ? "Play" : "No world open", has_world() && (bool)ctx.pie_toggle_play, ui.color.success_text };
+    if (playing && paused) primary = { ICON_FA_PLAY "##primary", "Resume playing", (bool)ctx.pie_toggle_pause, ui.color.success_text };
+    else if (playing) primary = { ICON_FA_PAUSE "##primary", "Pause and edit", (bool)ctx.pie_toggle_pause, ui.color.text };
     if (_play_button(primary, ImVec2(x, p_y), size, false, ImDrawFlags_RoundCornersLeft)) {
         if (!playing) ctx.pie_toggle_play();
         else ctx.pie_toggle_pause();
     }
     x += bw;
 
-    const PlayButton stop{ ICON_FA_STOP "##stop", "Stop (Shift+F5)", playing && (bool)ctx.pie_toggle_play, ui.color.text };
+    const PlayButton stop{ ICON_FA_STOP "##stop", "Stop", playing && (bool)ctx.pie_toggle_play, ui.color.text };
     if (_play_button(stop, ImVec2(x, p_y), size, false, ImDrawFlags_RoundCornersRight)) ctx.pie_toggle_play();
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -287,6 +287,7 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
         if (!ctx.selection->empty() || ctx.selection->environment) layout.well(details->default_zone()).active_name = details->layout_id;
     }
     layout.viewport.allow_pick = true;
+    layout.viewport.allow_play_capture = true;
     layout.viewport.allow_gizmo = true;
     layout.viewport.allow_debug_draw = true;
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });

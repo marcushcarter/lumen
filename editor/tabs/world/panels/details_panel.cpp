@@ -63,6 +63,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     const uint32_t transform_index = component("transform");
     const uint32_t model_index = component("model");
     const uint32_t grid_index = component("model_grid");
+    const uint32_t animation_index = component("animation");
     const uint32_t static_index = component("static");
 
     bool revert_static = false;
@@ -183,6 +184,17 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<ModelGridComponent>(e);
     }
 
+    bool revert_animation = false;
+    if (AnimationComponent* anim = world.try_get<AnimationComponent>(e)) {
+        bool remove = false;
+        const bool o = ui_category("Animation", &remove, overridden(animation_index) ? &revert_animation : nullptr);
+        if (o && asset_field(ctx, "Blend Space", "###animation_blend_space", anim->blend_space, AssetType::BLEND_SPACE)) {
+            anim->phase = 0.0f;
+            world.touch(e);
+        }
+        if (remove) world.deferred_remove<AnimationComponent>(e);
+    }
+
     ui_category_flush();
     ui_field_pop_style();
     if (prefab && revert_transform) {
@@ -192,6 +204,7 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (prefab && revert_static) prefab_revert_component(world, e, *prefab, static_index);
     if (prefab && revert_model) prefab_revert_component(world, e, *prefab, model_index);
     if (prefab && revert_grid) prefab_revert_component(world, e, *prefab, grid_index);
+    if (prefab && revert_animation) prefab_revert_component(world, e, *prefab, animation_index);
     if (revert_entity) editor_revert_prefab(ctx, e);
     if (unpack) editor_unpack_prefab(ctx, e);
     ImGui::Dummy(ImVec2(0.0f, ui_style().panel_box.gap));

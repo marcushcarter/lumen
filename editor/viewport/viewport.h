@@ -46,6 +46,7 @@ struct Viewport
     bool allow_grid = true;
     bool allow_asset_drop = true;
     bool allow_debug_draw = false;
+    bool allow_play_capture = false;
     bool has_bones = false;
     bool has_collision = false;
     const EditorPlay* play = nullptr;
@@ -72,7 +73,6 @@ struct Viewport
     void _draw_view_menu();
     uint32_t _debug_mask() const;
     void _submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live);
-    void _draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     void _draw_image(EditorContext& ctx);

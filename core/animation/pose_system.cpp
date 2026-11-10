@@ -7,8 +7,15 @@
 
 namespace lumen {
 
+void PoseSystem::load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir)
+{
+    clear();
+    anims.load(p_content_dir, p_assets_dir);
+}
+
 void PoseSystem::clear()
 {
+    anims.clear();
     bindings.clear();
     geometry_version = UINT64_MAX;
     skeleton_version = UINT64_MAX;
@@ -30,10 +37,12 @@ const PoseSystem::Binding* PoseSystem::_binding(const Renderer& p_renderer, uint
     return &it->second;
 }
 
-void PoseSystem::update(World& r_world, const Renderer& p_renderer)
+void PoseSystem::update(World& r_world, const Renderer& p_renderer, float p_dt)
 {
+    anims.tick(p_dt);
     if (geometry_version != p_renderer.geometry.version || skeleton_version != p_renderer.skeletons.version) {
         bindings.clear();
+        for (auto& [guid, clip] : anims.clips) clip.maps.clear();
         geometry_version = p_renderer.geometry.version;
         skeleton_version = p_renderer.skeletons.version;
     }
@@ -55,6 +64,25 @@ void PoseSystem::update(World& r_world, const Renderer& p_renderer)
             return;
         }
         r_pose.skin = binding->rest_skin;
+    });
+
+    r_world.view<ModelComponent, PoseComponent, AnimationComponent>(Exclude<StaticTag>{}, [&](Entity, const ModelComponent& p_model, PoseComponent& r_pose, AnimationComponent& r_anim) {
+        const LBlendSpace* space = anims.blend_space(r_anim.blend_space);
+        if (!space || r_pose.skin.empty()) return;
+        uint32_t mesh_index, slot_base;
+        p_renderer.models.lookup(p_model.model, mesh_index, slot_base);
+        const LMeshRig* rig = p_renderer.geometry.rig(mesh_index);
+        const Binding* binding = _binding(p_renderer, mesh_index);
+        const SkeletonCache::Entry* skeleton = rig ? p_renderer.skeletons.get(rig->skeleton) : nullptr;
+        if (!binding || !skeleton) return;
+        anims.skeleton = &skeleton->skeleton;
+        _local = skeleton->skeleton.rest;
+        const bool posed = evaluator.blend_pose(anims, skeleton->skeleton, *space, 0.0f, 0.0f, p_dt, r_anim.phase, _local.data());
+        anims.skeleton = nullptr;
+        if (!posed) return;
+        _global.resize(skeleton->skeleton.joint_count());
+        skeleton->skeleton.globals(_local.data(), _global.data());
+        rig_skin(_global, *rig, binding->map, r_pose.skin);
     });
 }
 

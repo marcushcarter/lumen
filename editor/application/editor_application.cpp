@@ -129,6 +129,8 @@ Error EditorApplication::on_init()
     _ctx.save_all_callback = [this] { save_all(); };
     _ctx.reload_project_callback = [this](std::function<void()> p_op) { reload_project(std::move(p_op)); };
     _ctx.play = &play;
+    _ctx.input = &input;
+    play.session.input = &input;
     _ctx.pie_is_playing = [this] { return play.active(); };
     _ctx.pie_toggle_play = [this] {
         if (play.active()) play.stop();
@@ -181,19 +183,9 @@ void EditorApplication::_play_start()
     play.start(world, world_tab.guid, editor_camera.camera);
 }
 
-void EditorApplication::_play_shortcuts()
-{
-    if (!world_tab.has_world() || tabs.active != &world_tab) return;
-    if (ImGui::Shortcut(ImGuiKey_F5, ImGuiInputFlags_RouteGlobal)) {
-        if (!play.active()) _play_start();
-        else if (play.editing()) play.toggle();
-    }
-    if (play.active() && ImGui::Shortcut(ImGuiKey_F8, ImGuiInputFlags_RouteGlobal)) play.toggle();
-    if (play.active() && ImGui::Shortcut(ImGuiMod_Shift | ImGuiKey_F5, ImGuiInputFlags_RouteGlobal)) play.stop();
-}
-
 void EditorApplication::on_simulate(float p_dt)
 {
+    if (!play.playing() || tabs.active != &world_tab) input.release();
     if (!play.active()) return;
     if (!project.loaded() || !world_tab.has_world() || world_tab.guid != play.world_guid) {
         play.stop();
@@ -214,7 +206,6 @@ void EditorApplication::on_update(float p_dt)
         assets.tick();
         selection.prune(world);
 
-        _play_shortcuts();
         tabs.update(ctx, p_dt);
         texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);

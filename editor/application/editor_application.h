@@ -111,7 +111,6 @@ struct EditorApplication : Application
     void _project_state_read(const toml::table& p_tbl);
 
     void _play_start();
-    void _play_shortcuts();
     void on_simulate(float p_dt) override;
     World& simulated_world() override { return play.active() ? play.runtime : world; }
     void update_camera(float p_dt) override;

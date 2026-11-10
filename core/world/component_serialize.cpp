@@ -19,6 +19,11 @@ void serialize(Archive& a, ModelComponent& r_c)
     a.field("model", r_c.model);
 }
 
+void serialize(Archive& a, AnimationComponent& r_c)
+{
+    a.field("blend_space", r_c.blend_space);
+}
+
 void serialize(Archive& a, ModelGridComponent& r_c)
 {
     a.field("model", r_c.model);

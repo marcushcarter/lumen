@@ -15,6 +15,7 @@
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <editor/tabs/prefab/prefab_tab.h>
 #include <editor/play/editor_play.h>
+#include <core/input/input.h>
 #include <core/rendering/debug_draw.h>
 #include <core/animation/bone_debug.h>
 #include <IconsFontAwesome6.h>
@@ -274,6 +275,9 @@ void Viewport::_draw_image(EditorContext& ctx)
         pick_click = allow_pick && !allow_look && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
         look_click = allow_look && !gizmo_hot && image_clicked;
         look_hover = allow_look && image_hovered;
+        if (allow_play_capture && playing && ctx.input && !ctx.input->captured && image_clicked && size.x > 0.0f && size.y > 0.0f) {
+            ctx.input->capture(RECT{ (LONG)pos.x, (LONG)pos.y, (LONG)(pos.x + size.x), (LONG)(pos.y + size.y) });
+        }
         if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
         if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
     } else {
@@ -284,8 +288,6 @@ void Viewport::_draw_image(EditorContext& ctx)
     if (_header_frame != ImGui::GetFrameCount()) {
         const float margin = ui_style().overlay.margin;
         _draw_controls(ctx, pos, ImVec2(pos.x + size.x, pos.y + ImGui::GetFrameHeight() + margin * 2.0f), margin);
-    } else {
-        _draw_options_tab(ctx, pos, size);
     }
 
     if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
@@ -321,7 +323,7 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
 
     right_overlay.begin(pos, size, OverlayBar::Align::RIGHT, p_margin);
 
-    if (_header_frame != ImGui::GetFrameCount() && right_overlay.begin_menu(ICON_FA_SLIDERS "###render_settings")) {
+    if (right_overlay.begin_menu(ICON_FA_SLIDERS "###render_settings")) {
         _draw_options(ctx);
         right_overlay.end_menu();
     }
@@ -395,51 +397,6 @@ void Viewport::_draw_options(EditorContext& ctx)
     if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
     ImGui::PopItemWidth();
     if (options_controls) options_controls();
-}
-
-void Viewport::_draw_options_tab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
-{
-    const UiStyle& ui = ui_style();
-    const char* label = "Options";
-    const ImVec2 ts = ImGui::CalcTextSize(label);
-    const float pad = ImGui::GetStyle().FramePadding.x;
-    const float arrow = ui.header.dropdown_arrow;
-    const float w = ts.x + pad * 3.0f + arrow * 2.0f;
-    const float h = ImGui::GetFrameHeight() + ui.space.xs;
-    const float margin = ui.header.pad_x * 2.0f;
-    if (p_size.x < w + margin * 2.0f || p_size.y < h) return;
-
-    const ImVec2 a(ImFloor(p_pos.x + p_size.x - margin - w), p_pos.y);
-    const ImVec2 b(a.x + w, a.y + h);
-    const float r = ui.header.rounding * 1.5f;
-
-    ImGui::SetCursorScreenPos(a);
-    const ImGuiID id = ImGui::GetID("##viewport_options");
-    const bool open_now = ImGui::IsPopupOpen(id, ImGuiPopupFlags_None);
-    const bool pressed = ImGui::InvisibleButton("##viewport_options_tab", ImVec2(w, h), ImGuiButtonFlags_PressedOnClick);
-    const bool hovered = ImGui::IsItemHovered();
-    if (pressed && !open_now) ImGui::OpenPopupEx(id);
-
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(a, b, ui.color.header, r, ImDrawFlags_RoundCornersBottom);
-    const ImVec2 ia(a.x + ui.space.xxs, a.y);
-    const ImVec2 ib(b.x - ui.space.xxs, b.y - ui.space.xxs);
-    if (open_now || hovered) dl->AddRectFilled(ia, ib, ui.color.header_hover, ui.header.rounding);
-    const ImU32 text = (open_now || hovered) ? ui.color.text_hi : ui.color.pulldown_text;
-    const float cy = ImFloor((ia.y + ib.y) * 0.5f);
-    dl->AddText(ImVec2(a.x + pad, ImFloor(cy - ts.y * 0.5f)), text, label);
-    ui_chevron(dl, ImVec2(ImFloor(b.x - pad - arrow * 0.5f) + 0.5f, cy + 0.5f), arrow * 2.0f, ImGuiDir_Down, ui_with_alpha(text, 0.8f), ui.stroke.thin);
-
-    ImGui::SetNextWindowPos(ImVec2(b.x, b.y + ui.menu.popup_offset), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-    ui_menu_push_style();
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ui.space.lg, ui.space.lg));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ui.space.lg, ui.space.sm));
-    if (ImGui::BeginPopupEx(id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        _draw_options(ctx);
-        ImGui::EndPopup();
-    }
-    ImGui::PopStyleVar(2);
-    ui_menu_pop_style();
 }
 
 void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)

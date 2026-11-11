@@ -15,7 +15,6 @@
 #include <editor/tabs/world/scene/editor_spawn.h>
 #include <editor/tabs/prefab/prefab_tab.h>
 #include <editor/play/editor_play.h>
-#include <core/input/input.h>
 #include <core/rendering/debug_draw.h>
 #include <core/animation/bone_debug.h>
 #include <IconsFontAwesome6.h>
@@ -275,9 +274,6 @@ void Viewport::_draw_image(EditorContext& ctx)
         pick_click = allow_pick && !allow_look && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
         look_click = allow_look && !gizmo_hot && image_clicked;
         look_hover = allow_look && image_hovered;
-        if (allow_play_capture && playing && ctx.input && !ctx.input->captured && image_clicked && size.x > 0.0f && size.y > 0.0f) {
-            ctx.input->capture(RECT{ (LONG)pos.x, (LONG)pos.y, (LONG)(pos.x + size.x), (LONG)(pos.y + size.y) });
-        }
         if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
         if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
     } else {

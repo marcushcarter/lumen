@@ -61,11 +61,6 @@ struct PhysicsWorld
     bool capsule_cast(const vec3& p_origin, const quat& p_rotation, float p_half_height, float p_radius, const vec3& p_direction, float p_max_distance, PhysicsHit& r_hit, const PhysicsQuery& p_query = {}) const;
     uint32_t overlap_sphere(const vec3& p_center, float p_radius, std::vector<PhysicsBodyId>& r_bodies, const PhysicsQuery& p_query = {}) const;
 
-    PhysicsCharacterId create_character(const PhysicsCharacterDesc& p_desc);
-    void destroy_character(PhysicsCharacterId p_character);
-    void destroy_all_characters();
-    void set_character_position(PhysicsCharacterId p_character, const vec3& p_position);
-    bool update_character(PhysicsCharacterId p_character, const vec3& p_velocity, float p_dt, float p_step_up, float p_stick_down, PhysicsCharacterState& r_state);
 
     void debug_draw(DebugDraw& r_draw, const vec3& p_camera_position) const;
 };

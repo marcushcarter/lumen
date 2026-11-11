@@ -138,7 +138,7 @@ void PhysicsSystem::_sync(World& r_world, float p_dt)
         CollisionComponent collision;
     };
     std::vector<Item> items;
-    r_world.view<TransformComponent, CollisionComponent>(Exclude<CharacterComponent>{}, [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
+    r_world.view<TransformComponent, CollisionComponent>([&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
         items.push_back({ p_entity, p_collision });
     });
 

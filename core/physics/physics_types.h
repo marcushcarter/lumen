@@ -74,36 +74,6 @@ struct PhysicsBodyDesc
     uint64_t user_data = 0;
 };
 
-struct PhysicsCharacterId
-{
-    static constexpr uint32_t INVALID = 0xFFFFFFFFu;
-    uint32_t value = INVALID;
-
-    bool valid() const { return value != INVALID; }
-};
-
-struct PhysicsCharacterDesc
-{
-    float radius = 0.35f;
-    float height = 1.8f;
-    float max_slope = 50.0f;
-    float mass = 70.0f;
-    float max_strength = 100.0f;
-    vec3 position = vec3(0.0f);
-    quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
-    uint64_t user_data = 0;
-};
-
-struct PhysicsCharacterState
-{
-    vec3 position = vec3(0.0f);
-    vec3 velocity = vec3(0.0f);
-    vec3 ground_normal = vec3(0.0f, 1.0f, 0.0f);
-    vec3 ground_velocity = vec3(0.0f);
-    bool on_ground = false;
-    bool on_steep_ground = false;
-};
-
 struct PhysicsQuery
 {
     uint32_t layers = PHYSICS_QUERY_WORLD;

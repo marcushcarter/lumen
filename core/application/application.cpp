@@ -31,13 +31,8 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     window_ci.frame = wants_custom_titlebar() ? drivers::WindowDriverWin32::Frame::CUSTOM : drivers::WindowDriverWin32::Frame::SYSTEM;
     window_ci.imgui = true;
     window_ci.quit_on_destroy = true;
-    window_ci.on_message = [this](HWND p_hwnd, UINT p_msg, WPARAM p_wparam, LPARAM p_lparam, LRESULT&) {
-        input.handle_message(p_hwnd, p_msg, p_wparam, p_lparam);
-        return false;
-    };
     err = win32.window_create(main_window, window_ci);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    input.attach(main_window.hwnd);
     // win32.window_set_minimum_size(main_window, 900, 600);
 
     on_boot_status("Initializing graphics", BOOT_GRAPHICS, BOOT_SHADERS);
@@ -136,7 +131,6 @@ void Application::shutdown()
     dd.shutdown();
     cd.shutdown();
 
-    input.detach();
     win32.window_free(main_window);
     win32.shutdown();
 
@@ -185,7 +179,6 @@ Error Application::_frame()
     const bool scene = renders_scene();
 
     cpu.zone_begin("Simulate");
-    input.update((float)delta);
     on_simulate((float)delta);
     cpu.zone_end();
 
@@ -213,7 +206,6 @@ Error Application::_frame()
 
     cpu.zone_begin("Update");
     on_update((float)delta);
-    if (input.captured) ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F12, ImGuiInputFlags_RouteGlobal)) screenshot_request();
     world.deferred_flush();
     cpu.zone_end();

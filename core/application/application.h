@@ -12,7 +12,6 @@
 #include <core/base/profiling.h>
 #include <core/application/frame_stats.h>
 #include <core/application/frame_limiter.h>
-#include <core/input/input.h>
 #include <string>
 #include <filesystem>
 #include <functional>
@@ -47,7 +46,6 @@ struct Application
     bool window_visible = true;
 
     Renderer renderer;
-    Input input;
     ProfilingSettings profiling;
     RenderPath* render_path = nullptr;
     RenderPath* pending_render_path = nullptr;

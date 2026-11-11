@@ -287,7 +287,6 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
         if (!ctx.selection->empty() || ctx.selection->environment) layout.well(details->default_zone()).active_name = details->layout_id;
     }
     layout.viewport.allow_pick = true;
-    layout.viewport.allow_play_capture = true;
     layout.viewport.allow_gizmo = true;
     layout.viewport.allow_debug_draw = true;
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });

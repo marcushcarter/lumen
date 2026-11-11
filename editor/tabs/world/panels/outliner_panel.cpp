@@ -265,11 +265,6 @@ void OutlinerPanel::_draw_table(EditorContext& ctx, float p_footer_h)
             anchor = ENTITY_NULL;
             last_primary = ENTITY_NULL;
         }
-        if (_draw_settings_row(row_h, "player", ICON_FA_GAMEPAD, "Player", ctx.selection->player)) {
-            ctx.selection->select_player();
-            anchor = ENTITY_NULL;
-            last_primary = ENTITY_NULL;
-        }
     }
 
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {

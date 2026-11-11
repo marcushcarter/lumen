@@ -18,7 +18,6 @@ struct WorldFile
     static constexpr const char* PREFAB_SECTION = "prefab";
     static constexpr const char* KEY_ROOT = "root";
     static constexpr const char* KEY_ENVIRONMENT = "environment";
-    static constexpr const char* KEY_PLAYER = "player";
     static constexpr const char* KEY_LEGACY_FOLDERS = "folders";
     static constexpr const char* KEY_LEGACY_FOLDER = "folder";
     static constexpr const char* KEY_ENTITIES = "entities";

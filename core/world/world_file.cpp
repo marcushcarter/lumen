@@ -176,10 +176,6 @@ std::string WorldFile::write_text(World& r_world, const WorldFile& p_file)
         TomlWriter env_writer(environment);
         serialize(env_writer, r_world.environment);
         section.insert_or_assign(KEY_ENVIRONMENT, std::move(environment));
-        toml::table player;
-        TomlWriter player_writer(player);
-        serialize(player_writer, r_world.player);
-        section.insert_or_assign(KEY_PLAYER, std::move(player));
     } else if (p_file.root.valid()) {
         section.insert_or_assign(KEY_ROOT, p_file.root.to_string());
     }
@@ -231,10 +227,6 @@ Error WorldFile::read_text(std::string_view p_text, World& r_world, bool p_edito
         TomlReader reader(*environment);
         serialize(reader, r_world.environment);
     }
-    if (const toml::table* player = section->get_as<toml::table>(KEY_PLAYER)) {
-        TomlReader reader(*player);
-        serialize(reader, r_world.player);
-    }
 
     const std::unordered_map<int64_t, LegacyFolder> legacy = _legacy_folders(section->get_as<toml::array>(KEY_LEGACY_FOLDERS));
     _add_legacy_folders(r_world, legacy, p_editor);
@@ -284,7 +276,6 @@ uint64_t WorldFile::hash(World& r_world)
 {
     HashWriter writer;
     serialize(writer, r_world.environment);
-    serialize(writer, r_world.player);
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);

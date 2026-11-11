@@ -117,13 +117,7 @@ void CollisionPreview::draw_shape(DebugDraw& r_draw, const mat4& p_world, const 
 
 void CollisionPreview::draw_world(DebugDraw& r_draw, const World& p_world, const Renderer& p_renderer, const Project& p_project)
 {
-    p_world.view<TransformComponent, CharacterComponent>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const CharacterComponent& p_character) {
-        const vec3 feet = vec3(p_world.world_matrix(p_entity)[3]);
-        const float radius = std::max(p_character.radius, 0.001f);
-        const float top = std::max(p_character.height - radius, radius);
-        r_draw.capsule(feet + vec3(0.0f, radius, 0.0f), feet + vec3(0.0f, top, 0.0f), radius, DebugDraw::Style{ .color = DebugDraw::BLUE, .category = DebugCategory::COLLISION });
-    });
-    p_world.view<TransformComponent, CollisionComponent>(Exclude<EditorHiddenTag, CharacterComponent>{}, [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
+    p_world.view<TransformComponent, CollisionComponent>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
         const mat4 world = p_world.world_matrix(p_entity);
         const DebugDraw::Style style{ .color = color(p_collision), .category = DebugCategory::COLLISION };
         const Entry* model = nullptr;

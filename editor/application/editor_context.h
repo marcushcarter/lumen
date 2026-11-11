@@ -12,7 +12,6 @@ struct Renderer;
 struct Project;
 struct World;
 struct EditorPlay;
-struct Input;
 struct ProjectManager;
 struct WorldTab;
 struct PrefabTab;
@@ -70,7 +69,6 @@ struct EditorContext
     std::function<void(const std::filesystem::path&)> run_toggle;
 
     EditorPlay* play = nullptr;
-    Input* input = nullptr;
     std::function<bool()> pie_is_playing;
     std::function<void()> pie_toggle_play;
     std::function<bool()> pie_is_paused;

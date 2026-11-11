@@ -51,39 +51,6 @@ struct AnimationComponent
     float direction = 0.0f;
 };
 
-struct CharacterComponent
-{
-    float radius = 0.35f;
-    float height = 1.8f;
-    float walk_speed = 1.6f;
-    float jog_speed = 4.0f;
-    float sprint_speed = 6.5f;
-    float acceleration = 20.0f;
-    float deceleration = 25.0f;
-    float air_control = 0.3f;
-    float turn_speed = 720.0f;
-    float jump_speed = 5.0f;
-    float gravity_scale = 1.0f;
-    float max_slope = 50.0f;
-    float step_height = 0.4f;
-    float yaw_offset = 0.0f;
-};
-
-struct CharacterStateComponent
-{
-    vec3 velocity = vec3(0.0f);
-    float facing = 0.0f;
-    float speed = 0.0f;
-    bool on_ground = false;
-    bool sprinting = false;
-    vec2 move = vec2(0.0f);
-    float move_yaw = 0.0f;
-    bool has_move_yaw = false;
-    bool run = false;
-    bool walk = false;
-    bool jump = false;
-};
-
 enum class CollisionShapeType : uint8_t { BOX, SPHERE, CAPSULE, MODEL, COUNT };
 
 static constexpr uint32_t COLLISION_MAX_SHAPES = 8;

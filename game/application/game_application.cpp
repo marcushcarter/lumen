@@ -45,12 +45,9 @@ Error GameApplication::on_init()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     _load_world();
     update_camera(0.0f);
-    session.input = &input;
     physics_system.renderer = &renderer;
     physics_system.project = &project;
-    character_system.physics = &physics_system;
-    session.systems = { &physics_system, &character_system };
-    session.physics = &physics_system.physics;
+    session.systems = { &physics_system };
     session.begin(world, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());
@@ -115,10 +112,6 @@ void GameApplication::on_update(float p_dt)
 {
     (void)p_dt;
     renderer.request_size(main_window.width, main_window.height);
-    if (window_focused && !input.captured && (!input.released_by_escape || ImGui::IsMouseClicked(ImGuiMouseButton_Left))) {
-        input.capture(RECT{ 0, 0, (LONG)main_window.width, (LONG)main_window.height });
-    }
-
     if (frame_stats.frame_avg > 0.0f && frame_stats.frame_avg != title_frame_avg) {
         title_frame_avg = frame_stats.frame_avg;
         char title[256];

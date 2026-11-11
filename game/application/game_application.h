@@ -4,7 +4,6 @@
 #include <game/application/boot_splash.h>
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
-#include <core/game/character_system.h>
 #include <filesystem>
 #include <string>
 
@@ -25,7 +24,6 @@ struct GameApplication : Application
     Camera orbit_camera;
     GameSession session;
     PhysicsSystem physics_system;
-    CharacterSystem character_system;
 
     void _load_world();
 

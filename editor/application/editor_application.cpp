@@ -15,6 +15,7 @@
 #include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/tabs/animation/animation_tab.h>
 #include <editor/tabs/blend_space/blend_space_tab.h>
+#include <editor/tabs/anim_graph/anim_graph_tab.h>
 #include <editor/tabs/overlay/overlay_tab.h>
 #include <editor/tabs/terrain/terrain_tab.h>
 #include <editor/tabs/prefab/prefab_tab.h>
@@ -306,6 +307,7 @@ EditorTab* EditorApplication::_open_asset_tab(TabKind p_kind, Guid p_guid)
         case TabKind::MESH: return tabs.open<MeshTab>(p_guid);
         case TabKind::ANIMATION: return tabs.open<AnimationTab>(p_guid);
         case TabKind::BLEND_SPACE: return tabs.open<BlendSpaceTab>(p_guid);
+        case TabKind::ANIM_GRAPH: return tabs.open<AnimGraphTab>(p_guid);
         case TabKind::OVERLAY: return tabs.open<OverlayTab>(p_guid);
         case TabKind::TERRAIN: return tabs.open<TerrainTab>(p_guid);
         case TabKind::PREFAB: return tabs.open<PrefabTab>(p_guid);
@@ -471,6 +473,7 @@ static const char* _tab_kind_name(TabKind p_kind)
         case TabKind::PROJECT_SETTINGS: return "project_settings";
         case TabKind::ANIMATION: return "animation";
         case TabKind::BLEND_SPACE: return "blend_space";
+        case TabKind::ANIM_GRAPH: return "anim_graph";
         case TabKind::OVERLAY: return "overlay";
         case TabKind::TERRAIN: return "terrain";
         case TabKind::ASSET_MANAGER: return "asset_manager";
@@ -491,6 +494,7 @@ static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
     else if (p_name == "project_settings") r_kind = TabKind::PROJECT_SETTINGS;
     else if (p_name == "animation") r_kind = TabKind::ANIMATION;
     else if (p_name == "blend_space") r_kind = TabKind::BLEND_SPACE;
+    else if (p_name == "anim_graph") r_kind = TabKind::ANIM_GRAPH;
     else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
     else if (p_name == "terrain") r_kind = TabKind::TERRAIN;
     else if (p_name == "prefab") r_kind = TabKind::PREFAB;
@@ -535,6 +539,7 @@ void EditorApplication::_restore_tabs()
             case TabKind::PROJECT_SETTINGS: opened = tabs.open<ProjectSettingsTab>(); break;
             case TabKind::ANIMATION: if (t.guid.valid()) opened = tabs.open<AnimationTab>(t.guid); break;
             case TabKind::BLEND_SPACE: if (t.guid.valid()) opened = tabs.open<BlendSpaceTab>(t.guid); break;
+            case TabKind::ANIM_GRAPH: if (t.guid.valid()) opened = tabs.open<AnimGraphTab>(t.guid); break;
             case TabKind::OVERLAY: if (t.guid.valid()) opened = tabs.open<OverlayTab>(t.guid); break;
             case TabKind::TERRAIN: if (t.guid.valid()) opened = tabs.open<TerrainTab>(t.guid); break;
             case TabKind::PREFAB: if (t.guid.valid()) opened = tabs.open<PrefabTab>(t.guid); break;

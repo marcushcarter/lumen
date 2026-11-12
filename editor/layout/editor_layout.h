@@ -16,11 +16,11 @@ namespace lumen {
 struct EditorLayout
 {
     static constexpr float MIN_DOCKWELL = 0.025f;
-    static constexpr float MAX_DOCKWELL = 0.5f;
+    static constexpr float MAX_DOCKWELL = 0.8f;
     static constexpr float MIN_CENTER = 0.2f;
     static constexpr float MIN_WELL = 0.15f;
     static constexpr float MIN_DRAWER = 0.1f;
-    static constexpr float MAX_DRAWER = 0.7f;
+    static constexpr float MAX_DRAWER = 0.8f;
     static constexpr float OPEN_SPLIT = 0.5f;
     static constexpr float CORNER_REACH = 10.0f;
     static constexpr float DEFAULT_SPLIT_LEFT = 0.2f;

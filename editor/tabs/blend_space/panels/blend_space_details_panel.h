@@ -20,7 +20,6 @@ struct BlendSpaceDetailsPanel : Panel
     DockZone default_zone() const override { return DockZone::RIGHT_TOP; }
     bool pinned() const override { return true; }
 
-    void _draw_axis(EditorContext& ctx);
     void _draw_pad(EditorContext& ctx);
     void _draw_samples(EditorContext& ctx);
     void _draw_selected(EditorContext& ctx);

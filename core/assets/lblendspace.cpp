@@ -6,22 +6,6 @@
 
 namespace lumen {
 
-const char* blend_space_kind_name(BlendSpaceKind p_kind)
-{
-    switch (p_kind) {
-        case BlendSpaceKind::ONE_D: return "1D";
-        case BlendSpaceKind::TWO_D: return "2D";
-    }
-    return "1D";
-}
-
-BlendSpaceKind blend_space_kind_from_name(const std::string& p_name, BlendSpaceKind p_fallback)
-{
-    if (p_name == "1D") return BlendSpaceKind::ONE_D;
-    if (p_name == "2D") return BlendSpaceKind::TWO_D;
-    return p_fallback;
-}
-
 static std::string _guid_text(Guid p_guid)
 {
     return !p_guid.valid() ? std::string{} : p_guid.to_string();
@@ -41,7 +25,6 @@ Error LBlendSpace::load(const std::filesystem::path& p_path)
     guid = Guid::from_string(asset["guid"].value_or(std::string{}));
     auto section = tbl[asset_type_section(AssetType::BLEND_SPACE)];
     preview_mesh = Guid::from_string(section["preview_mesh"].value_or(std::string{}));
-    kind = blend_space_kind_from_name(section["kind"].value_or(std::string{}), BlendSpaceKind::ONE_D);
     axis = section["axis"].value_or(std::string("speed"));
     if (const toml::array* list = section["samples"].as_array()) {
         for (const toml::node& n : *list) {
@@ -58,9 +41,7 @@ Error LBlendSpace::save(const std::filesystem::path& p_path) const
     using enum Error;
     toml::array list;
     for (const BlendSample& b : samples) {
-        toml::table st{ { "clip", _guid_text(b.clip) }, { "position", (double)b.position } };
-        if (kind == BlendSpaceKind::TWO_D) st.insert_or_assign("direction", (double)b.direction);
-        list.push_back(std::move(st));
+        list.push_back(toml::table{ { "clip", _guid_text(b.clip) }, { "position", (double)b.position }, { "direction", (double)b.direction } });
     }
 
     toml::table tbl{
@@ -70,7 +51,6 @@ Error LBlendSpace::save(const std::filesystem::path& p_path) const
             { "type", static_cast<int64_t>(AssetType::BLEND_SPACE) } }},
         { std::string(asset_type_section(AssetType::BLEND_SPACE)), toml::table{
             { "preview_mesh", _guid_text(preview_mesh) },
-            { "kind", std::string(blend_space_kind_name(kind)) },
             { "axis", axis },
             { "samples", std::move(list) } }},
     };

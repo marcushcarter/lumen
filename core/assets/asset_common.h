@@ -21,6 +21,7 @@ enum class AssetType : uint32_t {
     WORLD,
     TERRAIN,
     PREFAB,
+    ANIM_GRAPH,
 };
 
 inline constexpr uint32_t LASSET_VERSION = 1;
@@ -40,6 +41,7 @@ inline AssetType asset_type_from_u32(uint32_t p_v)
         case static_cast<uint32_t>(AssetType::WORLD): return AssetType::WORLD;
         case static_cast<uint32_t>(AssetType::TERRAIN): return AssetType::TERRAIN;
         case static_cast<uint32_t>(AssetType::PREFAB): return AssetType::PREFAB;
+        case static_cast<uint32_t>(AssetType::ANIM_GRAPH): return AssetType::ANIM_GRAPH;
         default: return AssetType::NONE;
     }
 }
@@ -58,6 +60,7 @@ inline std::string_view asset_type_section(AssetType p_type)
         case AssetType::WORLD: return "world";
         case AssetType::TERRAIN: return "terrain";
         case AssetType::PREFAB: return "prefab";
+        case AssetType::ANIM_GRAPH: return "anim_graph";
         default: return "None";
     }
 }

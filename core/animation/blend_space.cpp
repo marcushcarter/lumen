@@ -5,32 +5,6 @@
 
 namespace lumen {
 
-void blend_space_1d_weights(const float* p_positions, uint32_t p_count, float p_value, float* r_weights)
-{
-    for (uint32_t i = 0; i < p_count; i++) r_weights[i] = 0.0f;
-    if (p_count == 0) return;
-
-    int32_t below = -1;
-    int32_t above = -1;
-    for (uint32_t i = 0; i < p_count; i++) {
-        const float p = p_positions[i];
-        if (p <= p_value && (below < 0 || p > p_positions[below])) below = (int32_t)i;
-        if (p >= p_value && (above < 0 || p < p_positions[above])) above = (int32_t)i;
-    }
-    if (below < 0) {
-        r_weights[above] = 1.0f;
-        return;
-    }
-    if (above < 0 || above == below) {
-        r_weights[below] = 1.0f;
-        return;
-    }
-    const float span = p_positions[above] - p_positions[below];
-    const float t = span > FLT_EPSILON ? (p_value - p_positions[below]) / span : 0.5f;
-    r_weights[below] = 1.0f - t;
-    r_weights[above] = t;
-}
-
 static constexpr float RING_EPSILON = 1.0e-3f;
 
 static float _wrap_360(float p_degrees)

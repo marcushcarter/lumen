@@ -1,5 +1,6 @@
 #include <editor/tabs/asset_manager/asset_manager.h>
 #include <core/assets/lblendspace.h>
+#include <core/assets/lanimgraph.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/loverlay.h>
@@ -44,6 +45,7 @@ static const NewAssetDesc NEW_ASSETS[] = {
     { ICON_FA_CUBES, "Model", "New Model", ".lmodel" },
     { ICON_FA_PALETTE, "Material", "New Material", ".lmaterial" },
     { ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "Blend Space", "New Blend Space", ".lblendspace" },
+    { ICON_FA_DIAGRAM_PROJECT, "Animation Graph", "New Animation Graph", ".lanimgraph" },
     { ICON_FA_LAYER_GROUP, "Overlay", "New Overlay", ".loverlay" },
 };
 static_assert(std::size(NEW_ASSETS) == (size_t)AssetManager::NewAsset::COUNT);
@@ -59,7 +61,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".loverlay" || ext == ".lworld" || ext == ".lprefab";
+    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".lanimgraph" || ext == ".loverlay" || ext == ".lworld" || ext == ".lprefab";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -532,6 +534,7 @@ void AssetManager::_create_asset(EditorContext& ctx, NewAsset p_kind)
         case NewAsset::MODEL: { LModel a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MATERIAL: { LMaterial a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::BLEND_SPACE: { LBlendSpace a; a.guid = Guid::generate(); err = a.save(path); } break;
+        case NewAsset::ANIM_GRAPH: { LAnimGraph a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::OVERLAY: { LOverlay a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::COUNT: break;
     }

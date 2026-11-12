@@ -151,12 +151,8 @@ void OverlayDetailsPanel::draw_contents(EditorContext& ctx)
             const float span = hi - lo;
             const float margin = span > 0.0f ? span * AXIS_MARGIN : 1.0f;
             const char* axis = space->axis.empty() ? "Value" : space->axis.c_str();
-            if (space->kind == BlendSpaceKind::TWO_D) {
-                ImGui::SliderFloat(axis, &tab->preview_value, 0.0f, std::max(hi, 0.0f) + margin, "%.2f");
-                ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
-            } else {
-                ImGui::SliderFloat(axis, &tab->preview_value, lo - margin, hi + margin, "%.2f");
-            }
+            ImGui::SliderFloat(axis, &tab->preview_value, 0.0f, std::max(hi, 0.0f) + margin, "%.2f");
+            ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
         }
     }
 

@@ -8,11 +8,6 @@
 
 namespace lumen {
 
-enum class BlendSpaceKind : uint8_t { ONE_D, TWO_D };
-
-const char* blend_space_kind_name(BlendSpaceKind p_kind);
-BlendSpaceKind blend_space_kind_from_name(const std::string& p_name, BlendSpaceKind p_fallback);
-
 struct BlendSample
 {
     Guid clip;
@@ -26,7 +21,6 @@ struct LBlendSpace
 {
     Guid guid;
     Guid preview_mesh;
-    BlendSpaceKind kind = BlendSpaceKind::ONE_D;
     std::string axis = "speed";
     std::vector<BlendSample> samples;
 

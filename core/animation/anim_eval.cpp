@@ -17,8 +17,7 @@ void AnimEvaluator::blend_weights(ClipProvider& r_clips, const LBlendSpace& p_sp
         _usable.push_back(i);
     }
     _usable_weights.assign(_positions.size(), 0.0f);
-    if (p_space.kind == BlendSpaceKind::TWO_D) blend_space_polar_weights(_positions.data(), _directions.data(), (uint32_t)_positions.size(), p_value, p_direction, _usable_weights.data());
-    else blend_space_1d_weights(_positions.data(), (uint32_t)_positions.size(), p_value, _usable_weights.data());
+    blend_space_polar_weights(_positions.data(), _directions.data(), (uint32_t)_positions.size(), p_value, p_direction, _usable_weights.data());
     r_weights.assign(p_space.samples.size(), 0.0f);
     for (size_t k = 0; k < _usable.size(); k++) r_weights[_usable[k]] = _usable_weights[k];
 }

@@ -334,19 +334,6 @@ static void _extract_frustum_planes(const glm::mat4& vp, glm::vec4 out[6])
     for (int i = 0; i < 6; i++) out[i] /= glm::length(glm::vec3(out[i]));
 }
 
-template <typename Fn> static void _mesh_grid_for_each(const ModelGridComponent& p_grid, const LMesh& p_mesh, uint32_t p_budget, Fn&& p_fn)
-{
-    const uvec3 n = p_grid.count;
-    if ((uint64_t)n.x * n.y * n.z > p_budget) return;
-    const float spacing = p_grid.spacing > 0.0f ? p_grid.spacing : p_mesh.bounds_sphere.w * 1.5f;
-    const vec3 half = (vec3(n) - 1.0f) * 0.5f;
-    for (uint32_t z = 0; z < n.z; z++) {
-        for (uint32_t y = 0; y < n.y; y++) {
-            for (uint32_t x = 0; x < n.x; x++) p_fn((vec3(x, y, z) - half) * spacing);
-        }
-    }
-}
-
 static float _halton(uint32_t p_index, uint32_t p_base)
 {
     float f = 1.0f;
@@ -451,17 +438,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
             if (!_model_sane(model)) return;
             _static_add(static_insts, *mesh, mesh_index, p_entity.index, slot_base, model);
         });
-        p_world.view<TransformComponent, ModelGridComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelGridComponent& p_grid, const StaticTag&) {
-            uint32_t mesh_index, slot_base;
-            models.lookup(p_grid.model, mesh_index, slot_base);
-            const LMesh* mesh = geometry.get(mesh_index);
-            if (!mesh) return;
-            const mat4 root = p_world.world_matrix(p_entity);
-            if (!_model_sane(root)) return;
-            _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - (uint32_t)static_insts.instances.size(), [&](vec3 p_offset) {
-                _static_add(static_insts, *mesh, mesh_index, p_entity.index, slot_base, root * translate(mat4(1.0f), p_offset));
-            });
-        });
         static_insts.bvh.build(static_insts.bounds_min, static_insts.bounds_max);
         static_insts.world_version = p_world.static_version;
         static_insts.geometry_version = geometry.version;
@@ -496,29 +472,6 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
         frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
     });
 
-    p_world.view<TransformComponent, ModelGridComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelGridComponent& p_grid) {
-        if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
-        FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
-        if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
-        if (cache.model != p_grid.model || cache.model_version != models.version) {
-            cache.model = p_grid.model;
-            cache.model_version = models.version;
-            models.lookup(p_grid.model, cache.mesh_index, cache.slot_base);
-        }
-        const LMesh* mesh = geometry.get(cache.mesh_index);
-        if (!mesh) return;
-        const mat4 root = p_world.world_matrix(p_entity);
-        if (!_model_sane(root)) return;
-        const mat4 prev_root = cache.frame + 1 == frame_number ? cache.prev_mtx : root;
-        cache.prev_mtx = root;
-        cache.frame = frame_number;
-        _mesh_grid_for_each(p_grid, *mesh, MAX_INSTANCES - base - (uint32_t)frame.instances_scratch.size(), [&](vec3 p_offset) {
-            const mat4 offset = translate(mat4(1.0f), p_offset);
-            frame.instances_scratch.push_back(Instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base });
-            frame.transforms_scratch.push_back(Transform{ prev_root * offset, root * offset });
-            frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
-        });
-    });
 
     frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
 

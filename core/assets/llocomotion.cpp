@@ -133,6 +133,9 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
         thigh_bones[i] = section[std::string("thigh_bone") + SIDES[i]].value_or(thigh_bones[i]);
         calf_bones[i] = section[std::string("calf_bone") + SIDES[i]].value_or(calf_bones[i]);
         foot_bones[i] = section[std::string("foot_bone") + SIDES[i]].value_or(foot_bones[i]);
+        upperarm_bones[i] = section[std::string("upperarm_bone") + SIDES[i]].value_or(upperarm_bones[i]);
+        lowerarm_bones[i] = section[std::string("lowerarm_bone") + SIDES[i]].value_or(lowerarm_bones[i]);
+        hand_bones[i] = section[std::string("hand_bone") + SIDES[i]].value_or(hand_bones[i]);
     }
     stand_to_crouch = _guid(section["stand_to_crouch"]);
     crouch_to_stand = _guid(section["crouch_to_stand"]);
@@ -140,6 +143,15 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
     stop_right = _guid(section["stop_right"]);
     transition_left = _guid(section["transition_left"]);
     transition_right = _guid(section["transition_right"]);
+    ragdoll = section["ragdoll"].value_or(ragdoll);
+    ragdoll_mass = _float(section["ragdoll_mass"], ragdoll_mass);
+    muscle_strength = _float(section["muscle_strength"], muscle_strength);
+    balance = _float(section["balance"], balance);
+    head_hit_speed = _float(section["head_hit_speed"], head_hit_speed);
+    air_ragdoll_speed = _float(section["air_ragdoll_speed"], air_ragdoll_speed);
+    ragdoll_land_speed = _float(section["ragdoll_land_speed"], ragdoll_land_speed);
+    get_up_front = _guid(section["get_up_front"]);
+    get_up_back = _guid(section["get_up_back"]);
     return OK;
 }
 
@@ -193,7 +205,22 @@ Error LLocomotion::save(const std::filesystem::path& p_path) const
             { "stop_left", _guid_text(stop_left) },
             { "stop_right", _guid_text(stop_right) },
             { "transition_left", _guid_text(transition_left) },
-            { "transition_right", _guid_text(transition_right) } }},
+            { "transition_right", _guid_text(transition_right) },
+            { "ragdoll", ragdoll },
+            { "ragdoll_mass", (double)ragdoll_mass },
+            { "muscle_strength", (double)muscle_strength },
+            { "balance", (double)balance },
+            { "head_hit_speed", (double)head_hit_speed },
+            { "air_ragdoll_speed", (double)air_ragdoll_speed },
+            { "ragdoll_land_speed", (double)ragdoll_land_speed },
+            { "upperarm_bone_l", upperarm_bones[0] },
+            { "upperarm_bone_r", upperarm_bones[1] },
+            { "lowerarm_bone_l", lowerarm_bones[0] },
+            { "lowerarm_bone_r", lowerarm_bones[1] },
+            { "hand_bone_l", hand_bones[0] },
+            { "hand_bone_r", hand_bones[1] },
+            { "get_up_front", _guid_text(get_up_front) },
+            { "get_up_back", _guid_text(get_up_back) } }},
     };
     std::ostringstream ss;
     ss << tbl;

@@ -16,13 +16,13 @@ enum class PhysicsLayer : uint8_t
     KINEMATIC,
     CHARACTER,
     TRIGGER,
+    RAGDOLL,
     COUNT
 };
 
 constexpr uint32_t physics_layer_bit(PhysicsLayer p_layer) { return 1u << (uint32_t)p_layer; }
 
 static constexpr uint32_t PHYSICS_QUERY_WORLD = physics_layer_bit(PhysicsLayer::STATIC) | physics_layer_bit(PhysicsLayer::DYNAMIC) | physics_layer_bit(PhysicsLayer::KINEMATIC);
-static constexpr uint32_t PHYSICS_QUERY_ALL_SOLID = PHYSICS_QUERY_WORLD | physics_layer_bit(PhysicsLayer::CHARACTER);
 
 enum class PhysicsMotion : uint8_t { STATIC, KINEMATIC, DYNAMIC };
 
@@ -81,6 +81,49 @@ struct PhysicsCharacterId
 
     bool valid() const { return value != INVALID; }
     bool operator==(const PhysicsCharacterId&) const = default;
+};
+
+struct PhysicsRagdollId
+{
+    static constexpr uint32_t INVALID = 0xFFFFFFFFu;
+    uint32_t value = INVALID;
+
+    bool valid() const { return value != INVALID; }
+    bool operator==(const PhysicsRagdollId&) const = default;
+};
+
+enum class PhysicsJoint : uint8_t { SWING_TWIST, HINGE };
+
+struct PhysicsRagdollPart
+{
+    int32_t parent = -1;
+    vec3 position = vec3(0.0f);
+    quat rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+    PhysicsShapePart shape;
+    float mass = 1.0f;
+    vec3 linear_velocity = vec3(0.0f);
+    vec3 angular_velocity = vec3(0.0f);
+    PhysicsJoint joint = PhysicsJoint::SWING_TWIST;
+    vec3 joint_position = vec3(0.0f);
+    vec3 parent_axis = vec3(1.0f, 0.0f, 0.0f);
+    vec3 parent_normal = vec3(0.0f, 1.0f, 0.0f);
+    vec3 child_axis = vec3(1.0f, 0.0f, 0.0f);
+    vec3 child_normal = vec3(0.0f, 1.0f, 0.0f);
+    float swing_normal = 0.0f;
+    float swing_plane = 0.0f;
+    float twist_min = 0.0f;
+    float twist_max = 0.0f;
+    float joint_friction = 0.0f;
+};
+
+struct PhysicsRagdollDesc
+{
+    std::vector<PhysicsRagdollPart> parts;
+    float friction = 0.6f;
+    float linear_damping = 0.05f;
+    float angular_damping = 0.3f;
+    float self_collision_gap = 0.05f;
+    uint64_t user_data = 0;
 };
 
 struct PhysicsCharacterMove

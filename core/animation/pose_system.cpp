@@ -77,14 +77,28 @@ void PoseSystem::update(World& r_world, const Renderer& p_renderer, float p_dt)
         const Binding* binding = _binding(p_renderer, mesh_index);
         const SkeletonCache::Entry* skeleton = rig ? p_renderer.skeletons.get(rig->skeleton) : nullptr;
         if (!binding || !skeleton) return;
-        anims.skeleton = &skeleton->skeleton;
-        _local = skeleton->skeleton.rest;
-        const bool posed = character_pose(*locomotion, r_state.character, anims, evaluator, skeleton->skeleton, p_dt, _local.data());
-        anims.skeleton = nullptr;
-        if (!posed) return;
-        character_foot_ik(*locomotion, r_state.character, skeleton->skeleton, _local.data(), _global);
-        _global.resize(skeleton->skeleton.joint_count());
-        skeleton->skeleton.globals(_local.data(), _global.data());
+        const uint32_t joints = skeleton->skeleton.joint_count();
+        CharacterRagdoll& ragdoll = r_state.character.ragdoll;
+        ragdoll.bind(*locomotion, skeleton->skeleton);
+        if (ragdoll.state == RagdollState::ACTIVE && ragdoll.snapshot.size() == joints) {
+            _local = ragdoll.snapshot;
+            ragdoll.apply_pose(skeleton->skeleton, _local.data(), _global);
+            ragdoll.record(_local.data(), _global, p_dt);
+        } else {
+            anims.skeleton = &skeleton->skeleton;
+            _local = skeleton->skeleton.rest;
+            const bool posed = character_pose(*locomotion, r_state.character, anims, evaluator, skeleton->skeleton, p_dt, _local.data());
+            if (posed && ragdoll.state == RagdollState::GETTING_UP) {
+                ragdoll.apply_get_up(anims, joints, p_dt, _local.data());
+                r_state.character.ik.started = false;
+            }
+            anims.skeleton = nullptr;
+            if (!posed) return;
+            if (ragdoll.state != RagdollState::GETTING_UP) character_foot_ik(*locomotion, r_state.character, skeleton->skeleton, _local.data(), _global);
+            _global.resize(joints);
+            skeleton->skeleton.globals(_local.data(), _global.data());
+            ragdoll.record(_local.data(), _global, p_dt);
+        }
         rig_skin(_global, *rig, binding->map, r_pose.skin);
     });
 }

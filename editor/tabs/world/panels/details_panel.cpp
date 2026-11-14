@@ -59,10 +59,8 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     const auto overridden = [&](uint32_t p_index) { return p_index < 64 && (overrides >> p_index) & 1ull; };
     bool revert_transform = false;
     bool revert_model = false;
-    bool revert_grid = false;
     const uint32_t transform_index = component("transform");
     const uint32_t model_index = component("model");
-    const uint32_t grid_index = component("model_grid");
     const uint32_t collision_index = component("collision");
     const uint32_t locomotion_index = component("locomotion");
     const uint32_t player_index = component("player");
@@ -167,24 +165,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<ModelComponent>(e);
     }
 
-    if (ModelGridComponent* grid = world.try_get<ModelGridComponent>(e)) {
-        bool remove = false;
-        const bool o = ui_category("Model Grid", &remove, overridden(grid_index) ? &revert_grid : nullptr);
-        if (o) {
-            bool changed = asset_field(ctx, "Model", "###model_grid_field", grid->model, AssetType::MODEL);
-            int count[3] = { (int)grid->count.x, (int)grid->count.y, (int)grid->count.z };
-            if (ImGui::DragInt3("Count", count, 0.2f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp)) {
-                grid->count = uvec3((uint32_t)count[0], (uint32_t)count[1], (uint32_t)count[2]);
-                changed = true;
-            }
-            changed |= ImGui::DragFloat("Spacing", &grid->spacing, 0.1f, 0.0f, FLT_MAX, grid->spacing > 0.0f ? "%.2f" : "auto");
-            const uint64_t total = (uint64_t)grid->count.x * grid->count.y * grid->count.z;
-            if (total > MAX_INSTANCES) ImGui::TextColored(ui_vec4(ui_style().color.danger), "%llu instances (over %u, not drawn)", (unsigned long long)total, MAX_INSTANCES);
-            else ImGui::TextDisabled("%llu instances", (unsigned long long)total);
-            if (changed) world.touch(e);
-        }
-        if (remove) world.deferred_remove<ModelGridComponent>(e);
-    }
 
     bool revert_locomotion = false;
     if (LocomotionComponent* loco = world.try_get<LocomotionComponent>(e)) {
@@ -297,7 +277,6 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     }
     if (prefab && revert_static) prefab_revert_component(world, e, *prefab, static_index);
     if (prefab && revert_model) prefab_revert_component(world, e, *prefab, model_index);
-    if (prefab && revert_grid) prefab_revert_component(world, e, *prefab, grid_index);
     if (prefab && revert_collision) prefab_revert_component(world, e, *prefab, collision_index);
     if (prefab && revert_locomotion) prefab_revert_component(world, e, *prefab, locomotion_index);
     if (prefab && revert_player) prefab_revert_component(world, e, *prefab, player_index);

@@ -29,13 +29,6 @@ struct ModelComponent
     Guid model;
 };
 
-struct ModelGridComponent
-{
-    Guid model;
-    uvec3 count = uvec3(10, 1, 10);
-    float spacing = 0.0f;
-};
-
 struct PoseComponent
 {
     std::vector<mat4> skin;

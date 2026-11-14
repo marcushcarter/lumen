@@ -56,13 +56,6 @@ void serialize(Archive& a, CollisionComponent& r_c)
     }
 }
 
-void serialize(Archive& a, ModelGridComponent& r_c)
-{
-    a.field("model", r_c.model);
-    a.field("count", r_c.count);
-    a.field("spacing", r_c.spacing);
-}
-
 void serialize(Archive& a, ParentComponent& r_c)
 {
     a.field("parent", r_c.parent);

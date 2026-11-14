@@ -28,7 +28,6 @@ static const char* _entity_icon(const World& world, Entity p_entity, bool p_open
 {
     if (world.is_folder(p_entity)) return p_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
     if (world.has<PrefabInstanceComponent>(p_entity) && !world.has<PrefabPartComponent>(p_entity)) return ICON_FA_BOX;
-    if (world.has<ModelGridComponent>(p_entity)) return ICON_FA_TABLE_CELLS;
     if (world.has<ModelComponent>(p_entity)) return ICON_FA_CUBES;
     return ICON_FA_CIRCLE_DOT;
 }

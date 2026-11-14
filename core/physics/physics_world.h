@@ -27,6 +27,7 @@ struct PhysicsWorld
     std::unique_ptr<Impl> impl;
     float accumulator = 0.0f;
     const CollisionCache* collision_cache = nullptr;
+    uint64_t _steps = 0;
 
     PhysicsWorld();
     ~PhysicsWorld();
@@ -68,6 +69,13 @@ struct PhysicsWorld
     bool set_character_shape(PhysicsCharacterId p_character, float p_radius, float p_height);
     void set_character_position(PhysicsCharacterId p_character, const vec3& p_position);
     bool move_character(PhysicsCharacterId p_character, const PhysicsCharacterMove& p_move, float p_dt, PhysicsCharacterResult& r_result);
+
+    PhysicsRagdollId create_ragdoll(const PhysicsRagdollDesc& p_desc);
+    void destroy_ragdoll(PhysicsRagdollId p_ragdoll);
+    void destroy_all_ragdolls();
+    bool read_ragdoll(PhysicsRagdollId p_ragdoll, std::vector<vec3>& r_positions, std::vector<quat>& r_rotations, std::vector<vec3>* r_velocities = nullptr) const;
+    void drive_ragdoll(PhysicsRagdollId p_ragdoll, const quat* p_relative, const float* p_torque, uint32_t p_count, float p_frequency);
+    uint64_t steps() const { return _steps; }
 
     void debug_draw(DebugDraw& r_draw, const vec3& p_camera_position) const;
 };

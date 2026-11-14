@@ -30,12 +30,6 @@ Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid 
             world.add<ModelComponent>(e, { p_model });
             world.add<StaticTag>(e);
             break;
-        case SpawnType::MODEL_GRID: {
-            ModelGridComponent grid;
-            grid.model = p_model;
-            world.add<ModelGridComponent>(e, grid);
-            world.add<StaticTag>(e);
-        } break;
         default:
             break;
     }

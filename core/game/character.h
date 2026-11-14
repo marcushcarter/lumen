@@ -1,5 +1,6 @@
 #pragma once
 #include <core/animation/anim_eval.h>
+#include <core/game/character_ragdoll.h>
 #include <core/assets/llocomotion.h>
 #include <core/assets/lskeleton.h>
 #include <core/physics/physics_types.h>
@@ -17,10 +18,6 @@ enum class Stance : uint8_t { STANDING, CROUCHING };
 enum class Gait : uint8_t { WALKING, RUNNING, SPRINTING };
 enum class RotationMode : uint8_t { VELOCITY_DIRECTION, LOOKING_DIRECTION, AIMING };
 
-const char* movement_state_name(MovementState p_state);
-const char* stance_name(Stance p_stance);
-const char* gait_name(Gait p_gait);
-const char* rotation_mode_name(RotationMode p_mode);
 
 enum class AirState : uint8_t { GROUNDED, TAKEOFF, RISE, FALL };
 
@@ -154,7 +151,6 @@ struct CharacterAnim
 
 struct FootIK
 {
-    static constexpr float FOOT_HEIGHT = 0.135f;
     static constexpr float TRACE_ABOVE = 0.6f;
     static constexpr float TRACE_BELOW = 0.5f;
     static constexpr float TRACE_RADIUS = 0.06f;
@@ -172,6 +168,8 @@ struct FootIK
     static constexpr float UNPLANT_HEIGHT = 0.07f;
     static constexpr float PLANT_VERTICAL_SPEED = 0.3f;
     static constexpr float UNPLANT_VERTICAL_SPEED = 0.5f;
+    static constexpr float PLANT_GROUND_SPEED = 0.3f;
+    static constexpr float UNPLANT_GROUND_SPEED = 0.6f;
     static constexpr float SWING_DROP_WEIGHT = 0.3f;
     static constexpr float MAX_LOCK_DRIFT = 0.35f;
     static constexpr float LOCK_IN = 25.0f;
@@ -188,11 +186,15 @@ struct FootIK
     bool valid = false;
     vec3 model[2] = { vec3(0.0f), vec3(0.0f) };
     float previous_height[2] = { 0.0f, 0.0f };
+    vec3 previous_world[2] = { vec3(0.0f), vec3(0.0f) };
     float rest_height[2] = { 0.0f, 0.0f };
     bool planted[2] = { false, false };
     bool locked[2] = { false, false };
     vec3 lock_world[2] = { vec3(0.0f), vec3(0.0f) };
     float lock_alpha[2] = { 0.0f, 0.0f };
+    bool released[2] = { false, false };
+    vec3 slide[2] = { vec3(0.0f), vec3(0.0f) };
+    vec3 slide_from[2] = { vec3(0.0f), vec3(0.0f) };
     float height_offset[2] = { 0.0f, 0.0f };
     float height_velocity[2] = { 0.0f, 0.0f };
     vec3 world_offset[2] = { vec3(0.0f), vec3(0.0f) };
@@ -260,9 +262,13 @@ struct Character
     float land_speed = 0.0f;
     float land_brake_time = 0.0f;
     float land_brake_scale = 1.0f;
+    float stagger_time = 0.0f;
+    vec3 sway = vec3(0.0f);
+    vec3 sway_velocity = vec3(0.0f);
 
     CharacterAnim anim;
     FootIK ik;
+    CharacterRagdoll ragdoll;
 
     float direction() const;
 };

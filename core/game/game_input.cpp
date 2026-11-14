@@ -27,7 +27,6 @@ void GameInput::clear()
 void GameInput::read(bool p_captured, vec2 p_mouse_delta, float p_dt)
 {
     clear();
-    captured = p_captured;
     if (!p_captured) return;
 
     vec2 keys(0.0f);
@@ -47,6 +46,10 @@ void GameInput::read(bool p_captured, vec2 p_mouse_delta, float p_dt)
     jump = ImGui::IsKeyPressed(ImGuiKey_Space, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false);
     crouch_toggle = ImGui::IsKeyPressed(ImGuiKey_LeftAlt, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
     walk_toggle = ImGui::IsKeyPressed(ImGuiKey_LeftCtrl, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadR3, false);
+    ragdoll_toggle = ImGui::IsKeyPressed(ImGuiKey_X, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, false);
+    hit_light = ImGui::IsKeyPressed(ImGuiKey_H, false);
+    hit_heavy = ImGui::IsKeyPressed(ImGuiKey_J, false);
+    hit_low = ImGui::IsKeyPressed(ImGuiKey_K, false);
     rotation_toggle = ImGui::IsKeyPressed(ImGuiKey_Tab, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false);
 }
 

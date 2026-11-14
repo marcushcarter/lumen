@@ -44,6 +44,10 @@ void Layers::setup()
     enable(KINEMATIC, TRIGGER);
     enable(CHARACTER, CHARACTER);
     enable(CHARACTER, TRIGGER);
+    enable(RAGDOLL, STATIC);
+    enable(RAGDOLL, DYNAMIC);
+    enable(RAGDOLL, KINEMATIC);
+    enable(RAGDOLL, RAGDOLL);
 
     for (uint32_t l = 0; l < (uint32_t)PhysicsLayer::COUNT; l++) {
         broad_phase.MapObjectToBroadPhaseLayer((JPH::ObjectLayer)l, JPH::BroadPhaseLayer((JPH::BroadPhaseLayer::Type)broad_phase_of((PhysicsLayer)l)));

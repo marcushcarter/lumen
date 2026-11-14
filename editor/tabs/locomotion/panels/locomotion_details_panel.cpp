@@ -197,6 +197,33 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         _edit_bone("Foot Right", c.foot_bones[1]);
     }
 
+    if (ui_category("Ragdoll")) {
+        ImGui::Checkbox("Enabled", &c.ragdoll);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Builds a physics ragdoll from the skeleton. Press X in game to test it.");
+        ImGui::DragFloat("Mass", &c.ragdoll_mass, 0.5f, 10.0f, 500.0f, "%.1f kg");
+        ImGui::DragFloat("Muscle Strength", &c.muscle_strength, 0.01f, 0.0f, 5.0f, "%.2f");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How hard the body fights while falling: braces in the air, curls up on the ground, then relaxes before getting up");
+        ImGui::DragFloat("Balance", &c.balance, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Only attacks on the ground can knock you down, and only if they are at least this strong. Running into things on the ground never does, it makes you stumble back instead. Press H (light chest hit), J (heavy chest hit) or K (light shin hit) in game to test.");
+        ImGui::DragFloat("Head Hit Speed", &c.head_hit_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Running into something at head height faster than this makes your head snap back and you stumble back. 0 turns it off.");
+        ImGui::DragFloat("Air Ragdoll Speed", &c.air_ragdoll_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("In the air, hitting your head, a wall or an attack at least this hard ragdolls you. Softer air hits only stumble you. Legs clipping something never ragdolls.");
+        ImGui::DragFloat("Ragdoll Land Speed", &c.ragdoll_land_speed, 0.05f, 0.0f, 60.0f, "%.2f m/s");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Landing faster than this goes straight to ragdoll. 0 turns it off.");
+        asset_field(ctx, "Get Up Front", "###get_up_front", c.get_up_front, AssetType::ANIMATION);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Played when the ragdoll settles face down");
+        asset_field(ctx, "Get Up Back", "###get_up_back", c.get_up_back, AssetType::ANIMATION);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Played when the ragdoll settles face up");
+        _edit_bone("Upper Arm Left", c.upperarm_bones[0]);
+        _edit_bone("Lower Arm Left", c.lowerarm_bones[0]);
+        _edit_bone("Hand Left", c.hand_bones[0]);
+        _edit_bone("Upper Arm Right", c.upperarm_bones[1]);
+        _edit_bone("Lower Arm Right", c.lowerarm_bones[1]);
+        _edit_bone("Hand Right", c.hand_bones[1]);
+        ImGui::TextDisabled("Also uses the pelvis, spine, neck, head and leg bones above. Only runs in game.");
+    }
+
     ui_category_flush();
     ui_field_pop_style();
 }

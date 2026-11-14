@@ -32,7 +32,6 @@ struct CharacterStance
     Guid rotate_left;
     Guid rotate_right;
 
-    Guid cycle(CycleDirection p_direction) const { return cycles[(uint32_t)p_direction]; }
     Guid turn(TurnClip p_turn) const { return turns[(uint32_t)p_turn]; }
 
     bool operator==(const CharacterStance&) const = default;
@@ -81,6 +80,18 @@ struct LLocomotion
     Guid stop_right;
     Guid transition_left;
     Guid transition_right;
+    bool ragdoll = true;
+    float ragdoll_mass = 70.0f;
+    float muscle_strength = 1.0f;
+    float balance = 8.0f;
+    float head_hit_speed = 3.0f;
+    float air_ragdoll_speed = 5.0f;
+    float ragdoll_land_speed = 10.0f;
+    std::string upperarm_bones[2] = { "upperarm_l", "upperarm_r" };
+    std::string lowerarm_bones[2] = { "lowerarm_l", "lowerarm_r" };
+    std::string hand_bones[2] = { "hand_l", "hand_r" };
+    Guid get_up_front;
+    Guid get_up_back;
 
     Error load(const std::filesystem::path& p_path);
     Error save(const std::filesystem::path& p_path) const;

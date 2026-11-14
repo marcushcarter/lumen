@@ -48,6 +48,7 @@ Error GameApplication::on_init()
     physics_system.renderer = &renderer;
     physics_system.project = &project;
     character_system.physics = &physics_system;
+    character_system.debug = false;
     character_system.anims = &poses.anims;
     session.systems = { &physics_system, &character_system };
     session.begin(world, orbit_camera);

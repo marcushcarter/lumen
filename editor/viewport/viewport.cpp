@@ -147,13 +147,6 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const W
             renderer.geometry.posed_box(mesh_index, pose ? pose->skin.data() : nullptr, pose ? (uint32_t)pose->skin.size() : 0u, box_min, box_max);
             if (renderer.geometry.get(mesh_index)) add_box(mvp, box_min, box_max);
         }
-        if (const ModelGridComponent* g = world.try_get<ModelGridComponent>(e)) {
-            if (const LMesh* mesh = renderer.geometry.get(renderer.models.mesh_index(g->model))) {
-                const float spacing = g->spacing > 0.0f ? g->spacing : mesh->bounds_sphere.w * 1.5f;
-                const vec3 half = (vec3(g->count) - 1.0f) * 0.5f * spacing;
-                add_box(mvp, mesh->pos_min - half, mesh->pos_min + mesh->pos_extent + half);
-            }
-        }
         if (full) break;
     }
     if (full) r_outline.set_rect(vec2(0.0f), vec2(1.0f));

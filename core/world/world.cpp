@@ -15,7 +15,6 @@ Error World::initialize()
     component_register_saved<ParentComponent>("Parent", "parent", false);
     component_register_saved<TransformComponent>("Transform", "transform");
     component_register_saved<ModelComponent>("Model", "model");
-    component_register_saved<ModelGridComponent>("Model Grid", "model_grid");
     component_register<PoseComponent>("Pose", false);
     component_register_saved<CollisionComponent>("Collision", "collision");
     component_register_saved<LocomotionComponent>("Locomotion", "locomotion");

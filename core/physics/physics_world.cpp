@@ -7,6 +7,10 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Ragdoll/Ragdoll.h>
+#include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -18,7 +22,9 @@
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <string>
 
 namespace lumen {
 
@@ -29,6 +35,8 @@ struct PhysicsWorld::Impl
     JPH::PhysicsSystem system;
     std::unique_ptr<JPH::TempAllocatorImpl> temp;
     std::vector<JPH::Ref<JPH::CharacterVirtual>> characters;
+    std::vector<JPH::Ref<JPH::Ragdoll>> ragdolls;
+    uint32_t ragdoll_group = 0;
 
     JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
     const JPH::BodyInterface& bodies() const { return system.GetBodyInterface(); }
@@ -205,10 +213,158 @@ bool PhysicsWorld::move_character(PhysicsCharacterId p_character, const PhysicsC
     return true;
 }
 
+PhysicsRagdollId PhysicsWorld::create_ragdoll(const PhysicsRagdollDesc& p_desc)
+{
+    if (!impl || p_desc.parts.empty()) return {};
+    const uint32_t count = (uint32_t)p_desc.parts.size();
+    JPH::Ref<JPH::Skeleton> skeleton = new JPH::Skeleton();
+    JPH::Ref<JPH::RagdollSettings> settings = new JPH::RagdollSettings();
+    settings->mSkeleton = skeleton;
+    settings->mParts.resize(count);
+    std::vector<JPH::Mat44> matrices(count);
+    for (uint32_t i = 0; i < count; i++) {
+        const PhysicsRagdollPart& part = p_desc.parts[i];
+        if (part.parent >= (int32_t)i) return {};
+        skeleton->AddJoint("part" + std::to_string(i), part.parent);
+        JPH::RefConst<JPH::Shape> shape = _make_shape(part.shape.shape, nullptr, PhysicsMotion::DYNAMIC);
+        if (!shape) return {};
+        shape = JPH::RotatedTranslatedShapeSettings(to_jph(part.shape.position), to_jph(normalize(part.shape.rotation)), shape).Create().Get();
+        JPH::RagdollSettings::Part& p = settings->mParts[i];
+        p.SetShape(shape);
+        p.mPosition = to_jph_r(part.position);
+        p.mRotation = to_jph(normalize(part.rotation));
+        p.mMotionType = JPH::EMotionType::Dynamic;
+        p.mMotionQuality = JPH::EMotionQuality::LinearCast;
+        p.mObjectLayer = to_jph(PhysicsLayer::RAGDOLL);
+        p.mFriction = p_desc.friction;
+        p.mLinearDamping = p_desc.linear_damping;
+        p.mAngularDamping = p_desc.angular_damping;
+        p.mLinearVelocity = to_jph(part.linear_velocity);
+        p.mAngularVelocity = to_jph(part.angular_velocity);
+        p.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+        p.mMassPropertiesOverride.mMass = std::max(part.mass, 0.1f);
+        matrices[i] = JPH::Mat44::sRotationTranslation(p.mRotation, to_jph(part.position));
+        if (part.parent < 0) continue;
+        if (part.joint == PhysicsJoint::HINGE) {
+            JPH::Ref<JPH::HingeConstraintSettings> c = new JPH::HingeConstraintSettings();
+            c->mSpace = JPH::EConstraintSpace::WorldSpace;
+            c->mPoint1 = c->mPoint2 = to_jph_r(part.joint_position);
+            c->mHingeAxis1 = to_jph(normalize(part.parent_axis));
+            c->mNormalAxis1 = to_jph(normalize(part.parent_normal));
+            c->mHingeAxis2 = to_jph(normalize(part.child_axis));
+            c->mNormalAxis2 = to_jph(normalize(part.child_normal));
+            c->mLimitsMin = std::min(part.twist_min, 0.0f);
+            c->mLimitsMax = std::max(part.twist_max, 0.0f);
+            c->mMaxFrictionTorque = part.joint_friction;
+            p.mToParent = c;
+        } else {
+            JPH::Ref<JPH::SwingTwistConstraintSettings> c = new JPH::SwingTwistConstraintSettings();
+            c->mSpace = JPH::EConstraintSpace::WorldSpace;
+            c->mPosition1 = c->mPosition2 = to_jph_r(part.joint_position);
+            c->mTwistAxis1 = to_jph(normalize(part.parent_axis));
+            c->mPlaneAxis1 = to_jph(normalize(part.parent_normal));
+            c->mTwistAxis2 = to_jph(normalize(part.child_axis));
+            c->mPlaneAxis2 = to_jph(normalize(part.child_normal));
+            c->mNormalHalfConeAngle = part.swing_normal;
+            c->mPlaneHalfConeAngle = part.swing_plane;
+            c->mTwistMinAngle = part.twist_min;
+            c->mTwistMaxAngle = part.twist_max;
+            c->mMaxFrictionTorque = part.joint_friction;
+            p.mToParent = c;
+        }
+    }
+    skeleton->CalculateParentJointIndices();
+    settings->Stabilize();
+    settings->DisableParentChildCollisions(matrices.data(), p_desc.self_collision_gap);
+    settings->CalculateBodyIndexToConstraintIndex();
+    settings->CalculateConstraintIndexToBodyIdxPair();
+    JPH::Ref<JPH::Ragdoll> ragdoll = settings->CreateRagdoll(++impl->ragdoll_group, p_desc.user_data, &impl->system);
+    if (!ragdoll) {
+        log_write("Physics: ragdoll creation failed.");
+        return {};
+    }
+    ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
+    for (uint32_t i = 0; i < (uint32_t)impl->ragdolls.size(); i++) {
+        if (impl->ragdolls[i]) continue;
+        impl->ragdolls[i] = ragdoll;
+        return PhysicsRagdollId{ i };
+    }
+    impl->ragdolls.push_back(ragdoll);
+    return PhysicsRagdollId{ (uint32_t)impl->ragdolls.size() - 1 };
+}
+
+void PhysicsWorld::destroy_ragdoll(PhysicsRagdollId p_ragdoll)
+{
+    if (!impl || !p_ragdoll.valid() || p_ragdoll.value >= impl->ragdolls.size() || !impl->ragdolls[p_ragdoll.value]) return;
+    impl->ragdolls[p_ragdoll.value]->RemoveFromPhysicsSystem();
+    impl->ragdolls[p_ragdoll.value] = nullptr;
+}
+
+void PhysicsWorld::destroy_all_ragdolls()
+{
+    if (!impl) return;
+    for (JPH::Ref<JPH::Ragdoll>& ragdoll : impl->ragdolls) {
+        if (ragdoll) ragdoll->RemoveFromPhysicsSystem();
+    }
+    impl->ragdolls.clear();
+}
+
+bool PhysicsWorld::read_ragdoll(PhysicsRagdollId p_ragdoll, std::vector<vec3>& r_positions, std::vector<quat>& r_rotations, std::vector<vec3>* r_velocities) const
+{
+    if (!impl || !p_ragdoll.valid() || p_ragdoll.value >= impl->ragdolls.size() || !impl->ragdolls[p_ragdoll.value]) return false;
+    const JPH::Ragdoll& ragdoll = *impl->ragdolls[p_ragdoll.value];
+    const uint32_t count = (uint32_t)ragdoll.GetBodyCount();
+    r_positions.resize(count);
+    r_rotations.resize(count);
+    if (r_velocities) r_velocities->resize(count);
+    const JPH::BodyInterface& bi = impl->bodies();
+    for (uint32_t i = 0; i < count; i++) {
+        const JPH::BodyID id = ragdoll.GetBodyID((int)i);
+        JPH::RVec3 position;
+        JPH::Quat rotation;
+        bi.GetPositionAndRotation(id, position, rotation);
+        r_positions[i] = to_glm(position);
+        r_rotations[i] = to_glm(rotation);
+        if (r_velocities) (*r_velocities)[i] = to_glm(bi.GetLinearVelocity(id));
+    }
+    return true;
+}
+
+void PhysicsWorld::drive_ragdoll(PhysicsRagdollId p_ragdoll, const quat* p_relative, const float* p_torque, uint32_t p_count, float p_frequency)
+{
+    if (!impl || !p_ragdoll.valid() || p_ragdoll.value >= impl->ragdolls.size() || !impl->ragdolls[p_ragdoll.value]) return;
+    JPH::Ragdoll& ragdoll = *impl->ragdolls[p_ragdoll.value];
+    const JPH::RagdollSettings* settings = ragdoll.GetRagdollSettings();
+    const uint32_t count = std::min(p_count, (uint32_t)ragdoll.GetBodyCount());
+    for (uint32_t i = 0; i < count; i++) {
+        const int index = settings->GetConstraintIndexForBodyIndex((int)i);
+        if (index < 0) continue;
+        JPH::TwoBodyConstraint* constraint = ragdoll.GetConstraint(index);
+        const float torque = std::max(p_torque[i], 0.0f);
+        const JPH::EMotorState state = torque > 0.0f ? JPH::EMotorState::Position : JPH::EMotorState::Off;
+        const JPH::MotorSettings motor(p_frequency, 1.0f, FLT_MAX, torque);
+        if (constraint->GetSubType() == JPH::EConstraintSubType::SwingTwist) {
+            JPH::SwingTwistConstraint* st = static_cast<JPH::SwingTwistConstraint*>(constraint);
+            st->GetSwingMotorSettings() = motor;
+            st->GetTwistMotorSettings() = motor;
+            st->SetSwingMotorState(state);
+            st->SetTwistMotorState(state);
+            if (torque > 0.0f) st->SetTargetOrientationBS(to_jph(normalize(p_relative[i])));
+        } else if (constraint->GetSubType() == JPH::EConstraintSubType::Hinge) {
+            JPH::HingeConstraint* h = static_cast<JPH::HingeConstraint*>(constraint);
+            h->GetMotorSettings() = motor;
+            h->SetMotorState(state);
+            if (torque > 0.0f) h->SetTargetOrientationBS(to_jph(normalize(p_relative[i])));
+        }
+    }
+    if (count > 0) impl->bodies().ActivateBody(ragdoll.GetBodyID(0));
+}
+
 void PhysicsWorld::shutdown()
 {
     if (!impl) return;
     destroy_all_characters();
+    destroy_all_ragdolls();
     destroy_all_bodies();
     impl.reset();
     accumulator = 0.0f;
@@ -258,6 +414,7 @@ void PhysicsWorld::destroy_body(PhysicsBodyId p_body)
 void PhysicsWorld::destroy_all_bodies()
 {
     if (!impl) return;
+    destroy_all_ragdolls();
     JPH::BodyIDVector ids;
     impl->system.GetBodies(ids);
     if (ids.empty()) return;
@@ -330,6 +487,7 @@ vec3 PhysicsWorld::gravity() const
 void PhysicsWorld::step_fixed()
 {
     if (!impl) return;
+    _steps++;
     const JPH::EPhysicsUpdateError err = impl->system.Update(FIXED_DT, 1, impl->temp.get(), jolt::jobs());
     if (err != JPH::EPhysicsUpdateError::None) log_write("Physics: update reported error flags 0x%x.", (unsigned)err);
 }

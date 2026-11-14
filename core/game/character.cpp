@@ -8,36 +8,6 @@
 
 namespace lumen {
 
-const char* movement_state_name(MovementState p_state)
-{
-    return p_state == MovementState::IN_AIR ? "In Air" : "Grounded";
-}
-
-const char* stance_name(Stance p_stance)
-{
-    return p_stance == Stance::CROUCHING ? "Crouching" : "Standing";
-}
-
-const char* gait_name(Gait p_gait)
-{
-    switch (p_gait) {
-        case Gait::WALKING: return "Walking";
-        case Gait::RUNNING: return "Running";
-        case Gait::SPRINTING: return "Sprinting";
-    }
-    return "Walking";
-}
-
-const char* rotation_mode_name(RotationMode p_mode)
-{
-    switch (p_mode) {
-        case RotationMode::VELOCITY_DIRECTION: return "Velocity Direction";
-        case RotationMode::LOOKING_DIRECTION: return "Looking Direction";
-        case RotationMode::AIMING: return "Aiming";
-    }
-    return "Looking Direction";
-}
-
 float character_wrap(float p_degrees)
 {
     float d = std::fmod(p_degrees + 180.0f, 360.0f);
@@ -511,6 +481,22 @@ static void _set_global_rotation(const LSkeleton& p_skeleton, const std::vector<
     r_local[p_joint].rotation = normalize(inverse(parent_rotation) * p_rotation);
 }
 
+static void _refresh(const LSkeleton& p_skeleton, const JointTransform* p_local, std::vector<mat4>& r_global, int32_t p_joint)
+{
+    thread_local std::vector<uint8_t> dirty;
+    const uint32_t n = p_skeleton.joint_count();
+    dirty.assign(n, 0);
+    const int32_t parent = p_skeleton.parents[p_joint];
+    r_global[p_joint] = parent >= 0 ? r_global[parent] * p_local[p_joint].matrix() : p_local[p_joint].matrix();
+    dirty[p_joint] = 1;
+    for (uint32_t j = (uint32_t)p_joint + 1; j < n; j++) {
+        const int32_t up = p_skeleton.parents[j];
+        if (up < 0 || !dirty[up]) continue;
+        r_global[j] = r_global[up] * p_local[j].matrix();
+        dirty[j] = 1;
+    }
+}
+
 void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const LSkeleton& p_skeleton, JointTransform* r_local, std::vector<mat4>& r_global)
 {
     FootIK& ik = r_character.ik;
@@ -528,6 +514,33 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
     p_skeleton.globals(r_local, r_global.data());
     for (int i = 0; i < 2; i++) ik.model[i] = vec3(r_global[ik.foot[i]][3]);
 
+    vec3 sway_shift[2] = { vec3(0.0f), vec3(0.0f) };
+    const float sway_angle = length(r_character.sway);
+    const bool swaying = sway_angle > 1.0e-3f;
+    if (swaying) {
+        const quat entity = angleAxis(glm::radians(r_character.yaw + r_character.model_yaw), vec3(0.0f, 1.0f, 0.0f));
+        const vec3 axis = inverse(entity) * (r_character.sway / sway_angle);
+        const quat tip = angleAxis(sway_angle, axis);
+        const vec3 pivot = (ik.model[0] + ik.model[1]) * 0.5f;
+        const int32_t parent = p_skeleton.parents[ik.pelvis];
+        const vec3 pelvis_position = pivot + tip * (vec3(r_global[ik.pelvis][3]) - pivot);
+        const quat pelvis_rotation = tip * _global_rotation(r_global[ik.pelvis]);
+        r_local[ik.pelvis].translation = parent >= 0 ? vec3(inverse(r_global[parent]) * vec4(pelvis_position, 1.0f)) : pelvis_position;
+        _set_global_rotation(p_skeleton, r_global, ik.pelvis, pelvis_rotation, r_local);
+        _refresh(p_skeleton, r_local, r_global, ik.pelvis);
+        uint32_t spine = 0;
+        for (int i = 0; i < 3; i++) spine += ik.lean[i] >= 0 ? 1u : 0u;
+        if (spine > 0) {
+            const quat bend = angleAxis(sway_angle * CharacterRagdoll::SWAY_TORSO_BEND / (float)spine, axis);
+            for (int i = 0; i < 3; i++) {
+                if (ik.lean[i] < 0) continue;
+                _set_global_rotation(p_skeleton, r_global, ik.lean[i], bend * _global_rotation(r_global[ik.lean[i]]), r_local);
+                _refresh(p_skeleton, r_local, r_global, ik.lean[i]);
+            }
+        }
+        for (int i = 0; i < 2; i++) sway_shift[i] = vec3(r_global[ik.foot[i]][3]) - ik.model[i];
+    }
+
     const float air = r_character.movement == MovementState::IN_AIR ? 1.0f : 0.0f;
     const float lean_angle = p_asset.lean_angle + (p_asset.air_lean_angle - p_asset.lean_angle) * air;
     const float roll = glm::radians(r_character.lean_lr * lean_angle);
@@ -543,7 +556,7 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
         for (int i = 0; i < 3; i++) {
             if (ik.lean[i] < 0) continue;
             _set_global_rotation(p_skeleton, r_global, ik.lean[i], part * _global_rotation(r_global[ik.lean[i]]), r_local);
-            p_skeleton.globals(r_local, r_global.data());
+            _refresh(p_skeleton, r_local, r_global, ik.lean[i]);
         }
     }
 
@@ -560,7 +573,7 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
             if (p_joint < 0 || p_share <= 0.0f) return;
             const quat q = angleAxis(up * p_share, right) * angleAxis(yaw * p_share, vec3(0.0f, 1.0f, 0.0f));
             _set_global_rotation(p_skeleton, r_global, p_joint, q * _global_rotation(r_global[p_joint]), r_local);
-            p_skeleton.globals(r_local, r_global.data());
+            _refresh(p_skeleton, r_local, r_global, p_joint);
         };
         for (int i = 0; i < 3; i++) turn(ik.lean[i], spine_share / (float)std::max(lean_count, 1u));
         turn(ik.neck, neck_share);
@@ -572,12 +585,12 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
     const float lr = an.velocity_blend[2] + an.velocity_blend[3];
     const float diagonal = 2.0f * std::min(fb, lr) * CharacterAnim::DIAGONAL_SCALE * (1.0f - an.idle) * (1.0f - an.air_weight);
     const float alpha = p_asset.foot_ik ? ik.alpha : 0.0f;
-    if (alpha <= BLEND_MIN_WEIGHT && diagonal <= BLEND_MIN_WEIGHT) return;
+    if (alpha <= BLEND_MIN_WEIGHT && diagonal <= BLEND_MIN_WEIGHT && !swaying) return;
     if (ik.pelvis_offset != 0.0f) {
         const int32_t parent = p_skeleton.parents[ik.pelvis];
         const vec3 moved = vec3(r_global[ik.pelvis][3]) + vec3(0.0f, ik.pelvis_offset * alpha, 0.0f);
         r_local[ik.pelvis].translation = parent >= 0 ? vec3(inverse(r_global[parent]) * vec4(moved, 1.0f)) : moved;
-        p_skeleton.globals(r_local, r_global.data());
+        _refresh(p_skeleton, r_local, r_global, ik.pelvis);
     }
 
     for (int i = 0; i < 2; i++) {
@@ -586,7 +599,7 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
         const vec3 c = vec3(r_global[ik.foot[i]][3]);
         const vec3 pelvis_position = vec3(r_global[ik.pelvis][3]);
         const vec3 inward(pelvis_position.x - c.x, 0.0f, pelvis_position.z - c.z);
-        const vec3 target = c + ik.offset[i] * alpha + inward * diagonal;
+        const vec3 target = c + ik.offset[i] * alpha + inward * diagonal - sway_shift[i];
         const float upper = length(b - a);
         const float lower = length(c - b);
         if (upper < 1.0e-4f || lower < 1.0e-4f) continue;
@@ -612,11 +625,11 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
         const quat foot_new = tilt * foot_old;
 
         _set_global_rotation(p_skeleton, r_global, ik.thigh[i], thigh_new, r_local);
-        p_skeleton.globals(r_local, r_global.data());
+        _refresh(p_skeleton, r_local, r_global, ik.thigh[i]);
         _set_global_rotation(p_skeleton, r_global, ik.calf[i], calf_new, r_local);
-        p_skeleton.globals(r_local, r_global.data());
+        _refresh(p_skeleton, r_local, r_global, ik.calf[i]);
         _set_global_rotation(p_skeleton, r_global, ik.foot[i], foot_new, r_local);
-        p_skeleton.globals(r_local, r_global.data());
+        _refresh(p_skeleton, r_local, r_global, ik.foot[i]);
     }
 }
 

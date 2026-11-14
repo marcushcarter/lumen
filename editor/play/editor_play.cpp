@@ -1,5 +1,6 @@
 #include <editor/play/editor_play.h>
 #include <core/world/components.h>
+#include <editor/viewport/viewport.h>
 #include <algorithm>
 #include <cstring>
 
@@ -57,6 +58,7 @@ void EditorPlay::update(float p_dt)
 {
     if (!active()) return;
     _mirror();
+    character_system.debug = viewport_view().show_debug_lines;
     session.update(p_dt);
 }
 

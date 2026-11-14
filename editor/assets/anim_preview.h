@@ -1,5 +1,6 @@
 #pragma once
 #include <core/animation/anim_eval.h>
+#include <core/game/character.h>
 #include <core/assets/lanim.h>
 #include <core/assets/lblendspace.h>
 #include <core/assets/loverlay.h>
@@ -41,8 +42,9 @@ struct AnimPreview
     const LBlendSpace* blend_space(EditorContext& ctx, Guid p_guid);
     const LOverlay* overlay(EditorContext& ctx, Guid p_guid);
     Guid blend_space_mesh(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space);
-    void blend_weights(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, float p_direction, std::vector<float>& r_weights);
-    bool blend_pose(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, float p_direction, float p_advance, float& r_phase, JointTransform* r_pose);
+    bool character_pose(EditorContext& ctx, const RigPreview& p_rig, const LLocomotion& p_asset, Character& r_character, float p_dt, JointTransform* r_pose);
+    void blend_weights(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, std::vector<float>& r_weights);
+    bool blend_pose(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, float p_dt, float& r_phase, JointTransform* r_pose);
     void overlay_apply(EditorContext& ctx, const RigPreview& p_rig, const LOverlay& p_overlay, float p_time, float p_weight, JointTransform* r_pose);
     void mask_weights(const LOverlay& p_overlay, const RigPreview& p_rig, std::vector<float>& r_weights) const;
 };

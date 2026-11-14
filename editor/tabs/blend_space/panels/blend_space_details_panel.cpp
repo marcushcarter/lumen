@@ -15,54 +15,40 @@
 
 namespace lumen {
 
-void BlendSpaceDetailsPanel::_draw_pad(EditorContext& ctx)
+void BlendSpaceDetailsPanel::_draw_axis(EditorContext& ctx)
 {
-    const LBlendSpace& space = tab->space;
-    float max_speed = 0.0f;
-    for (const BlendSample& s : space.samples) max_speed = std::max(max_speed, s.position);
-    if (space.samples.empty() || max_speed <= 0.0f) {
-        ImGui::TextDisabled("Add samples with a speed above 0 to blend between.");
+    LBlendSpace& space = tab->space;
+    if (space.samples.empty()) {
+        ImGui::TextDisabled("Add samples to blend between.");
         return;
     }
-    const float limit = max_speed * (1.0f + AXIS_MARGIN);
-    ImGui::SliderFloat(space.axis.empty() ? "Speed" : space.axis.c_str(), &tab->preview_value, 0.0f, limit, "%.2f");
-    ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
+    float lo = std::min(space.min_position(), 0.0f);
+    float hi = std::max(space.max_position(), lo + 1.0f);
+    ImGui::SliderFloat("Value", &tab->preview_value, lo, hi, "%.2f");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("For characters this is the gait: walk at 1, run at 2, sprint at 3");
 
     const UiStyle& ui = ui_style();
-    const float size = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize() * 14.0f);
+    const float w = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+    const float h = ImGui::GetFrameHeight() * 1.4f;
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const ImVec2 c(p0.x + size * 0.5f, p0.y + size * 0.5f);
-    const float radius = size * 0.5f - ui.space.lg;
-    ImGui::InvisibleButton("##direction_pad", ImVec2(std::max(size, 1.0f), std::max(size, 1.0f)));
-    if (ImGui::IsItemActive()) {
-        const ImVec2 m = ImGui::GetIO().MousePos;
-        const float dx = (m.x - c.x) / radius;
-        const float dy = (c.y - m.y) / radius;
-        tab->preview_value = std::clamp(std::sqrt(dx * dx + dy * dy) * limit, 0.0f, limit);
-        if (dx != 0.0f || dy != 0.0f) tab->preview_direction = glm::degrees(std::atan2(dx, dy));
-    }
-    auto at = [&](float p_speed, float p_direction) {
-        const float a = glm::radians(p_direction);
-        const float r = p_speed / limit * radius;
-        return ImVec2(c.x + std::sin(a) * r, c.y - std::cos(a) * r);
-    };
+    ImGui::InvisibleButton("##axis_graph", ImVec2(w, h));
+    if (ImGui::IsItemActive()) tab->preview_value = std::clamp(lo + (ImGui::GetIO().MousePos.x - p0.x) / w * (hi - lo), lo, hi);
+    auto x_of = [&](float p_v) { return p0.x + (p_v - lo) / (hi - lo) * w; };
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p0, ImVec2(p0.x + size, p0.y + size), ui.color.sunken, ui.base.frame_rounding);
-    dl->AddCircle(c, radius, ui.color.line, 0, ui.stroke.thin);
-    dl->AddLine(ImVec2(c.x, c.y - radius), ImVec2(c.x, c.y + radius), ui.color.line, ui.stroke.hairline);
-    dl->AddLine(ImVec2(c.x - radius, c.y), ImVec2(c.x + radius, c.y), ui.color.line, ui.stroke.hairline);
-    tab->weights(ctx, tab->preview_value, tab->preview_direction, tab->_weights);
+    const float cy = p0.y + h * 0.5f;
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), ui.color.sunken, ui.base.frame_rounding);
+    dl->AddLine(ImVec2(p0.x + ui.space.sm, cy), ImVec2(p0.x + w - ui.space.sm, cy), ui.color.line, ui.stroke.thin);
+    tab->anim.blend_weights(ctx, tab->rig_preview, space, tab->preview_value, tab->weights);
     for (size_t i = 0; i < space.samples.size(); i++) {
-        const float weight = i < tab->_weights.size() ? tab->_weights[i] : 0.0f;
+        const float weight = i < tab->weights.size() ? tab->weights[i] : 0.0f;
         const float r = ui.space.sm + ui.space.xs * weight;
-        const ImVec2 dot = at(space.samples[i].position, space.samples[i].direction);
+        const ImVec2 dot(x_of(space.samples[i].position), cy);
         dl->AddCircleFilled(dot, r, weight > 0.0f ? ui.color.asset_animation : ui.color.text_dim);
         if ((int32_t)i == selected) dl->AddCircle(dot, r + ui.space.xs, ui.color.text, 0, ui.stroke.thin);
     }
-    const ImVec2 marker = at(tab->preview_value, tab->preview_direction);
-    dl->AddLine(c, marker, ui.color.accent, ui.stroke.thin);
-    dl->AddCircle(marker, ui.space.md, ui.color.accent, 0, ui.stroke.thick);
+    const float mx = x_of(tab->preview_value);
+    dl->AddLine(ImVec2(mx, p0.y + ui.space.xs), ImVec2(mx, p0.y + h - ui.space.xs), ui.color.accent, ui.stroke.thick);
 }
 
 void BlendSpaceDetailsPanel::_draw_samples(EditorContext& ctx)
@@ -88,7 +74,7 @@ void BlendSpaceDetailsPanel::_draw_samples(EditorContext& ctx)
         ui_context_menu_pop_style();
 
         char value[48];
-        std::snprintf(value, sizeof(value), "%.2f   %.0f deg", s.position, s.direction);
+        std::snprintf(value, sizeof(value), "%.2f   %.2f m/s", s.position, s.speed);
         const float right = ImGui::GetItemRectMax().x - ui.outliner.cell_pad_x;
         const float text_y = p0.y + ImFloor((row_h - font) * 0.5f);
         const float value_w = ImGui::CalcTextSize(value).x;
@@ -109,32 +95,27 @@ void BlendSpaceDetailsPanel::_draw_samples(EditorContext& ctx)
     if (selected >= (int32_t)space.samples.size()) selected = -1;
 
     if (ImGui::Button(ICON_FA_PLUS " Add Sample", ImVec2(-FLT_MIN, 0.0f))) {
-        const float next = space.samples.empty() ? 0.0f : space.samples.back().position + 1.0f;
-        space.samples.push_back({ Guid{}, next });
+        const float next = space.samples.empty() ? 1.0f : space.max_position() + 1.0f;
+        space.samples.push_back({ Guid{}, next, 0.0f });
         selected = (int32_t)space.samples.size() - 1;
     }
-    _draw_selected(ctx);
-}
 
-void BlendSpaceDetailsPanel::_draw_selected(EditorContext& ctx)
-{
-    LBlendSpace& space = tab->space;
     if (selected < 0 || selected >= (int32_t)space.samples.size()) return;
     BlendSample& s = space.samples[selected];
-
     char label[32];
     std::snprintf(label, sizeof(label), "SAMPLE %d", selected + 1);
     ui_section_label(label);
     ImGui::PushID(selected);
     asset_field(ctx, "Clip", "###sample_clip", s.clip, AssetType::ANIMATION);
-    ImGui::DragFloat(space.axis.empty() ? "Speed" : space.axis.c_str(), &s.position, 0.05f, 0.0f, FLT_MAX, "%.2f");
-    ImGui::DragFloat("Direction", &s.direction, 1.0f, -180.0f, 180.0f, "%.0f deg");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("0 forward, 90 right, 180 back, -90 left");
+    ImGui::DragFloat("Position", &s.position, 0.01f, -FLT_MAX, FLT_MAX, "%.2f");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Walk at 1, run at 2, sprint at 3");
+    ImGui::DragFloat("Speed", &s.speed, 0.01f, 0.0f, 30.0f, "%.2f m/s");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How fast the character moves in this clip. Playback is scaled to match the real speed.");
     ui_push_buttons(UiButton::DANGER);
-    const bool remove = ImGui::Button(ICON_FA_TRASH_CAN "  Remove Sample");
+    const bool remove_selected = ImGui::Button(ICON_FA_TRASH_CAN "  Remove Sample");
     ui_pop_buttons();
     ImGui::PopID();
-    if (remove) {
+    if (remove_selected) {
         space.samples.erase(space.samples.begin() + selected);
         selected = -1;
     }
@@ -162,44 +143,37 @@ void BlendSpaceDetailsPanel::_draw_overlays(EditorContext& ctx)
 void BlendSpaceDetailsPanel::_draw_warnings(EditorContext& ctx)
 {
     const LBlendSpace& space = tab->space;
-    std::vector<std::string> lines;
     char line[160];
-
     Guid skeleton;
     for (size_t i = 0; i < space.samples.size(); i++) {
         const BlendSample& s = space.samples[i];
         if (!s.clip.valid()) {
             std::snprintf(line, sizeof(line), "Sample %zu has no clip", i + 1);
-            lines.push_back(line);
+            ui_warning("%s", line);
             continue;
         }
         const BlendSpaceTab::LoadedClip* c = tab->clip(ctx, s.clip);
         if (!c) {
             std::snprintf(line, sizeof(line), "Sample %zu's clip couldn't be loaded", i + 1);
-            lines.push_back(line);
+            ui_warning("%s", line);
             continue;
         }
         if (!skeleton.valid()) skeleton = c->clip.skeleton;
         else if (c->clip.skeleton != skeleton) {
             std::snprintf(line, sizeof(line), "Sample %zu uses a different skeleton", i + 1);
-            lines.push_back(line);
+            ui_warning("%s", line);
         }
-    }
-    for (size_t i = 0; i < space.samples.size(); i++) {
+        if (s.speed <= 0.0f) {
+            std::snprintf(line, sizeof(line), "Sample %zu has no speed, so playback won't match movement", i + 1);
+            ui_warning("%s", line);
+        }
         for (size_t k = 0; k < i; k++) {
-            const BlendSample& a = space.samples[i];
-            const BlendSample& b = space.samples[k];
-            const bool same_position = std::fabs(a.position - b.position) < SAME_SAMPLE_EPSILON;
-            const bool same_direction = a.position < SAME_SAMPLE_EPSILON || std::fabs(a.direction - b.direction) < SAME_SAMPLE_EPSILON;
-            if (!same_position || !same_direction) continue;
+            if (std::fabs(space.samples[k].position - s.position) >= SAME_SAMPLE_EPSILON) continue;
             std::snprintf(line, sizeof(line), "Samples %zu and %zu are in the same place", k + 1, i + 1);
-            lines.push_back(line);
+            ui_warning("%s", line);
             break;
         }
     }
-    if (lines.empty()) return;
-
-    for (const std::string& l : lines) ui_warning("%s", l.c_str());
 }
 
 void BlendSpaceDetailsPanel::draw_contents(EditorContext& ctx)
@@ -208,16 +182,17 @@ void BlendSpaceDetailsPanel::draw_contents(EditorContext& ctx)
     LBlendSpace& space = tab->space;
     ui_field_push_style();
 
+    char header[48];
+    std::snprintf(header, sizeof(header), "Samples (%zu)###samples", space.samples.size());
+    if (ui_category(header)) _draw_samples(ctx);
+
     if (ui_category("Preview")) {
         asset_field(ctx, "Preview Mesh", "###blend_space_preview_mesh", space.preview_mesh, AssetType::MESH);
         if (!space.preview_mesh.valid() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Empty uses the first mesh that matches the samples' clips");
         ImGui::Checkbox("Play", &tab->playing);
-        _draw_pad(ctx);
+        _draw_axis(ctx);
     }
 
-    char header[48];
-    std::snprintf(header, sizeof(header), "Samples (%zu)###samples", space.samples.size());
-    if (ui_category(header)) _draw_samples(ctx);
     std::snprintf(header, sizeof(header), "Preview Overlays (%zu)###preview_overlays", tab->preview_overlays.size());
     if (ui_category(header)) _draw_overlays(ctx);
 

@@ -71,11 +71,6 @@ Guid BlendSpaceTab::preview_mesh(EditorContext& ctx)
     return anim.blend_space_mesh(ctx, rig_preview, space);
 }
 
-void BlendSpaceTab::weights(EditorContext& ctx, float p_value, float p_direction, std::vector<float>& r_weights)
-{
-    anim.blend_weights(ctx, rig_preview, space, p_value, p_direction, r_weights);
-}
-
 void BlendSpaceTab::_sync_preview(EditorContext& ctx)
 {
     const Guid mesh = preview_mesh(ctx);
@@ -94,7 +89,7 @@ void BlendSpaceTab::_pose_preview(EditorContext& ctx, float p_dt)
 
     const float advance = playing ? p_dt : 0.0f;
     _pose = skeleton.rest;
-    if (!anim.blend_pose(ctx, rig_preview, space, preview_value, preview_direction, advance, phase, _pose.data())) return;
+    if (!anim.blend_pose(ctx, rig_preview, space, preview_value, advance, phase, _pose.data())) return;
     overlay_time += advance;
     for (Guid g : preview_overlays) {
         if (const LOverlay* o = anim.overlay(ctx, g)) anim.overlay_apply(ctx, rig_preview, *o, overlay_time, 1.0f, _pose.data());

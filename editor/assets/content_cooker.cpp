@@ -1,7 +1,6 @@
 #include <editor/assets/content_cooker.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
-#include <core/assets/lblendspace.h>
 #include <core/animation/anim_library.h>
 #include <core/project/project.h>
 #include <system_error>
@@ -50,15 +49,15 @@ void ContentCooker::_cook_file(const Project& p_project, const std::filesystem::
     r_result.cooked++;
 }
 
-void ContentCooker::_cook_blend_space(const Project& p_project, const std::filesystem::path& p_source, Result& r_result)
+void ContentCooker::_cook_copy(const Project& p_project, const std::filesystem::path& p_source, const char* p_extension, Result& r_result)
 {
-    LBlendSpace space;
-    if (space.load(p_source) != Error::OK || !space.guid.valid()) {
+    const AssetInfo info = read_asset_info(p_source);
+    if (!info.valid() || !info.guid.valid()) {
         log_write("Cook: couldn't read '%s'.", p_source.string().c_str());
         r_result.failed++;
         return;
     }
-    const std::filesystem::path cooked = AnimLibrary::cooked_space_path(p_project.content_dir, space.guid);
+    const std::filesystem::path cooked = AnimLibrary::cooked_path(p_project.content_dir, info.guid, p_extension);
     std::error_code ec;
     const auto cooked_time = std::filesystem::last_write_time(cooked, ec);
     if (!ec && cooked_time >= std::filesystem::last_write_time(p_source, ec) && !ec) {
@@ -85,7 +84,8 @@ ContentCooker::Result ContentCooker::cook(const Project& p_project)
         const std::filesystem::path ext = it->path().extension();
         if (ext == ".lmodel") _cook_file(p_project, it->path(), AssetType::MODEL, result);
         else if (ext == ".lmaterial") _cook_file(p_project, it->path(), AssetType::MATERIAL, result);
-        else if (ext == AnimLibrary::SPACE_EXTENSION) _cook_blend_space(p_project, it->path(), result);
+        else if (ext == AnimLibrary::SPACE_EXTENSION) _cook_copy(p_project, it->path(), AnimLibrary::SPACE_EXTENSION, result);
+        else if (ext == LLocomotion::EXTENSION || ext == LLocomotion::LEGACY_EXTENSION) _cook_copy(p_project, it->path(), LLocomotion::EXTENSION, result);
     }
     if (ec) {
         log_write("Cook: couldn't scan '%s' (%s).", p_project.assets_dir.string().c_str(), ec.message().c_str());

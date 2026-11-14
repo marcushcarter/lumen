@@ -10,7 +10,8 @@ Error EditorPlay::initialize()
     using enum Error;
     Error err = runtime.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    session.systems = { &physics_system };
+    character_system.physics = &physics_system;
+    session.systems = { &physics_system, &character_system };
     return runtime.load();
 }
 

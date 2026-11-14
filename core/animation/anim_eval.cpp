@@ -1,55 +1,70 @@
 #include <core/animation/anim_eval.h>
 #include <core/animation/blend_space.h>
 #include <core/animation/clip_player.h>
+#include <algorithm>
 #include <cmath>
 
 namespace lumen {
 
-void AnimEvaluator::blend_weights(ClipProvider& r_clips, const LBlendSpace& p_space, float p_value, float p_direction, std::vector<float>& r_weights)
+void AnimEvaluator::blend_weights(ClipProvider& r_clips, const LBlendSpace& p_space, float p_value, std::vector<float>& r_weights)
 {
-    _positions.clear();
-    _directions.clear();
-    _usable.clear();
-    for (uint32_t i = 0; i < (uint32_t)p_space.samples.size(); i++) {
-        if (!r_clips.clip(p_space.samples[i].clip).valid()) continue;
-        _positions.push_back(p_space.samples[i].position);
-        _directions.push_back(p_space.samples[i].direction);
-        _usable.push_back(i);
+    const size_t count = p_space.samples.size();
+    _usable.assign(count, 0);
+    for (size_t i = 0; i < count; i++) {
+        const BoundClip c = r_clips.clip(p_space.samples[i].clip);
+        _usable[i] = c.valid() && c.clip->duration > 0.0f ? 1 : 0;
     }
-    _usable_weights.assign(_positions.size(), 0.0f);
-    blend_space_polar_weights(_positions.data(), _directions.data(), (uint32_t)_positions.size(), p_value, p_direction, _usable_weights.data());
-    r_weights.assign(p_space.samples.size(), 0.0f);
-    for (size_t k = 0; k < _usable.size(); k++) r_weights[_usable[k]] = _usable_weights[k];
+    r_weights.assign(count, 0.0f);
+    if (count) blend_space_weights(p_space, (const bool*)_usable.data(), p_value, r_weights.data());
 }
 
-bool AnimEvaluator::blend_pose(ClipProvider& r_clips, const LSkeleton& p_skeleton, const LBlendSpace& p_space, float p_value, float p_direction, float p_advance, float& r_phase, JointTransform* r_pose)
+AnimEvaluator::BlendInfo AnimEvaluator::blend_info(ClipProvider& r_clips, const LBlendSpace& p_space, float p_value)
+{
+    blend_weights(r_clips, p_space, p_value, _weights);
+    BlendInfo info;
+    float total = 0.0f;
+    for (size_t i = 0; i < p_space.samples.size(); i++) {
+        if (_weights[i] <= BLEND_MIN_WEIGHT) continue;
+        const BoundClip c = r_clips.clip(p_space.samples[i].clip);
+        if (!c.valid()) continue;
+        total += _weights[i];
+        info.duration += _weights[i] * c.clip->duration;
+        info.speed += _weights[i] * p_space.samples[i].speed;
+    }
+    if (total <= 0.0f) return info;
+    info.duration /= total;
+    info.speed /= total;
+    info.valid = info.duration > 0.0f;
+    return info;
+}
+
+bool AnimEvaluator::blend_sample(ClipProvider& r_clips, const LSkeleton& p_skeleton, const LBlendSpace& p_space, float p_value, float p_phase, JointTransform* r_pose)
 {
     const uint32_t joints = p_skeleton.joint_count();
     if (joints == 0) return false;
-
-    blend_weights(r_clips, p_space, p_value, p_direction, _weights);
-    _durations.assign(p_space.samples.size(), 0.0f);
-    for (size_t i = 0; i < p_space.samples.size(); i++) {
-        if (const BoundClip c = r_clips.clip(p_space.samples[i].clip); c.valid()) _durations[i] = c.clip->duration;
-    }
-    const float cycle = blend_cycle_duration(_durations.data(), _weights.data(), (uint32_t)_durations.size());
-    if (cycle <= 0.0f) return false;
-    r_phase += p_advance / cycle;
-    r_phase -= std::floor(r_phase);
-
+    blend_weights(r_clips, p_space, p_value, _weights);
     _inputs.clear();
     _sample_poses.resize(p_space.samples.size());
     for (size_t i = 0; i < p_space.samples.size(); i++) {
-        if (_weights[i] <= 0.0f) continue;
+        if (_weights[i] <= BLEND_MIN_WEIGHT) continue;
         const BoundClip c = r_clips.clip(p_space.samples[i].clip);
         if (!c.valid()) continue;
         _sample_poses[i] = p_skeleton.rest;
-        clip_sample(*c.clip, *c.map, r_phase * c.clip->duration, _sample_poses[i].data());
+        clip_sample(*c.clip, *c.map, p_phase * c.clip->duration, _sample_poses[i].data());
         _inputs.push_back({ _sample_poses[i].data(), _weights[i] });
     }
     if (_inputs.empty()) return false;
     pose_blend(_inputs.data(), (uint32_t)_inputs.size(), joints, r_pose);
     return true;
+}
+
+bool AnimEvaluator::blend_pose(ClipProvider& r_clips, const LSkeleton& p_skeleton, const LBlendSpace& p_space, float p_value, float p_rate, float p_dt, float& r_phase, JointTransform* r_pose)
+{
+    const BlendInfo info = blend_info(r_clips, p_space, p_value);
+    if (!info.valid) return false;
+    r_phase += p_dt * p_rate / info.duration;
+    r_phase -= std::floor(r_phase);
+    return blend_sample(r_clips, p_skeleton, p_space, p_value, r_phase, r_pose);
 }
 
 void AnimEvaluator::overlay_apply(ClipProvider& r_clips, const LSkeleton& p_skeleton, const LOverlay& p_overlay, const float* p_mask, float p_time, float p_weight, JointTransform* r_pose)

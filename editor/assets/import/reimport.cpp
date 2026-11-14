@@ -56,7 +56,7 @@ bool can_reimport(const std::filesystem::path& p_asset)
 
 bool reimport_has_settings(ReimportKind p_kind)
 {
-    return p_kind == ReimportKind::MODEL || p_kind == ReimportKind::MESH || p_kind == ReimportKind::TEXTURE;
+    return p_kind == ReimportKind::MODEL || p_kind == ReimportKind::MESH || p_kind == ReimportKind::TEXTURE || p_kind == ReimportKind::ANIMATION;
 }
 
 bool reimport_load_settings(const ReimportTarget& p_target, ReimportSettings& r_settings)
@@ -76,6 +76,15 @@ bool reimport_load_settings(const ReimportTarget& p_target, ReimportSettings& r_
             return MeshCooker::load_settings(p_target.asset, r_settings.model.mesh_settings, r_settings.source);
         case ReimportKind::TEXTURE:
             return TextureCooker::load_settings(p_target.asset, r_settings.texture, r_settings.source);
+        case ReimportKind::ANIMATION: {
+            AnimationCooker::Record record;
+            if (!AnimationCooker::load_record(p_target.asset, record)) return false;
+            r_settings.source = record.source;
+            r_settings.model.mesh_settings.translation = record.settings.translation;
+            r_settings.model.mesh_settings.rotation = record.settings.rotation;
+            r_settings.model.mesh_settings.scale = record.settings.scale;
+            return true;
+        }
         default:
             return false;
     }
@@ -131,7 +140,7 @@ static Error _run(EditorContext& ctx, const ReimportTarget& p_target, const Reim
         case ReimportKind::MODEL: return ModelCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
         case ReimportKind::MESH: return ModelCooker::reimport_mesh(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
         case ReimportKind::TEXTURE: return _reimport_texture(ctx, p_target.asset, p_override ? &p_override->texture : nullptr);
-        case ReimportKind::ANIMATION: return AnimationCooker::reimport(ctx, p_target.asset);
+        case ReimportKind::ANIMATION: return AnimationCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model.mesh_settings : nullptr);
         default: return Error::FAILED;
     }
 }

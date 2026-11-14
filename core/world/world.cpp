@@ -17,8 +17,9 @@ Error World::initialize()
     component_register_saved<ModelComponent>("Model", "model");
     component_register_saved<ModelGridComponent>("Model Grid", "model_grid");
     component_register<PoseComponent>("Pose", false);
-    component_register_saved<AnimationComponent>("Animation", "animation");
     component_register_saved<CollisionComponent>("Collision", "collision");
+    component_register_saved<LocomotionComponent>("Locomotion", "locomotion");
+    component_register_saved<PlayerTag>("Player", "player");
     component_register_saved<PrefabInstanceComponent>("Prefab", "prefab", false);
     component_register<PrefabPartComponent>("Prefab Part", false);
     component_register_saved<StaticTag>("Static", "static", false);

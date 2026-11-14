@@ -10,7 +10,6 @@ struct OverlayTab;
 
 struct OverlayDetailsPanel : Panel
 {
-    static constexpr float AXIS_MARGIN = 0.25f;
     static constexpr int MAX_DEPTH = 16;
 
     OverlayTab* tab = nullptr;

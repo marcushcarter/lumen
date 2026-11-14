@@ -1,6 +1,7 @@
 #pragma once
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
+#include <core/game/character_system.h>
 #include <core/world/world.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>
@@ -13,6 +14,7 @@ struct EditorPlay
     World runtime;
     GameSession session;
     PhysicsSystem physics_system;
+    CharacterSystem character_system;
     Guid world_guid;
     EnvironmentSettings _environment;
 

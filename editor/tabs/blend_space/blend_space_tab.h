@@ -22,12 +22,11 @@ struct BlendSpaceTab : AssetTab
     AnimPreview anim;
     std::vector<Guid> preview_overlays;
     float preview_value = 0.0f;
-    float preview_direction = 0.0f;
     bool playing = true;
     float phase = 0.0f;
+    std::vector<float> weights;
     float overlay_time = 0.0f;
 
-    std::vector<float> _weights;
     std::vector<JointTransform> _pose;
     Guid _shown_mesh;
     bool _framed = false;
@@ -36,7 +35,6 @@ struct BlendSpaceTab : AssetTab
     ImU32 icon_color() const override { return ui_style().color.asset_blend_space; }
     const LoadedClip* clip(EditorContext& ctx, Guid p_guid);
     Guid preview_mesh(EditorContext& ctx);
-    void weights(EditorContext& ctx, float p_value, float p_direction, std::vector<float>& r_weights);
     void _sync_preview(EditorContext& ctx);
     void _pose_preview(EditorContext& ctx, float p_dt);
 

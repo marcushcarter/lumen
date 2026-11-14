@@ -1,4 +1,5 @@
 #include <core/animation/pose_system.h>
+#include <core/game/character.h>
 #include <core/animation/skinning.h>
 #include <core/base/hash.h>
 #include <core/rendering/renderer.h>
@@ -66,9 +67,10 @@ void PoseSystem::update(World& r_world, const Renderer& p_renderer, float p_dt)
         r_pose.skin = binding->rest_skin;
     });
 
-    r_world.view<ModelComponent, PoseComponent, AnimationComponent>(Exclude<StaticTag>{}, [&](Entity, const ModelComponent& p_model, PoseComponent& r_pose, AnimationComponent& r_anim) {
-        const LBlendSpace* space = anims.blend_space(r_anim.blend_space);
-        if (!space || r_pose.skin.empty()) return;
+    r_world.view<ModelComponent, PoseComponent, CharacterStateComponent>(Exclude<StaticTag>{}, [&](Entity, const ModelComponent& p_model, PoseComponent& r_pose, CharacterStateComponent& r_state) {
+        if (r_pose.skin.empty()) return;
+        const LLocomotion* locomotion = anims.locomotion(r_state.character.asset);
+        if (!locomotion) return;
         uint32_t mesh_index, slot_base;
         p_renderer.models.lookup(p_model.model, mesh_index, slot_base);
         const LMeshRig* rig = p_renderer.geometry.rig(mesh_index);
@@ -77,9 +79,10 @@ void PoseSystem::update(World& r_world, const Renderer& p_renderer, float p_dt)
         if (!binding || !skeleton) return;
         anims.skeleton = &skeleton->skeleton;
         _local = skeleton->skeleton.rest;
-        const bool posed = evaluator.blend_pose(anims, skeleton->skeleton, *space, r_anim.speed, r_anim.direction, p_dt, r_anim.phase, _local.data());
+        const bool posed = character_pose(*locomotion, r_state.character, anims, evaluator, skeleton->skeleton, p_dt, _local.data());
         anims.skeleton = nullptr;
         if (!posed) return;
+        character_foot_ik(*locomotion, r_state.character, skeleton->skeleton, _local.data(), _global);
         _global.resize(skeleton->skeleton.joint_count());
         skeleton->skeleton.globals(_local.data(), _global.data());
         rig_skin(_global, *rig, binding->map, r_pose.skin);

@@ -62,6 +62,13 @@ struct PhysicsWorld
     uint32_t overlap_sphere(const vec3& p_center, float p_radius, std::vector<PhysicsBodyId>& r_bodies, const PhysicsQuery& p_query = {}) const;
 
 
+    PhysicsCharacterId create_character(const vec3& p_position, float p_radius, float p_height, float p_max_slope_degrees);
+    void destroy_character(PhysicsCharacterId p_character);
+    void destroy_all_characters();
+    bool set_character_shape(PhysicsCharacterId p_character, float p_radius, float p_height);
+    void set_character_position(PhysicsCharacterId p_character, const vec3& p_position);
+    bool move_character(PhysicsCharacterId p_character, const PhysicsCharacterMove& p_move, float p_dt, PhysicsCharacterResult& r_result);
+
     void debug_draw(DebugDraw& r_draw, const vec3& p_camera_position) const;
 };
 

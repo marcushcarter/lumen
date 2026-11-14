@@ -58,6 +58,8 @@ struct Viewport
     std::function<void()> debug_lines;
 
     bool looking = false;
+    bool game_captured = false;
+    ImVec2 game_look = ImVec2(0.0f, 0.0f);
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
     float look_zoom = 0.0f;
     bool look_clicked = false;

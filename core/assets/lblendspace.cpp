@@ -2,9 +2,33 @@
 #include <core/assets/asset_common.h>
 #include <core/io/file_io.h>
 #include <toml++/toml.hpp>
+#include <algorithm>
 #include <sstream>
 
 namespace lumen {
+
+std::vector<Guid> LBlendSpace::clip_list() const
+{
+    std::vector<Guid> list;
+    for (const BlendSample& s : samples) {
+        if (s.clip.valid() && std::find(list.begin(), list.end(), s.clip) == list.end()) list.push_back(s.clip);
+    }
+    return list;
+}
+
+float LBlendSpace::min_position() const
+{
+    float v = samples.empty() ? 0.0f : samples.front().position;
+    for (const BlendSample& s : samples) v = std::min(v, s.position);
+    return v;
+}
+
+float LBlendSpace::max_position() const
+{
+    float v = samples.empty() ? 0.0f : samples.front().position;
+    for (const BlendSample& s : samples) v = std::max(v, s.position);
+    return v;
+}
 
 static std::string _guid_text(Guid p_guid)
 {
@@ -25,12 +49,11 @@ Error LBlendSpace::load(const std::filesystem::path& p_path)
     guid = Guid::from_string(asset["guid"].value_or(std::string{}));
     auto section = tbl[asset_type_section(AssetType::BLEND_SPACE)];
     preview_mesh = Guid::from_string(section["preview_mesh"].value_or(std::string{}));
-    axis = section["axis"].value_or(std::string("speed"));
     if (const toml::array* list = section["samples"].as_array()) {
         for (const toml::node& n : *list) {
             const toml::table* st = n.as_table();
             if (!st) continue;
-            samples.push_back({ Guid::from_string((*st)["clip"].value_or(std::string{})), (float)(*st)["position"].value_or(0.0), (float)(*st)["direction"].value_or(0.0) });
+            samples.push_back({ Guid::from_string((*st)["clip"].value_or(std::string{})), (float)(*st)["position"].value_or(0.0), (float)(*st)["speed"].value_or(0.0) });
         }
     }
     return OK;
@@ -40,9 +63,7 @@ Error LBlendSpace::save(const std::filesystem::path& p_path) const
 {
     using enum Error;
     toml::array list;
-    for (const BlendSample& b : samples) {
-        list.push_back(toml::table{ { "clip", _guid_text(b.clip) }, { "position", (double)b.position }, { "direction", (double)b.direction } });
-    }
+    for (const BlendSample& b : samples) list.push_back(toml::table{ { "clip", _guid_text(b.clip) }, { "position", (double)b.position }, { "speed", (double)b.speed } });
 
     toml::table tbl{
         { "asset", toml::table{
@@ -51,7 +72,6 @@ Error LBlendSpace::save(const std::filesystem::path& p_path) const
             { "type", static_cast<int64_t>(AssetType::BLEND_SPACE) } }},
         { std::string(asset_type_section(AssetType::BLEND_SPACE)), toml::table{
             { "preview_mesh", _guid_text(preview_mesh) },
-            { "axis", axis },
             { "samples", std::move(list) } }},
     };
     std::ostringstream ss;

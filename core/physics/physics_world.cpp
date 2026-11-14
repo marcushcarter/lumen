@@ -6,6 +6,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -27,6 +28,7 @@ struct PhysicsWorld::Impl
 {
     JPH::PhysicsSystem system;
     std::unique_ptr<JPH::TempAllocatorImpl> temp;
+    std::vector<JPH::Ref<JPH::CharacterVirtual>> characters;
 
     JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
     const JPH::BodyInterface& bodies() const { return system.GetBodyInterface(); }
@@ -124,9 +126,89 @@ Error PhysicsWorld::initialize(const PhysicsWorldSettings& p_settings)
     return OK;
 }
 
+static JPH::RefConst<JPH::Shape> _character_shape(float p_radius, float p_height)
+{
+    const float radius = std::max(p_radius, MIN_SHAPE_SIZE);
+    const float half = std::max(p_height * 0.5f - radius, MIN_SHAPE_SIZE);
+    return JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0.0f, half + radius, 0.0f), JPH::Quat::sIdentity(), new JPH::CapsuleShape(half, radius)).Create().Get();
+}
+
+PhysicsCharacterId PhysicsWorld::create_character(const vec3& p_position, float p_radius, float p_height, float p_max_slope_degrees)
+{
+    if (!impl) return {};
+    JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
+    settings->mShape = _character_shape(p_radius, p_height);
+    settings->mMaxSlopeAngle = JPH::DegreesToRadians(p_max_slope_degrees);
+    settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -std::max(p_radius, MIN_SHAPE_SIZE));
+    settings->mUp = JPH::Vec3::sAxisY();
+    JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(settings, to_jph_r(p_position), JPH::Quat::sIdentity(), 0, &impl->system);
+    for (uint32_t i = 0; i < (uint32_t)impl->characters.size(); i++) {
+        if (impl->characters[i]) continue;
+        impl->characters[i] = character;
+        return PhysicsCharacterId{ i };
+    }
+    impl->characters.push_back(character);
+    return PhysicsCharacterId{ (uint32_t)impl->characters.size() - 1 };
+}
+
+void PhysicsWorld::destroy_character(PhysicsCharacterId p_character)
+{
+    if (!impl || !p_character.valid() || p_character.value >= impl->characters.size()) return;
+    impl->characters[p_character.value] = nullptr;
+}
+
+void PhysicsWorld::destroy_all_characters()
+{
+    if (impl) impl->characters.clear();
+}
+
+static JPH::CharacterVirtual* _character(PhysicsWorld::Impl* p_impl, PhysicsCharacterId p_id)
+{
+    if (!p_impl || !p_id.valid() || p_id.value >= p_impl->characters.size()) return nullptr;
+    return p_impl->characters[p_id.value].GetPtr();
+}
+
+bool PhysicsWorld::set_character_shape(PhysicsCharacterId p_character, float p_radius, float p_height)
+{
+    JPH::CharacterVirtual* character = _character(impl.get(), p_character);
+    if (!character) return false;
+    const QueryBroadPhaseFilter bp(PHYSICS_QUERY_WORLD);
+    const QueryObjectFilter ol(PHYSICS_QUERY_WORLD);
+    return character->SetShape(_character_shape(p_radius, p_height), 1.5f * character->GetCharacterPadding(), bp, ol, {}, {}, *impl->temp);
+}
+
+void PhysicsWorld::set_character_position(PhysicsCharacterId p_character, const vec3& p_position)
+{
+    if (JPH::CharacterVirtual* character = _character(impl.get(), p_character)) {
+        character->SetPosition(to_jph_r(p_position));
+        character->SetLinearVelocity(JPH::Vec3::sZero());
+    }
+}
+
+bool PhysicsWorld::move_character(PhysicsCharacterId p_character, const PhysicsCharacterMove& p_move, float p_dt, PhysicsCharacterResult& r_result)
+{
+    JPH::CharacterVirtual* character = _character(impl.get(), p_character);
+    if (!character || p_dt <= 0.0f) return false;
+    character->SetLinearVelocity(to_jph(p_move.velocity));
+    JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+    settings.mWalkStairsStepUp = JPH::Vec3(0.0f, std::max(p_move.step_up, 0.0f), 0.0f);
+    settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -std::max(p_move.stick_down, 0.0f), 0.0f);
+    const QueryBroadPhaseFilter bp(PHYSICS_QUERY_WORLD);
+    const QueryObjectFilter ol(PHYSICS_QUERY_WORLD);
+    character->ExtendedUpdate(p_dt, impl->system.GetGravity(), settings, bp, ol, {}, {}, *impl->temp);
+    r_result.position = to_glm(character->GetPosition());
+    r_result.velocity = to_glm(character->GetLinearVelocity());
+    r_result.ground_normal = to_glm(character->GetGroundNormal());
+    const JPH::CharacterBase::EGroundState state = character->GetGroundState();
+    r_result.on_ground = state == JPH::CharacterBase::EGroundState::OnGround;
+    r_result.on_steep_ground = state == JPH::CharacterBase::EGroundState::OnSteepGround;
+    return true;
+}
+
 void PhysicsWorld::shutdown()
 {
     if (!impl) return;
+    destroy_all_characters();
     destroy_all_bodies();
     impl.reset();
     accumulator = 0.0f;

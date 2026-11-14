@@ -103,7 +103,7 @@ void OverlayTab::_pose_preview(EditorContext& ctx, float p_dt)
     const float advance = playing ? p_dt : 0.0f;
     time += advance;
     _pose = skeleton.rest;
-    if (const LBlendSpace* space = blend_space(ctx)) anim.blend_pose(ctx, rig_preview, *space, preview_value, preview_direction, advance, phase, _pose.data());
+    if (const LBlendSpace* space = blend_space(ctx)) anim.blend_pose(ctx, rig_preview, *space, preview_value, advance, phase, _pose.data());
     anim.overlay_apply(ctx, rig_preview, overlay, time, preview_weight, _pose.data());
     rig_preview.pose(_pose.data());
 }

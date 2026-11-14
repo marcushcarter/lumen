@@ -47,7 +47,9 @@ Error GameApplication::on_init()
     update_camera(0.0f);
     physics_system.renderer = &renderer;
     physics_system.project = &project;
-    session.systems = { &physics_system };
+    character_system.physics = &physics_system;
+    character_system.anims = &poses.anims;
+    session.systems = { &physics_system, &character_system };
     session.begin(world, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());
@@ -120,6 +122,29 @@ void GameApplication::on_update(float p_dt)
     }
 }
 
+void GameApplication::on_simulate(float p_dt)
+{
+    const bool focused = win32.window_is_focused(main_window);
+    if (mouse_released && focused && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) mouse_released = false;
+    if (!mouse_captured && focused && !mouse_released) {
+        cursor_lock.begin();
+        mouse_captured = true;
+    }
+    if (mouse_captured && (!focused || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        cursor_lock.end();
+        mouse_captured = false;
+        mouse_released = focused;
+    }
+    float dx = 0.0f;
+    float dy = 0.0f;
+    if (mouse_captured) {
+        cursor_lock.take_delta(dx, dy);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    }
+    session.input.read(mouse_captured, vec2(dx, dy), p_dt);
+    session.update(p_dt);
+}
+
 void GameApplication::update_camera(float )
 {    
     vec3 target = vec3(0.0f, 1.0f, 0.0f);
@@ -134,6 +159,7 @@ void GameApplication::update_camera(float )
 
 void GameApplication::on_shutdown()
 {
+    if (mouse_captured) cursor_lock.end();
     session.end();
     splash.close();
 }

@@ -266,13 +266,18 @@ static Error _reimport_clip(const Project& p_project, const AnimationCooker::Rec
     return err;
 }
 
-Error AnimationCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_lanim)
+Error AnimationCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_lanim, const MeshCooker::CookSettings* p_override)
 {
     using enum Error;
     Record record;
     if (!load_record(p_lanim, record)) {
         log_write("Reimport failed: '%s' has no import source.", p_lanim.filename().string().c_str());
         return FAILED;
+    }
+    if (p_override) {
+        record.settings.translation = p_override->translation;
+        record.settings.rotation = p_override->rotation;
+        record.settings.scale = p_override->scale;
     }
     std::error_code ec;
     if (!std::filesystem::exists(record.source, ec)) {

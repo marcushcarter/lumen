@@ -1,4 +1,5 @@
 #pragma once
+#include <core/game/game_input.h>
 #include <core/world/camera.h>
 #include <cstdint>
 #include <vector>
@@ -22,6 +23,7 @@ struct GameSession
 
     World* world = nullptr;
     Camera camera;
+    GameInput input;
     Mode mode = Mode::STOPPED;
     double time = 0.0;
     uint64_t frame = 0;

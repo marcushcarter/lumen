@@ -17,7 +17,7 @@ struct ContentCooker
 
     static bool _stale(const std::filesystem::path& p_source, const std::filesystem::path& p_cooked, AssetType p_type);
     static void _cook_file(const Project& p_project, const std::filesystem::path& p_source, AssetType p_type, Result& r_result);
-    static void _cook_blend_space(const Project& p_project, const std::filesystem::path& p_source, Result& r_result);
+    static void _cook_copy(const Project& p_project, const std::filesystem::path& p_source, const char* p_extension, Result& r_result);
 
     static Result cook(const Project& p_project);
     static Result cook_root(const std::filesystem::path& p_root);

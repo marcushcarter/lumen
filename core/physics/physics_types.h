@@ -74,6 +74,31 @@ struct PhysicsBodyDesc
     uint64_t user_data = 0;
 };
 
+struct PhysicsCharacterId
+{
+    static constexpr uint32_t INVALID = 0xFFFFFFFFu;
+    uint32_t value = INVALID;
+
+    bool valid() const { return value != INVALID; }
+    bool operator==(const PhysicsCharacterId&) const = default;
+};
+
+struct PhysicsCharacterMove
+{
+    vec3 velocity = vec3(0.0f);
+    float step_up = 0.45f;
+    float stick_down = 0.5f;
+};
+
+struct PhysicsCharacterResult
+{
+    vec3 position = vec3(0.0f);
+    vec3 velocity = vec3(0.0f);
+    vec3 ground_normal = vec3(0.0f, 1.0f, 0.0f);
+    bool on_ground = false;
+    bool on_steep_ground = false;
+};
+
 struct PhysicsQuery
 {
     uint32_t layers = PHYSICS_QUERY_WORLD;

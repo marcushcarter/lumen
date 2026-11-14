@@ -7,7 +7,7 @@
 #include <editor/assets/thumbnail_cache.h>
 #include <editor/tabs/animation/animation_tab.h>
 #include <editor/tabs/blend_space/blend_space_tab.h>
-#include <editor/tabs/anim_graph/anim_graph_tab.h>
+#include <editor/tabs/locomotion/locomotion_tab.h>
 #include <editor/tabs/material/material_tab.h>
 #include <editor/tabs/mesh/mesh_tab.h>
 #include <editor/tabs/model/model_tab.h>
@@ -37,7 +37,7 @@ const char* AssetBrowser::icon_for(const std::filesystem::path& p_path, bool p_i
     if (ext == ".lskeleton") return ICON_FA_BONE;
     if (ext == ".lanim") return AnimationTab::ICON;
     if (ext == ".lblendspace") return BlendSpaceTab::ICON;
-    if (ext == ".lanimgraph") return AnimGraphTab::ICON;
+    if (ext == ".llocomotion" || ext == ".lcharacter") return LocomotionTab::ICON;
     if (ext == ".loverlay") return OverlayTab::ICON;
     if (ext == ".lworld") return ICON_FA_EARTH_AMERICAS;
     if (ext == ".lterrain") return TerrainTab::ICON;
@@ -55,7 +55,7 @@ std::string AssetBrowser::type_name(std::string p_ext)
     if (p_ext == ".lskeleton") return "Skeleton";
     if (p_ext == ".lanim") return "Animation";
     if (p_ext == ".lblendspace") return "Blend Space";
-    if (p_ext == ".lanimgraph") return "Animation Graph";
+    if (p_ext == ".llocomotion" || p_ext == ".lcharacter") return "Locomotion";
     if (p_ext == ".loverlay") return "Overlay";
     if (p_ext == ".lworld") return "World";
     if (p_ext == ".lterrain") return "Terrain";
@@ -328,7 +328,7 @@ bool AssetBrowser::open_entry(EditorContext& ctx, const std::filesystem::path& p
         case AssetType::MESH: ctx.tabs->open<MeshTab>(info.guid)->path = p_path; break;
         case AssetType::ANIMATION: ctx.tabs->open<AnimationTab>(info.guid)->path = p_path; break;
         case AssetType::BLEND_SPACE: ctx.tabs->open<BlendSpaceTab>(info.guid)->path = p_path; break;
-        case AssetType::ANIM_GRAPH: ctx.tabs->open<AnimGraphTab>(info.guid)->path = p_path; break;
+        case AssetType::LOCOMOTION: ctx.tabs->open<LocomotionTab>(info.guid)->path = p_path; break;
         case AssetType::TERRAIN: ctx.tabs->open<TerrainTab>(info.guid)->path = p_path; break;
         case AssetType::PREFAB: ctx.tabs->open<PrefabTab>(info.guid)->path = p_path; break;
         case AssetType::OVERLAY: ctx.tabs->open<OverlayTab>(info.guid)->path = p_path; break;

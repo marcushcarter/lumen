@@ -1,73 +1,33 @@
 #include <core/animation/blend_space.h>
-#include <algorithm>
-#include <cfloat>
-#include <cmath>
 
 namespace lumen {
 
-static constexpr float RING_EPSILON = 1.0e-3f;
-
-static float _wrap_360(float p_degrees)
+void blend_space_weights(const LBlendSpace& p_space, const bool* p_usable, float p_value, float* r_weights)
 {
-    const float d = std::fmod(p_degrees, 360.0f);
-    return d < 0.0f ? d + 360.0f : d;
-}
+    const uint32_t count = (uint32_t)p_space.samples.size();
+    for (uint32_t i = 0; i < count; i++) r_weights[i] = 0.0f;
 
-static void _ring_weights(const float* p_speeds, const float* p_directions, uint32_t p_count, float p_ring, float p_direction, float p_factor, float* r_weights)
-{
-    int32_t left = -1;
-    int32_t right = -1;
-    float to_left = FLT_MAX;
-    float to_right = FLT_MAX;
-    for (uint32_t i = 0; i < p_count; i++) {
-        if (std::fabs(p_speeds[i] - p_ring) > RING_EPSILON) continue;
-        const float r = _wrap_360(p_directions[i] - p_direction);
-        const float l = _wrap_360(p_direction - p_directions[i]);
-        if (r < to_right) { to_right = r; right = (int32_t)i; }
-        if (l < to_left) { to_left = l; left = (int32_t)i; }
+    int32_t below = -1;
+    int32_t above = -1;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!p_usable[i]) continue;
+        const float p = p_space.samples[i].position;
+        if (p <= p_value && (below < 0 || p > p_space.samples[below].position)) below = (int32_t)i;
+        if (p >= p_value && (above < 0 || p < p_space.samples[above].position)) above = (int32_t)i;
     }
-    if (left < 0) return;
-    if (left == right || p_ring <= RING_EPSILON || to_left + to_right <= RING_EPSILON) {
-        r_weights[left] += p_factor;
+    if (below < 0 && above < 0) return;
+    if (below < 0) {
+        r_weights[above] = 1.0f;
         return;
     }
-    const float t = to_left / (to_left + to_right);
-    r_weights[left] += p_factor * (1.0f - t);
-    r_weights[right] += p_factor * t;
-}
-
-void blend_space_polar_weights(const float* p_speeds, const float* p_directions, uint32_t p_count, float p_speed, float p_direction, float* r_weights)
-{
-    for (uint32_t i = 0; i < p_count; i++) r_weights[i] = 0.0f;
-    if (p_count == 0) return;
-
-    float below = -FLT_MAX;
-    float above = FLT_MAX;
-    for (uint32_t i = 0; i < p_count; i++) {
-        if (p_speeds[i] <= p_speed + RING_EPSILON) below = std::max(below, p_speeds[i]);
-        if (p_speeds[i] >= p_speed - RING_EPSILON) above = std::min(above, p_speeds[i]);
-    }
-    if (below == -FLT_MAX) below = above;
-    if (above == FLT_MAX) above = below;
-    if (above - below <= RING_EPSILON) {
-        _ring_weights(p_speeds, p_directions, p_count, below, p_direction, 1.0f, r_weights);
+    if (above < 0 || above == below) {
+        r_weights[below] = 1.0f;
         return;
     }
-    const float t = (p_speed - below) / (above - below);
-    _ring_weights(p_speeds, p_directions, p_count, below, p_direction, 1.0f - t, r_weights);
-    _ring_weights(p_speeds, p_directions, p_count, above, p_direction, t, r_weights);
-}
-
-float blend_cycle_duration(const float* p_durations, const float* p_weights, uint32_t p_count)
-{
-    float total = 0.0f;
-    float duration = 0.0f;
-    for (uint32_t i = 0; i < p_count; i++) {
-        if (p_weights[i] <= 0.0f || p_durations[i] <= 0.0f) continue;
-        total += p_weights[i];
-        duration += p_durations[i] * p_weights[i];
-    }
-    return total > 0.0f ? duration / total : 0.0f;
+    const float span = p_space.samples[above].position - p_space.samples[below].position;
+    const float t = span > 1.0e-5f ? (p_value - p_space.samples[below].position) / span : 0.5f;
+    r_weights[below] = 1.0f - t;
+    r_weights[above] = t;
 }
 
 }

@@ -63,8 +63,9 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     const uint32_t transform_index = component("transform");
     const uint32_t model_index = component("model");
     const uint32_t grid_index = component("model_grid");
-    const uint32_t animation_index = component("animation");
     const uint32_t collision_index = component("collision");
+    const uint32_t locomotion_index = component("locomotion");
+    const uint32_t player_index = component("player");
     const uint32_t static_index = component("static");
 
     bool revert_static = false;
@@ -185,15 +186,30 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<ModelGridComponent>(e);
     }
 
-    bool revert_animation = false;
-    if (AnimationComponent* anim = world.try_get<AnimationComponent>(e)) {
+    bool revert_locomotion = false;
+    if (LocomotionComponent* loco = world.try_get<LocomotionComponent>(e)) {
         bool remove = false;
-        const bool o = ui_category("Animation", &remove, overridden(animation_index) ? &revert_animation : nullptr);
-        if (o && asset_field(ctx, "Blend Space", "###animation_blend_space", anim->blend_space, AssetType::BLEND_SPACE)) {
-            anim->phase = 0.0f;
-            world.touch(e);
+        const bool o = ui_category("Locomotion", &remove, overridden(locomotion_index) ? &revert_locomotion : nullptr);
+        if (o) {
+            bool changed = asset_field(ctx, "Locomotion", "###locomotion_asset", loco->locomotion, AssetType::LOCOMOTION);
+            changed |= ImGui::DragFloat("Height", &loco->height, 0.01f, 0.5f, 4.0f, "%.2f m");
+            changed |= ImGui::DragFloat("Crouch Height", &loco->crouch_height, 0.01f, 0.3f, loco->height, "%.2f m");
+            changed |= ImGui::DragFloat("Radius", &loco->radius, 0.005f, 0.05f, 1.0f, "%.2f m");
+            changed |= ImGui::DragFloat("Max Step Height", &loco->max_step_height, 0.005f, 0.0f, 1.0f, "%.2f m");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Tallest ledge or stair the character walks up without jumping");
+            changed |= ImGui::DragFloat("Model Yaw", &loco->model_yaw, 1.0f, -180.0f, 180.0f, "%.0f deg");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turn this if the model faces the wrong way in game");
+            if (changed) world.touch(e);
         }
-        if (remove) world.deferred_remove<AnimationComponent>(e);
+        if (remove) world.deferred_remove<LocomotionComponent>(e);
+    }
+
+    bool revert_player = false;
+    if (world.has<PlayerTag>(e)) {
+        bool remove = false;
+        const bool o = ui_category("Player", &remove, overridden(player_index) ? &revert_player : nullptr);
+        if (o) ImGui::TextDisabled(world.has<LocomotionComponent>(e) ? "Gets the input and the camera in play." : "Needs a Locomotion component to move.");
+        if (remove) world.deferred_remove<PlayerTag>(e);
     }
 
     bool revert_collision = false;
@@ -282,8 +298,9 @@ void DetailsPanel::draw_contents(EditorContext& ctx)
     if (prefab && revert_static) prefab_revert_component(world, e, *prefab, static_index);
     if (prefab && revert_model) prefab_revert_component(world, e, *prefab, model_index);
     if (prefab && revert_grid) prefab_revert_component(world, e, *prefab, grid_index);
-    if (prefab && revert_animation) prefab_revert_component(world, e, *prefab, animation_index);
     if (prefab && revert_collision) prefab_revert_component(world, e, *prefab, collision_index);
+    if (prefab && revert_locomotion) prefab_revert_component(world, e, *prefab, locomotion_index);
+    if (prefab && revert_player) prefab_revert_component(world, e, *prefab, player_index);
     if (revert_entity) editor_revert_prefab(ctx, e);
     if (unpack) editor_unpack_prefab(ctx, e);
     ImGui::Dummy(ImVec2(0.0f, ui_style().panel_box.gap));

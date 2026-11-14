@@ -36,19 +36,9 @@ struct ModelGridComponent
     float spacing = 0.0f;
 };
 
-// One skinning matrix per skeleton joint, rest-pose mesh space to posed mesh space.
-// Only read for dynamic entities whose mesh is skinned.
 struct PoseComponent
 {
     std::vector<mat4> skin;
-};
-
-struct AnimationComponent
-{
-    Guid blend_space;
-    float phase = 0.0f;
-    float speed = 0.0f;
-    float direction = 0.0f;
 };
 
 enum class CollisionShapeType : uint8_t { BOX, SPHERE, CAPSULE, MODEL, COUNT };
@@ -75,6 +65,18 @@ struct CollisionComponent
     uint32_t shape_count = 1;
     CollisionShapeEntry shapes[COLLISION_MAX_SHAPES];
 };
+
+struct LocomotionComponent
+{
+    Guid locomotion;
+    float radius = 0.3f;
+    float height = 1.8f;
+    float crouch_height = 1.2f;
+    float model_yaw = 0.0f;
+    float max_step_height = 0.45f;
+};
+
+struct PlayerTag {};
 
 struct ParentComponent
 {

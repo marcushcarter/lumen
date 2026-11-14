@@ -235,7 +235,7 @@ struct UiStyle
         ImU32 asset_skeleton;
         ImU32 asset_animation;
         ImU32 asset_blend_space;
-        ImU32 asset_anim_graph;
+        ImU32 asset_locomotion;
         ImU32 asset_overlay;
         ImU32 asset_world;
         ImU32 asset_terrain;

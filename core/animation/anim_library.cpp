@@ -1,15 +1,16 @@
 #include <core/animation/anim_library.h>
 #include <core/animation/clip_player.h>
+#include <core/assets/asset_common.h>
 #include <core/base/console.h>
 #include <system_error>
 
 namespace lumen {
 
-std::filesystem::path AnimLibrary::cooked_space_path(const std::filesystem::path& p_content_dir, Guid p_guid)
+std::filesystem::path AnimLibrary::cooked_path(const std::filesystem::path& p_content_dir, Guid p_guid, const char* p_extension)
 {
     char buf[Guid::PATH_BUFFER];
     p_guid.to_path_chars(buf);
-    return p_content_dir / (std::string(buf) + SPACE_EXTENSION);
+    return p_content_dir / (std::string(buf) + p_extension);
 }
 
 void AnimLibrary::load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir)
@@ -24,9 +25,10 @@ void AnimLibrary::clear()
 {
     content_dir.clear();
     assets_dir.clear();
-    space_paths.clear();
+    asset_paths.clear();
     clips.clear();
     spaces.clear();
+    locomotions.clear();
     skeleton = nullptr;
     scanned = -1.0e9;
 }
@@ -35,46 +37,59 @@ void AnimLibrary::_scan()
 {
     scanned = time;
     if (assets_dir.empty()) return;
-    space_paths.clear();
+    asset_paths.clear();
     std::error_code ec;
     for (auto it = std::filesystem::recursive_directory_iterator(assets_dir, std::filesystem::directory_options::skip_permission_denied, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-        if (!it->is_regular_file(ec) || it->path().extension() != SPACE_EXTENSION) continue;
-        LBlendSpace space;
-        if (space.load(it->path()) == Error::OK && space.guid.valid()) space_paths[space.guid] = it->path();
+        if (!it->is_regular_file(ec)) continue;
+        const std::filesystem::path ext = it->path().extension();
+        if (ext != SPACE_EXTENSION && ext != LLocomotion::EXTENSION && ext != LLocomotion::LEGACY_EXTENSION) continue;
+        const AssetInfo info = read_asset_info(it->path());
+        if (info.valid() && info.guid.valid()) asset_paths[info.guid] = it->path();
     }
+}
+
+template<typename T>
+const T* AnimLibrary::_cached(std::unordered_map<Guid, Cached<T>>& r_cache, Guid p_guid, const char* p_extension, const char* p_kind)
+{
+    if (!p_guid.valid()) return nullptr;
+    Cached<T>& c = r_cache[p_guid];
+    if (c.path.empty()) {
+        if (assets_dir.empty()) {
+            c.path = cooked_path(content_dir, p_guid, p_extension);
+        } else {
+            auto it = asset_paths.find(p_guid);
+            if (it == asset_paths.end() && time - scanned >= POLL_S) {
+                _scan();
+                it = asset_paths.find(p_guid);
+            }
+            if (it == asset_paths.end()) return nullptr;
+            c.path = it->second;
+        }
+    }
+    if (time - c.poll >= POLL_S) {
+        c.poll = time;
+        std::error_code ec;
+        const std::filesystem::file_time_type t = std::filesystem::last_write_time(c.path, ec);
+        if (ec) {
+            c.path.clear();
+            c.failed = true;
+        } else if (t != c.time) {
+            c.time = t;
+            c.failed = c.asset.load(c.path) != Error::OK;
+            if (c.failed) log_write("Animation: failed to load %s '%s'.", p_kind, c.path.string().c_str());
+        }
+    }
+    return c.failed || c.time == std::filesystem::file_time_type{} ? nullptr : &c.asset;
 }
 
 const LBlendSpace* AnimLibrary::blend_space(Guid p_guid)
 {
-    if (!p_guid.valid()) return nullptr;
-    Space& s = spaces[p_guid];
-    if (s.path.empty()) {
-        if (assets_dir.empty()) {
-            s.path = cooked_space_path(content_dir, p_guid);
-        } else {
-            auto it = space_paths.find(p_guid);
-            if (it == space_paths.end() && time - scanned >= POLL_S) {
-                _scan();
-                it = space_paths.find(p_guid);
-            }
-            if (it == space_paths.end()) return nullptr;
-            s.path = it->second;
-        }
-    }
-    if (time - s.poll >= POLL_S) {
-        s.poll = time;
-        std::error_code ec;
-        const std::filesystem::file_time_type t = std::filesystem::last_write_time(s.path, ec);
-        if (ec) {
-            s.path.clear();
-            s.failed = true;
-        } else if (t != s.time) {
-            s.time = t;
-            s.failed = s.space.load(s.path) != Error::OK;
-            if (s.failed) log_write("Animation: failed to load blend space '%s'.", s.path.string().c_str());
-        }
-    }
-    return s.failed || s.time == std::filesystem::file_time_type{} ? nullptr : &s.space;
+    return _cached(spaces, p_guid, SPACE_EXTENSION, "blend space");
+}
+
+const LLocomotion* AnimLibrary::locomotion(Guid p_guid)
+{
+    return _cached(locomotions, p_guid, LLocomotion::EXTENSION, "locomotion");
 }
 
 BoundClip AnimLibrary::clip(Guid p_guid)

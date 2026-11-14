@@ -20,6 +20,11 @@ struct PreviewClips : ClipProvider
         const AnimPreview::LoadedClip* c = preview.clip(ctx, rig, p_guid);
         return c ? BoundClip{ &c->clip, &c->map } : BoundClip{};
     }
+
+    const LBlendSpace* blend_space(Guid p_guid) override
+    {
+        return preview.blend_space(ctx, p_guid);
+    }
 };
 
 template<typename T>
@@ -72,24 +77,30 @@ const LOverlay* AnimPreview::overlay(EditorContext& ctx, Guid p_guid)
 Guid AnimPreview::blend_space_mesh(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space)
 {
     if (p_space.preview_mesh.valid()) return p_space.preview_mesh;
-    for (const BlendSample& s : p_space.samples) {
-        if (const LoadedClip* c = clip(ctx, p_rig, s.clip)) {
+    for (Guid g : p_space.clip_list()) {
+        if (const LoadedClip* c = clip(ctx, p_rig, g)) {
             if (const Guid mesh = RigPreview::find_mesh(ctx, c->clip.skeleton); mesh.valid()) return mesh;
         }
     }
     return {};
 }
 
-void AnimPreview::blend_weights(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, float p_direction, std::vector<float>& r_weights)
+bool AnimPreview::character_pose(EditorContext& ctx, const RigPreview& p_rig, const LLocomotion& p_asset, Character& r_character, float p_dt, JointTransform* r_pose)
 {
     PreviewClips clips(*this, ctx, p_rig);
-    evaluator.blend_weights(clips, p_space, p_value, p_direction, r_weights);
+    return lumen::character_pose(p_asset, r_character, clips, evaluator, p_rig.skeleton_data(), p_dt, r_pose);
 }
 
-bool AnimPreview::blend_pose(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, float p_direction, float p_advance, float& r_phase, JointTransform* r_pose)
+void AnimPreview::blend_weights(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, std::vector<float>& r_weights)
 {
     PreviewClips clips(*this, ctx, p_rig);
-    return evaluator.blend_pose(clips, p_rig.skeleton_data(), p_space, p_value, p_direction, p_advance, r_phase, r_pose);
+    evaluator.blend_weights(clips, p_space, p_value, r_weights);
+}
+
+bool AnimPreview::blend_pose(EditorContext& ctx, const RigPreview& p_rig, const LBlendSpace& p_space, float p_value, float p_dt, float& r_phase, JointTransform* r_pose)
+{
+    PreviewClips clips(*this, ctx, p_rig);
+    return evaluator.blend_pose(clips, p_rig.skeleton_data(), p_space, p_value, 1.0f, p_dt, r_phase, r_pose);
 }
 
 void AnimPreview::mask_weights(const LOverlay& p_overlay, const RigPreview& p_rig, std::vector<float>& r_weights) const

@@ -38,7 +38,7 @@ struct AnimationCooker
     static Guid find_skeleton(const Project& p_project, const aiAnimation* p_anim, LSkeleton& r_skeleton);
     static Error cook(const Job& p_job, const LAnimation& p_clip);
     static bool load_record(const std::filesystem::path& p_lanim, Record& r_record);
-    static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lanim);
+    static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lanim, const MeshCooker::CookSettings* p_override = nullptr);
 };
 
 }

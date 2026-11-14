@@ -2,6 +2,7 @@
 #include <core/animation/anim_eval.h>
 #include <core/assets/lanim.h>
 #include <core/assets/lblendspace.h>
+#include <core/assets/llocomotion.h>
 #include <core/assets/lskeleton.h>
 #include <filesystem>
 #include <unordered_map>
@@ -20,8 +21,9 @@ struct AnimLibrary : ClipProvider
         std::unordered_map<Guid, std::vector<int32_t>> maps;
     };
 
-    struct Space {
-        LBlendSpace space;
+    template<typename T>
+    struct Cached {
+        T asset;
         std::filesystem::path path;
         std::filesystem::file_time_type time{};
         double poll = -1.0e9;
@@ -30,9 +32,10 @@ struct AnimLibrary : ClipProvider
 
     std::filesystem::path content_dir;
     std::filesystem::path assets_dir;
-    std::unordered_map<Guid, std::filesystem::path> space_paths;
+    std::unordered_map<Guid, std::filesystem::path> asset_paths;
     std::unordered_map<Guid, Clip> clips;
-    std::unordered_map<Guid, Space> spaces;
+    std::unordered_map<Guid, Cached<LBlendSpace>> spaces;
+    std::unordered_map<Guid, Cached<LLocomotion>> locomotions;
     const LSkeleton* skeleton = nullptr;
     double time = 0.0;
     double scanned = -1.0e9;
@@ -41,11 +44,14 @@ struct AnimLibrary : ClipProvider
     void clear();
     void tick(float p_dt) { time += p_dt; }
 
-    const LBlendSpace* blend_space(Guid p_guid);
+    const LBlendSpace* blend_space(Guid p_guid) override;
+    const LLocomotion* locomotion(Guid p_guid);
     BoundClip clip(Guid p_guid) override;
 
-    static std::filesystem::path cooked_space_path(const std::filesystem::path& p_content_dir, Guid p_guid);
+    static std::filesystem::path cooked_path(const std::filesystem::path& p_content_dir, Guid p_guid, const char* p_extension);
     void _scan();
+    template<typename T>
+    const T* _cached(std::unordered_map<Guid, Cached<T>>& r_cache, Guid p_guid, const char* p_extension, const char* p_kind);
 };
 
 }

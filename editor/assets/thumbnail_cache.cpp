@@ -365,9 +365,10 @@ const ThumbnailCache::ParsedOverlay* ThumbnailCache::_parsed_overlay(EditorConte
         anim._clips.erase(p.overlay.source);
         anim._clips.erase(p.overlay.reference);
         if (const LBlendSpace* space = anim.blend_space(ctx, p.overlay.preview_blend_space)) {
-            for (const BlendSample& s : space->samples) anim._clips.erase(s.clip);
+            const std::vector<Guid> clips = space->clip_list();
+            for (Guid c : clips) anim._clips.erase(c);
             p.mesh = space->preview_mesh;
-            for (size_t i = 0; i < space->samples.size() && !p.mesh.valid(); ++i) p.mesh = _clip_preview_mesh(ctx, space->samples[i].clip);
+            for (size_t i = 0; i < clips.size() && !p.mesh.valid(); ++i) p.mesh = _clip_preview_mesh(ctx, clips[i]);
         }
         if (!p.mesh.valid()) p.mesh = _clip_preview_mesh(ctx, p.overlay.source);
         if (!p.mesh.valid()) p.stamp = 0;
@@ -398,7 +399,7 @@ void ThumbnailCache::_pose_overlay(EditorContext& ctx, Guid p_guid)
     std::vector<JointTransform> local = skeleton.rest;
     if (const LBlendSpace* space = anim.blend_space(ctx, overlay.preview_blend_space)) {
         float phase = ANIMATION_POSE_FRACTION;
-        anim.blend_pose(ctx, rig, *space, 0.0f, 0.0f, 0.0f, phase, local.data());
+        anim.blend_pose(ctx, rig, *space, space->min_position(), 0.0f, phase, local.data());
     }
     const AnimPreview::LoadedClip* source = anim.clip(ctx, rig, overlay.source);
     const float time = source ? source->clip.duration * ANIMATION_POSE_FRACTION : 0.0f;

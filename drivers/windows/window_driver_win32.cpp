@@ -604,6 +604,11 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
                 return 0;
             break;
         }
+
+        case WM_SYSCOMMAND: {
+            if ((p_wparam & 0xFFF0) == SC_KEYMENU && p_lparam == 0) return 0;
+            break;
+        }
     }
 
     return DefWindowProcW(p_hwnd, p_msg, p_wparam, p_lparam);

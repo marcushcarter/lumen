@@ -21,9 +21,14 @@ void serialize(Archive& a, ModelComponent& r_c)
     a.field("model", r_c.model);
 }
 
-void serialize(Archive& a, AnimationComponent& r_c)
+void serialize(Archive& a, LocomotionComponent& r_c)
 {
-    a.field("blend_space", r_c.blend_space);
+    a.field("locomotion", r_c.locomotion);
+    a.field("radius", r_c.radius);
+    a.field("height", r_c.height);
+    a.field("crouch_height", r_c.crouch_height);
+    a.field("model_yaw", r_c.model_yaw);
+    a.field("max_step_height", r_c.max_step_height);
 }
 
 void serialize(Archive& a, CollisionComponent& r_c)

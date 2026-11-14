@@ -19,7 +19,6 @@ struct OverlayTab : AssetTab
     RigPreview rig_preview;
     AnimPreview anim;
     float preview_value = 0.0f;
-    float preview_direction = 0.0f;
     float preview_weight = 1.0f;
     bool playing = true;
     float phase = 0.0f;

@@ -4,6 +4,8 @@
 #include <game/application/boot_splash.h>
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
+#include <core/game/character_system.h>
+#include <drivers/windows/cursor_lock_win32.h>
 #include <filesystem>
 #include <string>
 
@@ -24,6 +26,10 @@ struct GameApplication : Application
     Camera orbit_camera;
     GameSession session;
     PhysicsSystem physics_system;
+    CharacterSystem character_system;
+    drivers::CursorLockWin32 cursor_lock;
+    bool mouse_captured = false;
+    bool mouse_released = false;
 
     void _load_world();
 
@@ -39,7 +45,7 @@ struct GameApplication : Application
     bool wants_docking() const override { return false; }
     RenderPath* create_render_path() override { return new GameRenderPath(); }
 
-    void on_simulate(float p_dt) override { session.update(p_dt); }
+    void on_simulate(float p_dt) override;
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override { return session.active() ? session.camera : orbit_camera; }
 };

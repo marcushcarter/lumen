@@ -30,7 +30,7 @@ ImU32 asset_type_color(AssetType p_type)
         case AssetType::SKELETON: return ui.color.asset_skeleton;
         case AssetType::ANIMATION: return ui.color.asset_animation;
         case AssetType::BLEND_SPACE: return ui.color.asset_blend_space;
-        case AssetType::ANIM_GRAPH: return ui.color.asset_anim_graph;
+        case AssetType::LOCOMOTION: return ui.color.asset_locomotion;
         case AssetType::OVERLAY: return ui.color.asset_overlay;
         case AssetType::WORLD: return ui.color.asset_world;
         case AssetType::TERRAIN: return ui.color.asset_terrain;
@@ -49,7 +49,7 @@ const char* asset_type_label(AssetType p_type)
         case AssetType::SKELETON: return "Skeleton";
         case AssetType::ANIMATION: return "Animation";
         case AssetType::BLEND_SPACE: return "Blend Space";
-        case AssetType::ANIM_GRAPH: return "Animation Graph";
+        case AssetType::LOCOMOTION: return "Character";
         case AssetType::OVERLAY: return "Overlay";
         case AssetType::WORLD: return "World";
         case AssetType::TERRAIN: return "Terrain";

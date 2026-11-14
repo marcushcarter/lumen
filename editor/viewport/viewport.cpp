@@ -263,6 +263,7 @@ void Viewport::_draw_image(EditorContext& ctx)
     bool pick_click = false;
     bool look_click = false;
     bool look_hover = false;
+    bool game_click = false;
     ImVec2 pick_mouse = ImGui::GetMousePos();
     if (set) {
         ImGui::Dummy(size);
@@ -272,7 +273,8 @@ void Viewport::_draw_image(EditorContext& ctx)
         const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
         const bool gizmo_hot = !playing && allow_gizmo && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
         pick_click = allow_pick && !allow_look && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
-        look_click = allow_look && !gizmo_hot && image_clicked;
+        look_click = allow_look && !playing && !gizmo_hot && image_clicked;
+        game_click = playing && image_clicked;
         look_hover = allow_look && image_hovered;
         if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
         if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
@@ -288,6 +290,22 @@ void Viewport::_draw_image(EditorContext& ctx)
 
     if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
         ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
+    }
+    if (game_click && !game_captured && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
+        game_captured = true;
+        cursor_lock.begin();
+    }
+    if (game_captured && (!playing || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        game_captured = false;
+        cursor_lock.end();
+    }
+    if (game_captured) {
+        float dx = 0.0f;
+        float dy = 0.0f;
+        cursor_lock.take_delta(dx, dy);
+        game_look.x += dx;
+        game_look.y += dy;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
     look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
     _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));

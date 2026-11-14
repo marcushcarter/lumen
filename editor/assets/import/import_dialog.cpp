@@ -58,6 +58,7 @@ bool ImportDialog::push_reimport(const ReimportTarget& p_target)
     switch (p_target.kind) {
         case ReimportKind::TEXTURE: p.kind = ImportKind::TEXTURE; break;
         case ReimportKind::MESH: p.kind = ImportKind::MESH; break;
+        case ReimportKind::ANIMATION: p.kind = ImportKind::ANIMATION; break;
         default: p.kind = ImportKind::MODEL; break;
     }
     p.model = settings.model;
@@ -90,6 +91,35 @@ void ImportDialog::_next()
     focus_name = !queue.empty();
 }
 
+void ImportDialog::_draw_transform(MeshCooker::CookSettings& r_settings)
+{
+    if (!ui_category("Transform")) return;
+    ui_drag_float3_axes("Import Translation", &r_settings.translation.x, 0.01f);
+    ui_drag_float3_axes("Import Rotation (Degrees)", &r_settings.rotation.x, 0.5f, "%.1f");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Unreal exports are Z-up. X -90 usually stands them up.");
+    ImGui::DragFloat("Import Uniform Scale", &r_settings.scale, 0.01f, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+}
+
+void ImportDialog::_apply_to_rest(const Pending& p_pending)
+{
+    for (Pending& p : queue) {
+        if (&p == &p_pending) continue;
+        if (p_pending.kind == ImportKind::TEXTURE && p.kind == ImportKind::TEXTURE) {
+            const TextureUsage usage = p.texture.usage;
+            p.texture = p_pending.texture;
+            p.texture.usage = usage;
+        } else if (p_pending.kind == ImportKind::ANIMATION || p.kind == ImportKind::ANIMATION) {
+            if (p.kind == ImportKind::TEXTURE) continue;
+            p.model.mesh_settings.translation = p_pending.model.mesh_settings.translation;
+            p.model.mesh_settings.rotation = p_pending.model.mesh_settings.rotation;
+            p.model.mesh_settings.scale = p_pending.model.mesh_settings.scale;
+        } else if (p_pending.kind != ImportKind::TEXTURE && p.kind != ImportKind::TEXTURE) {
+            p.model.mode = p_pending.model.mode;
+            p.model.mesh_settings = p_pending.model.mesh_settings;
+        }
+    }
+}
+
 void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materials)
 {
     MeshCooker::CookSettings& mesh = r_settings.mesh_settings;
@@ -113,11 +143,7 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Most LOD levels built for the mesh");
         ImGui::EndDisabled();
     }
-    if (ui_category("Transform")) {
-        ui_drag_float3_axes("Import Translation", &mesh.translation.x, 0.01f);
-        ui_drag_float3_axes("Import Rotation (Degrees)", &mesh.rotation.x, 0.5f, "%.1f");
-        ImGui::DragFloat("Import Uniform Scale", &mesh.scale, 0.01f, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-    }
+    _draw_transform(mesh);
     _draw_collision(mesh.collision, &mesh.generate_collision);
     if (p_materials && ui_category("Materials")) {
         bool generate = r_settings.mode == ModelImportMode::FULL;
@@ -278,7 +304,7 @@ void ImportDialog::_draw_footer(EditorContext& ctx, Pending& r_pending)
         ui_push_buttons(UiButton::NEUTRAL);
         accept_all = ImGui::Button(r_pending.reimport ? "Reimport All" : "Import All", ImVec2(button_w, 0.0f));
         ui_pop_buttons();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Accepts this and every remaining item with the settings shown for each");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Uses these settings for this and every remaining item. Names stay the same.");
         ImGui::SameLine();
     }
     ui_push_buttons(UiButton::PRIMARY);
@@ -294,6 +320,7 @@ void ImportDialog::_draw_footer(EditorContext& ctx, Pending& r_pending)
     }
 
     if (accept_all) {
+        _apply_to_rest(r_pending);
         while (!queue.empty()) {
             _start(ctx, queue.front());
             queue.pop_front();
@@ -314,6 +341,7 @@ static const char* _dialog_title(const ImportDialog::Pending& p_pending)
     switch (p_pending.kind) {
         case ImportKind::TEXTURE: return p_pending.reimport ? "Reimport Texture" : "Import Texture";
         case ImportKind::MESH: return "Reimport Mesh";
+        case ImportKind::ANIMATION: return "Reimport Animation";
         default: return p_pending.reimport ? "Reimport Model" : "Import Model";
     }
 }
@@ -346,6 +374,7 @@ void ImportDialog::draw(EditorContext& ctx)
     ui_field_push_style();
     _draw_header(p);
     if (p.kind == ImportKind::TEXTURE) _draw_texture(p.texture);
+    else if (p.kind == ImportKind::ANIMATION) _draw_transform(p.model.mesh_settings);
     else _draw_model(p.model, p.kind == ImportKind::MODEL);
     ui_field_pop_style();
     _draw_footer(ctx, p);

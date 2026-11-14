@@ -1,4 +1,5 @@
 #include <core/physics/collision_preview.h>
+#include <core/game/character.h>
 #include <core/assets/lmesh.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
@@ -133,6 +134,15 @@ void CollisionPreview::draw_world(DebugDraw& r_draw, const World& p_world, const
             }
             draw_shape(r_draw, world, shape, model, style);
         }
+    });
+
+    p_world.view<TransformComponent, LocomotionComponent>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const LocomotionComponent& p_body) {
+        const CharacterStateComponent* state = p_world.try_get<CharacterStateComponent>(p_entity);
+        const vec3 base = state ? state->character.position : vec3(p_world.world_matrix(p_entity)[3]);
+        const float height = state && state->character.stance == Stance::CROUCHING ? p_body.crouch_height : p_body.height;
+        const float radius = std::min(p_body.radius, height * 0.5f);
+        const vec3 up(0.0f, 1.0f, 0.0f);
+        r_draw.capsule(base + up * radius, base + up * (height - radius), radius, DebugDraw::Style{ .color = DebugDraw::YELLOW, .category = DebugCategory::COLLISION });
     });
 }
 

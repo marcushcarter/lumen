@@ -141,19 +141,7 @@ void OverlayDetailsPanel::draw_contents(EditorContext& ctx)
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the overlay is faded in");
 
         const LBlendSpace* space = tab->blend_space(ctx);
-        if (space && !space->samples.empty()) {
-            float lo = FLT_MAX;
-            float hi = -FLT_MAX;
-            for (const BlendSample& s : space->samples) {
-                lo = std::min(lo, s.position);
-                hi = std::max(hi, s.position);
-            }
-            const float span = hi - lo;
-            const float margin = span > 0.0f ? span * AXIS_MARGIN : 1.0f;
-            const char* axis = space->axis.empty() ? "Value" : space->axis.c_str();
-            ImGui::SliderFloat(axis, &tab->preview_value, 0.0f, std::max(hi, 0.0f) + margin, "%.2f");
-            ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
-        }
+        if (space && !space->samples.empty()) ImGui::SliderFloat("Value", &tab->preview_value, space->min_position(), space->max_position(), "%.2f");
     }
 
     char header[48];

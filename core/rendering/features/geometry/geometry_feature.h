@@ -1,6 +1,6 @@
 #pragma once
 #include <core/rendering/features/feature.h>
-#include <core/rendering/world_gpu.h>
+#include <core/rendering/scene_gpu.h>
 
 namespace lumen {
 

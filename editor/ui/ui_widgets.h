@@ -20,6 +20,8 @@ struct SplitterState
 
 void ui_menu_push_style();
 void ui_menu_pop_style();
+void ui_dropdown_push_style();
+void ui_dropdown_pop_style();
 void ui_context_menu_push_style();
 void ui_context_menu_pop_style();
 void ui_field_push_style();

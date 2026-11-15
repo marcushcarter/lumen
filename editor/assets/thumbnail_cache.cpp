@@ -8,12 +8,12 @@
 #include <core/base/hash.h>
 #include <core/rendering/renderer.h>
 #include <core/assets/lmesh.h>
-#include <core/world/prefab.h>
+#include <core/scene/template.h>
 #include <cfloat>
 #include <core/assets/lskeleton.h>
 #include <editor/ui/ui_style.h>
 #include <cfloat>
-#include <core/world/components.h>
+#include <core/scene/components.h>
 #include <core/project/project.h>
 #include <core/io/image_io.h>
 #include <core/io/path.h>
@@ -479,19 +479,19 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
                 if (m->materials[i].valid()) add_material(m->materials[i]);
             }
         } break;
-        case AssetType::PREFAB: {
+        case AssetType::TEMPLATE: {
             const uint64_t stamp = _stamp(_asset_file(ctx, p_guid));
             if (stamp == STAMP_MISSING) return false;
-            Prefab* prefab = prefab_library().get(p_guid);
-            if (!prefab) return false;
+            Template* tmpl = template_library().get(p_guid);
+            if (!tmpl) return false;
             key = _mix(key, stamp);
-            prefab->world.view<ModelComponent>([&](Entity p_entity, const ModelComponent& p_model) {
-                if (r_job.pieces.size() >= MAX_PREFAB_PIECES) return;
+            tmpl->world.view<ModelComponent>([&](Entity p_entity, const ModelComponent& p_model) {
+                if (r_job.pieces.size() >= MAX_TEMPLATE_PIECES) return;
                 uint64_t model_stamp = STAMP_MISSING;
                 const LModel* m = _parsed_model(ctx, p_model.model, model_stamp);
                 if (!m || !m->mesh.valid()) return;
                 key = _mix(_mix(_mix(_mix(key, p_model.model.value), model_stamp), m->mesh.value), _stamp(_content_file(ctx, m->mesh)));
-                r_job.pieces.push_back({ p_model.model, m->mesh, prefab->world.world_matrix(p_entity) });
+                r_job.pieces.push_back({ p_model.model, m->mesh, tmpl->world.world_matrix(p_entity) });
                 for (const Guid material : m->materials) {
                     if (!material.valid()) continue;
                     add_material(material);
@@ -676,11 +676,27 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
 /**** UPDATE ****/
 /****************/
 
+bool ThumbnailCache::supports(AssetType p_type)
+{
+    switch (p_type) {
+        case AssetType::TEXTURE:
+        case AssetType::MESH:
+        case AssetType::MATERIAL:
+        case AssetType::MODEL:
+        case AssetType::SKELETON:
+        case AssetType::ANIMATION:
+        case AssetType::OVERLAY:
+        case AssetType::TEMPLATE:
+            return true;
+        default:
+            return false;
+    }
+}
+
 VkImageView ThumbnailCache::get(EditorContext& ctx, Guid p_guid, AssetType p_type)
 {
-    if (!p_guid.valid() || !ctx.renderer) return VK_NULL_HANDLE;
+    if (!p_guid.valid() || !ctx.renderer || !supports(p_type)) return VK_NULL_HANDLE;
     if (p_type == AssetType::TEXTURE) return _texture_view(ctx, p_guid);
-    if (p_type != AssetType::MESH && p_type != AssetType::MATERIAL && p_type != AssetType::MODEL && p_type != AssetType::SKELETON && p_type != AssetType::ANIMATION && p_type != AssetType::OVERLAY && p_type != AssetType::PREFAB) return VK_NULL_HANDLE;
     Entry& e = entries[p_guid];
     if (e.type != p_type) {
         e.type = p_type;
@@ -756,15 +772,15 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         }
         if (_ensure_view(ctx) != Error::OK) return;
 
-        const bool prefab = next.type == AssetType::PREFAB;
+        const bool tmpl = next.type == AssetType::TEMPLATE;
         rig.invalidate();
-        rig.refresh(ctx, prefab ? Guid{} : next.mesh, false);
+        rig.refresh(ctx, tmpl ? Guid{} : next.mesh, false);
         if (next.type == AssetType::ANIMATION) _pose_animation(next.guid);
         if (next.type == AssetType::OVERLAY) _pose_overlay(ctx, next.guid);
         rig.apply(world, entity);
         vec3 center(0.0f);
         float bounds_radius = 0.0f;
-        const bool has_mesh = prefab ? _prefab_bounds(ctx, next, center, bounds_radius) : rig.bounds(r.geometry, next.mesh, center, bounds_radius);
+        const bool has_mesh = tmpl ? _template_bounds(ctx, next, center, bounds_radius) : rig.bounds(r.geometry, next.mesh, center, bounds_radius);
         if (next.type == AssetType::SKELETON) {
             if (!_skeleton_bones(ctx, next, center, bounds_radius)) continue;
         } else if (!has_mesh) {
@@ -782,12 +798,12 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         next.camera.near_z = std::max(distance - radius * 1.5f, distance * 0.01f);
         next.camera.far_z = distance + radius * 2.0f;
 
-        if (next.type != AssetType::MODEL && !prefab) r.models.set(next.model, next.mesh, next.materials);
+        if (next.type != AssetType::MODEL && !tmpl) r.models.set(next.model, next.mesh, next.materials);
         if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && mc->model != next.model) {
             mc->model = next.model;
             world.touch(entity);
         }
-        _place_prefab(next);
+        _place_template(next);
         next.state = JobState::PREPARED;
         next.frame = r.frame_number;
         job = std::move(next);
@@ -795,7 +811,7 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
     }
 }
 
-bool ThumbnailCache::_prefab_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const
+bool ThumbnailCache::_template_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const
 {
     const GeometryPool& geometry = ctx.renderer->geometry;
     vec3 lo(FLT_MAX);
@@ -818,7 +834,7 @@ bool ThumbnailCache::_prefab_bounds(EditorContext& ctx, const Job& p_job, vec3& 
     return true;
 }
 
-void ThumbnailCache::_place_prefab(const Job& p_job)
+void ThumbnailCache::_place_template(const Job& p_job)
 {
     for (const Entity e : extras) world.destroy(e);
     extras.clear();

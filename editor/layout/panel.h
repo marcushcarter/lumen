@@ -2,62 +2,44 @@
 #include <editor/application/editor_context.h>
 #include <editor/ui/ui_style.h>
 #include <imgui.h>
-#include <cstdint>
-#include <string_view>
 
 namespace lumen {
 
-enum class DockZone { BOTTOM, LEFT_TOP, LEFT_BOTTOM, RIGHT_TOP, RIGHT_BOTTOM };
-
-inline const char* to_string(DockZone z)
-{
-    switch (z) {
-        case DockZone::BOTTOM: return "Bottom";
-        case DockZone::LEFT_TOP: return "LeftTop";
-        case DockZone::LEFT_BOTTOM: return "LeftBottom";
-        case DockZone::RIGHT_TOP: return "RightTop";
-        case DockZone::RIGHT_BOTTOM: return "RightBottom";
-    }
-    return "RightBottom";
-}
-
-inline DockZone dock_zone_from_string(std::string_view s, DockZone fallback)
-{
-    if (s == "Bottom") return DockZone::BOTTOM;
-    if (s == "LeftTop") return DockZone::LEFT_TOP;
-    if (s == "LeftBottom") return DockZone::LEFT_BOTTOM;
-    if (s == "RightTop") return DockZone::RIGHT_TOP;
-    if (s == "RightBottom") return DockZone::RIGHT_BOTTOM;
-    return fallback;
-}
+enum class PanelSlot { SIDE, BOTTOM };
 
 struct Panel
 {
-    const char* title = nullptr;
-    const char* layout_id = nullptr;
-
     virtual ~Panel() = default;
     virtual const char* name() const = 0;
-    virtual DockZone default_zone() const { return DockZone::RIGHT_BOTTOM; }
-    virtual bool default_open() const { return true; }
-    virtual bool hidden() const { return false; }
+    virtual const char* icon() const { return nullptr; }
     virtual bool closable() const { return false; }
-    virtual bool in_footer() const { return false; }
-    virtual bool pinned() const { return false; }
-
+    virtual PanelSlot slot() const { return PanelSlot::SIDE; }
     virtual void draw_contents(EditorContext& ctx) = 0;
     virtual ImGuiWindowFlags window_flags() const { return 0; }
-    virtual ImVec2 window_padding() const { return ui_style().dock.panel_padding; }
-    virtual int push_style() { return 0; }
-    virtual void before_begin() {}
+    virtual ImVec2 window_padding() const { return ui_style().panel.padding; }
     virtual void shutdown() {}
-
-    void _resolve_names() {
-        title = name();
-        layout_id = title;
-        while ((uint8_t)layout_id[0] == 0xEE || (uint8_t)layout_id[0] == 0xEF) layout_id += 3;
-        while (*layout_id == ' ') layout_id++;
-    }
 };
+
+struct PanelTab
+{
+    const char* name = nullptr;
+    const char* icon = nullptr;
+    bool active = false;
+    bool closable = false;
+    bool dirty = false;
+};
+
+struct PanelTabResult
+{
+    int clicked = -1;
+    int closed = -1;
+    bool menu = false;
+};
+
+float panel_header_height();
+PanelTabResult panel_tab_bar(const PanelTab* p_tabs, int p_count, ImVec2 p_min, ImVec2 p_max, bool p_menu);
+void panel_header(const char* p_title, const char* p_icon, ImVec2 p_min, ImVec2 p_max);
+void panel_body(EditorContext& ctx, Panel& r_panel, ImVec2 p_min, ImVec2 p_max);
+void panel_draw(EditorContext& ctx, Panel& r_panel, ImVec2 p_min, ImVec2 p_max);
 
 }

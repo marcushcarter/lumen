@@ -49,7 +49,7 @@ void PhysicsSystem::decompose(const mat4& p_world, vec3& r_position, quat& r_rot
     r_rotation = normalize(quat_cast(basis));
 }
 
-Guid PhysicsSystem::_model_mesh(const World& p_world, Entity p_entity) const
+Guid PhysicsSystem::_model_mesh(const Scene& p_world, Entity p_entity) const
 {
     if (!renderer) return {};
     const ModelComponent* model = p_world.try_get<ModelComponent>(p_entity);
@@ -58,7 +58,7 @@ Guid PhysicsSystem::_model_mesh(const World& p_world, Entity p_entity) const
     return renderer->geometry.get(mesh_index) ? renderer->geometry.mesh_guids[mesh_index] : Guid{};
 }
 
-bool PhysicsSystem::_build(const World& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body)
+bool PhysicsSystem::_build(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body)
 {
     PhysicsBodyDesc desc;
     for (uint32_t i = 0; i < std::min(p_collision.shape_count, COLLISION_MAX_SHAPES); i++) {
@@ -129,7 +129,7 @@ void PhysicsSystem::_clear()
     collision.clear();
 }
 
-void PhysicsSystem::_sync(World& r_world, float p_dt)
+void PhysicsSystem::_sync(Scene& r_world, float p_dt)
 {
     for (auto& [k, b] : bodies) b.seen = false;
 
@@ -138,7 +138,7 @@ void PhysicsSystem::_sync(World& r_world, float p_dt)
         CollisionComponent collision;
     };
     std::vector<Item> items;
-    r_world.view<TransformComponent, CollisionComponent>([&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
+    r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
         items.push_back({ p_entity, p_collision });
     });
 
@@ -179,7 +179,7 @@ void PhysicsSystem::_sync(World& r_world, float p_dt)
     }
 }
 
-void PhysicsSystem::_write_back(World& r_world, uint32_t p_steps)
+void PhysicsSystem::_write_back(Scene& r_world, uint32_t p_steps)
 {
     const float alpha = std::clamp(physics.interpolation_alpha(), 0.0f, 1.0f);
     for (auto& [k, body] : bodies) {
@@ -200,7 +200,7 @@ void PhysicsSystem::_write_back(World& r_world, uint32_t p_steps)
 void PhysicsSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || !physics.initialized()) return;
-    World& world = *r_session.world;
+    Scene& world = *r_session.world;
     _sync(world, p_dt);
     if (optimize_pending) {
         physics.optimize_broadphase();

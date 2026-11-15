@@ -51,7 +51,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
 
     { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
 
-    { nullptr, "World Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
+    { nullptr, "Scene Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
 };
 static constexpr int DEBUG_VIEW_COUNT = (int)(sizeof(DEBUG_VIEWS) / sizeof(DEBUG_VIEWS[0]));
 

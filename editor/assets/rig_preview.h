@@ -1,7 +1,7 @@
 #pragma once
 #include <core/assets/lmesh.h>
 #include <core/assets/lskeleton.h>
-#include <core/world/world.h>
+#include <core/scene/scene.h>
 #include <imgui.h>
 #include <filesystem>
 #include <vector>
@@ -37,7 +37,7 @@ struct RigPreview
     void invalidate() { _mesh = Guid{}; }
     const LSkeleton& skeleton_data() const { return _skeleton; }
     void pose(const JointTransform* p_local);
-    void apply(World& r_world, Entity p_entity) const;
+    void apply(Scene& r_world, Entity p_entity) const;
     void draw_bones(DebugDraw& r_draw, const float* p_weights = nullptr) const;
     bool bounds(const GeometryPool& p_geometry, Guid p_mesh, vec3& r_center, float& r_radius) const;
     void _load_skeleton(EditorContext& ctx);

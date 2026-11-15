@@ -1,96 +1,65 @@
 #pragma once
 #include <core/physics/collision_preview.h>
-#include <editor/viewport/overlay_bar.h>
+#include <core/game/entity_debug.h>
 #include <editor/viewport/transform_gizmo.h>
 #include <editor/application/editor_context.h>
-#include <core/world/world.h>
+#include <core/scene/scene.h>
 #include <drivers/windows/cursor_lock_win32.h>
-#include <IconsFontAwesome6.h>
 #include <imgui.h>
 #include <cstdint>
-#include <functional>
+#include <string>
 #include <vector>
 
 namespace lumen {
 
-struct DebugViewCategory;
 struct EditorPlay;
+
+enum class ViewOverlay : uint8_t { NONE, SHAPE_COLLISIONS, ALL_COLLISIONS, DEBUG_LINES, BONES, EVERYTHING, COUNT };
 
 struct ViewportView
 {
+    ViewOverlay overlay = ViewOverlay::NONE;
     int debug_view = 0;
-    bool show_bones = true;
-    bool show_collision = false;
-    bool show_debug_lines = true;
     bool culling_paused = false;
+    bool stats = false;
 };
+
+const char* view_overlay_name(ViewOverlay p_overlay);
+uint32_t view_overlay_kinds(ViewOverlay p_overlay);
+uint32_t view_selection_kinds(ViewOverlay p_overlay);
+bool view_overlay_lines(ViewOverlay p_overlay);
 
 ViewportView& viewport_view();
 
 struct Viewport
 {
-    static constexpr float LOOK_CLICK_SLOP = 3.0f;
     static constexpr float CULL_FRUSTUM_DISTANCE = 40.0f;
 
-    OverlayBar left_overlay;
-    OverlayBar right_overlay;
-    OverlayBar corner_overlay;
     TransformGizmo gizmo;
     drivers::CursorLockWin32 cursor_lock;
+    CollisionMeshCache collision_meshes;
+    std::vector<Entity> _view_selection;
+    std::vector<Entity> debug_entities;
+    const EditorPlay* play = nullptr;
 
-    float item_w = 240.0f;
     bool gizmo_world = true;
     bool popup_open_last_frame = false;
-
-    bool allow_pick = true;
-    bool allow_outline = true;
-    bool allow_gizmo = true;
-    bool allow_look = false;
-    bool allow_fly = false;
-    bool allow_grid = true;
-    bool allow_asset_drop = true;
-    bool allow_debug_draw = false;
-    CollisionPreview collision_preview;
-    bool has_bones = false;
-    bool has_collision = false;
-    const EditorPlay* play = nullptr;
-    std::vector<Entity> _view_selection;
-
-    std::function<void(ImDrawList* p_draw_list, ImVec2 p_pos, ImVec2 p_size)> overlay;
-    std::function<void()> options_controls;
-    std::function<void()> debug_lines;
-
-    bool looking = false;
     bool flying = false;
     ImVec2 fly_look = ImVec2(0.0f, 0.0f);
     float fly_wheel = 0.0f;
     bool game_captured = false;
     ImVec2 game_look = ImVec2(0.0f, 0.0f);
-    ImVec2 look_delta = ImVec2(0.0f, 0.0f);
-    float look_zoom = 0.0f;
-    bool look_clicked = false;
-    ImVec2 look_click_pos = ImVec2(0.0f, 0.0f);
-    ImVec2 _look_press = ImVec2(0.0f, 0.0f);
-    float _look_travel = 0.0f;
 
-    int _header_frame = -1;
-    ImDrawFlags _corners = ImDrawFlags_RoundCornersAll;
-
-    bool _view_item(const char* p_icon, const char* p_name, int p_id);
-    void _draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, float p_margin);
-    void _draw_options(EditorContext& ctx);
-    void _draw_view_menu();
-    uint32_t _debug_mask() const;
-    void _submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live);
+    void _submit_debug_draw(EditorContext& ctx, bool p_live);
     void _draw_cull_frustum(EditorContext& ctx);
-    bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
-    void _draw_image(EditorContext& ctx);
-    void _update_look(bool p_start, ImVec2 p_center);
+    static void draw_bar(ImVec2 p_min, ImVec2 p_max);
+    static void draw_stats(EditorContext& ctx, ImVec2 p_pos);
+    void _draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     void _update_fly(bool p_start);
     void _asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
 
-    void draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
+    static void draw_options_menu(EditorContext& ctx);
     void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
 };
 

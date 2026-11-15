@@ -5,30 +5,13 @@
 
 namespace lumen {
 
-void SettingsLayout::draw(EditorContext& ctx, const char* p_host_id, const std::function<void(EditorContext&)>& p_toolbar)
+void SettingsLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar)
 {
     const UiStyle& ui = ui_style();
-
-    ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::SetNextWindowViewport(vp->ID);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.editor_border);
-    ImGui::Begin(p_host_id, nullptr,
-        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
-    );
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
-
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 extent = ImGui::GetContentRegionAvail();
-    const float gap = ui.dock.gap;
-    const float bar_h = ui.header.height;
+    const float gap = ui.splitter.gap;
+    const float bar_h = ui.toolbar.height;
     const float top = origin.y;
     const float body_h = ImMax(1.0f, origin.y + extent.y - top);
     const float nav_w = ImMin(ui.settings.nav_width, extent.x * 0.5f);
@@ -49,10 +32,7 @@ void SettingsLayout::draw(EditorContext& ctx, const char* p_host_id, const std::
     const float body_y = top + bar_h;
     const float content_h = ImMax(1.0f, origin.y + extent.y - body_y);
 
-    if (pages.empty()) {
-        ImGui::End();
-        return;
-    }
+    if (pages.empty()) return;
     selected = ImClamp(selected, 0, (int)pages.size() - 1);
 
     ImGui::SetCursorScreenPos(ImVec2(cx, body_y));
@@ -72,8 +52,6 @@ void SettingsLayout::draw(EditorContext& ctx, const char* p_host_id, const std::
     ImGui::EndGroup();
     ImGui::PopItemWidth();
     ImGui::EndChild();
-
-    ImGui::End();
 }
 
 void SettingsLayout::_draw_nav(ImVec2 p_size)

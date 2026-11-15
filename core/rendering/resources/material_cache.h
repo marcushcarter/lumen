@@ -1,6 +1,6 @@
 #pragma once
 #include <drivers/vulkan/device_driver_vulkan.h>
-#include <core/rendering/world_gpu.h>
+#include <core/rendering/scene_gpu.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>

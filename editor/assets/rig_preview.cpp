@@ -3,8 +3,8 @@
 #include <core/animation/bone_debug.h>
 #include <core/project/project.h>
 #include <core/rendering/resources/geometry_pool.h>
-#include <core/world/camera.h>
-#include <core/world/components.h>
+#include <core/scene/camera.h>
+#include <core/scene/components.h>
 #include <editor/application/editor_context.h>
 #include <editor/assets/asset_registry.h>
 #include <core/assets/asset_common.h>
@@ -84,7 +84,7 @@ void RigPreview::pose(const JointTransform* p_local)
     rig_skin(_global, rig, _map, _skin);
 }
 
-void RigPreview::apply(World& r_world, Entity p_entity) const
+void RigPreview::apply(Scene& r_world, Entity p_entity) const
 {
     PoseComponent* pose = r_world.try_get<PoseComponent>(p_entity);
     if (!pose) return;

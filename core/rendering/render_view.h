@@ -2,14 +2,14 @@
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/render_graph.h>
 #include <core/rendering/frame_data.h>
-#include <core/world/camera.h>
+#include <core/scene/camera.h>
 #include <cstdint>
 #include <utility>
 #include <vector>
 
 namespace lumen {
 
-struct World;
+struct Scene;
 struct RenderPath;
 
 struct RenderView
@@ -42,7 +42,7 @@ struct RenderView
     std::vector<std::pair<uint64_t, drivers::DeviceDriverVulkan::Image>> hiz_retired;
 
     FrameData frame;
-    const World* _last_world = nullptr;
+    const Scene* _last_scene = nullptr;
     Camera camera;
     float lod_bias = 1.0f;
     bool camera_cut_pending = true;

@@ -1,6 +1,6 @@
 #pragma once
 #include <core/rendering/features/feature.h>
-#include <core/world/world.h>
+#include <core/scene/scene.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <glm/glm.hpp>
 #include <vector>

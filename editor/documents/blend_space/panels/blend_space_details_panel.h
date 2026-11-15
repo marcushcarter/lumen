@@ -1,0 +1,26 @@
+#pragma once
+#include <editor/layout/panel.h>
+#include <IconsFontAwesome6.h>
+#include <cstdint>
+
+namespace lumen {
+
+struct BlendSpaceDocument;
+
+struct BlendSpaceDetailsPanel : Panel
+{
+    static constexpr float SAME_SAMPLE_EPSILON = 1.0e-3f;
+
+    BlendSpaceDocument* tab = nullptr;
+    int32_t selected = -1;
+
+    const char* name() const override { return ICON_FA_ARROWS_LEFT_RIGHT "  Blend Space"; }
+
+    void _draw_axis(EditorContext& ctx);
+    void _draw_samples(EditorContext& ctx);
+    void _draw_overlays(EditorContext& ctx);
+    void _draw_warnings(EditorContext& ctx);
+    void draw_contents(EditorContext& ctx) override;
+};
+
+}

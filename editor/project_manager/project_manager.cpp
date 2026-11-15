@@ -744,7 +744,7 @@ void ProjectManager::on_update(EditorContext& ctx)
     _rebuild_visible();
     _update_stats();
 
-    const float gap = ui.dock.gap;
+    const float gap = ui.splitter.gap;
     const float bar_h = ui.toolbar.height;
     const ImVec2 size = ImGui::GetContentRegionAvail();
     const float body_y = bar_h + gap;

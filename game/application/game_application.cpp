@@ -2,9 +2,9 @@
 #include <core/io/path.h>
 #include <core/io/image_io.h>
 #include <core/project/project.h>
-#include <core/world/components.h>
-#include <core/world/world_file.h>
-#include <core/world/prefab.h>
+#include <core/scene/components.h>
+#include <core/scene/scene_file.h>
+#include <core/scene/template.h>
 #include <imgui.h>
 #include <windows.h>
 #include <shellapi.h>
@@ -15,12 +15,12 @@ namespace lumen {
 void GameApplication::_load_world()
 {
     if (world_path.empty()) {
-        log_write("Game: no world to load, starting empty.");
+        log_write("Game: no scene to load, starting empty.");
         return;
     }
-    prefab_library().index(project.assets_dir);
-    WorldFile file;
-    if (WorldFile::read(world_path, world, false, file) != Error::OK) log_write("Game: failed to load the world '%s'.", world_path.string().c_str());
+    template_library().index(project.assets_dir);
+    SceneFile file;
+    if (SceneFile::read(world_path, scene, false, file) != Error::OK) log_write("Game: failed to load the scene '%s'.", world_path.string().c_str());
 }
 
 Error GameApplication::_resolve_project_root()
@@ -48,10 +48,9 @@ Error GameApplication::on_init()
     physics_system.renderer = &renderer;
     physics_system.project = &project;
     character_system.physics = &physics_system;
-    character_system.debug = false;
     character_system.anims = &poses.anims;
     session.systems = { &physics_system, &character_system };
-    session.begin(world, orbit_camera);
+    session.begin(scene, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());
     win32.window_set_size(main_window, project.settings.width, project.settings.height);

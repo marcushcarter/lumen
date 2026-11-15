@@ -1,5 +1,5 @@
 #pragma once
-#include <core/world/camera.h>
+#include <core/scene/camera.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 

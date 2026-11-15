@@ -2,8 +2,8 @@
 #include <core/game/character.h>
 #include <core/game/game_session.h>
 #include <core/physics/physics_types.h>
-#include <core/world/components.h>
-#include <core/world/world.h>
+#include <core/scene/components.h>
+#include <core/scene/scene.h>
 #include <vector>
 
 namespace lumen {
@@ -89,7 +89,9 @@ struct CharacterSystem : GameSystem
     PhysicsSystem* physics = nullptr;
     AnimLibrary* anims = nullptr;
 
-    bool debug = true;
+    bool debug_all = false;
+    std::vector<Entity> debug_entities;
+    bool _debug = false;
     Entity player = ENTITY_NULL;
     bool camera_ready = false;
     float camera_yaw = 0.0f;

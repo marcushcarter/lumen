@@ -398,7 +398,7 @@ bool CharacterSystem::_ground_at(const vec3& p_position, float p_top, PhysicsHit
         found = pw->raycast(origin, -UP, FootIK::TRACE_ABOVE + FootIK::TRACE_BELOW + FootIK::TRACE_RADIUS, ray) && ray.normal.y >= WALKABLE_COS;
         if (found) r_hit = ray;
     }
-    if (!debug) return found;
+    if (!_debug) return found;
     DebugDraw& draw = debug_draw();
     draw.line(origin, found ? r_hit.position : end, DebugDraw::Style{ .color = found ? DebugDraw::YELLOW : DebugDraw::RED });
     if (found) draw.line(r_hit.position, r_hit.position + r_hit.normal * 0.1f, DebugDraw::Style{ .color = DebugDraw::CYAN });
@@ -488,7 +488,7 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
             ik.slide[i] = _interp(ik.slide[i], vec3(0.0f), p_dt, FootIK::LOCK_OUT);
         }
         ik.world_offset[i] = UP * ik.height_offset[i] + ik.slide[i];
-        if (active && debug) {
+        if (active && _debug) {
             DebugDraw& draw = debug_draw();
             draw.point(placed + ik.slide[i], 6.0f, DebugDraw::Style{ .color = ik.planted[i] ? DebugDraw::GREEN : DebugDraw::BLUE });
             if (ik.locked[i]) {
@@ -500,7 +500,7 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
 
     const float pelvis = active ? std::max(std::min(ik.height_offset[0], ik.height_offset[1]), -FootIK::MAX_PELVIS_DROP) : 0.0f;
     _spring(ik.pelvis_offset, ik.pelvis_velocity, std::min(pelvis, 0.0f), FootIK::PELVIS_SPRING, p_dt);
-    if (active && debug && std::fabs(ik.pelvis_offset) > 0.005f) {
+    if (active && _debug && std::fabs(ik.pelvis_offset) > 0.005f) {
         const vec3 hip = root + UP * 0.9f;
         debug_draw().arrow(hip, hip + UP * ik.pelvis_offset, DebugDraw::Style{ .color = DebugDraw::ORANGE });
     }
@@ -841,10 +841,10 @@ void CharacterSystem::_update_camera(GameSession& r_session, const Character& p_
 void CharacterSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || p_dt <= 0.0f || !anims) return;
-    World& world = *r_session.world;
+    Scene& world = *r_session.world;
 
     _entities.clear();
-    world.view<LocomotionComponent, TransformComponent>([&](Entity p_entity, const LocomotionComponent&, const TransformComponent&) { _entities.push_back(p_entity); });
+    world.view<LocomotionComponent, TransformComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const LocomotionComponent&, const TransformComponent&) { _entities.push_back(p_entity); });
     for (Entity e : _entities) {
         if (world.has<CharacterStateComponent>(e)) continue;
         const LocomotionComponent& body = *world.try_get<LocomotionComponent>(e);
@@ -874,6 +874,7 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
         const LocomotionComponent* body = world.try_get<LocomotionComponent>(e);
         if (!state || !body) continue;
         Character& c = state->character;
+        _debug = debug_all || std::find(debug_entities.begin(), debug_entities.end(), e) != debug_entities.end();
         c.asset = body->locomotion;
         c.model_yaw = body->model_yaw;
         const LLocomotion* asset = anims->locomotion(c.asset);
@@ -932,9 +933,9 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
         if (rag.state == RagdollState::ACTIVE) {
             const PhysicsWorld* pw = _physics();
             rag.update_driven(pw ? pw->interpolation_alpha() : 1.0f);
-            if (debug) _draw_ragdoll(c);
+            if (_debug) _draw_ragdoll(c);
         }
-        if (debug) {
+        if (_debug) {
             DebugDraw& draw = debug_draw();
             const vec3 base = c.position + UP * 0.05f;
             draw.arrow(base, base + character_forward(c.yaw) * 0.6f, DebugDraw::Style{ .color = DebugDraw::BLUE });

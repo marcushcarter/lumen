@@ -79,7 +79,7 @@ void ReferencesDialog::draw(EditorContext& ctx)
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(r.name.c_str());
             ImGui::SameLine();
-            ImGui::TextDisabled("%s%s", kind, r.kind == AssetReference::Kind::OPEN_WORLD ? " (open, saved when you save the world)" : "");
+            ImGui::TextDisabled("%s%s", kind, r.kind == AssetReference::Kind::OPEN_SCENE ? " (open, saved when you save the scene)" : "");
             if (r.count > 1) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("x%u", r.count);

@@ -2,7 +2,7 @@
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
 #include <core/game/character_system.h>
-#include <core/world/world.h>
+#include <core/scene/scene.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>
 
@@ -10,13 +10,16 @@ namespace lumen {
 
 struct EditorPlay
 {
-    World* authored = nullptr;
-    World runtime;
+    static constexpr float STEP_DT = 1.0f / 30.0f;
+
+    Scene* authored = nullptr;
+    Scene runtime;
     GameSession session;
     PhysicsSystem physics_system;
     CharacterSystem character_system;
-    Guid world_guid;
+    Guid scene_guid;
     EnvironmentSettings _environment;
+    bool step_pending = false;
 
     Error initialize();
     void shutdown();
@@ -25,9 +28,10 @@ struct EditorPlay
     bool playing() const { return session.playing(); }
     bool editing() const { return session.paused(); }
 
-    void start(World& r_authored, Guid p_world, const Camera& p_camera);
+    void start(Scene& r_authored, Guid p_world, const Camera& p_camera);
     void stop();
     void toggle();
+    void step();
     void update(float p_dt);
 
     Entity to_runtime(Entity p_authored) const;

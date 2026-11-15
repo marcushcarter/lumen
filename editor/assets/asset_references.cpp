@@ -3,16 +3,16 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/import/icon_cooker.h>
 #include <editor/assets/import/splash_cooker.h>
-#include <editor/tabs/tab_manager.h>
-#include <editor/tabs/world/world_tab.h>
+#include <editor/documents/document_manager.h>
+#include <editor/documents/scene/scene_document.h>
 #include <core/assets/lanim.h>
 #include <core/assets/lmesh.h>
 #include <core/io/file_io.h>
 #include <core/io/path.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
-#include <core/world/archive.h>
-#include <core/world/world.h>
+#include <core/scene/archive.h>
+#include <core/scene/scene.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <drivers/windows/window_driver_win32.h>
 #include <toml++/toml.hpp>
@@ -74,7 +74,7 @@ struct GuidSwapArchive : Archive
     }
 };
 
-static uint32_t _swap_world(World& r_world, Guid p_from, Guid p_to, bool p_apply)
+static uint32_t _swap_world(Scene& r_world, Guid p_from, Guid p_to, bool p_apply)
 {
     GuidSwapArchive archive;
     archive.from = p_from;
@@ -96,8 +96,8 @@ static uint32_t _swap_world(World& r_world, Guid p_from, Guid p_to, bool p_apply
 
 static const std::filesystem::path* _open_world_path(const EditorContext& ctx)
 {
-    if (!ctx.world_tab || !ctx.world_tab->has_world() || !ctx.assets || !ctx.world) return nullptr;
-    const AssetRegistry::Entry* e = ctx.assets->find(ctx.world_tab->guid);
+    if (!ctx.scene_document || !ctx.scene_document->has_world() || !ctx.assets || !ctx.scene) return nullptr;
+    const AssetRegistry::Entry* e = ctx.assets->find(ctx.scene_document->guid);
     return e ? &e->path : nullptr;
 }
 
@@ -111,8 +111,8 @@ std::vector<AssetReference> find_asset_references(EditorContext& ctx, Guid p_tar
     for (const auto& [guid, entry] : ctx.assets->entries) {
         if (guid == p_target) continue;
         if (open_world && entry.path == *open_world) {
-            const uint32_t count = _swap_world(*ctx.world, p_target, {}, false);
-            if (count) refs.push_back({ AssetReference::Kind::OPEN_WORLD, entry.path, guid, entry.type, entry.name, count });
+            const uint32_t count = _swap_world(*ctx.scene, p_target, {}, false);
+            if (count) refs.push_back({ AssetReference::Kind::OPEN_SCENE, entry.path, guid, entry.type, entry.name, count });
             continue;
         }
         toml::table tbl;
@@ -120,7 +120,7 @@ std::vector<AssetReference> find_asset_references(EditorContext& ctx, Guid p_tar
         catch (const toml::parse_error&) { continue; }
         const uint32_t count = _walk_file(tbl, target, nullptr);
         if (!count) continue;
-        const AssetReference::Kind kind = entry.type == AssetType::WORLD ? AssetReference::Kind::WORLD : AssetReference::Kind::ASSET;
+        const AssetReference::Kind kind = entry.type == AssetType::SCENE ? AssetReference::Kind::SCENE : AssetReference::Kind::ASSET;
         refs.push_back({ kind, entry.path, guid, entry.type, entry.name, count });
     }
 
@@ -179,14 +179,14 @@ std::vector<std::string> replace_reference_warnings(EditorContext& ctx, Guid p_f
 
 bool confirm_reference_tabs(EditorContext& ctx, const std::vector<AssetReference>& p_refs)
 {
-    if (!ctx.tabs) return true;
-    for (EditorTab* t : ctx.tabs->tabs) {
+    if (!ctx.documents) return true;
+    for (auto& w : ctx.documents->documents) {
+        EditorDocument* t = w.get();
         const std::filesystem::path* path = t->asset_path();
         if (!path || !t->dirty()) continue;
         for (const AssetReference& r : p_refs) {
             if (r.kind != AssetReference::Kind::ASSET || r.path != *path) continue;
-            std::string_view name = t->title();
-            if (const size_t gap = name.find("  "); gap != std::string_view::npos) name.remove_prefix(gap + 2);
+            const std::string_view name = t->title();
             const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(name) + L"' has unsaved changes";
             if (!drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Replacing references reloads it from disk and discards those changes.", L"Replace", L"Cancel")) return false;
             break;
@@ -229,8 +229,8 @@ ReplaceResult replace_asset_references(EditorContext& ctx, Guid p_from, Guid p_t
 
     for (const AssetReference& r : p_refs) {
         switch (r.kind) {
-            case AssetReference::Kind::OPEN_WORLD:
-                if (ctx.world && _swap_world(*ctx.world, p_from, p_to, true)) result.updated++;
+            case AssetReference::Kind::OPEN_SCENE:
+                if (ctx.scene && _swap_world(*ctx.scene, p_from, p_to, true)) result.updated++;
                 break;
             case AssetReference::Kind::PROJECT: {
                 if (!ctx.project) break;
@@ -270,7 +270,7 @@ ReplaceResult replace_asset_references(EditorContext& ctx, Guid p_from, Guid p_t
         }
     }
 
-    if (!reload_tabs.empty() && ctx.reload_asset_tabs) ctx.reload_asset_tabs(reload_tabs);
+    if (!reload_tabs.empty() && ctx.reload_asset_documents) ctx.reload_asset_documents(reload_tabs);
     log_write("References: replaced in %u place(s)%s.", result.updated, result.failed ? ", some failed (see above)" : "");
     return result;
 }
@@ -282,9 +282,10 @@ bool delete_replaced_asset(EditorContext& ctx, Guid p_guid)
     if (!e) return false;
     const std::filesystem::path path = e->path;
     const AssetType type = e->type;
-    if (ctx.tabs) {
-        for (EditorTab* t : ctx.tabs->tabs) {
-            if (t->guid == p_guid) ctx.tabs->close(t->kind, t->guid, true);
+    if (ctx.documents) {
+        for (auto& w : ctx.documents->documents) {
+        EditorDocument* t = w.get();
+            if (t->guid == p_guid) ctx.documents->close(t->kind, t->guid, true);
         }
     }
     if (ctx.renderer) {

@@ -3,7 +3,7 @@
 #include <core/rendering/features/post/post_process_feature.h>
 #include <string_view>
 #include <core/rendering/frame_data.h>
-#include <core/rendering/world_gpu.h>
+#include <core/rendering/scene_gpu.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/io/embedded_resource.h>
 

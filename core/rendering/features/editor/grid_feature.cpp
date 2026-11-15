@@ -1,7 +1,7 @@
 #include <core/rendering/features/editor/grid_feature.h>
 #include <core/rendering/features/editor/editor_overlay.h>
 #include <core/rendering/frame_data.h>
-#include <core/rendering/world_gpu.h>
+#include <core/rendering/scene_gpu.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>

@@ -11,7 +11,7 @@ struct EditorContext;
 
 struct AssetReference
 {
-    enum class Kind : uint8_t { ASSET, WORLD, OPEN_WORLD, PROJECT };
+    enum class Kind : uint8_t { ASSET, SCENE, OPEN_SCENE, PROJECT };
 
     Kind kind = Kind::ASSET;
     std::filesystem::path path;

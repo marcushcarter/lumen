@@ -9,6 +9,146 @@ static ImU32 _mix(const ImVec4& p_a, const ImVec4& p_b, float p_t)
     return ImGui::GetColorU32(ImVec4(p_a.x + (p_b.x - p_a.x) * p_t, p_a.y + (p_b.y - p_a.y) * p_t, p_a.z + (p_b.z - p_a.z) * p_t, 1.0f));
 }
 
+const UiStyle::Palette& UiStyle::palette_dark()
+{
+    static const Palette p = [] {
+        Palette d;
+        d.EDITOR_BORDER = 0x2e2e2eff;
+        d.TOPBAR = 0x0a0a0aff;
+        d.BACK = 0x1c1c1cff;
+        d.HEADER = 0x0a0a0aff;
+        d.OUTLINER_BACK = 0x1c1c1cff;
+        d.VIEWPORT_BACK = 0x262626ff;
+        d.PANEL = 0x252525ff;
+        d.PANEL_SUB = 0x0000001f;
+        d.PANEL_OUTLINE = 0xffffff0d;
+        d.OUTLINE = 0x3f3f3fff;
+        d.SEPARATOR = 0xffffff1f;
+        d.EMBOSS = 0x00000026;
+        d.TEXT = 0xf1f1f1ff;
+        d.TEXT_HI = 0xffffffff;
+        d.TEXT_DIM = 0x9b9b9bff;
+        d.TEXT_STATUS = 0x9b9b9bff;
+        d.TEXT_CURSOR = 0xffffffff;
+        d.LINK = 0x5ea8f0ff;
+        d.NUM = 0x2b2b2bff;
+        d.NUM_HOVER = 0x353535ff;
+        d.NUM_ACTIVE = 0x262626ff;
+        d.TEXT_FIELD = 0x2b2b2bff;
+        d.TEXT_FIELD_HOVER = 0x353535ff;
+        d.TEXT_FIELD_ACTIVE = 0x303030ff;
+        d.MENU = 0x2b2b2bff;
+        d.MENU_HOVER = 0x353535ff;
+        d.TOOLBAR_ITEM = 0x333333ff;
+        d.PULLDOWN_TEXT = 0xf1f1f1ff;
+        d.PULLDOWN_HOVER = 0xffffff1f;
+        d.MENU_BACK = 0x1f1f1fff;
+        d.MENU_BACK_OUTLINE = 0x434343ff;
+        d.MENU_ITEM_TEXT = 0xf1f1f1ff;
+        d.MENU_ITEM_DIM = 0x9b9b9bff;
+        d.TOOLTIP = 0x1f1f1fff;
+        d.TOOLTIP_OUTLINE = 0x434343ff;
+        d.ACCENT = 0x1f7ad8ff;
+        d.ACCENT_HOVER = 0x3a8ce0ff;
+        d.ACCENT_SELECT = 0x1f7ad866;
+        d.ACCENT_DROP = 0x1f7ad833;
+        d.TAB = 0x0a0a0aff;
+        d.TAB_HOVER = 0x2d2d2dff;
+        d.TAB_ACTIVE = 0x1c1c1cff;
+        d.LIST_HOVER = 0xffffff12;
+        d.LIST_SELECTED = 0x0b5cbfff;
+        d.LIST_ACTIVE = 0x1f7ad8ff;
+        d.ROW_ALTERNATE = 0xffffff05;
+        d.SCROLL = 0x424242ff;
+        d.SCROLL_HOVER = 0x4f4f4fff;
+        d.SCROLL_ACTIVE = 0x5c5c5cff;
+        d.GRID = 0x4a4a4aff;
+        d.ICON_FOLDER = 0xe6c364ff;
+        d.CHECK = 0xffffffff;
+        d.STATS_TEXT = 0xffe14dff;
+        d.PLAY_BORDER = 0xf08a24ff;
+        d.TOOLBAR = 0x1c1c1cff;
+        d.SEARCH = 0x2b2b2bff;
+        d.SEARCH_BORDER = 0x3c3c3cff;
+        d.ACTIVE_ICON = 0xffffffff;
+        d.TOOL_HOVER = 0x2e2e2eff;
+        d.VIEW_HEADER = 0x0a0a0aff;
+        d.VIEW_BAR = 0x1c1c1cff;
+        return d;
+    }();
+    return p;
+}
+
+const UiStyle::Palette& UiStyle::palette_light()
+{
+    static const Palette p = [] {
+        Palette l;
+        l.EDITOR_BORDER = 0xc6cbd2ff;
+        l.TOPBAR = 0xc9d9eaff;
+        l.BACK = 0xffffffff;
+        l.HEADER = 0xc9d9eaff;
+        l.OUTLINER_BACK = 0xffffffff;
+        l.VIEWPORT_BACK = 0x9a9a9aff;
+        l.PANEL = 0xf0f3f7ff;
+        l.PANEL_SUB = 0x0000000f;
+        l.PANEL_OUTLINE = 0x00000014;
+        l.OUTLINE = 0xbcc6d2ff;
+        l.SEPARATOR = 0x0000001f;
+        l.EMBOSS = 0x00000014;
+        l.TEXT = 0x111111ff;
+        l.TEXT_HI = 0xffffffff;
+        l.TEXT_DIM = 0x7a7a7aff;
+        l.TEXT_STATUS = 0x7a7a7aff;
+        l.TEXT_CURSOR = 0x000000ff;
+        l.LINK = 0x0060c0ff;
+        l.NUM = 0xeeeeeeff;
+        l.NUM_HOVER = 0xe4e4e4ff;
+        l.NUM_ACTIVE = 0xdcdcdcff;
+        l.TEXT_FIELD = 0xeeeeeeff;
+        l.TEXT_FIELD_HOVER = 0xe4e4e4ff;
+        l.TEXT_FIELD_ACTIVE = 0xe8e8e8ff;
+        l.MENU = 0xeeeeeeff;
+        l.MENU_HOVER = 0xe4e4e4ff;
+        l.TOOLBAR_ITEM = 0xf2f5f9ff;
+        l.PULLDOWN_TEXT = 0x111111ff;
+        l.PULLDOWN_HOVER = 0xffffff66;
+        l.MENU_BACK = 0xf7f9fcff;
+        l.MENU_BACK_OUTLINE = 0xa9b5c3ff;
+        l.MENU_ITEM_TEXT = 0x111111ff;
+        l.MENU_ITEM_DIM = 0x7a7a7aff;
+        l.TOOLTIP = 0xffffffff;
+        l.TOOLTIP_OUTLINE = 0xa9b5c3ff;
+        l.ACCENT = 0x4f9fe8ff;
+        l.ACCENT_HOVER = 0x59a2eeff;
+        l.ACCENT_SELECT = 0x3b8fe84d;
+        l.ACCENT_DROP = 0x3b8fe826;
+        l.TAB = 0xc9d9eaff;
+        l.TAB_HOVER = 0xe2ebf5ff;
+        l.TAB_ACTIVE = 0xffffffff;
+        l.LIST_HOVER = 0x3b8fe81f;
+        l.LIST_SELECTED = 0x99c9f7ff;
+        l.LIST_ACTIVE = 0x7ab6f2ff;
+        l.ROW_ALTERNATE = 0x00000008;
+        l.SCROLL = 0xc3ccd6ff;
+        l.SCROLL_HOVER = 0xa9b5c3ff;
+        l.SCROLL_ACTIVE = 0x8e9babff;
+        l.GRID = 0x4a4a4aff;
+        l.ICON_FOLDER = 0xe0b84aff;
+        l.CHECK = 0x3b8fe8ff;
+        l.STATS_TEXT = 0xffe14dff;
+        l.PLAY_BORDER = 0xf08a24ff;
+        l.TOOLBAR = 0xffffffff;
+        l.SEARCH = 0xeeeeeeff;
+        l.SEARCH_BORDER = 0xa8b6c5ff;
+        l.ACTIVE_ICON = 0x111111ff;
+        l.TOOL_HOVER = 0xdceaf7ff;
+        l.VIEW_HEADER = 0xc9d9eaff;
+        l.VIEW_BAR = 0xffffffff;
+        return l;
+    }();
+    return p;
+}
+
 UiStyle& ui_style()
 {
     static UiStyle s;
@@ -69,46 +209,12 @@ ImU32 ui_hex_over(uint32_t p_rgba, uint32_t p_background)
     return ImGui::GetColorU32(ui_hex4_over(p_rgba, p_background));
 }
 
-static const ImFontLoader* g_base_font_loader = nullptr;
-static ImFontLoader g_gamma_font_loader;
-static unsigned char g_coverage_lut[256];
-
-static bool _gamma_load_glyph(ImFontAtlas* atlas, ImFontConfig* src, ImFontBaked* baked, void* loader_data, ImWchar codepoint, ImFontGlyph* out_glyph, float* out_advance_x)
-{
-    if (!g_base_font_loader->FontBakedLoadGlyph(atlas, src, baked, loader_data, codepoint, out_glyph, out_advance_x)) return false;
-    if (out_glyph->PackId == ImFontAtlasRectId_Invalid || out_glyph->Colored) return true;
-    const ImTextureRect* r = ImFontAtlasPackGetRect(atlas, out_glyph->PackId);
-    ImTextureData* tex = atlas->TexData;
-    if (!r || !tex || !tex->Pixels) return true;
-    for (int y = 0; y < r->h; y++) {
-        unsigned char* row = (unsigned char*)tex->GetPixelsAt(r->x, r->y + y);
-        if (tex->Format == ImTextureFormat_Alpha8) {
-            for (int x = 0; x < r->w; x++) row[x] = g_coverage_lut[row[x]];
-        } else {
-            ImU32* px = (ImU32*)(void*)row;
-            for (int x = 0; x < r->w; x++) {
-                const ImU32 a = g_coverage_lut[(px[x] >> IM_COL32_A_SHIFT) & 0xFF];
-                px[x] = (px[x] & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
-            }
-        }
-    }
-    return true;
-}
-
-void ui_install_font_gamma(ImFontAtlas* p_atlas)
-{
-    g_base_font_loader = ImFontAtlasGetFontLoaderForStbTruetype();
-    g_gamma_font_loader = *g_base_font_loader;
-    g_gamma_font_loader.Name = "stb_truetype_gamma";
-    g_gamma_font_loader.FontBakedLoadGlyph = _gamma_load_glyph;
-    for (int i = 0; i < 256; i++) g_coverage_lut[i] = (unsigned char)ImClamp((int)(color_srgb_to_linear((float)i / 255.0f) * 255.0f + 0.5f), 0, 255);
-    p_atlas->SetFontLoader(&g_gamma_font_loader);
-}
-
 void UiStyle::build()
 {
-    unit = ImFloor(20.0f * scale);
-    font.size = ImFloor(11.0f * 1.21f * scale * 2.0f + 0.5f) * 0.5f;
+    pal = light ? palette_light() : palette_dark();
+    unit = ImFloor(18.0f * scale);
+    row = ImFloor(30.0f * scale);
+    font.size = ImFloor(14.0f * scale);
     font.icon_size = ImFloor(font.size * 0.9f);
     space.xxs = ImFloor(2.0f * scale);
     space.xs = ImFloor(3.0f * scale);
@@ -119,10 +225,10 @@ void UiStyle::build()
     space.xxl = ImFloor(12.0f * scale);
     space.xxxl = ImFloor(16.0f * scale);
     space.huge = ImFloor(20.0f * scale);
-    radius.sm = ImFloor(0.15f * unit);
-    radius.md = ImFloor(0.2f * unit);
-    radius.lg = ImFloor(0.2f * unit);
-    radius.xl = ImFloor(0.25f * unit);
+    radius.sm = 0.0f;
+    radius.md = 0.0f;
+    radius.lg = 0.0f;
+    radius.xl = 0.0f;
     _build_components();
     _build_colors();
 }
@@ -130,13 +236,13 @@ void UiStyle::build()
 void UiStyle::_build_components()
 {
     base.window_padding = ImVec2(space.lg, space.lg);
-    base.frame_padding = ImVec2(space.md, ImFloor((unit - font.size) * 0.5f + 0.5f));
+    base.frame_padding = ImVec2(space.md, ImFloor((row - font.size) * 0.5f));
     base.item_spacing = ImVec2(space.lg, space.xxs);
     base.item_inner_spacing = ImVec2(space.sm, space.sm);
     base.cell_padding = ImVec2(space.sm, 1.0f);
     base.indent = unit;
     base.scrollbar_size = ImFloor(0.4f * unit);
-    base.scrollbar_rounding = radius.pill;
+    base.scrollbar_rounding = radius.md;
     base.grab_min_size = unit;
     base.window_rounding = radius.md;
     base.frame_rounding = radius.md;
@@ -145,39 +251,17 @@ void UiStyle::_build_components()
     base.tab_rounding = radius.md;
     base.window_border = stroke.hairline;
     base.popup_border = stroke.hairline;
-    base.frame_border = stroke.hairline;
+    base.frame_border = 0.0f;
 
-    dock.gap = ImFloor(3.0f * scale);
-    dock.panel_padding = ImVec2(space.lg, space.sm);
-    dock.drawer_padding = ImVec2(space.lg, space.lg);
-    dock.drop_outline = stroke.thick;
-    dock.edge_target_size = 40.0f;
-    dock.edge_target_margin = space.xxxl;
-    dock.edge_target_inset = space.md;
-    dock.edge_target_rounding = radius.md;
 
-    tab_strip.height_pad = unit - font.size;
-    tab_strip.pad_x = space.lg;
-    tab_strip.min_width = 36.0f;
-    tab_strip.accent_height = 0.0f;
 
-    dock_tab.inset_x = space.xs;
-    dock_tab.inset_top = space.xs;
-    dock_tab.gap = space.xxs;
-    dock_tab.rounding = radius.md;
-    dock_tab.close_pad = space.md;
-    dock_tab.close_size_pad = space.xxs;
-    dock_tab.close_rounding = radius.sm;
-    dock_tab.close_glyph_scale = 0.22f;
-    dock_tab.close_glyph_stroke = stroke.thin;
-    dock_tab.label_min_pad = space.md;
-    dock_tab.label_trail = " ";
 
     menu.padding = ImVec2(space.md, space.sm);
     menu.rounding = radius.md;
     menu.border = stroke.hairline;
     menu.popup_offset = space.xxs;
 
+    splitter.gap = ImFloor(3.0f * scale);
     splitter.line_width = stroke.thick;
     splitter.grip_half_width = stroke.thick;
     splitter.grip_length = 40.0f;
@@ -187,7 +271,8 @@ void UiStyle::_build_components()
     property.row_label_width = 200.0f;
     property.section_gap = space.xxs;
 
-    toolbar.height = ImFloor(26.0f * scale);
+    toolbar.height = row;
+    toolbar.main_height = row * 2.0f;
     toolbar.padding_x = space.lg;
 
     header.height = toolbar.height;
@@ -207,14 +292,16 @@ void UiStyle::_build_components()
     panel_box.grip_dot = 1.0f;
     panel_box.grip_spacing = 3.0f;
 
-    play.margin = space.md;
-    play.inset = space.xxs;
-    play.rounding = radius.sm;
-    play.button_extra_width = space.sm;
-    play.kebab_width = 14.0f;
-    play.kebab_gap = space.sm;
 
-    titlebar.menu_padding = ImVec2(space.lg, space.xs);
+    panel.padding = ImVec2(space.md, space.sm);
+    panel.header_height = row;
+    panel.header_pad_x = space.md;
+
+    viewport.play_border = ImFloor(2.0f * scale);
+
+    titlebar.height = row;
+    titlebar.search_width = ImFloor(170.0f * scale);
+    titlebar.menu_padding = ImVec2(space.md, space.xs);
     titlebar.menu_gap = 0.0f;
     titlebar.menu_height = unit + space.sm;
     titlebar.tab_inset_x = 0.0f;
@@ -228,7 +315,7 @@ void UiStyle::_build_components()
     titlebar.caption_glyph_offset = space.xxs;
     titlebar.caption_stroke = stroke.hairline;
     titlebar.caption_close_stroke = 1.2f;
-    titlebar.logo_margin = space.md;
+    titlebar.logo_margin = ImFloor(5.0f * scale);
     titlebar.logo_rounding = radius.md;
     titlebar.menu_offset_x = space.md;
     titlebar.title_margin = space.xxxl;
@@ -244,14 +331,6 @@ void UiStyle::_build_components()
     timeline.track_thickness = stroke.thick;
     timeline.knob_radius = 6.0f;
 
-    view_menu.indicator_x = space.xxl;
-    view_menu.indicator_radius = 5.0f;
-    view_menu.indicator_dot_radius = 2.5f;
-    view_menu.indicator_stroke = stroke.thin;
-    view_menu.label_x = 28.0f;
-    view_menu.icon_slot_scale = 1.4f;
-    view_menu.icon_gap = space.sm;
-    view_menu.arrow_inset = space.sm;
 
     outliner.pad_x = space.sm;
     outliner.row_pad_y = ImFloor((unit - font.size) * 0.5f);
@@ -262,6 +341,7 @@ void UiStyle::_build_components()
     outliner.arrow_scale = 0.7f;
     outliner.arrow_offset_scale = 0.15f;
     outliner.padding = ImVec2(0.0f, space.lg);
+
 
     details.header_pad_y = ImFloor(2.0f * scale);
     details.header_indent = ImFloor(24.0f * scale);
@@ -314,7 +394,7 @@ void UiStyle::_build_components()
     asset_picker.width = 320.0f;
     asset_picker.max_height = 420.0f;
     asset_picker.thumbnail_size = 32.0f;
-    asset_tooltip.thumbnail_rounding = 4.0f;
+    asset_tooltip.thumbnail_rounding = 0.0f;
     asset_tooltip.path_wrap_width = 280.0f;
     bones.joint_radius = 3.0f;
     bones.bone_thickness = 1.5f;
@@ -371,10 +451,6 @@ void UiStyle::_build_components()
     data_table.bar_rounding = radius.sm;
     data_table.block_gap = space.sm;
 
-    console_bar.pad = space.lg;
-    console_bar.field_width = 360.0f;
-    console_bar.field_min_width = 120.0f;
-    console_bar.rounding = radius.sm;
 
     gizmo.arrow_ratio = 0.22f;
     gizmo.ring_scale = 0.63f;
@@ -392,77 +468,77 @@ void UiStyle::_build_components()
 
 void UiStyle::_build_colors()
 {
-    using P = Palette;
+    const Palette& p = pal;
 
-    color.editor_border = ui_hex(P::EDITOR_BORDER);
-    color.topbar = ui_hex(P::TOPBAR);
-    color.topbar_hover = ui_hex_over(P::PULLDOWN_HOVER, P::TOPBAR);
-    color.header = ui_hex(P::HEADER);
-    color.header_hover = ui_hex_over(P::PULLDOWN_HOVER, P::HEADER);
-    color.outliner_back = ui_hex(P::OUTLINER_BACK);
-    color.viewport_back = ui_hex(P::VIEWPORT_BACK);
-    color.panel_sub = ui_hex_over(P::PANEL_SUB, P::PANEL);
-    color.outline = ui_hex(P::OUTLINE);
-    color.emboss = ImGui::GetColorU32(ui_hex4_over(P::EMBOSS, P::BACK));
-    color.text_field = ui_hex(P::TEXT_FIELD);
-    color.text_field_hover = ui_hex(P::TEXT_FIELD_HOVER);
-    color.text_field_active = ui_hex(P::TEXT_FIELD_ACTIVE);
-    color.menu_field = ui_hex(P::MENU);
-    color.menu_field_hover = ui_hex(P::MENU_HOVER);
-    color.menu_back = ui_hex(P::MENU_BACK);
-    color.menu_outline = ui_hex(P::MENU_BACK_OUTLINE);
-    color.menu_text = ui_hex(P::MENU_ITEM_TEXT);
-    color.menu_dim = ui_hex(P::MENU_ITEM_DIM);
-    color.pulldown_text = ui_hex(P::PULLDOWN_TEXT);
-    color.tab = ui_hex(P::TAB);
-    color.tab_hover = ui_hex(P::TAB_HOVER);
-    color.tab_active = ui_hex(P::TAB_ACTIVE);
-    color.list_hover = ui_hex_over(P::LIST_HOVER, P::BACK);
-    color.list_selected = ui_hex(P::LIST_SELECTED);
-    color.list_active = ui_hex(P::LIST_ACTIVE);
-    color.row_alternate = ui_hex_over(P::ROW_ALTERNATE, P::OUTLINER_BACK);
+    color.editor_border = ui_hex(p.EDITOR_BORDER);
+    color.topbar = ui_hex(p.TOPBAR);
+    color.topbar_hover = ui_hex_over(p.PULLDOWN_HOVER, p.TOPBAR);
+    color.header = ui_hex(p.HEADER);
+    color.header_hover = ui_hex_over(p.PULLDOWN_HOVER, p.HEADER);
+    color.outliner_back = ui_hex(p.OUTLINER_BACK);
+    color.viewport_back = ui_hex(p.VIEWPORT_BACK);
+    color.panel_sub = ui_hex_over(p.PANEL_SUB, p.PANEL);
+    color.outline = ui_hex(p.OUTLINE);
+    color.emboss = ImGui::GetColorU32(ui_hex4_over(p.EMBOSS, p.BACK));
+    color.text_field = ui_hex(p.TEXT_FIELD);
+    color.text_field_hover = ui_hex(p.TEXT_FIELD_HOVER);
+    color.text_field_active = ui_hex(p.TEXT_FIELD_ACTIVE);
+    color.menu_field = ui_hex(p.MENU);
+    color.menu_field_hover = ui_hex(p.MENU_HOVER);
+    color.menu_back = ui_hex(p.MENU_BACK);
+    color.menu_outline = ui_hex(p.MENU_BACK_OUTLINE);
+    color.menu_text = ui_hex(p.MENU_ITEM_TEXT);
+    color.menu_dim = ui_hex(p.MENU_ITEM_DIM);
+    color.pulldown_text = ui_hex(p.PULLDOWN_TEXT);
+    color.tab = ui_hex(p.TAB);
+    color.tab_hover = ui_hex(p.TAB_HOVER);
+    color.tab_active = ui_hex(p.TAB_ACTIVE);
+    color.list_hover = ui_hex_over(p.LIST_HOVER, p.BACK);
+    color.list_selected = ui_hex(p.LIST_SELECTED);
+    color.list_active = ui_hex(p.LIST_ACTIVE);
+    color.row_alternate = ui_hex_over(p.ROW_ALTERNATE, p.OUTLINER_BACK);
 
     color.sunken = color.editor_border;
     color.chrome = color.topbar;
     color.hover = color.topbar_hover;
-    color.panel = ui_hex(P::BACK);
-    color.field = ui_hex(P::NUM);
+    color.panel = ui_hex(p.BACK);
+    color.field = ui_hex(p.NUM);
     color.line = color.outline;
-    color.field_hover = ui_hex(P::NUM_HOVER);
-    color.field_active = ui_hex(0x6a6a6aff);
-    color.field_pressed = ui_hex(P::ACCENT);
+    color.field_hover = ui_hex(p.NUM_HOVER);
+    color.field_active = ui_hex(p.NUM_ACTIVE);
+    color.field_pressed = ui_hex(p.ACCENT);
 
-    color.text = ui_hex(P::TEXT);
-    color.text_hi = ui_hex(P::TEXT_HI);
-    color.text_dim = ui_hex(P::TEXT_DIM);
+    color.text = ui_hex(p.TEXT);
+    color.text_hi = ui_hex(p.TEXT_HI);
+    color.text_dim = ui_hex(p.TEXT_DIM);
 
     const ImVec4 chrome = ui_vec4(color.chrome);
-    const ImVec4 accent = ui_hex4(P::ACCENT);
-    const ImVec4 fg = ui_hex4(P::TEXT);
-    color.accent = ui_hex(P::ACCENT);
-    color.accent_soft = _mix(chrome, accent, accent_mix.soft);
-    color.accent_soft_hover = _mix(chrome, accent, accent_mix.soft_hover);
-    color.accent_soft_active = _mix(chrome, accent, accent_mix.soft_active);
-    color.accent_hover = ui_hex(P::ACCENT_HOVER);
+    const ImVec4 accent = ui_hex4(p.ACCENT);
+    const ImVec4 fg = ui_hex4(p.TEXT);
+    color.accent = ui_hex(p.ACCENT);
+    color.accent_soft = _mix(chrome, accent, 0.18f);
+    color.accent_soft_hover = _mix(chrome, accent, 0.30f);
+    color.accent_soft_active = _mix(chrome, accent, 0.42f);
+    color.accent_hover = ui_hex(p.ACCENT_HOVER);
     color.accent_active = _mix(accent, fg, 0.24f);
-    color.selection = ui_hex(P::ACCENT_SELECT);
+    color.selection = ui_hex(p.ACCENT_SELECT);
 
-    color.drop_fill = ui_hex(P::ACCENT_DROP);
-    color.drop_line = ui_hex(P::ACCENT);
+    color.drop_fill = ui_hex(p.ACCENT_DROP);
+    color.drop_line = ui_hex(p.ACCENT);
 
-    color.success = ui_hex(P::STATE_SUCCESS);
+    color.success = ui_hex(p.STATE_SUCCESS);
     color.success_soft = _mix(chrome, ui_vec4(color.success), 0.30f);
     color.success_soft_hover = _mix(chrome, ui_vec4(color.success), 0.42f);
     color.success_soft_active = _mix(chrome, ui_vec4(color.success), 0.54f);
     color.success_text = ui_hex(0x6cd27aff);
-    color.warning = ui_hex(P::STATE_WARNING);
+    color.warning = ui_hex(p.STATE_WARNING);
     color.danger = ui_hex(0xe63a3aff);
     color.danger_strong = ui_hex(0xc42b1cff);
-    color.danger_soft = ImGui::GetColorU32(ui_hex4_over(0xe6000066, P::BACK));
-    color.danger_soft_active = ImGui::GetColorU32(ui_hex4_over(0xe60000a0, P::BACK));
+    color.danger_soft = ImGui::GetColorU32(ui_hex4_over(0xe6000066, p.BACK));
+    color.danger_soft_active = ImGui::GetColorU32(ui_hex4_over(0xe60000a0, p.BACK));
     color.notice = ui_hex(0xcc7529ff);
     color.favorite = ui_hex(0xffb400ff);
-    color.folder = ui_hex(P::ICON_FOLDER);
+    color.folder = ui_hex(p.ICON_FOLDER);
     color.asset_model = IM_COL32(86, 182, 230, 255);
     color.asset_mesh = IM_COL32(64, 196, 196, 255);
     color.asset_material = IM_COL32(112, 196, 92, 255);
@@ -472,29 +548,29 @@ void UiStyle::_build_colors()
     color.asset_blend_space = IM_COL32(232, 132, 190, 255);
     color.asset_locomotion = IM_COL32(240, 150, 110, 255);
     color.asset_overlay = IM_COL32(236, 178, 84, 255);
-    color.asset_world = IM_COL32(122, 156, 240, 255);
+    color.asset_scene = IM_COL32(122, 156, 240, 255);
     color.asset_terrain = IM_COL32(150, 186, 104, 255);
-    color.asset_prefab = IM_COL32(92, 196, 214, 255);
+    color.asset_template = IM_COL32(92, 196, 214, 255);
 
-    color.overlay = ImGui::GetColorU32(ui_hex4_over(0x303030b3, P::VIEWPORT_BACK));
-    color.overlay_hover = ImGui::GetColorU32(ui_hex4_over(0x454545d0, P::VIEWPORT_BACK));
-    color.overlay_active = ui_hex(P::ACCENT);
-    color.overlay_label = ImGui::GetColorU32(ui_hex4_over(0x181818c0, P::VIEWPORT_BACK));
+    color.overlay = ImGui::GetColorU32(ui_hex4_over(0x303030b3, p.VIEWPORT_BACK));
+    color.overlay_hover = ImGui::GetColorU32(ui_hex4_over(0x454545d0, p.VIEWPORT_BACK));
+    color.overlay_active = ui_hex(p.ACCENT);
+    color.overlay_label = ImGui::GetColorU32(ui_hex4_over(0x181818c0, p.VIEWPORT_BACK));
 
-    color.gizmo_x = ui_hex(P::AXIS_X);
-    color.gizmo_y = ui_hex(P::AXIS_Y);
-    color.gizmo_z = ui_hex(P::AXIS_Z);
+    color.gizmo_x = ui_hex(p.AXIS_X);
+    color.gizmo_y = ui_hex(p.AXIS_Y);
+    color.gizmo_z = ui_hex(p.AXIS_Z);
     color.gizmo_center = ui_hex(0xffffffff);
     color.gizmo_hot = ui_hex(0xffd640ff);
 
-    color.category_header = ui_hex(P::PANEL);
-    color.category_header_hover = ui_hex(0x444444ff);
-    color.category_line = ui_hex(P::BACK);
-    color.axis_x = ui_hex(P::AXIS_X);
-    color.axis_y = ui_hex(P::AXIS_Y);
-    color.axis_z = ui_hex(P::AXIS_Z);
-    color.axis_w = ui_hex(P::AXIS_W);
-    color.axis_text = ui_hex(P::TEXT_DIM);
+    color.category_header = ui_hex(p.PANEL);
+    color.category_header_hover = ui_hex_over(p.PULLDOWN_HOVER, p.PANEL);
+    color.category_line = ui_hex(p.BACK);
+    color.axis_x = ui_hex(p.AXIS_X);
+    color.axis_y = ui_hex(p.AXIS_Y);
+    color.axis_z = ui_hex(p.AXIS_Z);
+    color.axis_w = ui_hex(p.AXIS_W);
+    color.axis_text = ui_hex(p.TEXT_DIM);
 
     color.shadow = IM_COL32(0, 0, 0, 80);
     color.shadow_text = IM_COL32(0, 0, 0, 140);
@@ -504,8 +580,8 @@ void UiStyle::_build_colors()
     color.viz_barrier = IM_COL32(90, 130, 180, 220);
     color.viz_hovered = color.danger;
     color.viz_cursor = IM_COL32(255, 255, 255, 120);
-    color.viz_stripe_even = ui_hex(0x2b2b2bff);
-    color.viz_stripe_odd = ui_hex(0x303030ff);
+    color.viz_stripe_even = ui_hex_over(p.ROW_ALTERNATE, p.BACK);
+    color.viz_stripe_odd = ui_hex(p.BACK);
     color.viz_label = IM_COL32(220, 220, 220, 180);
     color.viz_ok = IM_COL32(88, 180, 120, 255);
     color.viz_warn = color.warning;
@@ -513,6 +589,18 @@ void UiStyle::_build_colors()
     color.viz_wait = IM_COL32(110, 110, 110, 90);
     color.viz_frame_marker = IM_COL32(120, 150, 255, 200);
     color.viz_submit = color.warning;
+
+    color.grid = ui_hex(p.GRID);
+    color.stats_text = ui_hex(p.STATS_TEXT);
+    color.play_border = ui_hex(p.PLAY_BORDER);
+    color.check = ui_hex(p.CHECK);
+    color.toolbar = ui_hex(p.TOOLBAR);
+    color.search = ui_hex(p.SEARCH);
+    color.search_border = ui_hex(p.SEARCH_BORDER);
+    color.active_icon = ui_hex(p.ACTIVE_ICON);
+    color.tool_hover = ui_hex(p.TOOL_HOVER);
+    color.view_header = ui_hex(p.VIEW_HEADER);
+    color.view_bar = ui_hex(p.VIEW_BAR);
 }
 
 void UiStyle::apply_to_imgui() const

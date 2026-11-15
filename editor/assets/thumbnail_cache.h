@@ -8,8 +8,8 @@
 #include <core/assets/loverlay.h>
 #include <editor/assets/anim_preview.h>
 #include <core/assets/guid.h>
-#include <core/world/world.h>
-#include <core/world/camera.h>
+#include <core/scene/scene.h>
+#include <core/scene/camera.h>
 #include <editor/assets/rig_preview.h>
 #include <core/base/error.h>
 #include <core/base/jobs.h>
@@ -53,7 +53,7 @@ struct ThumbnailCache
         bool queued = false;
     };
 
-    static constexpr uint32_t MAX_PREFAB_PIECES = 512;
+    static constexpr uint32_t MAX_TEMPLATE_PIECES = 512;
 
     struct Piece {
         Guid model;
@@ -106,7 +106,7 @@ struct ThumbnailCache
 
     RenderView render_view;
     ThumbnailRenderPath* path = nullptr;
-    World world;
+    Scene world;
     Entity entity = ENTITY_NULL;
     std::vector<Entity> extras;
     Guid preview_sphere;
@@ -139,10 +139,11 @@ struct ThumbnailCache
     VkImageView _texture_view(EditorContext& ctx, Guid p_guid);
     void _retire_view(EditorContext& ctx, VkImageView p_view);
 
+    static bool supports(AssetType p_type);
     bool _resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job);
     bool _skeleton_bones(EditorContext& ctx, Job& r_job, vec3& r_center, float& r_radius);
-    bool _prefab_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const;
-    void _place_prefab(const Job& p_job);
+    bool _template_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const;
+    void _place_template(const Job& p_job);
     void _draw_bones(const Job& p_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);

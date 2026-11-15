@@ -1,4 +1,6 @@
 #include <editor/assets/asset_field.h>
+#include <core/project/project.h>
+#include <filesystem>
 #include <editor/assets/asset_drag_payload.h>
 #include <editor/assets/asset_registry.h>
 #include <editor/assets/thumbnail_cache.h>
@@ -32,9 +34,9 @@ ImU32 asset_type_color(AssetType p_type)
         case AssetType::BLEND_SPACE: return ui.color.asset_blend_space;
         case AssetType::LOCOMOTION: return ui.color.asset_locomotion;
         case AssetType::OVERLAY: return ui.color.asset_overlay;
-        case AssetType::WORLD: return ui.color.asset_world;
+        case AssetType::SCENE: return ui.color.asset_scene;
         case AssetType::TERRAIN: return ui.color.asset_terrain;
-        case AssetType::PREFAB: return ui.color.asset_prefab;
+        case AssetType::TEMPLATE: return ui.color.asset_template;
         default: return ImGui::GetColorU32(ImGuiCol_TextDisabled);
     }
 }
@@ -51,9 +53,9 @@ const char* asset_type_label(AssetType p_type)
         case AssetType::BLEND_SPACE: return "Blend Space";
         case AssetType::LOCOMOTION: return "Character";
         case AssetType::OVERLAY: return "Overlay";
-        case AssetType::WORLD: return "World";
+        case AssetType::SCENE: return "Scene";
         case AssetType::TERRAIN: return "Terrain";
-        case AssetType::PREFAB: return "Prefab";
+        case AssetType::TEMPLATE: return "Template";
         default: return "Asset";
     }
 }
@@ -66,14 +68,13 @@ void asset_tooltip(EditorContext& ctx, Guid p_guid, AssetType p_type)
 
     ImGui::BeginTooltip();
     const ImVec2 size(ui.asset_tooltip.thumbnail_size, ui.asset_tooltip.thumbnail_size);
-    const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const ImVec2 p1(p0.x + size.x, p0.y + size.y);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p0, p1, ImGui::GetColorU32(ImGuiCol_FrameBg), ui.asset_tooltip.thumbnail_rounding);
     const VkImageView view = ctx.thumbnails ? ctx.thumbnails->get(ctx, p_guid, p_type) : VK_NULL_HANDLE;
     const VkDescriptorSet set = view && ctx.imgui ? ctx.imgui->texture_cache.get(view) : VK_NULL_HANDLE;
-    if (set) dl->AddImageRounded((ImTextureID)set, p0, p1, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE, ui.asset_tooltip.thumbnail_rounding);
-    ImGui::Dummy(size);
+    if (set) {
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddImage((ImTextureID)set, p0, ImVec2(p0.x + size.x, p0.y + size.y));
+        ImGui::Dummy(size);
+    }
 
     ImGui::TextUnformatted(asset->name.c_str());
     ImGui::PushStyleColor(ImGuiCol_Text, asset_type_color(p_type));
@@ -85,6 +86,15 @@ void asset_tooltip(EditorContext& ctx, Guid p_guid, AssetType p_type)
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (std::max)(size.x, ui.asset_tooltip.path_wrap_width));
     ImGui::TextDisabled("%s", asset->asset_path.c_str());
     ImGui::PopTextWrapPos();
+    std::error_code ec;
+    std::filesystem::path file = ctx.project ? ctx.project->content_path(p_guid) : std::filesystem::path();
+    if (file.empty() || !std::filesystem::exists(file, ec)) file = asset->path;
+    const uintmax_t bytes = std::filesystem::file_size(file, ec);
+    if (!ec) {
+        if (bytes >= 1024ull * 1024ull) ImGui::TextDisabled("%.2f MB on disk", (double)bytes / (1024.0 * 1024.0));
+        else if (bytes >= 1024ull) ImGui::TextDisabled("%.1f KB on disk", (double)bytes / 1024.0);
+        else ImGui::TextDisabled("%u bytes on disk", (uint32_t)bytes);
+    }
     ImGui::EndTooltip();
 }
 

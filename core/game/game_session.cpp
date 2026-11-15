@@ -1,9 +1,9 @@
 #include <core/game/game_session.h>
-#include <core/world/world.h>
+#include <core/scene/scene.h>
 
 namespace lumen {
 
-void GameSession::begin(World& r_world, const Camera& p_camera)
+void GameSession::begin(Scene& r_world, const Camera& p_camera)
 {
     if (active()) end();
     world = &r_world;

@@ -7,87 +7,90 @@ namespace lumen {
 
 void Theme::apply() const
 {
-    using P = UiStyle::Palette;
+    UiStyle& ui = ui_style();
+    ui.light = light;
+    ui.pal = light ? UiStyle::palette_light() : UiStyle::palette_dark();
+    const UiStyle::Palette& p = ui.pal;
     auto hex = [](uint32_t p_rgba) { return ui_hex4(p_rgba); };
 
-    ImGui::StyleColorsDark();
+    if (light) ImGui::StyleColorsLight();
+    else ImGui::StyleColorsDark();
     ImVec4* c = ImGui::GetStyle().Colors;
 
-    c[ImGuiCol_Text] = hex(P::TEXT);
-    c[ImGuiCol_TextDisabled] = hex(P::TEXT_DIM);
-    c[ImGuiCol_TextLink] = hex(P::LINK);
-    c[ImGuiCol_TextSelectedBg] = hex(P::ACCENT_SELECT);
-    c[ImGuiCol_UnsavedMarker] = hex(P::TEXT);
+    c[ImGuiCol_Text] = hex(p.TEXT);
+    c[ImGuiCol_TextDisabled] = hex(p.TEXT_DIM);
+    c[ImGuiCol_TextLink] = hex(p.LINK);
+    c[ImGuiCol_TextSelectedBg] = hex(p.ACCENT_SELECT);
+    c[ImGuiCol_UnsavedMarker] = hex(p.TEXT);
 
-    c[ImGuiCol_WindowBg] = hex(P::BACK);
-    c[ImGuiCol_ChildBg] = hex(P::BACK);
-    c[ImGuiCol_PopupBg] = hex(P::MENU_BACK);
-    c[ImGuiCol_MenuBarBg] = hex(P::TOPBAR);
-    c[ImGuiCol_TitleBg] = hex(P::TOPBAR);
-    c[ImGuiCol_TitleBgActive] = hex(P::TOPBAR);
-    c[ImGuiCol_TitleBgCollapsed] = hex(P::TOPBAR);
-    c[ImGuiCol_DockingEmptyBg] = hex(P::EDITOR_BORDER);
+    c[ImGuiCol_WindowBg] = hex(p.BACK);
+    c[ImGuiCol_ChildBg] = hex(p.BACK);
+    c[ImGuiCol_PopupBg] = hex(p.NUM);
+    c[ImGuiCol_MenuBarBg] = hex(p.TOPBAR);
+    c[ImGuiCol_TitleBg] = hex(p.TOPBAR);
+    c[ImGuiCol_TitleBgActive] = hex(p.TOPBAR);
+    c[ImGuiCol_TitleBgCollapsed] = hex(p.TOPBAR);
+    c[ImGuiCol_DockingEmptyBg] = hex(p.EDITOR_BORDER);
     c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.45f);
     c[ImGuiCol_NavWindowingDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.35f);
 
-    c[ImGuiCol_FrameBg] = hex(P::NUM);
-    c[ImGuiCol_FrameBgHovered] = hex(P::NUM_HOVER);
-    c[ImGuiCol_FrameBgActive] = hex(P::NUM_ACTIVE);
-    c[ImGuiCol_CheckboxSelectedBg] = hex(P::ACCENT);
-    c[ImGuiCol_InputTextCursor] = hex(P::TEXT_CURSOR);
+    c[ImGuiCol_FrameBg] = hex(p.NUM);
+    c[ImGuiCol_FrameBgHovered] = hex(p.NUM_HOVER);
+    c[ImGuiCol_FrameBgActive] = hex(p.NUM_ACTIVE);
+    c[ImGuiCol_CheckboxSelectedBg] = hex(p.ACCENT);
+    c[ImGuiCol_InputTextCursor] = hex(p.TEXT_CURSOR);
 
-    c[ImGuiCol_Border] = hex(P::OUTLINE);
-    c[ImGuiCol_BorderShadow] = hex(P::EMBOSS);
-    c[ImGuiCol_Separator] = hex(P::SEPARATOR);
-    c[ImGuiCol_SeparatorHovered] = hex(P::ACCENT_HOVER);
-    c[ImGuiCol_SeparatorActive] = hex(P::ACCENT);
-    c[ImGuiCol_TreeLines] = hex(P::OUTLINE);
+    c[ImGuiCol_Border] = hex(p.OUTLINE);
+    c[ImGuiCol_BorderShadow] = hex(p.EMBOSS);
+    c[ImGuiCol_Separator] = hex(p.SEPARATOR);
+    c[ImGuiCol_SeparatorHovered] = hex(p.ACCENT_HOVER);
+    c[ImGuiCol_SeparatorActive] = hex(p.ACCENT);
+    c[ImGuiCol_TreeLines] = hex(p.OUTLINE);
 
     c[ImGuiCol_ResizeGrip] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    c[ImGuiCol_ResizeGripHovered] = hex(P::ACCENT_HOVER);
-    c[ImGuiCol_ResizeGripActive] = hex(P::ACCENT);
+    c[ImGuiCol_ResizeGripHovered] = hex(p.ACCENT_HOVER);
+    c[ImGuiCol_ResizeGripActive] = hex(p.ACCENT);
 
     c[ImGuiCol_ScrollbarBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    c[ImGuiCol_ScrollbarGrab] = hex(P::SCROLL);
-    c[ImGuiCol_ScrollbarGrabHovered] = hex(P::SCROLL_HOVER);
-    c[ImGuiCol_ScrollbarGrabActive] = hex(P::SCROLL_ACTIVE);
+    c[ImGuiCol_ScrollbarGrab] = hex(p.SCROLL);
+    c[ImGuiCol_ScrollbarGrabHovered] = hex(p.SCROLL_HOVER);
+    c[ImGuiCol_ScrollbarGrabActive] = hex(p.SCROLL_ACTIVE);
 
-    c[ImGuiCol_Header] = hex(P::LIST_SELECTED);
-    c[ImGuiCol_HeaderHovered] = hex(P::LIST_HOVER);
-    c[ImGuiCol_HeaderActive] = hex(P::LIST_ACTIVE);
-    c[ImGuiCol_Button] = hex(P::NUM);
-    c[ImGuiCol_ButtonHovered] = hex(P::NUM_HOVER);
-    c[ImGuiCol_ButtonActive] = hex(P::ACCENT);
-    c[ImGuiCol_CheckMark] = hex(P::TEXT_HI);
-    c[ImGuiCol_SliderGrab] = hex(P::ACCENT);
-    c[ImGuiCol_SliderGrabActive] = hex(P::ACCENT_HOVER);
+    c[ImGuiCol_Header] = hex(p.LIST_SELECTED);
+    c[ImGuiCol_HeaderHovered] = hex(p.LIST_HOVER);
+    c[ImGuiCol_HeaderActive] = hex(p.LIST_ACTIVE);
+    c[ImGuiCol_Button] = hex(p.NUM);
+    c[ImGuiCol_ButtonHovered] = hex(p.NUM_HOVER);
+    c[ImGuiCol_ButtonActive] = hex(p.ACCENT);
+    c[ImGuiCol_CheckMark] = hex(p.CHECK);
+    c[ImGuiCol_SliderGrab] = hex(p.ACCENT);
+    c[ImGuiCol_SliderGrabActive] = hex(p.ACCENT_HOVER);
 
-    c[ImGuiCol_Tab] = hex(P::TAB);
-    c[ImGuiCol_TabHovered] = hex(P::TAB_HOVER);
-    c[ImGuiCol_TabSelected] = hex(P::TAB_ACTIVE);
-    c[ImGuiCol_TabSelectedOverline] = hex(P::ACCENT);
-    c[ImGuiCol_TabDimmed] = hex(P::TAB);
-    c[ImGuiCol_TabDimmedSelected] = hex(P::TAB_ACTIVE);
+    c[ImGuiCol_Tab] = hex(p.TAB);
+    c[ImGuiCol_TabHovered] = hex(p.TAB_HOVER);
+    c[ImGuiCol_TabSelected] = hex(p.TAB_ACTIVE);
+    c[ImGuiCol_TabSelectedOverline] = hex(p.ACCENT);
+    c[ImGuiCol_TabDimmed] = hex(p.TAB);
+    c[ImGuiCol_TabDimmedSelected] = hex(p.TAB_ACTIVE);
     c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 
-    c[ImGuiCol_DockingPreview] = hex(P::ACCENT_SELECT);
-    c[ImGuiCol_DragDropTarget] = hex(P::ACCENT);
-    c[ImGuiCol_DragDropTargetBg] = hex(P::ACCENT_DROP);
-    c[ImGuiCol_NavCursor] = hex(P::ACCENT);
-    c[ImGuiCol_NavWindowingHighlight] = hex(P::ACCENT_HOVER);
+    c[ImGuiCol_DockingPreview] = hex(p.ACCENT_SELECT);
+    c[ImGuiCol_DragDropTarget] = hex(p.ACCENT);
+    c[ImGuiCol_DragDropTargetBg] = hex(p.ACCENT_DROP);
+    c[ImGuiCol_NavCursor] = hex(p.ACCENT);
+    c[ImGuiCol_NavWindowingHighlight] = hex(p.ACCENT_HOVER);
 
-    c[ImGuiCol_PlotLines] = hex(P::TEXT_DIM);
-    c[ImGuiCol_PlotLinesHovered] = hex(P::ACCENT);
-    c[ImGuiCol_PlotHistogram] = hex(P::ACCENT);
-    c[ImGuiCol_PlotHistogramHovered] = hex(P::ACCENT_HOVER);
+    c[ImGuiCol_PlotLines] = hex(p.TEXT_DIM);
+    c[ImGuiCol_PlotLinesHovered] = hex(p.ACCENT);
+    c[ImGuiCol_PlotHistogram] = hex(p.ACCENT);
+    c[ImGuiCol_PlotHistogramHovered] = hex(p.ACCENT_HOVER);
 
-    c[ImGuiCol_TableHeaderBg] = hex(P::PANEL);
-    c[ImGuiCol_TableBorderStrong] = hex(P::EDITOR_BORDER);
-    c[ImGuiCol_TableBorderLight] = hex(P::OUTLINE);
+    c[ImGuiCol_TableHeaderBg] = hex(p.PANEL);
+    c[ImGuiCol_TableBorderStrong] = hex(p.EDITOR_BORDER);
+    c[ImGuiCol_TableBorderLight] = hex(p.OUTLINE);
     c[ImGuiCol_TableRowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    c[ImGuiCol_TableRowBgAlt] = hex(P::ROW_ALTERNATE);
+    c[ImGuiCol_TableRowBgAlt] = hex(p.ROW_ALTERNATE);
 
-    UiStyle& ui = ui_style();
     ui.build();
     ui.apply_to_imgui();
 }

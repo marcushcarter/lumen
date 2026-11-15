@@ -1,5 +1,5 @@
 #include <editor/play/editor_play.h>
-#include <core/world/components.h>
+#include <core/scene/components.h>
 #include <editor/viewport/viewport.h>
 #include <algorithm>
 #include <cstring>
@@ -22,11 +22,11 @@ void EditorPlay::shutdown()
     runtime.shutdown();
 }
 
-void EditorPlay::start(World& r_authored, Guid p_world, const Camera& p_camera)
+void EditorPlay::start(Scene& r_authored, Guid p_world, const Camera& p_camera)
 {
     stop();
     authored = &r_authored;
-    world_guid = p_world;
+    scene_guid = p_world;
     _clone();
     authored->changes_clear();
     authored->track_changes = true;
@@ -44,7 +44,7 @@ void EditorPlay::stop()
         authored->changes_clear();
     }
     authored = nullptr;
-    world_guid = Guid{};
+    scene_guid = Guid{};
     log_write("Play: stopped.");
 }
 
@@ -54,11 +54,23 @@ void EditorPlay::toggle()
     else if (editing()) session.resume();
 }
 
+void EditorPlay::step()
+{
+    if (editing()) step_pending = true;
+}
+
 void EditorPlay::update(float p_dt)
 {
     if (!active()) return;
     _mirror();
-    character_system.debug = viewport_view().show_debug_lines;
+    if (step_pending && editing()) {
+        step_pending = false;
+        session.resume();
+        session.update(STEP_DT);
+        session.pause();
+        return;
+    }
+    step_pending = false;
     session.update(p_dt);
 }
 
@@ -110,7 +122,7 @@ void EditorPlay::_clone()
 
 void EditorPlay::_mirror()
 {
-    World& a = *authored;
+    Scene& a = *authored;
     if (a.changed_all) {
         a.changes_clear();
         _clone();

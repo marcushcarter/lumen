@@ -1,6 +1,5 @@
 #include <editor/viewport/overlay_bar.h>
 #include <editor/ui/ui_widgets.h>
-#include <editor/ui/tab_strip.h>
 #include <editor/ui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>

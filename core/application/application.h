@@ -6,7 +6,7 @@
 #include <core/rendering/renderer.h>
 #include <core/animation/pose_system.h>
 #include <core/project/project.h>
-#include <core/world/world.h>
+#include <core/scene/scene.h>
 #include <core/base/jobs.h>
 #include <core/base/error.h>
 #include <core/base/profiling.h>
@@ -52,7 +52,7 @@ struct Application
     std::function<void()> pending_transition;
     bool screenshot_reveal = true;
 
-    World world;
+    Scene scene;
     PoseSystem poses;
     Project project;
     bool paused = false;
@@ -101,10 +101,10 @@ struct Application
     virtual void on_background_tick() {}
 
     virtual void on_simulate(float p_dt) { (void)p_dt; }
-    virtual World& simulated_world() { return world; }
+    virtual Scene& simulated_scene() { return scene; }
     virtual void update_camera(float p_dt) { (void)p_dt; }
-    virtual const Camera& active_camera() const { return *world.active_camera; }
-    virtual const World& render_world() const { return world; }
+    virtual const Camera& active_camera() const { return *scene.active_camera; }
+    virtual const Scene& render_scene() const { return scene; }
     virtual bool renders_scene() const { return true; }
 
     virtual ~Application() = default;

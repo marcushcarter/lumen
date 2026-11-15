@@ -1,20 +1,11 @@
 #include <core/physics/collision_preview.h>
-#include <core/game/character.h>
 #include <core/assets/lmesh.h>
-#include <core/project/project.h>
-#include <core/rendering/renderer.h>
-#include <core/world/world.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 
 namespace lumen {
 
-mat4 collision_shape_matrix(const CollisionShapeEntry& p_shape)
-{
-    return translate(mat4(1.0f), p_shape.position) * mat4_cast(quat(radians(p_shape.rotation)));
-}
-
-const CollisionPreview::Entry* CollisionPreview::get(Guid p_mesh, const std::filesystem::path& p_bin)
+const CollisionMeshCache::Entry* CollisionMeshCache::get(Guid p_mesh, const std::filesystem::path& p_bin)
 {
     if (!p_mesh.valid()) return nullptr;
     Entry& e = entries[p_mesh];
@@ -35,27 +26,16 @@ const CollisionPreview::Entry* CollisionPreview::get(Guid p_mesh, const std::fil
     e.loaded = lmesh_read_collision(p_bin, payload) && e.data.from_payload(payload.data(), payload.size()) == Error::OK;
     e.edges.clear();
     if (!e.loaded) return nullptr;
-
-    std::vector<uint64_t> keys;
-    keys.reserve(e.data.indices.size());
-    for (size_t i = 0; i + 2 < e.data.indices.size(); i += 3) {
-        for (int k = 0; k < 3; k++) {
-            const uint32_t a = e.data.indices[i + k];
-            const uint32_t b = e.data.indices[i + (k + 1) % 3];
-            keys.push_back(((uint64_t)std::min(a, b) << 32) | std::max(a, b));
-        }
-    }
-    std::sort(keys.begin(), keys.end());
-    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
-    e.edges.reserve(keys.size() * 2);
-    for (uint64_t k : keys) {
-        e.edges.push_back((uint32_t)(k >> 32));
-        e.edges.push_back((uint32_t)k);
-    }
+    collision_edges(e.data, e.edges);
     return &e;
 }
 
-uint32_t CollisionPreview::color(const CollisionComponent& p_collision)
+mat4 collision_shape_matrix(const CollisionShapeEntry& p_shape)
+{
+    return translate(mat4(1.0f), p_shape.position) * mat4_cast(quat(radians(p_shape.rotation)));
+}
+
+uint32_t collision_color(const CollisionComponent& p_collision)
 {
     if (p_collision.trigger) return DebugDraw::YELLOW;
     switch (p_collision.motion) {
@@ -65,14 +45,35 @@ uint32_t CollisionPreview::color(const CollisionComponent& p_collision)
     }
 }
 
+void collision_edges(const LCollision& p_collision, std::vector<uint32_t>& r_edges)
+{
+    r_edges.clear();
+    std::vector<uint64_t> keys;
+    keys.reserve(p_collision.indices.size());
+    for (size_t i = 0; i + 2 < p_collision.indices.size(); i += 3) {
+        for (int k = 0; k < 3; k++) {
+            const uint32_t a = p_collision.indices[i + k];
+            const uint32_t b = p_collision.indices[i + (k + 1) % 3];
+            keys.push_back(((uint64_t)std::min(a, b) << 32) | std::max(a, b));
+        }
+    }
+    std::sort(keys.begin(), keys.end());
+    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    r_edges.reserve(keys.size() * 2);
+    for (uint64_t k : keys) {
+        r_edges.push_back((uint32_t)(k >> 32));
+        r_edges.push_back((uint32_t)k);
+    }
+}
+
 static float _max_scale(const mat4& p_m)
 {
     return std::max(length(vec3(p_m[0])), std::max(length(vec3(p_m[1])), length(vec3(p_m[2]))));
 }
 
-void CollisionPreview::draw_model(DebugDraw& r_draw, const mat4& p_transform, const Entry& p_entry, const DebugDraw::Style& p_style)
+void debug_draw_lcollision(DebugDraw& r_draw, const mat4& p_transform, const LCollision& p_collision, const std::vector<uint32_t>& p_edges, const DebugDraw::Style& p_style, bool p_meshes)
 {
-    const LCollision& c = p_entry.data;
+    const LCollision& c = p_collision;
     const float scale = _max_scale(p_transform);
     switch (c.type) {
         case CollisionType::BOX:
@@ -86,15 +87,18 @@ void CollisionPreview::draw_model(DebugDraw& r_draw, const mat4& p_transform, co
             r_draw.capsule(vec3(p_transform * vec4(c.center - axis * c.half_height, 1.0f)), vec3(p_transform * vec4(c.center + axis * c.half_height, 1.0f)), c.radius * scale, p_style);
             return;
         }
+        case CollisionType::MESH:
+            if (!p_meshes) return;
+            break;
         default:
-            for (size_t i = 0; i + 1 < p_entry.edges.size(); i += 2) {
-                r_draw.line(vec3(p_transform * vec4(c.vertices[p_entry.edges[i]], 1.0f)), vec3(p_transform * vec4(c.vertices[p_entry.edges[i + 1]], 1.0f)), p_style);
-            }
-            return;
+            break;
+    }
+    for (size_t i = 0; i + 1 < p_edges.size(); i += 2) {
+        r_draw.line(vec3(p_transform * vec4(c.vertices[p_edges[i]], 1.0f)), vec3(p_transform * vec4(c.vertices[p_edges[i + 1]], 1.0f)), p_style);
     }
 }
 
-void CollisionPreview::draw_shape(DebugDraw& r_draw, const mat4& p_world, const CollisionShapeEntry& p_shape, const Entry* p_model, const DebugDraw::Style& p_style)
+void debug_draw_collision_shape(DebugDraw& r_draw, const mat4& p_world, const CollisionShapeEntry& p_shape, const CollisionMeshCache::Entry* p_model, const DebugDraw::Style& p_style, bool p_meshes)
 {
     const mat4 m = p_world * collision_shape_matrix(p_shape);
     const float scale = _max_scale(p_world);
@@ -109,41 +113,11 @@ void CollisionPreview::draw_shape(DebugDraw& r_draw, const mat4& p_world, const 
             r_draw.capsule(vec3(m * vec4(0.0f, -p_shape.half_height, 0.0f, 1.0f)), vec3(m * vec4(0.0f, p_shape.half_height, 0.0f, 1.0f)), p_shape.radius * scale, p_style);
             return;
         case CollisionShapeType::MODEL:
-            if (p_model) draw_model(r_draw, m, *p_model, p_style);
+            if (p_model) debug_draw_lcollision(r_draw, m, p_model->data, p_model->edges, p_style, p_meshes);
             return;
         default:
             return;
     }
-}
-
-void CollisionPreview::draw_world(DebugDraw& r_draw, const World& p_world, const Renderer& p_renderer, const Project& p_project)
-{
-    p_world.view<TransformComponent, CollisionComponent>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
-        const mat4 world = p_world.world_matrix(p_entity);
-        const DebugDraw::Style style{ .color = color(p_collision), .category = DebugCategory::COLLISION };
-        const Entry* model = nullptr;
-        for (uint32_t i = 0; i < std::min(p_collision.shape_count, COLLISION_MAX_SHAPES); i++) {
-            const CollisionShapeEntry& shape = p_collision.shapes[i];
-            if (shape.type == CollisionShapeType::MODEL && !model) {
-                const ModelComponent* m = p_world.try_get<ModelComponent>(p_entity);
-                const uint32_t mesh_index = m ? p_renderer.models.mesh_index(m->model) : UINT32_MAX;
-                if (p_renderer.geometry.get(mesh_index)) {
-                    const Guid mesh = p_renderer.geometry.mesh_guids[mesh_index];
-                    model = get(mesh, p_project.content_path(mesh));
-                }
-            }
-            draw_shape(r_draw, world, shape, model, style);
-        }
-    });
-
-    p_world.view<TransformComponent, LocomotionComponent>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const LocomotionComponent& p_body) {
-        const CharacterStateComponent* state = p_world.try_get<CharacterStateComponent>(p_entity);
-        const vec3 base = state ? state->character.position : vec3(p_world.world_matrix(p_entity)[3]);
-        const float height = state && state->character.stance == Stance::CROUCHING ? p_body.crouch_height : p_body.height;
-        const float radius = std::min(p_body.radius, height * 0.5f);
-        const vec3 up(0.0f, 1.0f, 0.0f);
-        r_draw.capsule(base + up * radius, base + up * (height - radius), radius, DebugDraw::Style{ .color = DebugDraw::YELLOW, .category = DebugCategory::COLLISION });
-    });
 }
 
 }

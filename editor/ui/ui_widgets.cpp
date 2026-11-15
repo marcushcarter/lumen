@@ -18,7 +18,7 @@ void ui_menu_push_style()
     const UiStyle& ui = ui_style();
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ui.color.menu_back);
     ImGui::PushStyleColor(ImGuiCol_Border, ui.color.menu_outline);
-    ImGui::PushStyleColor(ImGuiCol_Separator, ui_hex_over(UiStyle::Palette::SEPARATOR, UiStyle::Palette::MENU_BACK));
+    ImGui::PushStyleColor(ImGuiCol_Separator, ui_hex_over(ui_style().pal.SEPARATOR, ui_style().pal.MENU_BACK));
     ImGui::PushStyleColor(ImGuiCol_Header, ui.color.accent);
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ui.color.accent);
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui.color.accent);
@@ -39,6 +39,19 @@ void ui_menu_pop_style()
 {
     ImGui::PopStyleVar(6);
     ImGui::PopStyleColor(11);
+}
+
+void ui_dropdown_push_style()
+{
+    ui_menu_push_style();
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ui_style().color.field);
+    ImGui::PushStyleColor(ImGuiCol_Border, ui_style().color.field);
+}
+
+void ui_dropdown_pop_style()
+{
+    ImGui::PopStyleColor(2);
+    ui_menu_pop_style();
 }
 
 void ui_context_menu_push_style()
@@ -467,7 +480,7 @@ bool ui_category(const char* p_label, bool* r_remove, bool* r_revert)
     const float text_y = ImFloor(y0 + (h - ImGui::GetFontSize()) * 0.5f);
     dl->AddText(ImVec2(min_x + d.header_indent, text_y), r_revert ? ui.color.accent : ui.color.text, p_label, ImGui::FindRenderedTextEnd(p_label));
     if (r_revert) dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(min_x + ui.space.xxs * 2.0f, y1), ui.color.accent, pb.rounding, ImDrawFlags_RoundCornersLeft);
-    _panel_grip(dl, ImVec2(max_x - ui.space.md, cy), ui_hex(0x6b6b6bff));
+    _panel_grip(dl, ImVec2(max_x - ui.space.md, cy), ui.color.text_dim);
     dl->PopClipRect();
 
     if (r_remove) {
@@ -486,7 +499,7 @@ bool ui_category(const char* p_label, bool* r_remove, bool* r_revert)
         ImGui::PushStyleColor(ImGuiCol_Border, ui.color.transparent);
         *r_revert = ImGui::Button(ICON_FA_ROTATE_LEFT "##revert", ImVec2(button, button));
         ImGui::PopStyleColor(2);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the prefab's value");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the template's value");
     }
 
     ImGui::SetCursorScreenPos(ImVec2(min_x, y0));
@@ -571,7 +584,7 @@ bool ui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p
         if (p_count == 1) corners = ImDrawFlags_RoundCornersAll;
         else if (i == 0) corners = ImDrawFlags_RoundCornersTop;
         else if (i == p_count - 1) corners = ImDrawFlags_RoundCornersBottom;
-        const ImU32 fill = active ? ui_hex(UiStyle::Palette::NUM_ACTIVE) : (hovered ? ui.color.field_hover : ui.color.field);
+        const ImU32 fill = active ? ui_hex(ui.pal.NUM_ACTIVE) : (hovered ? ui.color.field_hover : ui.color.field);
         dl->AddRectFilled(a, b, fill, rounding, corners);
         if (i > 0) dl->AddRectFilled(ImVec2(a.x, a.y), ImVec2(b.x, a.y + 1.0f), ui.color.outline);
         splitter.Merge(dl);

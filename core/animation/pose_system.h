@@ -11,7 +11,7 @@ namespace lumen {
 
 using namespace glm;
 
-struct World;
+struct Scene;
 struct Renderer;
 
 struct PoseSystem
@@ -30,7 +30,7 @@ struct PoseSystem
     std::vector<mat4> _global;
 
     void load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir);
-    void update(World& r_world, const Renderer& p_renderer, float p_dt);
+    void update(Scene& r_world, const Renderer& p_renderer, float p_dt);
     void clear();
 
     const Binding* _binding(const Renderer& p_renderer, uint32_t p_mesh_index);

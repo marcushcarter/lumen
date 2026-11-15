@@ -1,7 +1,7 @@
 #include <core/rendering/renderer.h>
 #include <core/rendering/render_path/render_path.h>
-#include <core/world/world.h>
-#include <core/world/components.h>
+#include <core/scene/scene.h>
+#include <core/scene/components.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
@@ -417,7 +417,7 @@ static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, b
     return (uint32_t)r_frame.skins_scratch.size() - 1;
 }
 
-void Renderer::_frame_build(RenderView& r_view, const World& p_world)
+void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
 {
     FrameData& frame = r_view.frame;
     const Camera& camera = r_view.camera;
@@ -428,7 +428,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     StaticInstances& static_insts = frame.static_insts;
     if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version || static_insts.model_version != models.version) {
         static_insts.clear();
-        p_world.view<TransformComponent, ModelComponent, StaticTag>(Exclude<EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model, const StaticTag&) {
+        p_world.view<TransformComponent, ModelComponent, StaticTag>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model, const StaticTag&) {
             if (static_insts.instances.size() >= MAX_INSTANCES) return;
             uint32_t mesh_index, slot_base;
             models.lookup(p_model.model, mesh_index, slot_base);
@@ -446,7 +446,7 @@ void Renderer::_frame_build(RenderView& r_view, const World& p_world)
     }
 
     const uint32_t base = static_insts.count();
-    p_world.view<TransformComponent, ModelComponent>(Exclude<StaticTag, EditorHiddenTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model) {
+    p_world.view<TransformComponent, ModelComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model) {
         if (base + frame.instances_scratch.size() >= MAX_INSTANCES) return;
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
         FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
@@ -623,7 +623,7 @@ Error Renderer::acquire_frame()
     return OK;
 }
 
-Error Renderer::begin_frame(const World& p_world, bool p_scene)
+Error Renderer::begin_frame(const Scene& p_world, bool p_scene)
 {
     using enum Error;
 
@@ -659,14 +659,14 @@ Error Renderer::begin_frame(const World& p_world, bool p_scene)
     return OK;
 }
 
-void Renderer::_view_begin(RenderView& r_view, const World& p_world)
+void Renderer::_view_begin(RenderView& r_view, const Scene& p_world)
 {
     CpuProfiler& cpu = cpu_profiler();
     _view_collect_hiz(r_view, false);
 
-    if (&p_world != r_view._last_world) {
+    if (&p_world != r_view._last_scene) {
         _view_reset(r_view);
-        r_view._last_world = &p_world;
+        r_view._last_scene = &p_world;
     }
 
     cpu.zone_begin("Scene Gather");
@@ -691,7 +691,7 @@ void Renderer::_view_begin(RenderView& r_view, const World& p_world)
 
 void Renderer::_view_reset(RenderView& r_view)
 {
-    r_view._last_world = nullptr;
+    r_view._last_scene = nullptr;
     r_view.frame.entity_cache.clear();
     r_view.frame.static_insts.clear();
     r_view.hiz_reset_pending = true;
@@ -730,7 +730,7 @@ void Renderer::view_destroy(RenderView& r_view)
     _view_reset(r_view);
 }
 
-Error Renderer::view_render(RenderView& r_view, const World& p_world)
+Error Renderer::view_render(RenderView& r_view, const Scene& p_world)
 {
     using enum Error;
     if (!frame_acquired || !r_view.path) return FAILED;

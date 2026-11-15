@@ -9,13 +9,13 @@
 #include <core/rendering/resources/skeleton_cache.h>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/render_context.h>
-#include <core/rendering/world_gpu.h>
-#include <core/world/camera.h>
+#include <core/rendering/scene_gpu.h>
+#include <core/scene/camera.h>
 #include <core/base/error.h>
 
 namespace lumen {
 
-struct World;
+struct Scene;
 
 struct Renderer
 {
@@ -80,10 +80,10 @@ struct Renderer
     void _view_destroy_hiz(RenderView& r_view);
     void _view_collect_hiz(RenderView& r_view, bool p_all);
     void _view_reset(RenderView& r_view);
-    void _view_begin(RenderView& r_view, const World& p_world);
+    void _view_begin(RenderView& r_view, const Scene& p_world);
     Error view_create(RenderView& r_view, uint32_t p_width, uint32_t p_height);
     void view_destroy(RenderView& r_view);
-    Error view_render(RenderView& r_view, const World& p_world);
+    Error view_render(RenderView& r_view, const Scene& p_world);
 
     /***************/
     /**** FRAME ****/
@@ -91,12 +91,12 @@ struct Renderer
 
     bool frame_acquired = false;
 
-    void _frame_build(RenderView& r_view, const World& p_world);
+    void _frame_build(RenderView& r_view, const Scene& p_world);
     void _frame_upload(RenderView& r_view);
     void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }
     void camera_cut() { main_view.camera_cut_pending = true; }
     Error acquire_frame();
-    Error begin_frame(const World& p_world, bool p_scene = true);
+    Error begin_frame(const Scene& p_world, bool p_scene = true);
     Error compile();
     Error record();
     Error end_frame();

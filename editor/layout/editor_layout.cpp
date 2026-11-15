@@ -1,356 +1,163 @@
 #include <editor/layout/editor_layout.h>
-#include <core/base/console.h>
-#include <core/base/error.h>
-#include <core/version.h>
-#include <editor/ui/tab_strip.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/ui/ui_style.h>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <cstring>
 
 namespace lumen {
 
-void EditorLayout::initialize(const char* p_host_id)
-{
-    host_id = p_host_id;
-    bottom.zone = DockZone::BOTTOM;
-    left.top.zone = DockZone::LEFT_TOP;
-    left.bottom.zone = DockZone::LEFT_BOTTOM;
-    right.top.zone = DockZone::RIGHT_TOP;
-    right.bottom.zone = DockZone::RIGHT_BOTTOM;
-}
+static constexpr const char* ZONE_LABELS[] = { "Left Top", "Left Bottom", "Right Top", "Right Bottom", "Bottom" };
 
-void EditorLayout::shutdown()
-{
-    for (DockWell* w : wells()) w->slots.clear();
-    for (auto& p : owned) p->shutdown();
-    slots.clear();
-    owned.clear();
-}
-
-void EditorLayout::add_shared(Panel* p_panel)
-{
-    if (p_panel->hidden()) return;
-    p_panel->_resolve_names();
-    slots.push_back({ p_panel, p_panel->default_zone(), p_panel->default_open() });
-}
-
-DockSlot* EditorLayout::find(const char* p_name)
-{
-    for (DockSlot& s : slots) if (std::strcmp(s.panel->layout_id, p_name) == 0 || std::strcmp(s.panel->title, p_name) == 0) return &s;
-    return nullptr;
-}
-
-DockSlot* EditorLayout::find(const Panel* p_panel)
-{
-    for (DockSlot& s : slots) if (s.panel == p_panel) return &s;
-    return nullptr;
-}
-
-DockWell& EditorLayout::well(DockZone p_zone)
+const char* to_string(DockZone p_zone)
 {
     switch (p_zone) {
-        case DockZone::BOTTOM: return bottom;
-        case DockZone::LEFT_TOP: return left.top;
-        case DockZone::LEFT_BOTTOM: return left.bottom;
-        case DockZone::RIGHT_TOP: return right.top;
-        case DockZone::RIGHT_BOTTOM: return right.bottom;
+        case DockZone::LEFT_TOP: return "LeftTop";
+        case DockZone::LEFT_BOTTOM: return "LeftBottom";
+        case DockZone::RIGHT_TOP: return "RightTop";
+        case DockZone::RIGHT_BOTTOM: return "RightBottom";
+        case DockZone::BOTTOM: return "Bottom";
+        case DockZone::COUNT: break;
     }
-    return right.bottom;
+    return "LeftTop";
 }
 
-void EditorLayout::_uncollapse(DockZone p_zone)
+DockZone dock_zone_from_string(std::string_view p_name, DockZone p_fallback)
 {
-    if ((p_zone == DockZone::LEFT_TOP || p_zone == DockZone::LEFT_BOTTOM) && left.collapsed) {
-        left.collapsed = false;
-        split_left = DEFAULT_SPLIT_LEFT;
+    for (size_t i = 0; i < EditorLayout::ZONES; i++) {
+        if (p_name == to_string((DockZone)i)) return (DockZone)i;
     }
-    if ((p_zone == DockZone::RIGHT_TOP || p_zone == DockZone::RIGHT_BOTTOM) && right.collapsed) {
-        right.collapsed = false;
-        split_right = DEFAULT_SPLIT_RIGHT;
+    return p_fallback;
+}
+
+void EditorLayout::add(Panel* p_panel, DockZone p_zone, bool p_open)
+{
+    slots.push_back({ p_panel, p_zone, p_open });
+}
+
+void EditorLayout::set_document(const std::vector<Slot>& p_slots, bool p_locked)
+{
+    document_slots = p_slots;
+    document_locked = p_locked;
+}
+
+DockZone EditorLayout::document_zone(const Panel* p_panel, DockZone p_fallback) const
+{
+    const auto it = document_zones.find(p_panel->name());
+    return it == document_zones.end() ? p_fallback : it->second;
+}
+
+void EditorLayout::open(Panel* p_panel)
+{
+    for (Slot& s : slots) {
+        if (s.panel != p_panel) continue;
+        s.open = true;
+        active[(size_t)s.zone] = s.panel->name();
     }
-    if (p_zone == DockZone::BOTTOM && bottom_collapsed) {
-        bottom_collapsed = false;
-        center_split = OPEN_SPLIT;
-    }
 }
 
-void EditorLayout::open_panel(DockSlot& r_slot)
+bool EditorLayout::is_open(const Panel* p_panel) const
 {
-    r_slot.open = true;
-    well(r_slot.zone).active_name = r_slot.panel->layout_id;
-    _uncollapse(r_slot.zone);
+    for (const Slot& s : slots) if (s.panel == p_panel) return s.open;
+    return false;
 }
 
-void EditorLayout::_apply_drop()
+EditorLayout::Slot* EditorLayout::find(std::string_view p_name)
 {
-    if (!pending_drop.panel) return;
-    if (DockSlot* s = find(pending_drop.panel)) {
-        s->zone = pending_drop.zone;
-        open_panel(*s);
-    }
-    pending_drop = {};
+    for (Slot& s : slots) if (p_name == s.panel->name()) return &s;
+    return nullptr;
 }
 
-EditorLayout::CornerState EditorLayout::_corner_splitter(const char* p_id, ImVec2 p_cross, bool p_h_left, ImVec2 p_v_min, ImVec2 p_v_max, ImVec2 p_h_min, ImVec2 p_h_max)
+bool EditorLayout::has(DockZone p_zone) const
 {
-    CornerState s;
-    const UiStyle& ui = ui_style();
-    const float gap = ui.dock.gap;
-    ImGui::PushID(p_id);
-
-    ImGui::SetCursorScreenPos(ImVec2(p_cross.x, p_cross.y - CORNER_REACH));
-    ImGui::InvisibleButton("##v", ImVec2(gap, gap + CORNER_REACH * 2.0f));
-    s.hovered |= ImGui::IsItemHovered();
-    s.active |= ImGui::IsItemActive();
-    s.activated |= ImGui::IsItemActivated();
-
-    ImGui::SetCursorScreenPos(ImVec2(p_h_left ? p_cross.x - CORNER_REACH : p_cross.x + gap, p_cross.y));
-    ImGui::InvisibleButton("##h", ImVec2(CORNER_REACH, gap));
-    s.hovered |= ImGui::IsItemHovered();
-    s.active |= ImGui::IsItemActive();
-    s.activated |= ImGui::IsItemActivated();
-
-    ImGui::PopID();
-
-    if (!s.hovered && !s.active) return s;
-
-    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    if (s.active) s.delta = ImGui::GetIO().MouseDelta;
-
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered);
-    const float cx = ImFloor((p_v_min.x + p_v_max.x) * 0.5f);
-    const float cy = ImFloor((p_h_min.y + p_h_max.y) * 0.5f);
-    const float half = ui.splitter.line_width * 0.5f;
-    dl->AddRectFilled(ImVec2(cx - half, p_v_min.y), ImVec2(cx + half, p_v_max.y), col);
-    dl->AddRectFilled(ImVec2(p_h_min.x, cy - half), ImVec2(p_h_max.x, cy + half), col);
-    return s;
+    for (const Slot& s : slots) if (s.open && s.zone == p_zone) return true;
+    for (const Slot& s : document_slots) if (s.open && s.zone == p_zone) return true;
+    return false;
 }
 
-void EditorLayout::_apply_split_left(float p_delta, bool p_activated, float p_body_w)
+Panel* EditorLayout::_active(DockZone p_zone)
 {
-    if (left.collapsed && p_activated) split_left = 0.0f;
-    split_left += p_delta / p_body_w;
-    left.collapsed = split_left < MIN_DOCKWELL;
+    Panel* first = nullptr;
+    Panel* found = nullptr;
+    std::string& name = active[(size_t)p_zone];
+    _each([&](Slot& s) {
+        if (s.zone != p_zone || found) return;
+        if (!first) first = s.panel;
+        if (name == s.panel->name()) found = s.panel;
+    });
+    if (found) return found;
+    if (first) name = first->name();
+    return first;
 }
 
-void EditorLayout::_apply_split_right(float p_delta, bool p_activated, float p_body_w)
+void EditorLayout::_draw_well(EditorContext& ctx, DockZone p_zone, ImVec2 p_min, ImVec2 p_max)
 {
-    if (right.collapsed && p_activated) split_right = 1.0f;
-    split_right += p_delta / p_body_w;
-    right.collapsed = (1.0f - split_right < MIN_DOCKWELL);
-}
+    Panel* current = _active(p_zone);
+    if (!current) return;
+    const float header_h = panel_header_height();
+    ImGui::PushID(to_string(p_zone));
 
-float EditorLayout::_layout_center(float p_top, float p_bottom)
-{
-    const float h = ImMax(1.0f, p_bottom - p_top);
-    if (!bottom.has_open()) {
-        usable_h = h;
-        scene_h = h;
-        bottom_h = 0.0f;
-        bottom_was_open = false;
-        return p_top + scene_h;
-    }
-    usable_h = ImMax(1.0f, h - ui_style().dock.gap);
-    if (!bottom_was_open) center_split = OPEN_SPLIT;
-    bottom_was_open = true;
-    if (bottom_collapsed) {
-        usable_h = h;
-        scene_h = h;
-        bottom_h = 0.0f;
-        return p_top + scene_h;
-    }
-    const float min_r = 1.0f - MAX_DRAWER;
-    float max_r = drawer_dragging ? 1.0f : 1.0f - MIN_DRAWER;
-    if (max_r < min_r) max_r = min_r;
-    center_split = ImClamp(center_split, min_r, max_r);
-    const bool snapped = drawer_dragging && 1.0f - center_split < MIN_DRAWER;
-    scene_h = snapped ? usable_h : ImFloor(usable_h * center_split);
-    bottom_h = usable_h - scene_h;
-    return p_top + scene_h;
-}
+    const ImVec2 header_max(p_max.x, p_min.y + header_h);
+    uint32_t count = 0;
+    Panel* panels[MAX_PER_WELL] = {};
+    PanelTab tabs[MAX_PER_WELL];
+    bool document = false;
+    _each([&](Slot& s) {
+        if (s.zone != p_zone || count >= MAX_PER_WELL) return;
+        panels[count] = s.panel;
+        tabs[count].name = s.panel->name();
+        tabs[count].icon = s.panel->icon();
+        tabs[count].active = s.panel == current;
+        if (s.panel == current) document = &s >= document_slots.data() && &s < document_slots.data() + document_slots.size();
+        count++;
+    });
+    const PanelTabResult r = panel_tab_bar(tabs, (int)count, p_min, header_max, true);
+    if (r.clicked >= 0) active[(size_t)p_zone] = panels[r.clicked]->name();
+    if (r.menu) ImGui::OpenPopup("##well_menu");
 
-void EditorLayout::_apply_center_delta(float p_delta, bool p_activated)
-{
-    if (p_activated) {
-        if (bottom_collapsed) {
-            bottom_collapsed = false;
-            center_split = 1.0f;
+    ui_menu_push_style();
+    if (ImGui::BeginPopup("##well_menu")) {
+        for (size_t z = 0; z < ZONES; z++) {
+            if (ImGui::MenuItem(ZONE_LABELS[z], nullptr, (DockZone)z == p_zone) && (DockZone)z != p_zone) pending = { current, (DockZone)z };
         }
-        drawer_dragging = true;
-        drawer_drag_start = center_split;
+        if (current->closable()) {
+            ImGui::Separator();
+            if (ImGui::MenuItem("Close")) close_request = current;
+        }
+        ImGui::EndPopup();
     }
-    center_split += p_delta / usable_h;
+    ui_menu_pop_style();
+
+    const bool lock = document && document_locked;
+    if (lock) ImGui::BeginDisabled();
+    panel_body(ctx, *current, ImVec2(p_min.x, header_max.y), p_max);
+    if (lock) ImGui::EndDisabled();
+    ImGui::PopID();
 }
 
-void EditorLayout::_end_drawer_drag()
+void EditorLayout::_draw_column(EditorContext& ctx, DockZone p_top, DockZone p_bottom, float& r_split, ImVec2 p_min, ImVec2 p_max, const char* p_id)
 {
-    drawer_dragging = false;
-    if (1.0f - center_split >= MIN_DRAWER) return;
-    bottom_collapsed = true;
-    center_split = drawer_drag_start < 1.0f - MIN_DRAWER ? drawer_drag_start : OPEN_SPLIT;
-}
-
-void EditorLayout::_draw_scene(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
-{
-    if (_toolbar && *_toolbar) {
-        const UiStyle& ui = ui_style();
-        const float bar_h = ImMin(ui.header.height, ImMax(1.0f, p_max.y - p_min.y));
-        ImGui::SetCursorScreenPos(p_min);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ui.color.transparent);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::BeginChild("##topbar", ImVec2(ImMax(1.0f, p_max.x - p_min.x), bar_h), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-        (*_toolbar)(ctx);
-        const ImVec2 hmin = ImGui::GetWindowPos();
-        const ImVec2 hmax(hmin.x + ImGui::GetWindowSize().x, hmin.y + ImGui::GetWindowSize().y);
-        if (!center && viewport_in_header) viewport.draw_header_controls(ctx, hmin, hmax);
-        ImGui::EndChild();
-        p_min.y += bar_h;
-        if (p_max.y - p_min.y < 1.0f) return;
-    }
-    if (center) center(ctx, p_min, p_max);
-    else viewport.draw(ctx, p_min, p_max);
-}
-
-void EditorLayout::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
-{
-    const float gap = ui_style().dock.gap;
-    const float w = p_max.x - p_min.x;
-
-    _draw_scene(ctx, p_min, ImVec2(p_max.x, p_min.y + ImMax(1.0f, scene_h)));
-
-    if (!bottom.has_open()) return;
-    ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + scene_h));
-    SplitterState s = ui_splitter("##vsplit", SplitAxis::Y, ImVec2(w, gap), 0.0f);
-    if (s.active) _apply_center_delta(s.delta, s.activated);
-
-    const float by = p_min.y + scene_h + gap;
-    if (bottom_h >= 1.0f) bottom.draw(ctx, ImVec2(p_min.x, by), ImVec2(p_max.x, by + bottom_h));
-}
-
-void EditorLayout::_column_layout(Column& r_column, bool p_dragging, float p_col_h, bool& r_top, bool& r_bottom, float& r_top_h)
-{
-    r_top = r_column.top.has_open() || p_dragging;
-    r_bottom = r_column.bottom.has_open() || p_dragging;
-    if (!r_top && !r_bottom) r_top = true;
-    r_top_h = 0.0f;
-    if (r_top && r_bottom) {
-        r_column.split_y = ImClamp(r_column.split_y, MIN_WELL, 1.0f - MIN_WELL);
-        r_top_h = ImFloor(p_col_h * r_column.split_y);
-    }
-}
-
-void EditorLayout::_draw_column(EditorContext& ctx, Column& r_column, bool p_dragging, ImVec2 p_min, ImVec2 p_max)
-{
-    const float gap = ui_style().dock.gap;
-    const float w = p_max.x - p_min.x;
-    const float col_h = ImMax(1.0f, (p_max.y - p_min.y) - gap);
-    bool show_top = false;
-    bool show_bottom = false;
-    float top_h = 0.0f;
-    _column_layout(r_column, p_dragging, col_h, show_top, show_bottom, top_h);
-
-    if (!(show_top && show_bottom)) {
-        (show_top ? r_column.top : r_column.bottom).draw(ctx, p_min, p_max);
+    const float gap = ui_style().splitter.gap;
+    const bool top = has(p_top);
+    const bool bottom = has(p_bottom);
+    if (!(top && bottom)) {
+        _draw_well(ctx, top ? p_top : p_bottom, p_min, p_max);
         return;
     }
-    r_column.top.draw(ctx, p_min, ImVec2(p_max.x, p_min.y + top_h));
-    ImGui::PushID(to_string(r_column.top.zone));
+    const float h = ImMax(1.0f, p_max.y - p_min.y - gap);
+    const float min_r = ImMin(0.5f, MIN_SIDE_PX / h);
+    r_split = ImClamp(r_split, min_r, 1.0f - min_r);
+    const float top_h = ImFloor(h * r_split);
+    _draw_well(ctx, p_top, p_min, ImVec2(p_max.x, p_min.y + top_h));
     ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + top_h));
-    SplitterState sy = ui_splitter("##split_tb", SplitAxis::Y, ImVec2(w, gap), 0.0f);
-    if (sy.active) r_column.split_y += sy.delta / col_h;
-    ImGui::PopID();
-    r_column.bottom.draw(ctx, ImVec2(p_min.x, p_min.y + top_h + gap), p_max);
+    const SplitterState s = ui_splitter(p_id, SplitAxis::Y, ImVec2(p_max.x - p_min.x, gap), 0.0f);
+    if (s.active) r_split += s.delta / h;
+    _draw_well(ctx, p_bottom, ImVec2(p_min.x, p_min.y + top_h + gap), p_max);
 }
 
-void EditorLayout::_edge_target(const char* p_id, ImVec2 p_min, DockZone p_zone)
+void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&, ImVec2, ImVec2)>& p_toolbar)
 {
     const UiStyle& ui = ui_style();
-    const float size = ui.dock.edge_target_size;
-    const float inset = ui.dock.edge_target_inset;
-    const float rounding = ui.dock.edge_target_rounding;
-    const ImVec2 p_max(p_min.x + size, p_min.y + size);
-
-    bool hovered = false;
-    if (ImGui::BeginDragDropTargetCustom(ImRect(p_min, p_max), ImGui::GetID(p_id))) {
-        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(DockWell::PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-            hovered = pl->IsPreview();
-            if (pl->IsDelivery()) pending_drop = { *reinterpret_cast<Panel* const*>(pl->Data), p_zone };
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    ImDrawList* fg = ImGui::GetForegroundDrawList(ImGui::GetWindowViewport());
-    fg->AddRectFilled(p_min, p_max, ui.color.chrome, rounding);
-    if (hovered) fg->AddRectFilled(p_min, p_max, ui.color.drop_fill, rounding);
-    fg->AddRect(p_min, p_max, hovered ? ui.color.drop_line : ui.color.line, rounding, 0, ui.dock.drop_outline);
-
-    const ImVec2 a(p_min.x + inset, p_min.y + inset);
-    const ImVec2 b(p_max.x - inset, p_max.y - inset);
-    const float iw = b.x - a.x;
-    const float ih = b.y - a.y;
-    const float half_gap = ui.dock.gap * 0.5f;
-    ImVec2 ia = a;
-    ImVec2 ib = b;
-    switch (p_zone) {
-        case DockZone::LEFT_TOP: ib = ImVec2(a.x + iw * 0.4f, a.y + ih * 0.5f - half_gap); break;
-        case DockZone::LEFT_BOTTOM: ia = ImVec2(a.x, a.y + ih * 0.5f + half_gap); ib = ImVec2(a.x + iw * 0.4f, b.y); break;
-        case DockZone::RIGHT_TOP: ia = ImVec2(b.x - iw * 0.4f, a.y); ib = ImVec2(b.x, a.y + ih * 0.5f - half_gap); break;
-        case DockZone::RIGHT_BOTTOM: ia = ImVec2(b.x - iw * 0.4f, a.y + ih * 0.5f + half_gap); break;
-        case DockZone::BOTTOM: ia = ImVec2(a.x, b.y - ih * 0.4f); break;
-    }
-    fg->AddRect(a, b, ui.color.line, rounding * 0.5f);
-    fg->AddRectFilled(ImVec2(ImFloor(ia.x), ImFloor(ia.y)), ImVec2(ImFloor(ib.x), ImFloor(ib.y)), hovered ? ui.color.drop_line : ui.color.text_dim, rounding * 0.5f);
-}
-
-void EditorLayout::_draw_footer(ImVec2 p_min, ImVec2 p_max)
-{
-    const UiStyle& ui = ui_style();
-    const char* console_label = ICON_FA_TERMINAL "  Cmd";
-    float natural = TabStrip::natural_width(console_label);
-    for (const DockSlot& s : slots) if (s.panel->in_footer()) natural += TabStrip::natural_width(s.panel->title);
-
-    const char* version = LUMEN_VERSION_FULL_BUILD;
-    const ImVec2 version_size = ImGui::CalcTextSize(version);
-    const float version_w = version_size.x + ui.space.lg * 2.0f;
-
-    const float console_chrome = ui.console_bar.pad * 2.0f;
-    const float free_w = (p_max.x - p_min.x) - natural - console_chrome - version_w;
-    const float field_w = ImClamp(free_w, ui.console_bar.field_min_width, ui.console_bar.field_width);
-
-    TabStrip strip;
-    strip.begin("##footer", p_min, p_max, TabStrip::Edge::BOTTOM, natural, console_chrome + field_w + version_w);
-    strip.draw_list->AddText(ImVec2(ImFloor(p_max.x - ui.space.lg - version_size.x), ImFloor(p_min.y + (p_max.y - p_min.y - version_size.y) * 0.5f)), ui_hex(UiStyle::Palette::TEXT_STATUS), version);
-    for (DockSlot& s : slots) {
-        if (s.panel->in_footer() && strip.button(s.panel->title, s.open)) open_panel(s);
-    }
-    strip.text(console_label);
-    if (strip.console_field("##console_cmd", "Enter Console Command", console_buffer, sizeof(console_buffer), field_w) && console_buffer[0] != '\0') {
-        log_write("> %s", console_buffer);
-        console_execute(console_buffer);
-        console_buffer[0] = '\0';
-    }
-    strip.end();
-}
-
-void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&)>& p_toolbar)
-{
-    const UiStyle& ui = ui_style();
-    const float gap = ui.dock.gap;
-    _toolbar = &p_toolbar;
-
-    for (DockWell* w : wells()) {
-        w->slots.clear();
-        w->dropped = nullptr;
-    }
-    for (DockSlot& s : slots) {
-        if (s.panel->pinned()) s.open = true;
-        well(s.zone).slots.push_back(&s);
-    }
+    const float gap = ui.splitter.gap;
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -360,7 +167,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.editor_border);
-    ImGui::Begin(host_id.c_str(), nullptr,
+    ImGui::Begin("##EditorHost", nullptr,
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
@@ -374,124 +181,75 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     area_min = origin;
     area_max = end;
 
-    const float body_y = origin.y;
-
-    const float footer_y = end.y - TabStrip::height();
-    const float body_max_y = ImMax(body_y + 1.0f, footer_y - gap);
-    const float body_h = body_max_y - body_y;
-    const float col_h = ImMax(1.0f, body_h - gap);
-
-    const ImGuiPayload* payload = ImGui::GetDragDropPayload();
-    const bool dragging = payload && payload->IsDataType(DockWell::PAYLOAD);
-
-    const bool left_live = left.top.has_open() || left.bottom.has_open();
-    const bool right_live = right.top.has_open() || right.bottom.has_open();
-    const bool left_shown = left_live && !left.collapsed;
-    const bool right_shown = right_live && !right.collapsed;
-
-    const float body_w = ImMax(1.0f, extent.x - (left_live ? gap : 0.0f) - (right_live ? gap : 0.0f));
-    float lf = 0.0f;
-    float rf = 0.0f;
-    if (right_shown) {
-        rf = ImClamp(1.0f - split_right, MIN_DOCKWELL, MAX_DOCKWELL);
-        split_right = 1.0f - rf;
+    float body_y = origin.y;
+    if (p_toolbar) {
+        const float bar_h = ui.toolbar.main_height;
+        p_toolbar(ctx, origin, ImVec2(end.x, origin.y + bar_h));
+        body_y += bar_h + gap;
     }
-    if (left_shown) {
-        const float hi = ImMax(MIN_DOCKWELL, ImMin(MAX_DOCKWELL, 1.0f - MIN_CENTER - rf));
-        lf = ImClamp(split_left, MIN_DOCKWELL, hi);
-        split_left = lf;
+    const float body_h = ImMax(1.0f, end.y - body_y);
+
+    const bool left = has(DockZone::LEFT_TOP) || has(DockZone::LEFT_BOTTOM);
+    const bool right = has(DockZone::RIGHT_TOP) || has(DockZone::RIGHT_BOTTOM);
+    const bool bottom = has(DockZone::BOTTOM);
+
+    const float avail_w = ImMax(1.0f, extent.x - (left ? gap : 0.0f) - (right ? gap : 0.0f));
+    const float max_side = ImMax(MIN_SIDE_PX, avail_w - MIN_CENTER_PX);
+    if (right) right_w = ImClamp(right_w, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, max_side - (left ? MIN_SIDE_PX : 0.0f)));
+    if (left) left_w = ImClamp(left_w, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, max_side - (right ? right_w : 0.0f)));
+    const float lw = left ? ImFloor(left_w) : 0.0f;
+    const float rw = right ? ImFloor(right_w) : 0.0f;
+    const float lx1 = origin.x + lw;
+    const float cx0 = lx1 + (left ? gap : 0.0f);
+    const float rx0 = end.x - rw;
+    const float cx1 = rx0 - (right ? gap : 0.0f);
+
+    float center_y1 = end.y;
+    if (bottom) {
+        bottom_h = ImClamp(bottom_h, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, body_h - MIN_CENTER_PX));
+        center_y1 = end.y - ImFloor(bottom_h) - gap;
     }
-    const float left_w = ImFloor(body_w * lf);
-    const float right_w = ImFloor(body_w * rf);
-    const float center_w = body_w - left_w - right_w;
 
-    const float lx0 = origin.x;
-    const float lx1 = lx0 + left_w;
-    const float cx0 = lx1 + (left_live ? gap : 0.0f);
-    const float cx1 = cx0 + center_w;
-    const float rx0 = cx1 + (right_live ? gap : 0.0f);
-    const float rx1 = end.x;
-
-    const float center_split_y = _layout_center(body_y, body_max_y);
-    const bool bottom_open = bottom.has_open();
-
-    bool lt = false, lb = false, rt = false, rb = false;
-    float lth = 0.0f, rth = 0.0f;
-    if (left_shown) _column_layout(left, dragging, col_h, lt, lb, lth);
-    if (right_shown) _column_layout(right, dragging, col_h, rt, rb, rth);
-
-    const ImVec2 left_v_min(lx1, body_y);
-    const ImVec2 left_v_max(cx0, body_max_y);
-    const ImVec2 right_v_min(cx1, body_y);
-    const ImVec2 right_v_max(rx0, body_max_y);
-    CornerState corner_left;
-    CornerState corner_right;
-    CornerState corner_center_left;
-    CornerState corner_center_right;
-    if (left_shown && lt && lb) corner_left = _corner_splitter("##corner_left", ImVec2(lx1, body_y + lth), true, left_v_min, left_v_max, ImVec2(lx0, body_y + lth), ImVec2(lx1, body_y + lth + gap));
-    if (right_shown && rt && rb) corner_right = _corner_splitter("##corner_right", ImVec2(cx1, body_y + rth), false, right_v_min, right_v_max, ImVec2(rx0, body_y + rth), ImVec2(rx1, body_y + rth + gap));
-    if (bottom_open && left_live) corner_center_left = _corner_splitter("##corner_center_left", ImVec2(lx1, center_split_y), false, left_v_min, left_v_max, ImVec2(cx0, center_split_y), ImVec2(cx1, center_split_y + gap));
-    if (bottom_open && right_live) corner_center_right = _corner_splitter("##corner_center_right", ImVec2(cx1, center_split_y), true, right_v_min, right_v_max, ImVec2(cx0, center_split_y), ImVec2(cx1, center_split_y + gap));
-
-    _draw_center(ctx, ImVec2(cx0, body_y), ImVec2(cx1, body_max_y));
-
-    if (left_live) {
+    if (center) center(ctx, ImVec2(cx0, body_y), ImVec2(cx1, center_y1));
+    if (bottom) {
+        ImGui::SetCursorScreenPos(ImVec2(cx0, center_y1));
+        const SplitterState sb = ui_splitter("##split_bottom", SplitAxis::Y, ImVec2(cx1 - cx0, gap), 0.0f);
+        if (sb.active) bottom_h -= sb.delta;
+        _draw_well(ctx, DockZone::BOTTOM, ImVec2(cx0, center_y1 + gap), ImVec2(cx1, end.y));
+    }
+    if (left) {
+        _draw_column(ctx, DockZone::LEFT_TOP, DockZone::LEFT_BOTTOM, left_split_y, ImVec2(origin.x, body_y), ImVec2(lx1, end.y), "##left_split_y");
         ImGui::SetCursorScreenPos(ImVec2(lx1, body_y));
-        SplitterState s = ui_splitter("##split_left", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
-        if (s.active) _apply_split_left(s.delta, s.activated, body_w);
+        const SplitterState sl = ui_splitter("##split_left", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
+        if (sl.active) left_w += sl.delta;
     }
-    if (right_live) {
+    if (right) {
+        _draw_column(ctx, DockZone::RIGHT_TOP, DockZone::RIGHT_BOTTOM, right_split_y, ImVec2(rx0, body_y), end, "##right_split_y");
         ImGui::SetCursorScreenPos(ImVec2(cx1, body_y));
-        SplitterState s = ui_splitter("##split_lr", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
-        if (s.active) _apply_split_right(s.delta, s.activated, body_w);
+        const SplitterState sr = ui_splitter("##split_right", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
+        if (sr.active) right_w -= sr.delta;
     }
 
-    if (left_shown) _draw_column(ctx, left, dragging, ImVec2(lx0, body_y), ImVec2(lx1, body_max_y));
-    if (right_shown) _draw_column(ctx, right, dragging, ImVec2(rx0, body_y), ImVec2(rx1, body_max_y));
-
-    if (corner_left.active) {
-        _apply_split_left(corner_left.delta.x, corner_left.activated, body_w);
-        left.split_y += corner_left.delta.y / col_h;
-    }
-    if (corner_right.active) {
-        _apply_split_right(corner_right.delta.x, corner_right.activated, body_w);
-        right.split_y += corner_right.delta.y / col_h;
-    }
-    if (corner_center_left.active) {
-        _apply_split_left(corner_center_left.delta.x, corner_center_left.activated, body_w);
-        _apply_center_delta(corner_center_left.delta.y, corner_center_left.activated);
-    }
-    if (corner_center_right.active) {
-        _apply_split_right(corner_center_right.delta.x, corner_center_right.activated, body_w);
-        _apply_center_delta(corner_center_right.delta.y, corner_center_right.activated);
+    if (close_request) {
+        for (Slot& s : slots) if (s.panel == close_request) s.open = false;
+        close_request = nullptr;
     }
 
-    if (drawer_dragging && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) _end_drawer_drag();
-
-    if (dragging) {
-        const float size = ui.dock.edge_target_size;
-        const float margin = ui.dock.edge_target_margin;
-        const float cy = ImFloor(body_y + body_h * 0.5f);
-        const float half_gap = ImFloor(gap * 0.5f);
-        if (!left_shown) {
-            _edge_target("##edge_left_top", ImVec2(origin.x + margin, cy - half_gap - size), DockZone::LEFT_TOP);
-            _edge_target("##edge_left_bottom", ImVec2(origin.x + margin, cy + half_gap), DockZone::LEFT_BOTTOM);
+    if (pending.panel) {
+        for (Slot& s : slots) {
+            if (s.panel != pending.panel) continue;
+            s.zone = pending.zone;
+            active[(size_t)pending.zone] = s.panel->name();
         }
-        if (!right_shown) {
-            _edge_target("##edge_right_top", ImVec2(end.x - margin - size, cy - half_gap - size), DockZone::RIGHT_TOP);
-            _edge_target("##edge_right_bottom", ImVec2(end.x - margin - size, cy + half_gap), DockZone::RIGHT_BOTTOM);
+        for (Slot& s : document_slots) {
+            if (s.panel != pending.panel) continue;
+            s.zone = pending.zone;
+            document_zones[s.panel->name()] = pending.zone;
+            active[(size_t)pending.zone] = s.panel->name();
         }
-        if (!bottom_open || bottom_collapsed) _edge_target("##edge_bottom", ImVec2(ImFloor((cx0 + cx1 - size) * 0.5f), body_max_y - margin - size), DockZone::BOTTOM);
+        pending = {};
     }
 
-    _draw_footer(ImVec2(origin.x, footer_y), end);
-
-    for (DockWell* w : wells()) {
-        if (w->dropped) pending_drop = { w->dropped, w->zone };
-    }
-    _apply_drop();
-
-    _toolbar = nullptr;
     ImGui::End();
 }
 

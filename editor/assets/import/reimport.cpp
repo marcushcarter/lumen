@@ -4,7 +4,7 @@
 #include <editor/assets/import/texture_cooker.h>
 #include <editor/application/editor_context.h>
 #include <editor/assets/import/asset_import_tracker.h>
-#include <editor/tabs/tab_manager.h>
+#include <editor/documents/document_manager.h>
 #include <editor/assets/import/import_dialog.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <drivers/windows/window_driver_win32.h>
@@ -110,20 +110,20 @@ static std::filesystem::path _scope(const ReimportTarget& p_target)
     return p_target.kind == ReimportKind::MODEL ? p_target.asset.parent_path() : p_target.asset;
 }
 
-static bool _confirm_reload(const EditorTab& p_tab)
+static bool _confirm_reload(const EditorDocument& p_window)
 {
-    std::string_view name = p_tab.title();
-    if (const size_t gap = name.find("  "); gap != std::string_view::npos) name.remove_prefix(gap + 2);
+    const std::string_view name = p_window.title();
     const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(name) + L"' has unsaved changes";
     return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Reimporting reloads it from the new files and discards those changes.", L"Reimport", L"Cancel");
 }
 
-static bool _confirm_tabs(EditorContext& ctx, const std::vector<ReimportTarget>& p_targets)
+static bool _confirm_documents(EditorContext& ctx, const std::vector<ReimportTarget>& p_targets)
 {
-    if (!ctx.tabs) return true;
-    for (EditorTab* t : ctx.tabs->tabs) {
+    if (!ctx.documents) return true;
+    for (auto& w : ctx.documents->documents) {
+        EditorDocument* t = w.get();
         const std::filesystem::path* path = t->asset_path();
-        if (!path || !t->dirty() || t->kind == TabKind::MATERIAL) continue;
+        if (!path || !t->dirty() || t->kind == DocumentKind::MATERIAL) continue;
         for (const ReimportTarget& target : p_targets) {
             const std::filesystem::path scope = _scope(target);
             if (*path != scope && !AssetImportTracker::path_contains(scope, *path)) continue;
@@ -153,7 +153,7 @@ Error reimport_asset(EditorContext& ctx, const std::filesystem::path& p_asset, c
         log_write("Reimport: '%s' has no import source.", p_asset.filename().string().c_str());
         return Error::FAILED;
     }
-    if (!_confirm_tabs(ctx, { target })) return Error::CANCELED;
+    if (!_confirm_documents(ctx, { target })) return Error::CANCELED;
     return _run(ctx, target, p_override);
 }
 
@@ -167,7 +167,7 @@ uint32_t reimport_assets(EditorContext& ctx, const std::vector<std::filesystem::
         const bool seen = std::any_of(targets.begin(), targets.end(), [&](const ReimportTarget& o) { return o.asset == t.asset; });
         if (!seen) targets.push_back(std::move(t));
     }
-    if (targets.empty() || !_confirm_tabs(ctx, targets)) return 0;
+    if (targets.empty() || !_confirm_documents(ctx, targets)) return 0;
     uint32_t started = 0;
     for (const ReimportTarget& t : targets) started += _run(ctx, t) == Error::OK ? 1u : 0u;
     return started;

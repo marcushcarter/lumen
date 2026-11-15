@@ -8,20 +8,20 @@
 #include <editor/assets/import/icon_cooker.h>
 #include <editor/assets/import/splash_cooker.h>
 #include <editor/export/project_exporter.h>
-#include <editor/tabs/material/material_tab.h>
-#include <editor/tabs/model/model_tab.h>
-#include <editor/tabs/texture/texture_tab.h>
-#include <editor/tabs/settings/project_settings_tab.h>
-#include <editor/tabs/mesh/mesh_tab.h>
-#include <editor/tabs/animation/animation_tab.h>
-#include <editor/tabs/blend_space/blend_space_tab.h>
-#include <editor/tabs/locomotion/locomotion_tab.h>
-#include <editor/tabs/overlay/overlay_tab.h>
-#include <editor/tabs/terrain/terrain_tab.h>
-#include <editor/tabs/prefab/prefab_tab.h>
-#include <editor/tabs/version_control/version_control_tab.h>
-#include <core/world/prefab.h>
-#include <editor/tabs/asset_tab.h>
+#include <editor/documents/material/material_document.h>
+#include <editor/documents/model/model_document.h>
+#include <editor/documents/texture/texture_document.h>
+#include <editor/tools/settings/editor_settings_tool.h>
+#include <editor/tools/settings/project_settings_tool.h>
+#include <editor/documents/mesh/mesh_document.h>
+#include <editor/documents/animation/animation_document.h>
+#include <editor/documents/blend_space/blend_space_document.h>
+#include <editor/documents/locomotion/locomotion_document.h>
+#include <editor/documents/overlay/overlay_document.h>
+#include <editor/documents/terrain/terrain_document.h>
+#include <editor/tools/version_control/version_control_tool.h>
+#include <editor/documents/asset_document.h>
+#include <core/scene/template.h>
 #include <algorithm>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
@@ -56,7 +56,6 @@ Error EditorApplication::on_init()
 
     ImGuiIO& io = ImGui::GetIO();
     {
-        ui_install_font_gamma(io.Fonts);
         EmbeddedResource::Blob inter = EmbeddedResource::load(L"FONTS_INTER_REGULAR_TTF");
         ImFontConfig inter_cfg;
         inter_cfg.FontDataOwnedByAtlas = false;
@@ -76,12 +75,8 @@ Error EditorApplication::on_init()
 
     err = project_manager.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    shared_panels.initialize();
     git.log_callback = [](const std::string& p_line) { log_write("[Git] %s", p_line.c_str()); };
-    err = asset_manager_tab.initialize();
-    LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    err = world_tab.initialize(shared_panels);
-    LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    workspace.initialize();
     err = play.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = run.initialize();
@@ -97,17 +92,19 @@ Error EditorApplication::on_init()
     _ctx.git = &git;
     _ctx.renderer = &renderer;
     _ctx.project = &project;
-    _ctx.world = &world;
-    _ctx.main_world = &world;
-    prefab_library().resolve = [this](Guid p_guid) {
+    _ctx.scene = &scene;
+    _ctx.main_scene = &scene;
+    template_library().resolve = [this](Guid p_guid) {
         const AssetRegistry::Entry* e = assets.find(p_guid);
-        return e && e->type == AssetType::PREFAB ? e->path : std::filesystem::path{};
+        return e && e->type == AssetType::TEMPLATE ? e->path : std::filesystem::path{};
     };
     _ctx.project_manager = &project_manager;
-    _ctx.world_tab = &world_tab;
-    _ctx.shared_panels = &shared_panels;
-    _ctx.tabs = &tabs;
+    _ctx.scene_document = &workspace.scene;
+    _ctx.documents = &documents;
     _ctx.selection = &selection;
+    _ctx.main_selection = &selection;
+    _ctx.editor_camera = &editor_camera;
+    _ctx.frame_stats = &frame_stats;
     _ctx.settings = &settings;
     _ctx.profiling = &profiling;
     _ctx.resources = &resources;
@@ -116,13 +113,13 @@ Error EditorApplication::on_init()
     _ctx.texture_viewer = &texture_viewer;
     _ctx.import_dialog = &import_dialog;
     _ctx.references_dialog = &references_dialog;
-    _ctx.reload_asset_tabs = [this](const std::vector<std::filesystem::path>& p_paths) {
-        std::vector<EditorTab*> reload;
-        for (EditorTab* t : tabs.tabs) {
-            const std::filesystem::path* path = t->asset_path();
-            if (path && std::find(p_paths.begin(), p_paths.end(), *path) != p_paths.end()) reload.push_back(t);
+    _ctx.reload_asset_documents = [this](const std::vector<std::filesystem::path>& p_paths) {
+        std::vector<EditorDocument*> reload;
+        for (auto& w : documents.documents) {
+            const std::filesystem::path* path = w->asset_path();
+            if (path && std::find(p_paths.begin(), p_paths.end(), *path) != p_paths.end()) reload.push_back(w.get());
         }
-        for (EditorTab* t : reload) _reload_tab(t);
+        for (EditorDocument* w : reload) _reload_document(w);
     };
     _ctx.thumbnails = &thumbnails;
     _ctx.open_project_callback = [this](const std::filesystem::path& p_root) { open_project(p_root); };
@@ -143,6 +140,7 @@ Error EditorApplication::on_init()
         if (play.playing()) editor_camera.place(play.session.camera);
         play.toggle();
     };
+    _ctx.pie_step = [this] { play.step(); };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
         if (run.is_running_for(p_root)) { run.stop(); return; }
@@ -153,18 +151,22 @@ Error EditorApplication::on_init()
     git.ignore_lines = { std::string("/") + Project::DIR_EDITOR + "/" };
     _project_state_default = _project_state_write();
     _load_state();
-    settings.theme.apply();
-
-    if (win32.window_set_titlebar_color(main_window, (COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg])) != OK) log_write("Editor: custom titlebar color unsupported (needs Windows 11).");
-
+    _apply_theme();
     return OK;
+}
+
+void EditorApplication::_apply_theme()
+{
+    settings.theme.apply();
+    if (win32.window_set_titlebar_color(main_window, (COLORREF)Theme::to_colorref(ImGui::GetStyle().Colors[ImGuiCol_MenuBarBg])) != Error::OK) log_write("Editor: custom titlebar color unsupported (needs Windows 11).");
 }
 
 void EditorApplication::on_shutdown()
 {
     EditorContext& ctx = _context();
     _save_project_state();
-    tabs.clear(ctx);
+    documents.clear(ctx);
+    workspace.shutdown(ctx);
     texture_viewer.shutdown();
     thumbnails.shutdown(ctx);
 
@@ -175,34 +177,42 @@ void EditorApplication::on_shutdown()
 
     _save_state();
     project_manager.save_recents();
-
     project_manager.shutdown();
-    world_tab.shutdown();
-    asset_manager_tab.shutdown();
-    shared_panels.shutdown();
 }
 
 void EditorApplication::_play_start()
 {
-    if (!world_tab.has_world()) return;
-    play.start(world, world_tab.guid, editor_camera.camera);
+    if (!workspace.scene.has_world() || workspace.scene.active_template()) return;
+    play.start(scene, workspace.scene.guid, editor_camera.camera);
 }
 
 void EditorApplication::on_simulate(float p_dt)
 {
     if (!play.active()) return;
-    if (!project.loaded() || !world_tab.has_world() || world_tab.guid != play.world_guid) {
+    if (!project.loaded() || !workspace.scene.has_world() || workspace.scene.guid != play.scene_guid || workspace.scene.active_template()) {
         play.stop();
         return;
     }
-    Viewport& viewport = world_tab.layout.viewport;
-    play.session.input.read(viewport.game_captured && tabs.active == &world_tab, vec2(viewport.game_look.x, viewport.game_look.y), p_dt);
+    Viewport& viewport = workspace.scene.viewport;
+    play.session.input.read(viewport.game_captured, vec2(viewport.game_look.x, viewport.game_look.y), p_dt);
     viewport.game_look = ImVec2(0.0f, 0.0f);
+    play.character_system.debug_all = view_overlay_lines(viewport_view().overlay);
+    play.character_system.debug_entities = viewport.debug_entities;
     play.update(p_dt);
 }
 
-void EditorApplication::on_update(float p_dt)
+void EditorApplication::_save_focused()
 {
+    EditorContext& ctx = _context();
+    workspace.save(ctx);
+}
+
+void EditorApplication::on_update(float)
+{
+    if (settings.theme_pending) {
+        settings.theme_pending = false;
+        _apply_theme();
+    }
     run.poll();
     _draw_titlebar();
 
@@ -211,21 +221,24 @@ void EditorApplication::on_update(float p_dt)
         if (loading_marker && !pending_render_path) _clear_loading_marker();
         _tick_imports();
         assets.tick();
-        selection.prune(world);
+        selection.prune(scene);
 
-        tabs.update(ctx, p_dt);
+        documents.update(ctx);
+        workspace.tick(ctx);
+        workspace.scene.bind(ctx);
+        workspace.draw(ctx);
         texture_viewer.collect(ctx.renderer->frame_number, ctx.renderer->frame_count);
         import_dialog.draw(ctx);
         references_dialog.draw(ctx);
         thumbnails.update(ctx);
-        if (!world_tab.layout.viewport.game_captured) {
-            if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal) && !_tab_locked(tabs.active)) tabs.active->save(ctx);
+        if (!workspace.scene.viewport.game_captured) {
+            if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) _save_focused();
             if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();
         }
 
-        const uint64_t signature = _tabs_hash();
-        if (signature != _tabs_signature) {
-            _tabs_signature = signature;
+        const uint64_t signature = _documents_hash();
+        if (signature != _documents_signature) {
+            _documents_signature = signature;
             settings.dirty = true;
         }
     } else if (!reopen_root.empty() && !pending_render_path) {
@@ -295,63 +308,56 @@ void EditorApplication::_tick_imports()
                 break;
         }
     }
-    std::vector<EditorTab*> reload;
-    for (EditorTab* t : tabs.tabs) {
-        const std::filesystem::path* path = t->asset_path();
+    std::vector<EditorDocument*> reload;
+    for (auto& w : documents.documents) {
+        const std::filesystem::path* path = w->asset_path();
         if (!path) continue;
-        const bool hit = std::any_of(imports.completed.begin(), imports.completed.end(), [&](const AssetImportTracker::Completed& c) { return c.dst == *path || c.guid == t->guid; });
-        if (hit) reload.push_back(t);
+        const bool hit = std::any_of(imports.completed.begin(), imports.completed.end(), [&](const AssetImportTracker::Completed& c) { return c.dst == *path || c.guid == w->guid; });
+        if (hit) reload.push_back(w.get());
     }
     imports.completed.clear();
     imports_notified = 0;
-    for (EditorTab* t : reload) _reload_tab(t);
+    for (EditorDocument* w : reload) _reload_document(w);
 }
 
-EditorTab* EditorApplication::_open_asset_tab(TabKind p_kind, Guid p_guid)
+EditorDocument* EditorApplication::_open_document(DocumentKind p_kind, Guid p_guid)
 {
     switch (p_kind) {
-        case TabKind::MODEL: return tabs.open<ModelTab>(p_guid);
-        case TabKind::MATERIAL: return tabs.open<MaterialTab>(p_guid);
-        case TabKind::TEXTURE: return tabs.open<TextureTab>(p_guid);
-        case TabKind::MESH: return tabs.open<MeshTab>(p_guid);
-        case TabKind::ANIMATION: return tabs.open<AnimationTab>(p_guid);
-        case TabKind::BLEND_SPACE: return tabs.open<BlendSpaceTab>(p_guid);
-        case TabKind::LOCOMOTION: return tabs.open<LocomotionTab>(p_guid);
-        case TabKind::OVERLAY: return tabs.open<OverlayTab>(p_guid);
-        case TabKind::TERRAIN: return tabs.open<TerrainTab>(p_guid);
-        case TabKind::PREFAB: return tabs.open<PrefabTab>(p_guid);
+        case DocumentKind::MODEL: return documents.open<ModelDocument>(p_guid);
+        case DocumentKind::MATERIAL: return documents.open<MaterialDocument>(p_guid);
+        case DocumentKind::TEXTURE: return documents.open<TextureDocument>(p_guid);
+        case DocumentKind::MESH: return documents.open<MeshDocument>(p_guid);
+        case DocumentKind::ANIMATION: return documents.open<AnimationDocument>(p_guid);
+        case DocumentKind::BLEND_SPACE: return documents.open<BlendSpaceDocument>(p_guid);
+        case DocumentKind::LOCOMOTION: return documents.open<LocomotionDocument>(p_guid);
+        case DocumentKind::OVERLAY: return documents.open<OverlayDocument>(p_guid);
+        case DocumentKind::TERRAIN: return documents.open<TerrainDocument>(p_guid);
         default: return nullptr;
     }
 }
 
-void EditorApplication::_reload_tab(EditorTab* p_tab)
+void EditorApplication::_reload_document(EditorDocument* p_document)
 {
     EditorContext& ctx = _context();
-    const size_t index = tabs._index_of(p_tab->kind, p_tab->guid);
-    if (index == TabManager::NPOS || !p_tab->asset_path()) return;
+    const size_t index = documents._index_of(p_document->kind, p_document->guid);
+    if (index == DocumentManager::NPOS || !p_document->asset_path()) return;
 
-    const TabKind kind = p_tab->kind;
-    const Guid guid = p_tab->guid;
-    const AssetTab* old = static_cast<const AssetTab*>(p_tab);
+    const DocumentKind kind = p_document->kind;
+    const Guid guid = p_document->guid;
+    const AssetDocument* old = static_cast<const AssetDocument*>(p_document);
     const OrbitCamera orbit = old->orbit;
     const std::filesystem::path path = old->path;
-    EditorTab* previous = tabs.active == p_tab ? nullptr : tabs.active;
 
-    tabs._remove_at(ctx, index);
-    EditorTab* fresh = _open_asset_tab(kind, guid);
+    documents._remove_at(ctx, index);
+    EditorDocument* fresh = _open_document(kind, guid);
     if (!fresh) return;
-    tabs.tabs.pop_back();
-    tabs.tabs.insert(tabs.tabs.begin() + (std::ptrdiff_t)std::min(index, tabs.tabs.size()), fresh);
-    AssetTab* asset = static_cast<AssetTab*>(fresh);
+    fresh->_focus_request = false;
+    std::unique_ptr<EditorDocument> moved = std::move(documents.documents.back());
+    documents.documents.pop_back();
+    documents.documents.insert(documents.documents.begin() + (std::ptrdiff_t)std::min(index, documents.documents.size()), std::move(moved));
+    AssetDocument* asset = static_cast<AssetDocument*>(fresh);
     asset->path = path;
     asset->restore_view(orbit);
-    if (previous) tabs.focus(previous);
-}
-
-bool EditorApplication::_tab_locked(const EditorTab* p_tab)
-{
-    const std::filesystem::path* path = p_tab ? p_tab->asset_path() : nullptr;
-    return path && imports.importing(*path);
 }
 
 Error EditorApplication::open_project(const std::filesystem::path& p_root)
@@ -377,13 +383,11 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
         run.stop();
     }
     EditorContext& ctx = _context();
-    tabs.clear(ctx);
-    world_tab.reset();
-    tabs.add(&asset_manager_tab, AssetManagerTab::KIND);
-    tabs.focus(&asset_manager_tab);
+    documents.clear(ctx);
+    workspace.reset(ctx);
     _load_project_state();
-    _restore_tabs();
-    _tabs_signature = _tabs_hash();
+    _restore_documents();
+    _documents_signature = _documents_hash();
     git.initialize(project.root);
 
     std::error_code legacy_ec;
@@ -417,12 +421,12 @@ bool EditorApplication::_confirm_cancel_imports(const wchar_t* p_action)
 
 bool EditorApplication::on_close_requested()
 {
-    return tabs.confirm_discard_all() && _confirm_cancel_imports(L"Closing the editor");
+    return workspace.scene.confirm_discard_all() && documents.confirm_discard_all() && _confirm_cancel_imports(L"Closing the editor");
 }
 
 bool EditorApplication::close_project()
 {
-    if (!tabs.confirm_discard_all() || !_confirm_cancel_imports(L"Closing the project")) return false;
+    if (!workspace.scene.confirm_discard_all() || !documents.confirm_discard_all() || !_confirm_cancel_imports(L"Closing the project")) return false;
     session_project.clear();
     play.stop();
     pending_transition = [this]{
@@ -430,12 +434,12 @@ bool EditorApplication::close_project()
         _save_project_state();
         _save_state();
         import_dialog.clear();
-        tabs.clear(ctx);
-        world_tab.reset();
+        documents.clear(ctx);
+        workspace.reset(ctx);
         thumbnails.close(ctx);
         assets.close();
         selection.clear();
-        prefab_library().clear();
+        template_library().clear();
         project_unload();
     };
     render_path_request(new ProjectManagerRenderPath());
@@ -445,17 +449,10 @@ bool EditorApplication::close_project()
 void EditorApplication::save_all()
 {
     EditorContext& ctx = _context();
-    for (EditorTab* t : tabs.tabs) {
-        if (t->dirty() && !_tab_locked(t)) t->save(ctx);
+    workspace.scene.save_all(ctx);
+    for (auto& w : documents.documents) {
+        if (w->dirty() && !w->locked(ctx)) w->save(ctx);
     }
-}
-
-bool EditorApplication::_any_dirty() const
-{
-    for (const EditorTab* t : tabs.tabs) {
-        if (t->dirty()) return true;
-    }
-    return false;
 }
 
 void EditorApplication::reload_project(std::function<void()> p_while_closed)
@@ -470,93 +467,63 @@ void EditorApplication::reload_project(std::function<void()> p_while_closed)
     };
 }
 
-static const char* _tab_kind_name(TabKind p_kind)
+static const char* _document_kind_name(DocumentKind p_kind)
 {
     switch (p_kind) {
-        case TabKind::WORLD: return "world";
-        case TabKind::EDITOR_SETTINGS: return "editor_settings";
-        case TabKind::MODEL: return "model";
-        case TabKind::MATERIAL: return "material";
-        case TabKind::TEXTURE: return "texture";
-        case TabKind::MESH: return "mesh";
-        case TabKind::PROJECT_SETTINGS: return "project_settings";
-        case TabKind::ANIMATION: return "animation";
-        case TabKind::BLEND_SPACE: return "blend_space";
-        case TabKind::LOCOMOTION: return "locomotion";
-        case TabKind::OVERLAY: return "overlay";
-        case TabKind::TERRAIN: return "terrain";
-        case TabKind::ASSET_MANAGER: return "asset_manager";
-        case TabKind::PREFAB: return "prefab";
-        case TabKind::VERSION_CONTROL: return "version_control";
+        case DocumentKind::EDITOR_SETTINGS: return "editor_settings";
+        case DocumentKind::PROJECT_SETTINGS: return "project_settings";
+        case DocumentKind::MODEL: return "model";
+        case DocumentKind::MATERIAL: return "material";
+        case DocumentKind::TEXTURE: return "texture";
+        case DocumentKind::MESH: return "mesh";
+        case DocumentKind::ANIMATION: return "animation";
+        case DocumentKind::BLEND_SPACE: return "blend_space";
+        case DocumentKind::OVERLAY: return "overlay";
+        case DocumentKind::TERRAIN: return "terrain";
+        case DocumentKind::VERSION_CONTROL: return "version_control";
+        case DocumentKind::LOCOMOTION: return "locomotion";
+        case DocumentKind::GPU_PROFILER: return "gpu_profiler";
+        case DocumentKind::MEMORY: return "memory";
     }
-    return "world";
+    return "model";
 }
 
-static bool _tab_kind_from_string(const std::string& p_name, TabKind& r_kind)
+static bool _document_kind_from_string(const std::string& p_name, DocumentKind& r_kind)
 {
-    if (p_name == "world") r_kind = TabKind::WORLD;
-    else if (p_name == "editor_settings") r_kind = TabKind::EDITOR_SETTINGS;
-    else if (p_name == "model") r_kind = TabKind::MODEL;
-    else if (p_name == "material") r_kind = TabKind::MATERIAL;
-    else if (p_name == "texture") r_kind = TabKind::TEXTURE;
-    else if (p_name == "mesh") r_kind = TabKind::MESH;
-    else if (p_name == "project_settings") r_kind = TabKind::PROJECT_SETTINGS;
-    else if (p_name == "animation") r_kind = TabKind::ANIMATION;
-    else if (p_name == "blend_space") r_kind = TabKind::BLEND_SPACE;
-    else if (p_name == "locomotion" || p_name == "character") r_kind = TabKind::LOCOMOTION;
-    else if (p_name == "overlay") r_kind = TabKind::OVERLAY;
-    else if (p_name == "terrain") r_kind = TabKind::TERRAIN;
-    else if (p_name == "prefab") r_kind = TabKind::PREFAB;
-    else if (p_name == "version_control") r_kind = TabKind::VERSION_CONTROL;
-    else if (p_name == "asset_manager" || p_name == "content") r_kind = TabKind::ASSET_MANAGER;
-    else return false;
-    return true;
+    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MODEL, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::BLEND_SPACE, DocumentKind::OVERLAY, DocumentKind::TERRAIN, DocumentKind::VERSION_CONTROL, DocumentKind::LOCOMOTION, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
+    for (DocumentKind k : ALL) {
+        if (p_name != _document_kind_name(k)) continue;
+        r_kind = k;
+        return true;
+    }
+    return false;
 }
 
-uint64_t EditorApplication::_tabs_hash() const
+uint64_t EditorApplication::_documents_hash() const
 {
     uint64_t h = HASH_FNV_OFFSET;
-    for (const EditorTab* t : tabs.tabs) {
-        h = hash_fnv_step(h, (uint64_t)t->kind);
-        h = hash_fnv_step(h, t->guid.value);
-        h = hash_fnv_step(h, t == tabs.active ? 1u : 0u);
+    for (const auto& w : documents.documents) {
+        h = hash_fnv_step(h, (uint64_t)w->kind);
+        h = hash_fnv_step(h, w->guid.value);
     }
+    h = hash_fnv_step(h, workspace.scene.guid.value);
+    h = hash_fnv_step(h, (uint64_t)(workspace.layout.left_w * 4.0f));
+    h = hash_fnv_step(h, (uint64_t)(workspace.layout.right_w * 4.0f));
+    h = hash_fnv_step(h, (uint64_t)(workspace.layout.left_split_y * 1000.0f));
+    h = hash_fnv_step(h, (uint64_t)(workspace.layout.right_split_y * 1000.0f));
+    h = hash_fnv_step(h, (uint64_t)(workspace.layout.bottom_h * 4.0f));
+    for (const EditorLayout::Slot& slot : workspace.layout.slots) h = hash_fnv_step(hash_fnv_step(h, (uint64_t)slot.zone), slot.open ? 1u : 0u);
+    for (const auto& [name, zone] : workspace.layout.document_zones) h = hash_fnv_step(h, (uint64_t)zone);
     return h;
 }
 
-void EditorApplication::_restore_tabs()
+void EditorApplication::_restore_documents()
 {
-    const SavedTabs& saved = _saved_tabs;
-
-    EditorContext& ctx = _context();
-    EditorTab* active = &asset_manager_tab;
-    for (uint32_t i = 0; i < (uint32_t)saved.tabs.size(); i++) {
-        const SavedTab& t = saved.tabs[i];
-        EditorTab* opened = nullptr;
-        switch (t.kind) {
-            case TabKind::WORLD:
-                if (!t.guid.valid()) break;
-                world_tab.show(ctx, t.guid);
-                opened = &world_tab;
-                break;
-            case TabKind::ASSET_MANAGER: opened = &asset_manager_tab; break;
-            case TabKind::EDITOR_SETTINGS: opened = tabs.open<EditorSettingsTab>(); break;
-            case TabKind::MODEL: if (t.guid.valid()) opened = tabs.open<ModelTab>(t.guid); break;
-            case TabKind::MATERIAL: if (t.guid.valid()) opened = tabs.open<MaterialTab>(t.guid); break;
-            case TabKind::TEXTURE: if (t.guid.valid()) opened = tabs.open<TextureTab>(t.guid); break;
-            case TabKind::MESH: if (t.guid.valid()) opened = tabs.open<MeshTab>(t.guid); break;
-            case TabKind::PROJECT_SETTINGS: opened = tabs.open<ProjectSettingsTab>(); break;
-            case TabKind::ANIMATION: if (t.guid.valid()) opened = tabs.open<AnimationTab>(t.guid); break;
-            case TabKind::BLEND_SPACE: if (t.guid.valid()) opened = tabs.open<BlendSpaceTab>(t.guid); break;
-            case TabKind::LOCOMOTION: if (t.guid.valid()) opened = tabs.open<LocomotionTab>(t.guid); break;
-            case TabKind::OVERLAY: if (t.guid.valid()) opened = tabs.open<OverlayTab>(t.guid); break;
-            case TabKind::TERRAIN: if (t.guid.valid()) opened = tabs.open<TerrainTab>(t.guid); break;
-            case TabKind::PREFAB: if (t.guid.valid()) opened = tabs.open<PrefabTab>(t.guid); break;
-            case TabKind::VERSION_CONTROL: opened = tabs.open<VersionControlTab>(); break;
-        }
-        if (opened && i == saved.active) active = opened;
+    if (_saved_scene.valid()) workspace.scene.open(_saved_scene);
+    for (const SavedDocument& s : _saved_documents) {
+        EditorDocument* opened = s.guid.valid() ? _open_document(s.kind, s.guid) : nullptr;
+        if (opened) opened->_focus_request = false;
     }
-    tabs.focus(active);
 }
 
 void EditorApplication::_queue_last_project(const std::filesystem::path& p_last)
@@ -607,30 +574,21 @@ void EditorApplication::_load_state()
 
     settings.vsync_mode = vsync_mode_from_name(tbl.at_path("display.vsync").value_or(std::string{}), settings.vsync_mode);
     settings.fps_cap = (int)tbl.at_path("display.fps_cap").value_or((int64_t)settings.fps_cap);
+    settings.theme.light = tbl.at_path("appearance.theme").value_or(std::string("dark")) == "light";
 
-    if (auto v = tbl.at_path("window.custom_titlebar").value<bool>()) win32.window_set_custom_titlebar(main_window, *v);
 
     settings.reopen_last_project = tbl.at_path("session.reopen_last_project").value_or(settings.reopen_last_project);
     _queue_last_project(std::filesystem::path(tbl.at_path("session.last_project").value_or(std::string{})));
-
-    _project_state_legacy.clear();
-    if (tbl.contains("layout")) {
-        if (const toml::table* t = tbl["layout"].as_table()) _project_state_legacy.insert_or_assign("layout", *t);
-        if (const toml::table* t = tbl["panels"].as_table()) _project_state_legacy.insert_or_assign("panels", *t);
-        if (const toml::table* t = tbl["project_tabs"].as_table()) _project_state_legacy.insert_or_assign("project_tabs", *t);
-    }
-
-    settings.theme.apply();
 }
 
 void EditorApplication::_save_state()
 {
-    toml::table window;
-    window.insert_or_assign("custom_titlebar", win32.window_has_custom_titlebar(main_window));
-
     toml::table display;
     display.insert_or_assign("vsync", vsync_mode_name(settings.vsync_mode));
     display.insert_or_assign("fps_cap", (int64_t)settings.fps_cap);
+
+    toml::table appearance;
+    appearance.insert_or_assign("theme", settings.theme.light ? "light" : "dark");
 
     toml::table session;
     session.insert_or_assign("reopen_last_project", settings.reopen_last_project);
@@ -638,8 +596,8 @@ void EditorApplication::_save_state()
 
     toml::table root;
     root.insert_or_assign("session", std::move(session));
-    root.insert_or_assign("window", std::move(window));
     root.insert_or_assign("display", std::move(display));
+    root.insert_or_assign("appearance", std::move(appearance));
 
     std::ofstream out(Paths::roaming_data() / FILE_EDITOR_STATE, std::ios::binary);
     if (!out) return;
@@ -659,21 +617,6 @@ void EditorApplication::_load_project_state()
             log_write("Editor: ignoring unreadable '%s' (%s)", (project.editor_dir / FILE_PROJECT_STATE).string().c_str(), std::string(e.description()).c_str());
         }
     }
-
-    if (!found && !_project_state_legacy.empty()) {
-        parsed = _project_state_legacy;
-        parsed.erase("project_tabs");
-        if (const toml::table* pt = _project_state_legacy.at_path("project_tabs").as_table()) {
-            if (const toml::table* mine = (*pt)[project.root.generic_string()].as_table()) {
-                toml::table tabs_tbl;
-                tabs_tbl.insert_or_assign("active", (*mine)["active"].value_or((int64_t)0));
-                if (const toml::array* list = (*mine)["tabs"].as_array()) tabs_tbl.insert_or_assign("open", *list);
-                parsed.insert_or_assign("tabs", std::move(tabs_tbl));
-            }
-        }
-        found = true;
-    }
-
     _project_state_read(_project_state_default);
     if (found) _project_state_read(parsed);
 }
@@ -697,116 +640,91 @@ void EditorApplication::_save_project_state()
 
 toml::table EditorApplication::_project_state_write()
 {
-    EditorLayout& L = world_tab.layout;
-
+    const EditorLayout& L = workspace.layout;
     toml::table layout;
-    layout.insert_or_assign("version", (int64_t)WorldTab::VERSION);
-    layout.insert_or_assign("split_left", (double)L.split_left);
-    layout.insert_or_assign("split_right", (double)L.split_right);
-    layout.insert_or_assign("left_split_y", (double)L.left.split_y);
-    layout.insert_or_assign("right_split_y", (double)L.right.split_y);
-    layout.insert_or_assign("center_split", (double)L.center_split);
-    layout.insert_or_assign("left_collapsed", (bool)L.left.collapsed);
-    layout.insert_or_assign("right_collapsed", (bool)L.right.collapsed);
-    layout.insert_or_assign("bottom_collapsed", (bool)L.bottom_collapsed);
-    for (DockWell* w : L.wells()) {
-        layout.insert_or_assign(std::string("active_") + to_string(w->zone), w->active_name);
-    }
-
+    layout.insert_or_assign("version", (int64_t)Workspace::LAYOUT_VERSION);
+    layout.insert_or_assign("left_width", (double)L.left_w);
+    layout.insert_or_assign("right_width", (double)L.right_w);
+    layout.insert_or_assign("left_split_y", (double)L.left_split_y);
+    layout.insert_or_assign("right_split_y", (double)L.right_split_y);
+    layout.insert_or_assign("bottom_height", (double)L.bottom_h);
     toml::table panels;
-    for (const DockSlot& s : L.slots) {
-        toml::table pt;
-        pt.insert_or_assign("open", (bool)s.open);
-        pt.insert_or_assign("zone", to_string(s.zone));
-        panels.insert_or_assign(s.panel->layout_id, std::move(pt));
+    toml::table panels_open;
+    for (const EditorLayout::Slot& slot : L.slots) {
+        panels.insert_or_assign(slot.panel->name(), std::string(to_string(slot.zone)));
+        panels_open.insert_or_assign(slot.panel->name(), slot.open);
     }
+    for (const auto& [name, zone] : L.document_zones) panels.insert_or_assign(name, std::string(to_string(zone)));
+    layout.insert_or_assign("panels", std::move(panels));
+    layout.insert_or_assign("panels_open", std::move(panels_open));
+    toml::table active;
+    for (size_t i = 0; i < EditorLayout::ZONES; i++) active.insert_or_assign(to_string((DockZone)i), L.active[i]);
+    layout.insert_or_assign("active", std::move(active));
 
     toml::array open;
-    int64_t active = 0;
-    for (const EditorTab* t : tabs.tabs) {
-        if (t == tabs.active) active = (int64_t)open.size();
+    for (const auto& w : documents.documents) {
         toml::table tt;
-        tt.insert_or_assign("kind", std::string(_tab_kind_name(t->kind)));
-        tt.insert_or_assign("guid", t->guid.to_string());
+        tt.insert_or_assign("kind", std::string(_document_kind_name(w->kind)));
+        tt.insert_or_assign("guid", w->guid.to_string());
         open.push_back(std::move(tt));
     }
-    toml::table tabs_tbl;
-    tabs_tbl.insert_or_assign("active", active);
-    tabs_tbl.insert_or_assign("open", std::move(open));
 
     toml::table root;
     root.insert_or_assign("layout", std::move(layout));
-    root.insert_or_assign("panels", std::move(panels));
-    root.insert_or_assign("tabs", std::move(tabs_tbl));
+    root.insert_or_assign("scene", workspace.scene.guid.to_string());
+    root.insert_or_assign("documents", std::move(open));
     return root;
 }
 
 void EditorApplication::_project_state_read(const toml::table& p_tbl)
 {
-    const toml::table& tbl = p_tbl;
+    auto lv = p_tbl.at_path("layout");
+    if ((int)lv["version"].value_or((int64_t)-1) == Workspace::LAYOUT_VERSION) {
+        EditorLayout& L = workspace.layout;
+        L.left_w = (float)lv["left_width"].value_or((double)L.left_w);
+        L.right_w = (float)lv["right_width"].value_or((double)L.right_w);
+        L.left_split_y = (float)lv["left_split_y"].value_or((double)L.left_split_y);
+        L.right_split_y = (float)lv["right_split_y"].value_or((double)L.right_split_y);
+        L.bottom_h = (float)lv["bottom_height"].value_or((double)L.bottom_h);
+        for (EditorLayout::Slot& slot : L.slots) {
+            if (auto z = lv["panels"][slot.panel->name()].value<std::string>()) slot.zone = dock_zone_from_string(*z, slot.zone);
+            if (auto o = lv["panels_open"][slot.panel->name()].value<bool>()) slot.open = *o;
+        }
+        if (const toml::table* panels = lv["panels"].as_table()) {
+            for (const auto& [key, value] : *panels) {
+                const std::string name(key.str());
+                if (L.find(name)) continue;
+                if (auto z = value.value<std::string>()) L.document_zones[name] = dock_zone_from_string(*z, DockZone::LEFT_TOP);
+            }
+        }
+        for (size_t i = 0; i < EditorLayout::ZONES; i++) L.active[i] = lv["active"][to_string((DockZone)i)].value_or(L.active[i]);
+    }
 
-    auto lv = tbl.at_path("layout");
-    const int layout_version = (int)lv["version"].value_or((int64_t)-1);
-    if (layout_version == 1 || layout_version == WorldTab::VERSION) {
-        EditorLayout& L = world_tab.layout;
-        const bool legacy = layout_version == 1;
-        L.split_right = (float)lv[legacy ? "split_x" : "split_right"].value_or((double)L.split_right);
-        L.right.split_y = (float)lv[legacy ? "split_y" : "right_split_y"].value_or((double)L.right.split_y);
-        L.center_split = (float)lv["center_split"].value_or((double)L.center_split);
-        L.right.collapsed = lv["right_collapsed"].value_or(L.right.collapsed);
-        L.bottom_collapsed = lv["bottom_collapsed"].value_or(L.bottom_collapsed);
-        if (!legacy) {
-            L.split_left = (float)lv["split_left"].value_or((double)L.split_left);
-            L.left.split_y = (float)lv["left_split_y"].value_or((double)L.left.split_y);
-            L.left.collapsed = lv["left_collapsed"].value_or(L.left.collapsed);
-            for (DockWell* w : L.wells()) {
-                std::string key = std::string("active_") + to_string(w->zone);
-                if (auto name = lv[key].value<std::string>()) w->active_name = *name;
+    _saved_scene = Guid::from_string(p_tbl["scene"].value_or(std::string{}));
+    if (!_saved_scene.valid()) {
+        if (const toml::array* list = p_tbl.at_path("tabs.open").as_array()) {
+            for (const toml::node& n : *list) {
+                const toml::table* t = n.as_table();
+                if (t && (*t)["kind"].value_or(std::string{}) == "scene") _saved_scene = Guid::from_string((*t)["guid"].value_or(std::string{}));
             }
-        } else {
-            L.right.top.active_name = lv["active_top"].value_or(std::string{});
-            L.right.bottom.active_name = lv["active_bottom"].value_or(std::string{});
-        }
-
-        if (const toml::table* pans = tbl.at_path("panels").as_table()) {
-            for (DockSlot& s : L.slots) {
-                const char* key = pans->contains(s.panel->layout_id) ? s.panel->layout_id : s.panel->title;
-                if (!pans->contains(key)) continue;
-                auto pv = (*pans)[key];
-                s.open = pv["open"].value_or(s.open);
-                s.zone = dock_zone_from_string(pv["zone"].value_or(std::string(to_string(s.zone))), s.zone);
-            }
-        }
-        if (legacy) {
-            if (const toml::array* names = lv["drawer_open"].as_array()) {
-                for (const toml::node& n : *names) {
-                    if (DockSlot* s = L.find(n.value_or(std::string{}).c_str())) {
-                        s->open = true;
-                        s->zone = DockZone::BOTTOM;
-                    }
-                }
-            }
-            L.bottom.active_name = lv["drawer_active"].value_or(std::string{});
-        }
-        for (DockWell* w : L.wells()) {
-            if (DockSlot* s = L.find(w->active_name.c_str())) w->active_name = s->panel->layout_id;
         }
     }
 
-    _saved_tabs = {};
-    if (const toml::table* tt = tbl.at_path("tabs").as_table()) {
-        _saved_tabs.active = (uint32_t)(*tt)["active"].value_or((int64_t)0);
-        if (const toml::array* list = (*tt)["open"].as_array()) {
-            for (const toml::node& n : *list) {
-                const toml::table* t = n.as_table();
-                if (!t) continue;
-                TabKind kind;
-                if (!_tab_kind_from_string((*t)["kind"].value_or(std::string{}), kind)) continue;
-                _saved_tabs.tabs.push_back({ kind, Guid::from_string((*t)["guid"].value_or(std::string{})) });
-            }
+    _saved_documents.clear();
+    if (const toml::array* list = p_tbl["documents"].as_array()) {
+        for (const toml::node& n : *list) {
+            const toml::table* t = n.as_table();
+            if (!t) continue;
+            DocumentKind kind;
+            if (!_document_kind_from_string((*t)["kind"].value_or(std::string{}), kind)) continue;
+            _saved_documents.push_back({ kind, Guid::from_string((*t)["guid"].value_or(std::string{})) });
         }
     }
 }
+
+/******************/
+/**** TITLEBAR ****/
+/******************/
 
 void EditorApplication::_titlebar_block(const TitlebarLayout& p_layout, ImVec2 p_min, ImVec2 p_max)
 {
@@ -829,25 +747,24 @@ static TopbarMenus g_topbar;
 static bool _topbar_menu(const char* p_label)
 {
     const UiStyle& ui = ui_style();
-    const float bh = ui.unit;
     const ImVec2 ts = ImGui::CalcTextSize(p_label);
-    const ImVec2 a(g_topbar.x, ImFloor(g_topbar.y + (g_topbar.h - bh) * 0.5f));
-    const ImVec2 b(a.x + ts.x + ui.titlebar.menu_padding.x * 2.0f, a.y + bh);
-    g_topbar.x = b.x + ui.titlebar.menu_gap;
+    const ImVec2 a(g_topbar.x, g_topbar.y);
+    const ImVec2 b(a.x + ts.x + ui.titlebar.menu_padding.x * 2.0f, a.y + g_topbar.h);
+    g_topbar.x = b.x;
 
     ImGui::SetCursorScreenPos(a);
     const ImGuiID id = ImGui::GetID(p_label);
     const bool open_now = ImGui::IsPopupOpen(id, ImGuiPopupFlags_None);
-    const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(b.x - a.x, bh), ImGuiButtonFlags_PressedOnClick);
+    const bool pressed = ImGui::InvisibleButton(p_label, ImVec2(b.x - a.x, b.y - a.y), ImGuiButtonFlags_PressedOnClick);
     const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
     if (pressed && !open_now) ImGui::OpenPopupEx(id);
     else if (hovered && !open_now && g_topbar.open != 0 && g_topbar.open != id && ImGui::IsPopupOpen(g_topbar.open, ImGuiPopupFlags_None)) ImGui::OpenPopupEx(id);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    if (open_now || hovered) dl->AddRectFilled(a, b, ui.color.topbar_hover, ui.header.rounding);
-    ui_text_centered(dl, a, b, open_now || hovered ? ui.color.text_hi : ui.color.pulldown_text, p_label);
+    if (open_now || hovered) dl->AddRectFilled(a, b, ui.color.topbar_hover);
+    ui_text_centered(dl, a, b, ui.color.text, p_label);
 
-    ImGui::SetNextWindowPos(ImVec2(a.x, b.y + ui.menu.popup_offset), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(a.x, b.y), ImGuiCond_Always);
     ui_menu_push_style();
     const bool open = ImGui::BeginPopupEx(id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     if (!open) {
@@ -868,201 +785,123 @@ void EditorApplication::_draw_titlebar()
 {
     const UiStyle& ui = ui_style();
     const bool loaded = project.loaded();
-    const float MENU_H = ui.titlebar.menu_height;
-    const float TAB_H = loaded ? ui.titlebar.tab_height + ui.titlebar.tab_top_space : 0.0f;
-    const float TOTAL_H = MENU_H + TAB_H;
+    const float H = ui.titlebar.height;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ui.color.topbar);
-
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-
-    TitlebarLayout L;
-    L.menu_h = MENU_H;
-    L.bar_h = MENU_H;
-    L.total_h = TOTAL_H;
-    L.tab_h = ui.titlebar.tab_height;
-    L.btn_w = ui.titlebar.caption_width;
-    L.logo = TOTAL_H;
-
-    const bool titlebar_open = ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, TOTAL_H, flags);
+    const bool titlebar_open = ImGui::BeginViewportSideBar("##LumenTitlebar", ImGui::GetMainViewport(), ImGuiDir_Up, H, flags);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
     if (titlebar_open) {
+        TitlebarLayout L;
         L.origin = ImGui::GetWindowPos();
         L.width = ImGui::GetWindowWidth();
-        L.tabs_x = L.origin.x + L.logo;
-
-        win32.window_titlebar_reset(main_window, (int)TOTAL_H);
+        L.height = H;
+        L.btn_w = ui.titlebar.caption_width;
+        L.logo = H;
+        win32.window_titlebar_reset(main_window, (int)H);
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + TOTAL_H), ui.color.topbar);
+        dl->AddRectFilled(L.origin, ImVec2(L.origin.x + L.width, L.origin.y + H), ui.color.topbar);
 
+        float right = L.origin.x + L.width - L.btn_w * 3.0f;
+        float menus_end = L.origin.x + L.logo;
         if (loaded) {
-            g_topbar.x = L.tabs_x;
+            g_topbar.x = L.origin.x + L.logo;
             g_topbar.y = L.origin.y;
-            g_topbar.h = MENU_H;
+            g_topbar.h = H - 1.0f;
             const float menus_x = g_topbar.x;
             _titlebar_menus();
-            _titlebar_block(L, ImVec2(menus_x, L.origin.y), ImVec2(g_topbar.x, L.origin.y + MENU_H));
-            _titlebar_tabs(L);
+            menus_end = g_topbar.x;
+            _titlebar_block(L, ImVec2(menus_x, L.origin.y), ImVec2(menus_end, L.origin.y + H));
+            right = _titlebar_search(L, right);
         }
-        _titlebar_info(L);
+        _titlebar_title(L, menus_end, right);
         _titlebar_logo(L);
-        if (win32.window_has_custom_titlebar(main_window)) _titlebar_caption_buttons(L);
+        _titlebar_caption_buttons(L);
     }
     ImGui::End();
 }
 
-void EditorApplication::_titlebar_menus()
-{
-    _titlebar_editor_menu();
-}
-
-void EditorApplication::_titlebar_info(const TitlebarLayout& p_layout)
+void EditorApplication::_titlebar_title(const TitlebarLayout& p_layout, float p_menus_end, float p_right)
 {
     const UiStyle& ui = ui_style();
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    const std::string& title = project.name.empty() ? std::string("Lumen Editor") : project.name;
-    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
-    const float right = p_layout.origin.x + p_layout.width - (win32.window_has_custom_titlebar(main_window) ? p_layout.btn_w * 3.0f : 0.0f);
-    const float title_x = right - ts.x - ui.titlebar.title_margin;
-    dl->AddText(ImVec2(title_x, p_layout.origin.y + (p_layout.bar_h - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), title.c_str());
-
-    if (frame_stats.frame_avg > 0.0f) {
-        char perf[48];
-        std::snprintf(perf, sizeof(perf), "%.2f ms  %.0f fps", frame_stats.frame_avg, 1000.0f / frame_stats.frame_avg);
-        const ImVec2 ps = ImGui::CalcTextSize(perf);
-        dl->AddText(ImVec2(title_x - ui.titlebar.stats_margin - ps.x, p_layout.origin.y + (p_layout.bar_h - ps.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), perf);
+    std::string title = "Lumen Editor";
+    if (project.loaded()) {
+        const std::string doc = workspace.document_name();
+        title = doc.empty() ? project.name : doc;
+        if (workspace.dirty()) title += "*";
     }
-}
-
-void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout)
-{
-    ImDrawList* fg = ImGui::GetForegroundDrawList();
-    const UiStyle& ui = ui_style();
-
-    const float btns_x = p_layout.origin.x + p_layout.width - p_layout.btn_w * 3.0f;
-    const float fill_h = p_layout.bar_h;
-    fg->AddRectFilled(ImVec2(btns_x, p_layout.origin.y), ImVec2(btns_x + p_layout.btn_w * 3.0f, p_layout.origin.y + fill_h), ui.color.topbar);
-
-    RECT rmin, rmax, rclose;
-    auto client_rect = [&](float x0) -> RECT {
-        return RECT{ (long)(x0 - p_layout.origin.x), (long)(p_layout.origin.y - p_layout.origin.y), (long)(x0 + p_layout.btn_w - p_layout.origin.x), (long)(p_layout.origin.y + p_layout.bar_h - p_layout.origin.y) };
-    };
-
-    ImVec2 mouse = ImGui::GetIO().MousePos;
-    auto ctrl = [&](float x0, int glyph, bool danger) {
-        ImVec2 p(x0, p_layout.origin.y);
-        bool hovered = mouse.x >= x0 && mouse.x < x0 + p_layout.btn_w && mouse.y >= p_layout.origin.y && mouse.y < p_layout.origin.y + p_layout.bar_h;
-        if (hovered) fg->AddRectFilled(p, ImVec2(p.x + p_layout.btn_w, p.y + fill_h), danger ? ui.color.danger_strong : ui.color.hover);
-        ImVec2 c(p.x + p_layout.btn_w * 0.5f, p.y + p_layout.bar_h * 0.5f);
-        ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-        const float s = ui.titlebar.caption_glyph;
-        const float o = ui.titlebar.caption_glyph_offset;
-        const float w = ui.titlebar.caption_stroke;
-        switch (glyph) {
-            case 0: fg->AddLine(ImVec2(c.x-s,c.y), ImVec2(c.x+s,c.y), col, w); break;
-            case 1: fg->AddRect(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, 0,0,w); break;
-            case 2:
-                fg->AddRect(ImVec2(c.x-s+o,c.y-s-o), ImVec2(c.x+s+o,c.y+s-o), col, 0,0,w);
-                fg->AddRectFilled(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), hovered ? ui.color.hover : ui.color.topbar);
-                fg->AddRect(ImVec2(c.x-s-o,c.y-s+o), ImVec2(c.x+s-o,c.y+s+o), col, 0,0,w);
-                break;
-            case 3:
-                fg->AddLine(ImVec2(c.x-s,c.y-s), ImVec2(c.x+s,c.y+s), col, ui.titlebar.caption_close_stroke);
-                fg->AddLine(ImVec2(c.x-s,c.y+s), ImVec2(c.x+s,c.y-s), col, ui.titlebar.caption_close_stroke);
-                break;
-        }
-    };
-
-    float x_min = btns_x;
-    float x_max = btns_x + p_layout.btn_w;
-    float x_close = btns_x + p_layout.btn_w * 2.0f;
-
-    ctrl(x_min, 0, false);
-    ctrl(x_max, win32.window_is_maximized(main_window) ? 2 : 1, false);
-    ctrl(x_close, 3, true);
-
-    rmin = client_rect(x_min);
-    rmax = client_rect(x_max);
-    rclose = client_rect(x_close);
-    win32.window_titlebar_set_controls(main_window, rmin, rmax, rclose);
-}
-
-void EditorApplication::_titlebar_tabs(const TitlebarLayout& p_layout)
-{
-    const UiStyle& ui = ui_style();
-    const ImVec2 min(p_layout.tabs_x, p_layout.origin.y + p_layout.menu_h + ui.titlebar.tab_top_space);
-    const ImVec2 max(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.total_h);
-    tabs.draw_bar(min, max, ui.titlebar.tab_inset_x, ui.color.topbar, [&](ImVec2 p_min, ImVec2 p_max) { _titlebar_block(p_layout, p_min, p_max); });
-}
-
-void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
-{
+    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
+    float x = ImFloor(p_layout.origin.x + (p_layout.width - ts.x) * 0.5f);
+    x = ImClamp(x, p_menus_end + ui.space.xl, ImMax(p_menus_end + ui.space.xl, p_right - ts.x - ui.space.xl));
     ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    const UiStyle& ui = ui_style();
-    const float side = ImFloor(p_layout.total_h - ui.titlebar.logo_margin * 2.0f);
-    const ImVec2 mn(ImFloor(p_layout.origin.x + (p_layout.logo - side) * 0.5f), ImFloor(p_layout.origin.y + (p_layout.total_h - side) * 0.5f));
-    const ImVec2 mx(mn.x + side, mn.y + side);
-
-    VkDescriptorSet logo_set = imgui.texture_cache.get(resources.icon_image.image_view);
-    dl->PushClipRect(p_layout.origin, ImVec2(p_layout.origin.x + p_layout.width, p_layout.origin.y + p_layout.total_h), false);
-    if (logo_set) dl->AddImage(logo_set, mn, mx);
-    else dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Text), ui.titlebar.logo_rounding);
+    dl->PushClipRect(ImVec2(p_menus_end, p_layout.origin.y), ImVec2(p_right, p_layout.origin.y + p_layout.height), true);
+    dl->AddText(ImVec2(x, ImFloor(p_layout.origin.y + (p_layout.height - ts.y) * 0.5f)), ui.color.text_dim, title.c_str());
     dl->PopClipRect();
 }
 
-void EditorApplication::_titlebar_editor_menu()
+float EditorApplication::_titlebar_search(const TitlebarLayout& p_layout, float p_right)
+{
+    const UiStyle& ui = ui_style();
+    const float w = ImFloor(ui.titlebar.search_width);
+    const float h = ImFloor(ImGui::GetFontSize() + ui.space.md);
+    const ImVec2 a(p_right - w - ui.space.lg, ImFloor(p_layout.origin.y + (p_layout.height - h) * 0.5f));
+    const ImVec2 b(a.x + w, a.y + h);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(a, b, ui.color.search, ui.radius.sm);
+
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.transparent);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ui.color.transparent);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ui.color.transparent);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui.space.sm, ImFloor((h - ImGui::GetFontSize()) * 0.5f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::SetCursorScreenPos(a);
+    ImGui::SetNextItemWidth(w);
+    ImGui::InputTextWithHint("##titlebar_search", ICON_FA_MAGNIFYING_GLASS "  Search", workspace.content.search_buf, sizeof(workspace.content.search_buf));
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+    _titlebar_block(p_layout, a, b);
+    return a.x;
+}
+
+void EditorApplication::_titlebar_menus()
 {
     if (_topbar_menu("File")) {
-        // if (ImGui::MenuItem("Save Current Scene")) {}
-        // if (ImGui::MenuItem("Save Current Scene As")) {}
-        if (ImGui::MenuItem("Save", "Ctrl+S", false, tabs.active && tabs.active->dirty())) tabs.active->save(_context());
-        if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, _any_dirty())) save_all();
-        // if (ImGui::MenuItem("Choose Files to Save")) {}
-
-        // ImGui::Separator();
-        // if (ImGui::MenuItem("New")) {}
-        // if (ImGui::MenuItem("Open")) {}
-        // if (ImGui::MenuItem("Zip Project")) {}
-        // if (ImGui::MenuItem("Open Current Project Directory")) Paths::reveal_in_explorer(project.root);
-        // if (ImGui::MenuItem("Recent Projects")) {}
-
-        // ImGui::Separator();
-
+        if (ImGui::MenuItem("Save", "Ctrl+S")) _save_focused();
+        if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, workspace.scene.any_dirty() || documents.any_dirty())) save_all();
+        ImGui::Separator();
         if (ImGui::MenuItem("Export Project...")) ProjectExporter::run_with_dialog(project);
         ImGui::Separator();
-        if (ImGui::MenuItem("Exit")) close_project();
+        if (ImGui::MenuItem("Close Project")) close_project();
         if (ImGui::MenuItem("Quit", "Alt+F4")) win32.window_request_close(main_window);
         _topbar_menu_end();
     }
 
     if (_topbar_menu("Edit")) {
-        // if (ImGui::MenuItem("Undo")) {}
-        // if (ImGui::MenuItem("Redo")) {}
-        // if (ImGui::MenuItem("Undo History")) {}
-        // ImGui::Separator();
-        // ImGui::BeginDisabled(true);
-        // if (ImGui::MenuItem("Cut")) {}
-        // if (ImGui::MenuItem("Copy")) {}
-        // if (ImGui::MenuItem("Paste")) {}
-        // if (ImGui::MenuItem("Duplicate")) {}
-        // if (ImGui::MenuItem("Delete")) {}
-        // ImGui::EndDisabled();
-        // ImGui::Separator();
-        if (ImGui::MenuItem("Editor Settings")) tabs.open<EditorSettingsTab>();
-        if (ImGui::MenuItem("Project Settings")) tabs.open<ProjectSettingsTab>();
+        if (ImGui::MenuItem("Editor Settings")) workspace.layout.open(workspace.editor_settings.get());
+        if (ImGui::MenuItem("Project Settings")) workspace.layout.open(workspace.project_settings.get());
+        ImGui::Separator();
         if (ImGui::MenuItem("Open Editor Data Folder")) Paths::reveal_in_explorer(Paths::roaming_data());
         _topbar_menu_end();
     }
 
-    if (_topbar_menu("Window")) {
-        if (ImGui::MenuItem(VersionControlTab::TITLE)) tabs.open<VersionControlTab>();
-        ImGui::Separator();
+    if (_topbar_menu("View")) {
+        if (ImGui::BeginMenu("Theme")) {
+            if (ImGui::MenuItem("Dark", nullptr, !settings.theme.light)) {
+                settings.theme.light = false;
+                settings.theme_pending = true;
+                settings.dirty = true;
+            }
+            if (ImGui::MenuItem("Light", nullptr, settings.theme.light)) {
+                settings.theme.light = true;
+                settings.theme_pending = true;
+                settings.dirty = true;
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("Display")) {
             int vsync = (int)settings.vsync_mode;
             if (ImGui::Combo("VSync", &vsync, VSYNC_MODE_NAMES, (int)std::size(VSYNC_MODE_NAMES))) {
@@ -1073,14 +912,74 @@ void EditorApplication::_titlebar_editor_menu()
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        // if (ImGui::MenuItem("Enable Fullscreen", "Alt+F11")) {}
         if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) screenshot_request();
         _topbar_menu_end();
     }
 
-    // if (ImGui::BeginMenu("Tools")) {
-    //     ImGui::EndMenu();
-    // }
+    if (_topbar_menu("Tools")) {
+        if (ImGui::MenuItem("Version Control")) workspace.layout.open(workspace.version_control.get());
+        if (ImGui::MenuItem("GPU Profiler")) workspace.layout.open(&workspace.gpu_profiler);
+        if (ImGui::MenuItem("Memory")) workspace.layout.open(&workspace.memory);
+        _topbar_menu_end();
+    }
+}
+
+void EditorApplication::_titlebar_caption_buttons(const TitlebarLayout& p_layout)
+{
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
+    const UiStyle& ui = ui_style();
+
+    const float btns_x = p_layout.origin.x + p_layout.width - p_layout.btn_w * 3.0f;
+    const float fill_h = p_layout.height - 1.0f;
+    fg->AddRectFilled(ImVec2(btns_x, p_layout.origin.y), ImVec2(btns_x + p_layout.btn_w * 3.0f, p_layout.origin.y + fill_h), ui.color.topbar);
+
+    auto client_rect = [&](float x0) -> RECT {
+        return RECT{ (long)(x0 - p_layout.origin.x), 0, (long)(x0 + p_layout.btn_w - p_layout.origin.x), (long)p_layout.height };
+    };
+
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    auto ctrl = [&](float x0, int glyph, bool danger) {
+        const ImVec2 p(x0, p_layout.origin.y);
+        const bool hovered = mouse.x >= x0 && mouse.x < x0 + p_layout.btn_w && mouse.y >= p_layout.origin.y && mouse.y < p_layout.origin.y + p_layout.height;
+        if (hovered) fg->AddRectFilled(p, ImVec2(p.x + p_layout.btn_w, p.y + fill_h), danger ? ui.color.danger_strong : ui.color.topbar_hover);
+        const ImVec2 c(p.x + p_layout.btn_w * 0.5f, p.y + p_layout.height * 0.5f);
+        const ImU32 col = ui.color.text;
+        const float s = ui.titlebar.caption_glyph;
+        const float o = ui.titlebar.caption_glyph_offset;
+        const float w = ui.titlebar.caption_stroke;
+        switch (glyph) {
+            case 0: fg->AddLine(ImVec2(c.x - s, c.y), ImVec2(c.x + s, c.y), col, w); break;
+            case 1: fg->AddRect(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), col, 0, 0, w); break;
+            case 2:
+                fg->AddRect(ImVec2(c.x - s + o, c.y - s - o), ImVec2(c.x + s + o, c.y + s - o), col, 0, 0, w);
+                fg->AddRectFilled(ImVec2(c.x - s - o, c.y - s + o), ImVec2(c.x + s - o, c.y + s + o), hovered ? ui.color.topbar_hover : ui.color.topbar);
+                fg->AddRect(ImVec2(c.x - s - o, c.y - s + o), ImVec2(c.x + s - o, c.y + s + o), col, 0, 0, w);
+                break;
+            case 3:
+                fg->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), col, w);
+                fg->AddLine(ImVec2(c.x - s, c.y + s), ImVec2(c.x + s, c.y - s), col, w);
+                break;
+        }
+    };
+
+    const float x_min = btns_x;
+    const float x_max = btns_x + p_layout.btn_w;
+    const float x_close = btns_x + p_layout.btn_w * 2.0f;
+    ctrl(x_min, 0, false);
+    ctrl(x_max, win32.window_is_maximized(main_window) ? 2 : 1, false);
+    ctrl(x_close, 3, true);
+    win32.window_titlebar_set_controls(main_window, client_rect(x_min), client_rect(x_max), client_rect(x_close));
+}
+
+void EditorApplication::_titlebar_logo(const TitlebarLayout& p_layout)
+{
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const UiStyle& ui = ui_style();
+    const float side = ImFloor(p_layout.height - ui.titlebar.logo_margin * 2.0f);
+    const ImVec2 mn(ImFloor(p_layout.origin.x + (p_layout.logo - side) * 0.5f), ImFloor(p_layout.origin.y + (p_layout.height - side) * 0.5f));
+    const ImVec2 mx(mn.x + side, mn.y + side);
+    VkDescriptorSet logo_set = imgui.texture_cache.get(resources.icon_image.image_view);
+    if (logo_set) dl->AddImage(logo_set, mn, mx, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), ui.color.text);
 }
 
 EditorContext& EditorApplication::_context()
@@ -1091,9 +990,9 @@ EditorContext& EditorApplication::_context()
 
 void EditorApplication::update_camera(float p_dt)
 {
-    Viewport& viewport = world_tab.layout.viewport;
+    Viewport& viewport = workspace.scene.viewport;
     EditorCamera::Input input;
-    input.flying = viewport.flying && tabs.active == &world_tab && !play.playing();
+    input.flying = viewport.flying && !play.playing();
     if (input.flying) {
         input.look = vec2(viewport.fly_look.x, viewport.fly_look.y);
         input.wheel = viewport.fly_wheel;
@@ -1107,22 +1006,30 @@ void EditorApplication::update_camera(float p_dt)
     editor_camera.update(input, p_dt);
 }
 
+bool EditorApplication::renders_scene() const
+{
+    if (!project.loaded()) return false;
+    if (const EditorDocument* w = workspace.active_document) return w->preview_scene() != nullptr;
+    return workspace.scene.has_world() || workspace.scene.active_template();
+}
+
 const Camera& EditorApplication::active_camera() const
 {
-    if (tabs.active == &world_tab && play.playing()) return play.session.camera;
-    if (tabs.active) {
-        if (const Camera* c = tabs.active->camera()) return *c;
+    if (const EditorDocument* w = workspace.active_document) {
+        if (const Camera* c = w->preview_camera()) return *c;
     }
+    if (!workspace.scene.active_template() && play.playing()) return play.session.camera;
     return editor_camera.camera;
 }
 
-const World& EditorApplication::render_world() const
+const Scene& EditorApplication::render_scene() const
 {
-    if (tabs.active == &world_tab && play.active()) return play.runtime;
-    if (tabs.active) {
-        if (const World* w = tabs.active->scene()) return *w;
+    if (const EditorDocument* w = workspace.active_document) {
+        if (const Scene* p = w->preview_scene()) return *p;
     }
-    return world;
+    if (const TemplateDocument* doc = workspace.scene.active_template()) return doc->scene;
+    if (play.active()) return play.runtime;
+    return scene;
 }
 
 }

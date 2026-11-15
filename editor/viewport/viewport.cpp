@@ -1,51 +1,38 @@
 #include <editor/viewport/viewport.h>
 #include <drivers/imgui/imgui_driver.h>
+#include <editor/ui/toolbar_row.h>
 #include <editor/ui/ui_widgets.h>
 #include <editor/ui/ui_style.h>
+#include <editor/layout/panel.h>
+#include <core/application/frame_stats.h>
 #include <core/rendering/renderer.h>
+#include <core/base/profiling.h>
 #include <core/rendering/render_graph.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/rendering/features/editor/debug_view.h>
-#include <core/rendering/features/post/post_process_feature.h>
-#include <core/world/world.h>
-#include <core/world/components.h>
-#include <core/world/prefab.h>
+#include <core/scene/scene.h>
+#include <core/scene/components.h>
+#include <core/scene/template.h>
 #include <editor/assets/asset_drag_payload.h>
-#include <editor/tabs/world/scene/editor_selection.h>
-#include <editor/tabs/world/scene/editor_spawn.h>
-#include <editor/tabs/prefab/prefab_tab.h>
+#include <editor/documents/scene/editor_selection.h>
+#include <editor/documents/scene/editor_spawn.h>
+#include <editor/documents/scene/template_document.h>
 #include <editor/play/editor_play.h>
 #include <core/rendering/debug_draw.h>
 #include <core/animation/bone_debug.h>
 #include <IconsFontAwesome6.h>
-#include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cfloat>
-#include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <iterator>
 
 namespace lumen {
 
-static void _view_row_decor(ImDrawList* dl, ImVec2 p, float h, const char* p_icon, const char* p_text, bool p_filled)
-{
-    const UiStyle::ViewMenuRow& row = ui_style().view_menu;
-    const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-    const float cy = p.y + h * 0.5f;
-    const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
-    dl->AddCircle(ImVec2(p.x + row.indicator_x, cy), row.indicator_radius, col, 20, row.indicator_stroke);
-    if (p_filled) dl->AddCircleFilled(ImVec2(p.x + row.indicator_x, cy), row.indicator_dot_radius, col, 20);
-
-    float tx = p.x + row.label_x;
-    if (p_icon) {
-        const float slot = ImGui::GetFontSize() * row.icon_slot_scale;
-        const float iw = ImGui::CalcTextSize(p_icon).x;
-        dl->AddText(ImVec2(tx + (slot - iw) * 0.5f, ty), col, p_icon);
-        tx += slot + row.icon_gap;
-    }
-    dl->AddText(ImVec2(tx, ty), col, p_text);
-}
+static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Shape Collisions", "All Collisions", "Debug Lines", "Bones", "Everything" };
+static_assert(std::size(VIEW_OVERLAY_NAMES) == (size_t)ViewOverlay::COUNT);
+static constexpr uint32_t EDITOR_LINE_MASK = (uint32_t)DebugCategory::GENERAL | (uint32_t)DebugCategory::COLLISION | (uint32_t)DebugCategory::BONES;
 
 ViewportView& viewport_view()
 {
@@ -53,54 +40,10 @@ ViewportView& viewport_view()
     return view;
 }
 
-bool Viewport::_view_item(const char* p_icon, const char* p_name, int p_id)
-{
-    ImGui::PushID(p_id);
-    const bool sel = (viewport_view().debug_view == p_id);
-    const float h = ImGui::GetFrameHeight();
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    const bool clicked = ImGui::Selectable("##vi", sel, 0, ImVec2(item_w, h));
-    _view_row_decor(ImGui::GetWindowDrawList(), p, h, p_icon, p_name, sel);
-    if (clicked) viewport_view().debug_view = p_id;
-    ImGui::PopID();
-    return clicked;
-}
-
-bool Viewport::_view_submenu(const DebugViewCategory& p_category, bool p_active)
-{
-    ImGuiContext& g = *GImGui;
-    ImGuiWindow* window = ImGui::GetCurrentWindow();
-    const ImGuiID popup_id = window->GetID(p_category.name);
-    bool open = ImGui::IsPopupOpen(popup_id, ImGuiPopupFlags_None);
-
-    const float h = ImGui::GetFrameHeight();
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-
-    ImGui::PushID(p_category.name);
-    ImGui::Selectable("##cat", open, ImGuiSelectableFlags_NoAutoClosePopups, ImVec2(item_w, h));
-    ImGui::PopID();
-    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
-
-    _view_row_decor(window->DrawList, p, h, p_category.icon, p_category.name, p_active);
-    ImGui::RenderArrow(window->DrawList, ImVec2(p.x + item_w - g.FontSize - ui_style().view_menu.arrow_inset, p.y + (h - g.FontSize) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), ImGuiDir_Right);
-
-    if (hovered && !open) {
-        ImGui::OpenPopupEx(popup_id, ImGuiPopupFlags_None);
-        open = true;
-    } else if (open && !hovered && g.HoveredWindow == window && g.ActiveId == 0) {
-        ImGui::ClosePopupToLevel(g.BeginPopupStack.Size, true);
-        open = false;
-    }
-    if (!open) return false;
-
-    ImGui::SetNextWindowPos(ImVec2(p.x, p.y - g.Style.WindowPadding.y), ImGuiCond_Always);
-    return ImGui::BeginPopupMenuEx(popup_id, p_category.name, ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus);
-}
-
-static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const World& p_world, const std::vector<Entity>& p_entities)
+static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const Scene& p_world, const std::vector<Entity>& p_entities)
 {
     static constexpr size_t MAX_BOUNDED = 4096;
-    const World& world = p_world;
+    const Scene& world = p_world;
     const Renderer& renderer = *ctx.renderer;
     if (p_entities.size() > MAX_BOUNDED || renderer.main_view.output_width == 0 || renderer.main_view.output_height == 0) {
         r_outline.set_rect(vec2(0.0f), vec2(1.0f));
@@ -138,7 +81,7 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const W
 
     for (const Entity e : p_entities) {
         const TransformComponent* xf = world.try_get<TransformComponent>(e);
-        if (!xf || world.has<EditorHiddenTag>(e)) continue;
+        if (!xf || world.has<DisabledTag>(e)) continue;
         const mat4 mvp = view_proj * world.world_matrix(e);
         if (const ModelComponent* m = world.try_get<ModelComponent>(e)) {
             const uint32_t mesh_index = renderer.models.mesh_index(m->model);
@@ -155,16 +98,16 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const W
 
 bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok)
 {
-    if (!ctx.world || !ctx.selection || p_size.x < 2.0f || p_size.y < 2.0f) {
+    if (!ctx.scene || !ctx.selection || p_size.x < 2.0f || p_size.y < 2.0f) {
         gizmo.reset();
         return false;
     }
     const Entity selected = ctx.selection->primary();
-    if (!ctx.world->has<TransformComponent>(selected)) {
+    if (!ctx.scene->has<TransformComponent>(selected)) {
         gizmo.reset();
         return false;
     }
-    TransformComponent xf = ctx.world->world_transform(selected);
+    TransformComponent xf = ctx.scene->world_transform(selected);
 
     const ImGuiIO& io = ImGui::GetIO();
     const Camera& cam = ctx.renderer->main_view.camera;
@@ -183,229 +126,57 @@ bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool
     const bool input_ok = ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
     bool changed = false;
     const bool hot = gizmo.update(frame, gizmo_world, p_hover_ok && input_ok, xf, changed);
-    if (changed) ctx.world->set_world_matrix(selected, transform_matrix(xf));
+    if (changed) ctx.scene->set_world_matrix(selected, transform_matrix(xf));
     return hot;
 }
 
-void Viewport::_draw_image(EditorContext& ctx)
+const char* view_overlay_name(ViewOverlay p_overlay)
 {
-    ImVec2 size = ImGui::GetContentRegionAvail();
-    ImVec2 pos = ImGui::GetCursorScreenPos();
+    return VIEW_OVERLAY_NAMES[std::min((size_t)p_overlay, std::size(VIEW_OVERLAY_NAMES) - 1)];
+}
 
-    const bool live = play && play->active();
-    const bool playing = play && play->playing();
-    const bool outline_on = allow_outline && !playing;
-
-    uint32_t picked = PickFeature::NONE;
-    if (allow_pick && ctx.render_path && ctx.world && ctx.selection && ctx.render_path->pick.take_result(picked)) {
-        World& world = *ctx.world;
-        Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
-        const Entity root = prefab_root_of(world, e);
-        const Entity primary = ctx.selection->primary();
-        if (root != ENTITY_NULL && primary != e && primary != root && prefab_root_of(world, primary) != root) e = root;
-        ctx.selection->clear();
-        if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
-    }
-    if (ctx.render_path) ctx.render_path->outline.enabled = outline_on;
-    if (outline_on && ctx.render_path && ctx.selection) {
-        if (live) {
-            _view_selection.clear();
-            for (const Entity e : ctx.selection->entities) {
-                const Entity r = play->to_runtime(e);
-                if (r != ENTITY_NULL) _view_selection.push_back(r);
-            }
-            ctx.render_path->outline.set_selection(_view_selection.data(), (uint32_t)_view_selection.size());
-            ctx.render_path->outline.source_version = 0;
-        } else if (ctx.render_path->outline.source_version != ctx.selection->version) {
-            ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
-            ctx.render_path->outline.source_version = ctx.selection->version;
-        }
-    }
-    if (outline_on && ctx.render_path && ctx.world && ctx.selection && !ctx.selection->entities.empty()) {
-        if (live) _outline_rect(ctx, ctx.render_path->outline, play->runtime, _view_selection);
-        else _outline_rect(ctx, ctx.render_path->outline, *ctx.world, ctx.selection->entities);
-    }
-
-    if (size.x >= 1.0f && size.y >= 1.0f) {
-        const uint32_t w = (uint32_t)ImClamp(size.x, 1.0f, 8192.0f);
-        const uint32_t h = (uint32_t)ImClamp(size.y, 1.0f, 8192.0f);
-        ctx.renderer->request_size(w, h);
-    }
-
-    if (ctx.render_path) {
-        GridFeature& grid = ctx.render_path->grid;
-        grid.show_grid = allow_grid && !playing;
-        grid.show_axes = allow_grid && !playing;
-        const ImVec4 gc = ui_hex4(UiStyle::Palette::GRID);
-        const ImVec4 xc = ui_hex4(UiStyle::Palette::AXIS_X);
-        const ImVec4 zc = ui_hex4(UiStyle::Palette::AXIS_Z);
-        grid.grid_color = vec4(gc.x, gc.y, gc.z, gc.w);
-        grid.axis_x_color = vec4(xc.x, xc.y, xc.z, xc.w);
-        grid.axis_z_color = vec4(zc.x, zc.y, zc.z, zc.w);
-
-        const uint32_t debug_mask = _debug_mask();
-        ctx.render_path->lines.mask = debug_mask;
-        _submit_debug_draw(ctx, debug_mask, live);
-    }
-    const char* vp_image = ctx.render_path ? ctx.render_path->ui.viewport_image(ctx.renderer->main_view.graph) : nullptr;
-    RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
-    VkImageView sel_view = VK_NULL_HANDLE;
-    if (sel && sel->image && sel->image->state.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) sel_view = sel->image->image_view;
-
-    VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
-    bool pick_click = false;
-    bool look_click = false;
-    bool look_hover = false;
-    bool game_click = false;
-    bool fly_click = false;
-    ImVec2 pick_mouse = ImGui::GetMousePos();
-    if (set) {
-        ImGui::Dummy(size);
-        ImGui::GetWindowDrawList()->AddImageRounded((ImTextureID)set, pos, ImVec2(pos.x + size.x, pos.y + size.y), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f), IM_COL32_WHITE, ui_style().panel_box.rounding, _corners);
-        const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
-        const bool image_hovered = ImGui::IsItemHovered();
-        const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-        const bool gizmo_hot = !playing && allow_gizmo && _draw_gizmo(ctx, pos, size, gizmo_hover_ok);
-        pick_click = allow_pick && !allow_look && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
-        look_click = allow_look && !playing && !gizmo_hot && image_clicked;
-        game_click = playing && image_clicked;
-        fly_click = allow_fly && !playing && ImGui::IsItemClicked(ImGuiMouseButton_Right);
-        look_hover = allow_look && image_hovered;
-        if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
-        if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
-    } else {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), ui_style().color.viewport_back, ui_style().panel_box.rounding, _corners);
-    }
-
-    if (_header_frame != ImGui::GetFrameCount()) {
-        const float margin = ui_style().overlay.margin;
-        _draw_controls(ctx, pos, ImVec2(pos.x + size.x, pos.y + ImGui::GetFrameHeight() + margin * 2.0f), margin);
-    }
-
-    if (pick_click && ctx.render_path && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
-        ctx.render_path->pick.request((pick_mouse.x - pos.x) / size.x, 1.0f - (pick_mouse.y - pos.y) / size.y);
-    }
-    if (game_click && !game_captured && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) {
-        game_captured = true;
-        cursor_lock.begin();
-    }
-    if (game_captured && (!playing || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
-        game_captured = false;
-        cursor_lock.end();
-    }
-    if (game_captured) {
-        float dx = 0.0f;
-        float dy = 0.0f;
-        cursor_lock.take_delta(dx, dy);
-        game_look.x += dx;
-        game_look.y += dy;
-        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-    }
-    _update_fly(fly_click && gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame);
-    look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
-    _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));
-    if (allow_pick && allow_look && look_clicked && !playing && ctx.render_path && size.x > 0.0f && size.y > 0.0f) {
-        ctx.render_path->pick.request((look_click_pos.x - pos.x) / size.x, 1.0f - (look_click_pos.y - pos.y) / size.y);
-    }
-    popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-
-    if (ctx.render_path) {
-        ctx.render_path->geometry.freeze = viewport_view().culling_paused;
-        ctx.render_path->debug.view = (uint32_t)std::clamp(viewport_view().debug_view, 0, DEBUG_VIEW_COUNT - 1);
+uint32_t view_overlay_kinds(ViewOverlay p_overlay)
+{
+    switch (p_overlay) {
+        case ViewOverlay::SHAPE_COLLISIONS: return ENTITY_DEBUG_COLLISION;
+        case ViewOverlay::ALL_COLLISIONS: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_MESH_COLLISION;
+        case ViewOverlay::BONES: return ENTITY_DEBUG_BONES;
+        case ViewOverlay::EVERYTHING: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_MESH_COLLISION | ENTITY_DEBUG_BONES;
+        default: return 0;
     }
 }
 
-void Viewport::draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
+uint32_t view_selection_kinds(ViewOverlay p_overlay)
 {
-    _header_frame = ImGui::GetFrameCount();
-    const float margin = ImFloor((p_max.y - p_min.y - ImGui::GetFrameHeight()) * 0.5f);
-    _draw_controls(ctx, p_min, p_max, margin);
+    return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_BONES | (view_overlay_kinds(p_overlay) & ENTITY_DEBUG_MESH_COLLISION);
 }
 
-void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, float p_margin)
+bool view_overlay_lines(ViewOverlay p_overlay)
 {
-    const ImVec2 pos = p_min;
-    const ImVec2 size(p_max.x - p_min.x, p_max.y - p_min.y);
-    const int selected_view = std::clamp(viewport_view().debug_view, 0, DEBUG_VIEW_COUNT - 1);
-    const DebugView& cur = DEBUG_VIEWS[selected_view];
-    const char* btn_icon = cur.category ? cur.category->icon : cur.icon;
-    char view_btn[128];
-    if (btn_icon) snprintf(view_btn, sizeof(view_btn), "%s  %s###ViewMode", btn_icon, cur.name);
-    else snprintf(view_btn, sizeof(view_btn), "%s###ViewMode", cur.name);
-
-    right_overlay.begin(pos, size, OverlayBar::Align::RIGHT, p_margin);
-
-    if (right_overlay.begin_menu(ICON_FA_SLIDERS "  Options###render_settings")) {
-        _draw_options(ctx);
-        right_overlay.end_menu();
-    }
-    if (right_overlay.begin_menu(view_btn)) {
-        int i = 0;
-        while (i < DEBUG_VIEW_COUNT) {
-            const DebugView& d = DEBUG_VIEWS[i];
-            if (!d.category) { _view_item(d.icon, d.name, i); i++; continue; }
-
-            int j = i;
-            bool active = false;
-            while (j < DEBUG_VIEW_COUNT && DEBUG_VIEWS[j].category == d.category) {
-                if (j == selected_view) active = true;
-                j++;
-            }
-            if (_view_submenu(*d.category, active)) {
-                for (int k = i; k < j; k++) _view_item(nullptr, DEBUG_VIEWS[k].name, k);
-                ImGui::EndMenu();
-            }
-            i = j;
-        }
-        right_overlay.end_menu();
-    }
-    {
-        const bool header = _header_frame == ImGui::GetFrameCount();
-        const bool open = header ? right_overlay.header_menu("View###viewport_view") : right_overlay.begin_menu("View###viewport_view");
-        if (open) {
-            _draw_view_menu();
-            right_overlay.end_menu();
-        }
-    }
-    right_overlay.toggle(ICON_FA_EYE_SLASH "###culling_paused", viewport_view().culling_paused);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", viewport_view().culling_paused ? "Culling paused: clusters stay as seen from where you paused" : "Pause culling");
-    right_overlay.end();
+    return p_overlay == ViewOverlay::DEBUG_LINES || p_overlay == ViewOverlay::EVERYTHING;
 }
 
-void Viewport::_draw_view_menu()
-{
-    ViewportView& view = viewport_view();
-    ImGui::MenuItem("Bones", nullptr, &view.show_bones);
-    ImGui::MenuItem("Collision", nullptr, &view.show_collision);
-    ImGui::MenuItem("Debug Lines", nullptr, &view.show_debug_lines);
-}
-
-uint32_t Viewport::_debug_mask() const
+void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
 {
     const ViewportView& view = viewport_view();
-    uint32_t mask = 0;
-    if (view.show_bones && (allow_debug_draw || has_bones)) mask |= (uint32_t)DebugCategory::BONES;
-    if (view.show_collision && (allow_debug_draw || has_collision)) mask |= (uint32_t)DebugCategory::COLLISION;
-    if (allow_debug_draw && view.show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
-    if (view.culling_paused) mask |= (uint32_t)DebugCategory::GENERAL;
-    return mask;
-}
+    if (view.culling_paused) _draw_cull_frustum(ctx);
+    debug_entities.clear();
+    if (!ctx.renderer) return;
+    const Scene* scene = p_live ? &play->runtime : ctx.scene;
+    if (!scene) return;
 
-void Viewport::_submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live)
-{
-    if (p_mask == 0) return;
-    if (viewport_view().culling_paused) _draw_cull_frustum(ctx);
-    if (debug_lines) debug_lines();
-    if (!allow_debug_draw) return;
-    if ((p_mask & (uint32_t)DebugCategory::COLLISION) && ctx.renderer && ctx.project) {
-        const World* world = p_live ? &play->runtime : ctx.world;
-        if (world) collision_preview.draw_world(debug_draw(), *world, *ctx.renderer, *ctx.project);
+    if (ctx.selection) {
+        std::vector<Entity> sub;
+        for (const Entity e : ctx.selection->entities) {
+            const Entity root = p_live ? play->to_runtime(e) : e;
+            scene->subtree(root, sub);
+            for (const Entity s : sub) if (std::find(debug_entities.begin(), debug_entities.end(), s) == debug_entities.end()) debug_entities.push_back(s);
+        }
     }
-    if ((p_mask & (uint32_t)DebugCategory::BONES) && ctx.renderer) {
-        const World* world = p_live ? &play->runtime : ctx.world;
-        if (world) debug_draw_bones(debug_draw(), *world, *ctx.renderer);
-    }
+    const EntityDebugSource source{ .renderer = *ctx.renderer, .project = ctx.project, .meshes = &collision_meshes };
+    const uint32_t all = view_overlay_kinds(view.overlay);
+    debug_draw_scene(debug_draw(), *scene, source, all);
+    debug_draw_entities(debug_draw(), *scene, debug_entities, source, view_selection_kinds(view.overlay) & ~all);
 }
 
 void Viewport::_draw_cull_frustum(EditorContext& ctx)
@@ -434,66 +205,289 @@ void Viewport::_draw_cull_frustum(EditorContext& ctx)
     draw.point(eye, 4.0f, style);
 }
 
-void Viewport::_draw_options(EditorContext& ctx)
+struct ViewBar
 {
-    ImGui::TextDisabled("Viewport");
-    ImGui::PushItemWidth(ImFloor(ImGui::GetFontSize() * 9.0f));
-    float internal = ctx.renderer->main_view.render_scale * 100.0f;
-    if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
-    float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
-    if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
-    ImGui::PopItemWidth();
-    if (options_controls) options_controls();
+    float x = 0.0f;
+    float y = 0.0f;
+    float h = 0.0f;
+
+    bool combo(const char* p_id, const char* p_preview, float p_width)
+    {
+        const UiStyle& ui = ui_style();
+        const ImVec2 a(x, y);
+        const ImVec2 b(x + p_width, y + h);
+        x = b.x + 1.0f;
+        ImGui::SetCursorScreenPos(a);
+        const ImGuiID popup = ImGui::GetID(p_id);
+        const bool open_now = ImGui::IsPopupOpen(popup, ImGuiPopupFlags_None);
+        if (ImGui::InvisibleButton(p_id, ImVec2(p_width, h), ImGuiButtonFlags_PressedOnClick) && !open_now) ImGui::OpenPopupEx(popup);
+        const bool hovered = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(a, b, (hovered || open_now) ? ui.color.field_hover : ui.color.field, ui.radius.sm);
+        const float pad = ui.space.sm;
+        const float arrow = ImFloor(ImGui::GetFontSize() * 0.32f);
+        const ImVec2 ts = ImGui::CalcTextSize(p_preview);
+        const ImVec2 tmin(a.x + pad, ImFloor(a.y + (h - ts.y) * 0.5f));
+        const ImVec2 tmax(b.x - pad - arrow * 3.0f, b.y);
+        ImGui::PushStyleColor(ImGuiCol_Text, ui.color.text);
+        ImGui::RenderTextEllipsis(dl, tmin, tmax, tmax.x, p_preview, nullptr, &ts);
+        ImGui::PopStyleColor();
+        ui_chevron(dl, ImVec2(ImFloor(b.x - pad - arrow) + 0.5f, ImFloor(a.y + h * 0.5f) + 0.5f), arrow * 2.0f, ImGuiDir_Down, ui.color.text, ui.stroke.thin);
+        ImGui::SetNextWindowPos(ImVec2(a.x, b.y), ImGuiCond_Always);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(p_width, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+        ui_dropdown_push_style();
+        const bool open = ImGui::BeginPopupEx(popup, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings);
+        if (!open) ui_dropdown_pop_style();
+        return open;
+    }
+
+    void end_combo()
+    {
+        ImGui::EndPopup();
+        ui_dropdown_pop_style();
+    }
+
+    bool toggle(const char* p_id, const char* p_label, const char* p_tip, bool p_on)
+    {
+        const UiStyle& ui = ui_style();
+        const float w = ImMax(h, ImGui::CalcTextSize(p_label).x + ui.space.sm * 2.0f);
+        const ImVec2 a(x, y);
+        const ImVec2 b(x + w, y + h);
+        x = b.x + 1.0f;
+        ImGui::SetCursorScreenPos(a);
+        const bool pressed = ImGui::InvisibleButton(p_id, ImVec2(w, h));
+        const bool hovered = ImGui::IsItemHovered();
+        if (p_tip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", p_tip);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (p_on) dl->AddRectFilled(a, b, ui.color.accent, ui.radius.sm);
+        else if (hovered) {
+            dl->AddRectFilled(a, b, ui.color.tool_hover, ui.radius.sm);
+            dl->AddRect(a, b, ui.color.accent, ui.radius.sm);
+        }
+        ui_text_centered(dl, a, b, p_on ? ui.color.active_icon : ui.color.text, p_label);
+        return pressed;
+    }
+};
+
+void Viewport::draw_bar(ImVec2 p_min, ImVec2 p_max)
+{
+    ViewportView& view = viewport_view();
+    ImGui::SetCursorScreenPos(p_min);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::BeginChild("##viewport_bar", ImVec2(p_max.x - p_min.x, p_max.y - p_min.y), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+    ImGui::PopStyleVar();
+
+    ViewBar bar;
+    bar.h = p_max.y - p_min.y;
+    bar.x = p_min.x;
+    bar.y = p_min.y;
+    const float combo_w = ImFloor(ImGui::GetFontSize() * 7.0f);
+
+    const int selected_view = std::clamp(view.debug_view, 0, DEBUG_VIEW_COUNT - 1);
+    if (bar.combo("##render_view", DEBUG_VIEWS[selected_view].name, combo_w * 1.4f)) {
+        int i = 0;
+        while (i < DEBUG_VIEW_COUNT) {
+            const DebugView& d = DEBUG_VIEWS[i];
+            if (!d.category) {
+                if (ImGui::MenuItem(d.name, nullptr, i == selected_view)) view.debug_view = i;
+                i++;
+                continue;
+            }
+            int j = i;
+            while (j < DEBUG_VIEW_COUNT && DEBUG_VIEWS[j].category == d.category) j++;
+            if (ImGui::BeginMenu(d.category->name)) {
+                for (int k = i; k < j; k++) {
+                    if (ImGui::MenuItem(DEBUG_VIEWS[k].name, nullptr, k == selected_view)) view.debug_view = k;
+                }
+                ImGui::EndMenu();
+            }
+            i = j;
+        }
+        bar.end_combo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Render buffer");
+
+    char overlay_label[64];
+    std::snprintf(overlay_label, sizeof(overlay_label), "Overlay: %s", view_overlay_name(view.overlay));
+    if (bar.combo("##overlay", overlay_label, combo_w * 1.8f)) {
+        for (int i = 0; i < (int)ViewOverlay::COUNT; i++) {
+            if (ImGui::MenuItem(VIEW_OVERLAY_NAMES[i], nullptr, (int)view.overlay == i)) view.overlay = (ViewOverlay)i;
+        }
+        bar.end_combo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Debug drawn for every entity. The selection always shows its own.");
+
+    if (bar.toggle("##freeze_culling", ICON_FA_SNOWFLAKE "  Freeze Culling", view.culling_paused ? "Culling is frozen where you paused it" : "Freeze culling", view.culling_paused)) view.culling_paused = !view.culling_paused;
+    if (bar.toggle("##stats", "IM", "Frame stats", view.stats)) view.stats = !view.stats;
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    ImGui::EndChild();
+}
+
+void Viewport::draw_stats(EditorContext& ctx, ImVec2 p_pos)
+{
+    const UiStyle& ui = ui_style();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const RenderView& v = ctx.renderer->main_view;
+    const float ms = ctx.frame_stats ? ctx.frame_stats->frame_avg : 0.0f;
+    char tris[32] = "-";
+    char clusters[32] = "-";
+    if (ctx.render_path) {
+        const GeometryFeature& geo = ctx.render_path->geometry;
+        if (geo.compact_raster_frame) std::snprintf(tris, sizeof(tris), "%u", geo.compact_demand);
+        if (ctx.profiling && ctx.profiling->gpu_on()) std::snprintf(clusters, sizeof(clusters), "%u", geo.stats.phase1_visible + geo.stats.phase2_visible);
+        else std::snprintf(clusters, sizeof(clusters), "%u", v.frame.cluster_ref_capacity);
+    }
+    char line0[256];
+    std::snprintf(line0, sizeof(line0), "FPS: %.1f (%.2f ms) - Instances: %u - Triangles: %s - Clusters: %s", ms > 0.0f ? 1000.0f / ms : 0.0f, ms, v.frame.instance_count, tris, clusters);
+    const VkPhysicalDeviceProperties& props = ctx.renderer->dd->physical_device_properties;
+    char line1[320];
+    std::snprintf(line1, sizeof(line1), "Vulkan %u.%u.%u - %s", VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion), props.deviceName);
+    const float lh = ImGui::GetTextLineHeight();
+    const ImVec2 at(p_pos.x + ui.space.sm, p_pos.y + ui.space.xs);
+    const char* lines[2] = { line0, line1 };
+    for (int i = 0; i < 2; i++) {
+        const ImVec2 p(at.x, at.y + lh * (float)i);
+        dl->AddText(ImVec2(p.x + 1.0f, p.y + 1.0f), ui.color.shadow_text, lines[i]);
+        dl->AddText(p, ui.color.stats_text, lines[i]);
+    }
+}
+
+void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+{
+    const UiStyle& ui = ui_style();
+    const ViewportView& view = viewport_view();
+    const bool live = play && play->active();
+    const bool playing = play && play->playing();
+
+    uint32_t picked = PickFeature::NONE;
+    if (ctx.render_path && ctx.scene && ctx.selection && ctx.render_path->pick.take_result(picked)) {
+        Scene& world = *ctx.scene;
+        Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
+        const Entity root = template_root_of(world, e);
+        const Entity primary = ctx.selection->primary();
+        if (root != ENTITY_NULL && primary != e && primary != root && template_root_of(world, primary) != root) e = root;
+        ctx.selection->clear();
+        if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
+    }
+
+    const bool outline_on = !playing;
+    if (ctx.render_path) ctx.render_path->outline.enabled = outline_on;
+    if (outline_on && ctx.render_path && ctx.selection) {
+        if (live) {
+            _view_selection.clear();
+            for (const Entity e : ctx.selection->entities) {
+                const Entity r = play->to_runtime(e);
+                if (r != ENTITY_NULL) _view_selection.push_back(r);
+            }
+            ctx.render_path->outline.set_selection(_view_selection.data(), (uint32_t)_view_selection.size());
+            ctx.render_path->outline.source_version = 0;
+        } else if (ctx.render_path->outline.source_version != ctx.selection->version) {
+            ctx.render_path->outline.set_selection(ctx.selection->entities.data(), (uint32_t)ctx.selection->entities.size());
+            ctx.render_path->outline.source_version = ctx.selection->version;
+        }
+    }
+    if (outline_on && ctx.render_path && ctx.scene && ctx.selection && !ctx.selection->entities.empty()) {
+        if (live) _outline_rect(ctx, ctx.render_path->outline, play->runtime, _view_selection);
+        else _outline_rect(ctx, ctx.render_path->outline, *ctx.scene, ctx.selection->entities);
+    }
+
+    const uint32_t w = (uint32_t)ImClamp(p_size.x, 1.0f, 8192.0f);
+    const uint32_t h = (uint32_t)ImClamp(p_size.y, 1.0f, 8192.0f);
+    ctx.renderer->request_size(w, h);
+
+    if (ctx.render_path) {
+        GridFeature& grid = ctx.render_path->grid;
+        grid.show_grid = !playing;
+        grid.show_axes = !playing;
+        const ImVec4 gc = ui_vec4(ui.color.grid);
+        const ImVec4 xc = ui_vec4(ui.color.axis_x);
+        const ImVec4 zc = ui_vec4(ui.color.axis_z);
+        grid.grid_color = vec4(gc.x, gc.y, gc.z, gc.w);
+        grid.axis_x_color = vec4(xc.x, xc.y, xc.z, xc.w);
+        grid.axis_z_color = vec4(zc.x, zc.y, zc.z, zc.w);
+        ctx.render_path->lines.mask = EDITOR_LINE_MASK;
+        _submit_debug_draw(ctx, live);
+    }
+
+    const char* vp_image = ctx.render_path ? ctx.render_path->ui.viewport_image(ctx.renderer->main_view.graph) : nullptr;
+    RenderGraph::ImageResource* sel = vp_image ? ctx.renderer->main_view.graph.image_resource(vp_image) : nullptr;
+    VkImageView sel_view = VK_NULL_HANDLE;
+    if (sel && sel->image && sel->image->state.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) sel_view = sel->image->image_view;
+    const VkDescriptorSet set = ctx.imgui->texture_cache.get(sel_view);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p_end(p_pos.x + p_size.x, p_pos.y + p_size.y);
+    ImGui::SetCursorScreenPos(p_pos);
+    ImGui::InvisibleButton("##scene_image", p_size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+    const bool image_hovered = ImGui::IsItemHovered();
+    const bool fly_click = !playing && ImGui::IsItemClicked(ImGuiMouseButton_Right);
+    if (set) dl->AddImage((ImTextureID)set, p_pos, p_end, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+    else dl->AddRectFilled(p_pos, p_end, ui.color.viewport_back);
+
+    const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+    const bool gizmo_hot = !playing && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
+    if (playing) gizmo.reset();
+    const bool pick_click = !playing && !gizmo_hot && image_clicked;
+    const bool game_click = playing && image_clicked;
+    const ImVec2 mouse = ImGui::GetMousePos();
+    if (!playing) _asset_drop(ctx, p_pos, p_size);
+    if (view.stats) draw_stats(ctx, p_pos);
+
+    if (pick_click && ctx.render_path && !popup_open_last_frame) ctx.render_path->pick.request((mouse.x - p_pos.x) / p_size.x, 1.0f - (mouse.y - p_pos.y) / p_size.y);
+    if (game_click && !game_captured && !popup_open_last_frame) {
+        game_captured = true;
+        cursor_lock.begin();
+    }
+    if (game_captured && playing && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        game_captured = false;
+        cursor_lock.end();
+        if (ctx.pie_toggle_pause) ctx.pie_toggle_pause();
+    }
+    if (game_captured && !playing) {
+        game_captured = false;
+        cursor_lock.end();
+    }
+    if (game_captured) {
+        float dx = 0.0f;
+        float dy = 0.0f;
+        cursor_lock.take_delta(dx, dy);
+        game_look.x += dx;
+        game_look.y += dy;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    }
+    _update_fly(fly_click && gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame);
+    popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+
+    if (ctx.render_path) {
+        ctx.render_path->geometry.freeze = view.culling_paused;
+        ctx.render_path->debug.view = (uint32_t)std::clamp(view.debug_view, 0, DEBUG_VIEW_COUNT - 1);
+    }
 }
 
 void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 {
-    if (!ctx.world || !ctx.selection) return;
+    if (!ctx.scene || !ctx.selection) return;
     if (!ImGui::BeginDragDropTargetCustom(ImRect(p_pos, ImVec2(p_pos.x + p_size.x, p_pos.y + p_size.y)), ImGui::GetID("##asset_drop"))) return;
     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
         const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
-        const bool prefab_ok = asset.type == AssetType::PREFAB && !ctx.prefab_tab;
-        if ((asset.type == AssetType::MODEL || prefab_ok) && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
+        const bool template_ok = asset.type == AssetType::TEMPLATE && !ctx.template_doc;
+        if ((asset.type == AssetType::MODEL || template_ok) && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
             if (asset.type == AssetType::MODEL) editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, asset.guid);
-            else editor_spawn_prefab(ctx, asset.guid, ENTITY_NULL);
+            else editor_spawn_template(ctx, asset.guid, ENTITY_NULL);
         }
     }
     ImGui::EndDragDropTarget();
 }
 
-void Viewport::_update_look(bool p_start, ImVec2 p_center)
-{
-    look_delta = ImVec2(0.0f, 0.0f);
-    look_clicked = false;
-    if (!looking && p_start) {
-        looking = true;
-        _look_press = ImGui::GetMousePos();
-        _look_travel = 0.0f;
-        cursor_lock.begin();
-    }
-    if (!looking) return;
-
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-        looking = false;
-        if (_look_travel > LOOK_CLICK_SLOP) cursor_lock.end(p_center.x - _look_press.x, p_center.y - _look_press.y);
-        else cursor_lock.end();
-        look_clicked = _look_travel <= LOOK_CLICK_SLOP;
-        look_click_pos = _look_press;
-        return;
-    }
-    cursor_lock.take_delta(look_delta.x, look_delta.y);
-    _look_travel += std::fabs(look_delta.x) + std::fabs(look_delta.y);
-    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-}
-
 void Viewport::_update_fly(bool p_start)
 {
-    if (!flying && p_start && !looking && !game_captured) {
+    if (!flying && p_start && !game_captured) {
         flying = true;
         cursor_lock.begin();
     }
     if (!flying) return;
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) || !allow_fly || (play && play->playing())) {
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) || (play && play->playing())) {
         flying = false;
         cursor_lock.end();
         return;
@@ -507,15 +501,38 @@ void Viewport::_update_fly(bool p_start)
     ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 }
 
+void Viewport::draw_options_menu(EditorContext& ctx)
+{
+    ui_menu_push_style();
+    if (ImGui::BeginPopup("##viewport_menu")) {
+        ImGui::PushItemWidth(ImFloor(ImGui::GetFontSize() * 9.0f));
+        float internal = ctx.renderer->main_view.render_scale * 100.0f;
+        if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
+        float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
+        if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
+        ImGui::PopItemWidth();
+        ImGui::EndPopup();
+    }
+    ui_menu_pop_style();
+}
+
 void Viewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 {
-    ImGui::SetCursorScreenPos(p_min);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    _corners = _header_frame == ImGui::GetFrameCount() ? ImDrawFlags_RoundCornersBottom : ImDrawFlags_RoundCornersAll;
-    ImGui::BeginChild("##scene", ImVec2(ImMax(1.0f, p_max.x - p_min.x), ImMax(1.0f, p_max.y - p_min.y)), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
-    ImGui::PopStyleVar();
-    _draw_image(ctx);
-    ImGui::EndChild();
+    const UiStyle& ui = ui_style();
+    const float bar_h = ui.row;
+    if (p_max.y - p_min.y < bar_h + 2.0f || p_max.x - p_min.x < 2.0f) return;
+
+    const ImVec2 bar_min = p_min;
+    const ImVec2 bar_max(p_max.x, bar_min.y + bar_h);
+    ImGui::GetWindowDrawList()->AddRectFilled(bar_min, bar_max, ui.color.view_bar);
+    draw_bar(bar_min, bar_max);
+
+    const bool live = play && play->active();
+    const float border = live ? ui.viewport.play_border : 0.0f;
+    const ImVec2 img_min(p_min.x + border, bar_max.y + border);
+    const ImVec2 img_max(p_max.x - border, p_max.y - border);
+    _draw_image(ctx, img_min, ImVec2(ImMax(1.0f, img_max.x - img_min.x), ImMax(1.0f, img_max.y - img_min.y)));
+    if (live) ImGui::GetWindowDrawList()->AddRect(ImVec2(p_min.x + border * 0.5f, bar_max.y + border * 0.5f), ImVec2(p_max.x - border * 0.5f, p_max.y - border * 0.5f), ui.color.play_border, 0.0f, 0, border);
 }
 
 }

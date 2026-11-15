@@ -11,92 +11,95 @@ struct UiStyle
     /*****************/
 
     struct Palette {
-        static constexpr uint32_t EDITOR_BORDER = 0x161616ff;
-        static constexpr uint32_t TOPBAR = 0x181818ff;
-        static constexpr uint32_t BACK = 0x303030ff;
-        static constexpr uint32_t HEADER = 0x303030ff;
-        static constexpr uint32_t OUTLINER_BACK = 0x282828ff;
-        static constexpr uint32_t VIEWPORT_BACK = 0x3d3d3dff;
-        static constexpr uint32_t PANEL = 0x3d3d3dff;
-        static constexpr uint32_t PANEL_SUB = 0x0000001f;
-        static constexpr uint32_t PANEL_OUTLINE = 0xffffff11;
-        static constexpr uint32_t OUTLINE = 0x3d3d3dff;
-        static constexpr uint32_t SEPARATOR = 0xffffff1a;
-        static constexpr uint32_t EMBOSS = 0x00000026;
-
-        static constexpr uint32_t TEXT = 0xe6e6e6ff;
-        static constexpr uint32_t TEXT_HI = 0xffffffff;
-        static constexpr uint32_t TEXT_DIM = 0x989898ff;
-        static constexpr uint32_t TEXT_STATUS = 0x838383ff;
-        static constexpr uint32_t TEXT_CURSOR = 0x71a8ffff;
-        static constexpr uint32_t LINK = 0x6fa9e6ff;
-
-        static constexpr uint32_t NUM = 0x545454ff;
-        static constexpr uint32_t NUM_HOVER = 0x636363ff;
-        static constexpr uint32_t NUM_ACTIVE = 0x222222ff;
-        static constexpr uint32_t TEXT_FIELD = 0x1d1d1dff;
-        static constexpr uint32_t TEXT_FIELD_HOVER = 0x2c2c2cff;
-        static constexpr uint32_t TEXT_FIELD_ACTIVE = 0x181818ff;
-        static constexpr uint32_t MENU = 0x282828ff;
-        static constexpr uint32_t MENU_HOVER = 0x373737ff;
-        static constexpr uint32_t TOOLBAR_ITEM = 0x282828ff;
-
-        static constexpr uint32_t PULLDOWN_TEXT = 0xd9d9d9ff;
-        static constexpr uint32_t PULLDOWN_HOVER = 0xffffff1a;
-        static constexpr uint32_t MENU_BACK = 0x181818ff;
-        static constexpr uint32_t MENU_BACK_OUTLINE = 0x242424ff;
-        static constexpr uint32_t MENU_ITEM_TEXT = 0xddddddff;
-        static constexpr uint32_t MENU_ITEM_DIM = 0x999999ff;
-        static constexpr uint32_t TOOLTIP = 0x1d1d1dff;
-        static constexpr uint32_t TOOLTIP_OUTLINE = 0x242424ff;
-
-        static constexpr uint32_t ACCENT = 0x4772b3ff;
-        static constexpr uint32_t ACCENT_HOVER = 0x5681c2ff;
-        static constexpr uint32_t ACCENT_SELECT = 0x4772b366;
-        static constexpr uint32_t ACCENT_DROP = 0x4772b326;
-
-        static constexpr uint32_t TAB = 0x1d1d1dff;
-        static constexpr uint32_t TAB_HOVER = 0x282828ff;
-        static constexpr uint32_t TAB_ACTIVE = 0x303030ff;
-
-        static constexpr uint32_t LIST_HOVER = 0xffffff0d;
-        static constexpr uint32_t LIST_SELECTED = 0x1d314dff;
-        static constexpr uint32_t LIST_ACTIVE = 0x334d80ff;
-        static constexpr uint32_t ROW_ALTERNATE = 0xffffff04;
-
-        static constexpr uint32_t SCROLL = 0x545454ff;
-        static constexpr uint32_t SCROLL_HOVER = 0x656565ff;
-        static constexpr uint32_t SCROLL_ACTIVE = 0x767676ff;
-
-        static constexpr uint32_t AXIS_X = 0xff3352ff;
-        static constexpr uint32_t AXIS_Y = 0x8bdc00ff;
-        static constexpr uint32_t AXIS_Z = 0x2890ffff;
-        static constexpr uint32_t AXIS_W = 0xedba18ff;
-
-        static constexpr uint32_t STATE_ERROR = 0xe60000ff;
-        static constexpr uint32_t STATE_WARNING = 0xac8737ff;
-        static constexpr uint32_t STATE_SUCCESS = 0x188625ff;
-        static constexpr uint32_t STATE_INFO = 0x1a8cffff;
-
-        static constexpr uint32_t GRID = 0x545454ff;
-        static constexpr uint32_t VIEW_SELECT = 0xed5700ff;
-        static constexpr uint32_t VIEW_ACTIVE = 0xffa028ff;
-
-        static constexpr uint32_t ICON_SCENE = 0xccccccff;
-        static constexpr uint32_t ICON_COLLECTION = 0xffffffff;
-        static constexpr uint32_t ICON_OBJECT = 0xe19658ff;
-        static constexpr uint32_t ICON_OBJECT_DATA = 0x00d4a3ff;
-        static constexpr uint32_t ICON_MODIFIER = 0x74a2ffff;
-        static constexpr uint32_t ICON_SHADING = 0xcc6670ff;
-        static constexpr uint32_t ICON_FOLDER = 0xccad63ff;
+        uint32_t EDITOR_BORDER = 0x161616ff;
+        uint32_t TOPBAR = 0x181818ff;
+        uint32_t BACK = 0x303030ff;
+        uint32_t HEADER = 0x303030ff;
+        uint32_t OUTLINER_BACK = 0x282828ff;
+        uint32_t VIEWPORT_BACK = 0x3d3d3dff;
+        uint32_t PANEL = 0x3d3d3dff;
+        uint32_t PANEL_SUB = 0x0000001f;
+        uint32_t PANEL_OUTLINE = 0xffffff11;
+        uint32_t OUTLINE = 0x3d3d3dff;
+        uint32_t SEPARATOR = 0xffffff1a;
+        uint32_t EMBOSS = 0x00000026;
+        uint32_t TEXT = 0xe6e6e6ff;
+        uint32_t TEXT_HI = 0xffffffff;
+        uint32_t TEXT_DIM = 0x989898ff;
+        uint32_t TEXT_STATUS = 0x838383ff;
+        uint32_t TEXT_CURSOR = 0x71a8ffff;
+        uint32_t LINK = 0x6fa9e6ff;
+        uint32_t NUM = 0x545454ff;
+        uint32_t NUM_HOVER = 0x636363ff;
+        uint32_t NUM_ACTIVE = 0x222222ff;
+        uint32_t TEXT_FIELD = 0x1d1d1dff;
+        uint32_t TEXT_FIELD_HOVER = 0x2c2c2cff;
+        uint32_t TEXT_FIELD_ACTIVE = 0x181818ff;
+        uint32_t MENU = 0x282828ff;
+        uint32_t MENU_HOVER = 0x373737ff;
+        uint32_t TOOLBAR_ITEM = 0x282828ff;
+        uint32_t PULLDOWN_TEXT = 0xd9d9d9ff;
+        uint32_t PULLDOWN_HOVER = 0xffffff1a;
+        uint32_t MENU_BACK = 0x181818ff;
+        uint32_t MENU_BACK_OUTLINE = 0x242424ff;
+        uint32_t MENU_ITEM_TEXT = 0xddddddff;
+        uint32_t MENU_ITEM_DIM = 0x999999ff;
+        uint32_t TOOLTIP = 0x1d1d1dff;
+        uint32_t TOOLTIP_OUTLINE = 0x242424ff;
+        uint32_t ACCENT = 0x4772b3ff;
+        uint32_t ACCENT_HOVER = 0x5681c2ff;
+        uint32_t ACCENT_SELECT = 0x4772b366;
+        uint32_t ACCENT_DROP = 0x4772b326;
+        uint32_t TAB = 0x1d1d1dff;
+        uint32_t TAB_HOVER = 0x282828ff;
+        uint32_t TAB_ACTIVE = 0x303030ff;
+        uint32_t LIST_HOVER = 0xffffff0d;
+        uint32_t LIST_SELECTED = 0x1d314dff;
+        uint32_t LIST_ACTIVE = 0x334d80ff;
+        uint32_t ROW_ALTERNATE = 0xffffff04;
+        uint32_t SCROLL = 0x545454ff;
+        uint32_t SCROLL_HOVER = 0x656565ff;
+        uint32_t SCROLL_ACTIVE = 0x767676ff;
+        uint32_t AXIS_X = 0xff3352ff;
+        uint32_t AXIS_Y = 0x8bdc00ff;
+        uint32_t AXIS_Z = 0x2890ffff;
+        uint32_t AXIS_W = 0xedba18ff;
+        uint32_t STATE_ERROR = 0xe60000ff;
+        uint32_t STATE_WARNING = 0xac8737ff;
+        uint32_t STATE_SUCCESS = 0x188625ff;
+        uint32_t STATE_INFO = 0x1a8cffff;
+        uint32_t GRID = 0x545454ff;
+        uint32_t VIEW_SELECT = 0xed5700ff;
+        uint32_t VIEW_ACTIVE = 0xffa028ff;
+        uint32_t ICON_SCENE = 0xccccccff;
+        uint32_t ICON_COLLECTION = 0xffffffff;
+        uint32_t ICON_OBJECT = 0xe19658ff;
+        uint32_t ICON_OBJECT_DATA = 0x00d4a3ff;
+        uint32_t ICON_MODIFIER = 0x74a2ffff;
+        uint32_t ICON_SHADING = 0xcc6670ff;
+        uint32_t ICON_FOLDER = 0xccad63ff;
+        uint32_t CHECK = 0xffffffff;
+        uint32_t TOOLBAR = 0x141414ff;
+        uint32_t SEARCH = 0x262626ff;
+        uint32_t SEARCH_BORDER = 0x3c3c3cff;
+        uint32_t ACTIVE_ICON = 0xffffffff;
+        uint32_t TOOL_HOVER = 0x2a2a2aff;
+        uint32_t VIEW_HEADER = 0x161616ff;
+        uint32_t VIEW_BAR = 0x1f1f1fff;
+        uint32_t STATS_TEXT = 0xffd75aff;
+        uint32_t PLAY_BORDER = 0xff8a1eff;
     };
+
+    static const Palette& palette_dark();
+    static const Palette& palette_light();
 
     /*****************/
     /**** TOKENS *****/
     /*****************/
 
-    float scale = 1.25f;
-    float unit = 20.0f;
+    float scale = 1.0f;
+    float unit = 18.0f;
+    float row = 30.0f;
 
     struct Typography {
         float size = 16.5f;
@@ -122,31 +125,13 @@ struct UiStyle
         float md = 4.0f;
         float lg = 5.0f;
         float xl = 6.0f;
-        float pill = 999.0f;
+        float pill = 0.0f;
     };
 
     struct Stroke {
         float hairline = 1.0f;
         float thin = 1.5f;
         float thick = 2.0f;
-    };
-
-    struct SurfaceMix {
-        float sunken = 0.0f;
-        float chrome = 0.045f;
-        float hover = 0.06f;
-        float panel = 0.08f;
-        float field = 0.11f;
-        float line = 0.12f;
-        float field_hover = 0.14f;
-        float field_active = 0.17f;
-        float field_pressed = 0.20f;
-    };
-
-    struct AccentMix {
-        float soft = 0.18f;
-        float soft_hover = 0.30f;
-        float soft_active = 0.42f;
     };
 
     struct Alpha {
@@ -237,9 +222,9 @@ struct UiStyle
         ImU32 asset_blend_space;
         ImU32 asset_locomotion;
         ImU32 asset_overlay;
-        ImU32 asset_world;
+        ImU32 asset_scene;
         ImU32 asset_terrain;
-        ImU32 asset_prefab;
+        ImU32 asset_template;
 
         ImU32 overlay;
         ImU32 overlay_hover;
@@ -278,6 +263,18 @@ struct UiStyle
         ImU32 viz_wait;
         ImU32 viz_frame_marker;
         ImU32 viz_submit;
+
+        ImU32 grid;
+        ImU32 stats_text;
+        ImU32 play_border;
+        ImU32 check;
+        ImU32 toolbar;
+        ImU32 search;
+        ImU32 search_border;
+        ImU32 active_icon;
+        ImU32 tool_hover;
+        ImU32 view_header;
+        ImU32 view_bar;
     };
 
     /*****************/
@@ -304,38 +301,6 @@ struct UiStyle
         float frame_border;
     };
 
-    struct Dock {
-        float gap;
-        ImVec2 panel_padding;
-        ImVec2 drawer_padding;
-        float drop_outline;
-        float edge_target_size;
-        float edge_target_margin;
-        float edge_target_inset;
-        float edge_target_rounding;
-    };
-
-    struct TabStrip {
-        float height_pad;
-        float pad_x;
-        float min_width;
-        float accent_height;
-    };
-
-    struct DockTab {
-        float inset_x;
-        float inset_top;
-        float gap;
-        float rounding;
-        float close_pad;
-        float close_size_pad;
-        float close_rounding;
-        float close_glyph_scale;
-        float close_glyph_stroke;
-        float label_min_pad;
-        const char* label_trail;
-    };
-
     struct Menu {
         ImVec2 padding;
         float rounding;
@@ -344,6 +309,7 @@ struct UiStyle
     };
 
     struct Splitter {
+        float gap;
         float line_width;
         float grip_half_width;
         float grip_length;
@@ -358,6 +324,7 @@ struct UiStyle
 
     struct Toolbar {
         float height;
+        float main_height;
         float padding_x;
     };
 
@@ -382,16 +349,19 @@ struct UiStyle
         float grip_spacing;
     };
 
-    struct PlayControls {
-        float margin;
-        float inset;
-        float rounding;
-        float button_extra_width;
-        float kebab_width;
-        float kebab_gap;
+    struct PanelFrame {
+        ImVec2 padding;
+        float header_height;
+        float header_pad_x;
+    };
+
+    struct ViewportFrame {
+        float play_border;
     };
 
     struct Titlebar {
+        float height;
+        float search_width;
         ImVec2 menu_padding;
         float menu_height;
         float menu_gap;
@@ -425,17 +395,6 @@ struct UiStyle
         float gap;
         float track_thickness;
         float knob_radius;
-    };
-
-    struct ViewMenuRow {
-        float indicator_x;
-        float indicator_radius;
-        float indicator_dot_radius;
-        float indicator_stroke;
-        float label_x;
-        float icon_slot_scale;
-        float icon_gap;
-        float arrow_inset;
     };
 
     struct Outliner {
@@ -580,13 +539,6 @@ struct UiStyle
         float block_gap;
     };
 
-    struct ConsoleBar {
-        float pad;
-        float field_width;
-        float field_min_width;
-        float rounding;
-    };
-
     struct Gizmo {
         float arrow_ratio;
         float ring_scale;
@@ -602,31 +554,29 @@ struct UiStyle
         float drag_alpha;
     };
 
+    Palette pal;
+    bool light = false;
+
     Typography font;
     Space space;
     Radius radius;
     Stroke stroke;
-    SurfaceMix surface_mix;
-    AccentMix accent_mix;
     Alpha alpha;
 
     Colors color;
 
     Base base;
-    Dock dock;
-    TabStrip tab_strip;
-    DockTab dock_tab;
     Menu menu;
     Splitter splitter;
     Property property;
     Toolbar toolbar;
     Header header;
     PanelBox panel_box;
-    PlayControls play;
+    PanelFrame panel;
+    ViewportFrame viewport;
     Titlebar titlebar;
     Overlay overlay;
     Timeline timeline;
-    ViewMenuRow view_menu;
     Outliner outliner;
     Details details;
     ListRow list_row;
@@ -639,7 +589,6 @@ struct UiStyle
     AssetBrowser asset_browser;
     Profiler profiler;
     DataTable data_table;
-    ConsoleBar console_bar;
     Gizmo gizmo;
 
     void build();
@@ -657,6 +606,5 @@ ImU32 ui_hex(uint32_t p_rgba);
 ImVec4 ui_hex4_over(uint32_t p_rgba, uint32_t p_background);
 ImU32 ui_hex_over(uint32_t p_rgba, uint32_t p_background);
 ImVec4 ui_vec4(ImU32 p_color);
-void ui_install_font_gamma(ImFontAtlas* p_atlas);
 
 }

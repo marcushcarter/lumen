@@ -46,7 +46,7 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
-    err = world.initialize();
+    err = scene.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     drivers::ImGuiDriverCreateInfo imgui_ci{};
@@ -115,7 +115,7 @@ void Application::shutdown()
     dd.device_wait_idle();
 
     project_unload();
-    world.shutdown();
+    scene.shutdown();
 
     if (render_path) {
         render_path->destroy_resources();
@@ -176,7 +176,7 @@ Error Application::_frame()
     imgui.begin_frame(renderer.frame_number, renderer.frame_count, renderer.resize_epoch);
     cpu.zone_end();
 
-    const bool scene = renders_scene();
+    const bool draw_scene = renders_scene();
 
     cpu.zone_begin("Simulate");
     on_simulate((float)delta);
@@ -187,19 +187,19 @@ Error Application::_frame()
     renderer.set_camera(active_camera());
     cpu.zone_end();
 
-    if (scene) {
+    if (draw_scene) {
         cpu.zone_begin("Poses");
-        poses.update(simulated_world(), renderer, (float)delta);
+        poses.update(simulated_scene(), renderer, (float)delta);
         cpu.zone_end();
     }
 
     cpu.zone_begin("Frame Build");
-    err = renderer.begin_frame(render_world(), scene);
+    err = renderer.begin_frame(render_scene(), draw_scene);
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     cpu.zone_begin("Graph Build");
-    render_path->build(renderer.main_view.graph, scene);
+    render_path->build(renderer.main_view.graph, draw_scene);
     err = renderer.compile();
     cpu.zone_end();
     LUMEN_ERR_FAIL_COND_V_MSG(err != OK, err, "Render graph compile failed (transient allocation).");
@@ -207,7 +207,7 @@ Error Application::_frame()
     cpu.zone_begin("Update");
     on_update((float)delta);
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F12, ImGuiInputFlags_RouteGlobal)) screenshot_request();
-    world.deferred_flush();
+    scene.deferred_flush();
     cpu.zone_end();
 
     cpu.zone_begin("ImGui Render");
@@ -338,7 +338,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
     err = renderer.load(project.content_dir, authoring ? project.assets_dir : std::filesystem::path{});
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     poses.load(project.content_dir, authoring ? project.assets_dir : std::filesystem::path{});
-    err = world.load();
+    err = scene.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     log_write("Project loaded: %s (%s)", project.name.c_str(), p_root.string().c_str());
@@ -349,7 +349,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
 void Application::project_unload()
 {
     dd.device_wait_idle();
-    world.unload();
+    scene.unload();
     poses.clear();
     renderer.unload();
     project.unload();

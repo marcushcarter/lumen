@@ -1,12 +1,12 @@
 #pragma once
 #include <core/game/game_input.h>
-#include <core/world/camera.h>
+#include <core/scene/camera.h>
 #include <cstdint>
 #include <vector>
 
 namespace lumen {
 
-struct World;
+struct Scene;
 struct GameSession;
 
 struct GameSystem
@@ -21,7 +21,7 @@ struct GameSession
 {
     enum class Mode : uint8_t { STOPPED, PLAYING, PAUSED };
 
-    World* world = nullptr;
+    Scene* world = nullptr;
     Camera camera;
     GameInput input;
     Mode mode = Mode::STOPPED;
@@ -33,7 +33,7 @@ struct GameSession
     bool playing() const { return mode == Mode::PLAYING; }
     bool paused() const { return mode == Mode::PAUSED; }
 
-    void begin(World& r_world, const Camera& p_camera);
+    void begin(Scene& r_world, const Camera& p_camera);
     void end();
     void pause();
     void resume();

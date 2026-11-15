@@ -2,8 +2,8 @@
 #include <core/game/game_session.h>
 #include <core/physics/collision_cache.h>
 #include <core/physics/physics_world.h>
-#include <core/world/components.h>
-#include <core/world/world.h>
+#include <core/scene/components.h>
+#include <core/scene/scene.h>
 #include <unordered_map>
 
 namespace lumen {
@@ -42,10 +42,10 @@ struct PhysicsSystem : GameSystem
     static uint64_t settings_hash(const CollisionComponent& p_collision, Guid p_model);
     static void decompose(const mat4& p_world, vec3& r_position, quat& r_rotation, vec3& r_scale);
 
-    Guid _model_mesh(const World& p_world, Entity p_entity) const;
-    bool _build(const World& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body);
-    void _sync(World& r_world, float p_dt);
-    void _write_back(World& r_world, uint32_t p_steps);
+    Guid _model_mesh(const Scene& p_world, Entity p_entity) const;
+    bool _build(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body);
+    void _sync(Scene& r_world, float p_dt);
+    void _write_back(Scene& r_world, uint32_t p_steps);
     void _clear();
 };
 

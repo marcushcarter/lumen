@@ -1,6 +1,6 @@
 #pragma once
-#include <core/world/camera.h>
-#include <core/world/components.h>
+#include <core/scene/camera.h>
+#include <core/scene/components.h>
 #include <imgui.h>
 #include <cstdint>
 

@@ -9,6 +9,8 @@ namespace drivers { struct WindowDriverWin32; }
 
 struct Theme
 {
+    bool light = false;
+
     void apply() const;
 
     static uint32_t to_colorref(const ImVec4& p_color);
@@ -21,6 +23,7 @@ struct EditorSettings
     int fps_cap = 120;
     bool reopen_last_project = true;
     bool dirty = false;
+    bool theme_pending = false;
 };
 
 }

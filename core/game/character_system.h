@@ -129,7 +129,7 @@ struct CharacterSystem : GameSystem
     static void _update_sway(Character& r_character, float p_dt);
     static void _impact_body(Character& r_character, const vec3& p_impulse);
     void _start_ragdoll(Character& r_character, const LLocomotion& p_asset) const;
-    void _update_ragdoll(Character& r_character, const LLocomotion& p_asset, bool p_toggle, float p_dt) const;
+    void _update_ragdoll(Character& r_character, const LLocomotion& p_asset, bool p_toggle, bool p_wants_up, float p_dt) const;
     void _end_ragdoll(Character& r_character, const LLocomotion& p_asset) const;
     void _draw_ragdoll(const Character& p_character) const;
     void _update_camera(GameSession& r_session, const Character& p_character, const LocomotionComponent& p_body, float p_dt);

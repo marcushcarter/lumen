@@ -70,6 +70,7 @@ void WorldTab::show(EditorContext& ctx, Guid p_world)
 void WorldTab::destroy(EditorContext& ctx)
 {
     layout.viewport.cursor_lock.end();
+    layout.viewport.flying = false;
     _unload(ctx);
     reset();
 }
@@ -288,6 +289,7 @@ void WorldTab::on_update(EditorContext& ctx, float p_dt)
     }
     layout.viewport.allow_pick = true;
     layout.viewport.allow_gizmo = true;
+    layout.viewport.allow_fly = true;
     layout.viewport.allow_debug_draw = true;
     layout.draw(ctx, [this](EditorContext& r_ctx) { _draw_toolbar(r_ctx); });
 }

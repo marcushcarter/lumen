@@ -363,35 +363,39 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         args_ci.device_local = true;
         b.create_buffer("ClusterCullArgs", args_ci);
 
-        drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
-        visible_ci.size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
-        visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        visible_ci.device_local = true;
-        b.create_buffer("VisibleClusters", visible_ci);
-        b.create_buffer("VisibleClusters2", visible_ci);
+        if (!frozen) {
+            drivers::DeviceDriverVulkan::BufferCreateInfo visible_ci{};
+            visible_ci.size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
+            visible_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            visible_ci.device_local = true;
+            b.create_buffer("VisibleClusters", visible_ci);
+            b.create_buffer("VisibleClusters2", visible_ci);
 
-        drivers::DeviceDriverVulkan::BufferCreateInfo retest_ci{};
-        retest_ci.size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
-        retest_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        retest_ci.device_local = true;
-        b.create_buffer("ClusterRetest", retest_ci);
+            drivers::DeviceDriverVulkan::BufferCreateInfo retest_ci{};
+            retest_ci.size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
+            retest_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            retest_ci.device_local = true;
+            b.create_buffer("ClusterRetest", retest_ci);
 
-        if (skin_frame) {
-            drivers::DeviceDriverVulkan::BufferCreateInfo skin_ci{};
-            skin_ci.size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
-            skin_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            skin_ci.device_local = true;
-            b.create_buffer("SkinClusters", skin_ci);
-            b.create_buffer("SkinClusters2", skin_ci);
-            b.write_buffer("SkinClusters", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-            b.write_buffer("SkinClusters2", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            if (skin_frame) {
+                drivers::DeviceDriverVulkan::BufferCreateInfo skin_ci{};
+                skin_ci.size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
+                skin_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+                skin_ci.device_local = true;
+                b.create_buffer("SkinClusters", skin_ci);
+                b.create_buffer("SkinClusters2", skin_ci);
+                b.write_buffer("SkinClusters", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+                b.write_buffer("SkinClusters2", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            }
         }
 
         b.write_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_buffer("ClusterCullArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("VisibleClusters2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        b.write_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        if (!frozen) {
+            b.write_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+            b.write_buffer("VisibleClusters2", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+            b.write_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        }
 
         if (compact_raster_frame) {
             drivers::DeviceDriverVulkan::BufferCreateInfo args_ci2{};
@@ -424,6 +428,7 @@ void GeometryFeature::_create_cluster_cull_args_pass()
             VkDeviceAddress compact_args_addr;
             uint32_t ref_capacity;
             uint32_t init_compact;
+            uint32_t keep_lists;
         } pc{};
         pc.cluster_refs_addr = cluster_refs->device_address;
         pc.cull_addr = cull_args->device_address;
@@ -431,13 +436,16 @@ void GeometryFeature::_create_cluster_cull_args_pass()
         pc.vis_clus2_addr = vis_clus2->device_address;
         pc.retest_addr = retest->device_address;
         pc.ref_capacity = ref_capacity;
+        pc.keep_lists = frozen ? 1u : 0u;
         if (auto* compact_args = cl.graph->buffer("CompactDrawArgs")) {
             pc.compact_args_addr = compact_args->device_address;
             pc.init_compact = 1u;
         }
 
-        if (auto* skin = cl.graph->buffer("SkinClusters")) cl.fill_buffer("Clear skin clusters", *skin, 0, 0, sizeof(uint32_t));
-        if (auto* skin = cl.graph->buffer("SkinClusters2")) cl.fill_buffer("Clear skin clusters 2", *skin, 0, 0, sizeof(uint32_t));
+        if (!frozen) {
+            if (auto* skin = cl.graph->buffer("SkinClusters")) cl.fill_buffer("Clear skin clusters", *skin, 0, 0, sizeof(uint32_t));
+            if (auto* skin = cl.graph->buffer("SkinClusters2")) cl.fill_buffer("Clear skin clusters 2", *skin, 0, 0, sizeof(uint32_t));
+        }
         cl.dd->command_bind_pipeline(cl.cmd, cluster_cull_args_pipe);
         cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
         cl.dispatch("Cluster cull args", 1);
@@ -609,7 +617,7 @@ void GeometryFeature::_create_cluster_retest_args_pass()
         b.read_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_buffer("ClusterRetestArgs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
-        if (occlusion_frame && hiz_ok) {
+        if (hiz_build_frame) {
             drivers::DeviceDriverVulkan::BufferCreateInfo hiz_args_ci{};
             hiz_args_ci.size = sizeof(uint32_t) * 3;
             hiz_args_ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
@@ -1058,6 +1066,98 @@ void GeometryFeature::_create_ref_feedback_pass()
     };
 }
 
+void GeometryFeature::_create_freeze_capture_pass()
+{
+    freeze_capture_pass.name = "FreezeCapture";
+    freeze_capture_pass.category = PASS_CATEGORY_CULLING;
+    freeze_capture_pass.never_cull = true;
+    freeze_capture_pass.setup = [this](RenderGraph::Builder& b) {
+        b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.read_buffer("VisibleClusters", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.read_buffer("VisibleClusters2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.read_buffer("ClusterRetest", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        b.write_buffer("FrozenRefs", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        b.write_buffer("FrozenVisible", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        b.write_buffer("FrozenVisible2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        b.write_buffer("FrozenRetest", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        if (frozen_has_skin) {
+            b.read_buffer("SkinClusters", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+            b.read_buffer("SkinClusters2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+            b.write_buffer("FrozenSkin", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            b.write_buffer("FrozenSkin2", VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        }
+    };
+    freeze_capture_pass.execute = [this](RenderGraph::CommandList& cl) {
+        auto copy = [&](const char* p_src, const char* p_dst) {
+            const auto* src = cl.graph->buffer(p_src);
+            const auto* dst = cl.graph->buffer(p_dst);
+            if (!src || !dst) return;
+            const VkDeviceSize size = std::min(src->size, dst->size);
+            if (size) cl.dd->command_copy_buffer(cl.cmd, *src, *dst, size, 0, 0);
+        };
+        copy("ClusterRefs", "FrozenRefs");
+        copy("VisibleClusters", "FrozenVisible");
+        copy("VisibleClusters2", "FrozenVisible2");
+        copy("ClusterRetest", "FrozenRetest");
+        if (frozen_has_skin) {
+            copy("SkinClusters", "FrozenSkin");
+            copy("SkinClusters2", "FrozenSkin2");
+        }
+    };
+}
+
+bool GeometryFeature::_frozen_allocate()
+{
+    _frozen_release();
+    const VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    const VkDeviceSize refs_size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint64_t);
+    const VkDeviceSize list_size = ((VkDeviceSize)ref_capacity + 1) * sizeof(uint32_t);
+    frozen_has_skin = skin_frame;
+    frozen_refs = ctx->dd->buffer_create({ .size = refs_size, .usage = usage, .device_local = true, .name = "frozen_cluster_refs" });
+    frozen_visible = ctx->dd->buffer_create({ .size = list_size, .usage = usage, .device_local = true, .name = "frozen_visible_clusters" });
+    frozen_visible2 = ctx->dd->buffer_create({ .size = list_size, .usage = usage, .device_local = true, .name = "frozen_visible_clusters_2" });
+    frozen_retest = ctx->dd->buffer_create({ .size = list_size, .usage = usage, .device_local = true, .name = "frozen_cluster_retest" });
+    bool ok = frozen_refs.buffer && frozen_visible.buffer && frozen_visible2.buffer && frozen_retest.buffer;
+    if (frozen_has_skin) {
+        frozen_skin = ctx->dd->buffer_create({ .size = list_size, .usage = usage, .device_local = true, .name = "frozen_skin_clusters" });
+        frozen_skin2 = ctx->dd->buffer_create({ .size = list_size, .usage = usage, .device_local = true, .name = "frozen_skin_clusters_2" });
+        ok = ok && frozen_skin.buffer && frozen_skin2.buffer;
+    }
+    if (!ok) {
+        _frozen_release();
+        return false;
+    }
+    frozen_instance_count = ctx->frame->instance_count;
+    frozen_camera = ctx->frame->camera;
+    return true;
+}
+
+void GeometryFeature::_frozen_release()
+{
+    _compact_retire(frozen_refs);
+    _compact_retire(frozen_visible);
+    _compact_retire(frozen_visible2);
+    _compact_retire(frozen_retest);
+    _compact_retire(frozen_skin);
+    _compact_retire(frozen_skin2);
+    frozen_ready = false;
+    frozen_has_skin = false;
+}
+
+void GeometryFeature::_frozen_import(RenderGraph& g, bool p_capture)
+{
+    const VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    const VkAccessFlags2 access = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    g.import_buffer(p_capture ? "FrozenRefs" : "ClusterRefs", &frozen_refs, stage, access, true);
+    g.import_buffer(p_capture ? "FrozenVisible" : "VisibleClusters", &frozen_visible, stage, access, true);
+    g.import_buffer(p_capture ? "FrozenVisible2" : "VisibleClusters2", &frozen_visible2, stage, access, true);
+    g.import_buffer(p_capture ? "FrozenRetest" : "ClusterRetest", &frozen_retest, stage, access, true);
+    if (frozen_has_skin) {
+        g.import_buffer(p_capture ? "FrozenSkin" : "SkinClusters", &frozen_skin, stage, access, true);
+        g.import_buffer(p_capture ? "FrozenSkin2" : "SkinClusters2", &frozen_skin2, stage, access, true);
+    }
+}
+
 void GeometryFeature::_ref_update(uint32_t p_slot)
 {
     const uint32_t worst = std::max(1u, ctx->frame->cluster_ref_capacity);
@@ -1143,6 +1243,7 @@ Error GeometryFeature::create_resources()
     _create_visbuffer_compact_pass(visbuffer_compact_pass, false);
     _create_visbuffer_compact_pass(visbuffer_compact_pass_2, true);
     _create_hiz_pass(hiz_build_pass_2, "HiZBuild2", "HiZArgs2");
+    _create_freeze_capture_pass();
     _create_material_resolve_pass();
     _create_stats_pass();
     _create_compact_feedback_pass();
@@ -1295,6 +1396,7 @@ void GeometryFeature::destroy_resources()
     ref_feedback_capacity.clear();
     ref_target = 0;
     ref_low_frames = 0;
+    _frozen_release();
     _compact_collect(true);
     ctx->dd->buffer_free(compact_indices);
     ctx->dd->buffer_free(compact_prims);
@@ -1315,7 +1417,18 @@ void GeometryFeature::build(RenderGraph& g)
     }
 
     const uint32_t slot = ctx->graph->current_frame;
-    _ref_update(slot);
+    constexpr bool MESH_PATH_READY = false;
+    bool ms_active = MESH_PATH_READY && mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
+    bool task_active = ms_active && task_shading && ctx->dd->capabilities.mesh.task_shader;
+    compact_raster_frame = !ms_active;
+    skin_frame = !ctx->frame->skins_scratch.empty();
+
+    const bool replay = freeze && frozen_ready && compact_raster_frame && ctx->frame->instance_count >= frozen_instance_count;
+    if (!replay && (frozen_ready || frozen_refs.buffer)) _frozen_release();
+    frozen = replay;
+    if (frozen) skin_frame = skin_frame && frozen_has_skin;
+    else _ref_update(slot);
+
     const bool want_stats = ctx->profiling && ctx->profiling->gpu_on();
     if (want_stats && slot < stats_readback.size() && stats_written[slot]) {
         drivers::DeviceDriverVulkan::Buffer& rb = stats_readback[slot];
@@ -1327,15 +1440,10 @@ void GeometryFeature::build(RenderGraph& g)
 
     const drivers::DeviceDriverVulkan::Image* hiz = g.image("HiZ");
     hiz_ok = hiz && hiz->image && hiz->mip_levels >= HIZ_TILE_MIPS && hiz->mip_levels <= 16 && hiz->extent.width % HIZ_TILE == 0 && hiz->extent.height % HIZ_TILE == 0 && hiz->extent.width / HIZ_TILE <= HIZ_TAIL_MAX && hiz->extent.height / HIZ_TILE <= HIZ_TAIL_MAX;
-    occlusion_frame = occlusion;
+    occlusion_frame = occlusion && !frozen;
     hiz_use_prev = occlusion_frame && hiz_ok && hiz_history && ctx->frame->hiz_history_valid;
     hiz_history = occlusion_frame && hiz_ok;
-
-    constexpr bool MESH_PATH_READY = false;
-    bool ms_active = MESH_PATH_READY && mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
-    bool task_active = ms_active && task_shading && ctx->dd->capabilities.mesh.task_shader;
-    compact_raster_frame = !ms_active;
-    skin_frame = !ctx->frame->skins_scratch.empty();
+    hiz_build_frame = occlusion_frame && hiz_ok;
 
     ++compact_serial;
     _compact_collect(false);
@@ -1364,6 +1472,9 @@ void GeometryFeature::build(RenderGraph& g)
         }
     }
 
+    const bool capture = freeze && !frozen && compact_raster_frame && _frozen_allocate();
+    if (frozen) _frozen_import(g, false);
+
     g.add(&clear_visible_pass);
     const uint32_t levels = std::min(ctx->geometry->max_node_depth, MAX_TRAVERSE_LEVELS);
     auto add_traversal = [&](RenderGraph::Pass& r_seed, uint32_t p_late) {
@@ -1371,10 +1482,12 @@ void GeometryFeature::build(RenderGraph& g)
         for (uint32_t l = 0; l < levels; l++) g.add(&node_traverse_passes[p_late][l]);
     };
 
-    g.add(&instance_cull_pass);
-    add_traversal(node_seed_pass, 0);
+    if (!frozen) {
+        g.add(&instance_cull_pass);
+        add_traversal(node_seed_pass, 0);
+    }
     g.add(&cluster_cull_args_pass);
-    g.add(&cluster_cull_pass);
+    if (!frozen) g.add(&cluster_cull_pass);
     if (skin_frame) g.add(&skin_pass);
     if (task_active) {
 
@@ -1384,7 +1497,7 @@ void GeometryFeature::build(RenderGraph& g)
         g.add(&draw_compact_pass);
         g.add(&visbuffer_compact_pass);
     }
-    if (occlusion_frame && hiz_ok) {
+    if (hiz_build_frame) {
         g.import_buffer("HiZTail", &hiz_tail_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, true);
         g.add(&hiz_build_pass);
     }
@@ -1393,7 +1506,7 @@ void GeometryFeature::build(RenderGraph& g)
         add_traversal(node_seed_pass_2, 1);
     }
     g.add(&cluster_retest_args_pass);
-    g.add(&cluster_retest_pass);
+    if (!frozen) g.add(&cluster_retest_pass);
     if (skin_frame) g.add(&skin_pass_2);
     if (task_active) {
 
@@ -1408,12 +1521,21 @@ void GeometryFeature::build(RenderGraph& g)
         }
     }
     if (slot < compact_feedback_written.size()) compact_feedback_written[slot] = compact_raster_frame ? 1 : 0;
-    if (occlusion_frame && hiz_ok) g.add(&hiz_build_pass_2);
+    if (hiz_build_frame) g.add(&hiz_build_pass_2);
+    if (capture) {
+        _frozen_import(g, true);
+        g.add(&freeze_capture_pass);
+        frozen_ready = true;
+    }
     g.add(&material_resolve_pass);
     if (slot < ref_feedback.size()) {
-        g.import_buffer("RefFeedbackReadback", &ref_feedback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
-        g.add(&ref_feedback_pass);
-        ref_feedback_written[slot] = 1;
+        if (frozen) {
+            ref_feedback_written[slot] = 0;
+        } else {
+            g.import_buffer("RefFeedbackReadback", &ref_feedback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);
+            g.add(&ref_feedback_pass);
+            ref_feedback_written[slot] = 1;
+        }
     }
     if (slot < stats_readback.size()) {
         stats_written[slot] = want_stats ? 1 : 0;

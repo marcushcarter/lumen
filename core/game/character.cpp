@@ -350,25 +350,52 @@ static bool _stance_transition(const LLocomotion& p_asset, Character& r_characte
         const Guid guid = r_character.stance == Stance::CROUCHING ? p_asset.stand_to_crouch : p_asset.crouch_to_stand;
         const BoundClip clip = r_assets.clip(guid);
         if (_still(r_character) && clip.valid() && clip.clip->duration > 0.0f) {
+            float start = 0.0f;
+            if (a.transition_time >= 0.0f && a.transition_weight > BLEND_MIN_WEIGHT) {
+                CharacterAnim::FadingClip* slot = &a.transition_fading[0];
+                for (CharacterAnim::FadingClip& f : a.transition_fading) {
+                    if (f.weight < slot->weight) slot = &f;
+                }
+                *slot = { a.transition_clip, a.transition_time, a.transition_duration, a.transition_weight };
+                if (a.transition_duration > 0.0f) start = clip.clip->duration * std::clamp(1.0f - a.transition_time / a.transition_duration, 0.0f, 1.0f);
+            }
             a.transition_clip = guid;
-            a.transition_time = 0.0f;
+            a.transition_time = start;
+            a.transition_elapsed = 0.0f;
             a.transition_duration = clip.clip->duration;
             a.transition_weight = 0.0f;
             a.turn_stopping = true;
         }
     }
-    if (a.transition_time < 0.0f) return false;
+
+    bool fading = false;
+    for (CharacterAnim::FadingClip& f : a.transition_fading) {
+        if (f.weight <= 0.0f) continue;
+        f.weight = std::max(f.weight - p_dt / CharacterAnim::TURN_BLEND, 0.0f);
+        f.time = std::min(f.time + p_dt, f.duration);
+        const BoundClip faded = r_assets.clip(f.clip);
+        if (!faded.valid() || f.weight <= BLEND_MIN_WEIGHT) {
+            f.weight = 0.0f;
+            continue;
+        }
+        _layer(p_skeleton, faded, f.time, 0.0f, f.weight, a, r_pose, p_posed);
+        p_posed = true;
+        fading = true;
+    }
+
+    if (a.transition_time < 0.0f) return fading;
     const BoundClip clip = r_assets.clip(a.transition_clip);
     if (!clip.valid()) {
         a.transition_time = -1.0f;
-        return false;
+        return fading;
     }
     a.transition_time = std::min(a.transition_time + p_dt, a.transition_duration);
-    if (_still(r_character)) a.transition_weight = std::clamp(std::min(a.transition_time, a.transition_duration - a.transition_time) / CharacterAnim::TURN_BLEND, 0.0f, 1.0f);
+    a.transition_elapsed += p_dt;
+    if (_still(r_character)) a.transition_weight = std::clamp(std::min(a.transition_elapsed, a.transition_duration - a.transition_time) / CharacterAnim::TURN_BLEND, 0.0f, 1.0f);
     else a.transition_weight = std::max(a.transition_weight - p_dt / CharacterAnim::TURN_BLEND, 0.0f);
     const float time = a.transition_time;
     if (a.transition_time >= a.transition_duration || (!_still(r_character) && a.transition_weight <= 0.0f)) a.transition_time = -1.0f;
-    if (a.transition_weight <= BLEND_MIN_WEIGHT) return a.transition_time >= 0.0f;
+    if (a.transition_weight <= BLEND_MIN_WEIGHT) return fading || a.transition_time >= 0.0f;
     _layer(p_skeleton, clip, time, 0.0f, a.transition_weight, a, r_pose, p_posed);
     return true;
 }
@@ -902,6 +929,7 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
 
     const bool transitioning = _stance_transition(p_asset, r_character, r_assets, p_skeleton, p_dt, r_pose, posed);
     posed = posed || a.transition_weight > BLEND_MIN_WEIGHT;
+    for (const CharacterAnim::FadingClip& f : a.transition_fading) posed = posed || f.weight > BLEND_MIN_WEIGHT;
     _turn_in_place(p_asset, r_character, r_assets, p_skeleton, p_dt, r_pose, posed, transitioning);
     posed = posed || a.turn_weight > BLEND_MIN_WEIGHT;
     _rotate_in_place(p_asset, r_character, r_assets, p_skeleton, p_dt, r_pose, posed, transitioning);

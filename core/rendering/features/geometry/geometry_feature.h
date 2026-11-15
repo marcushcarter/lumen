@@ -82,6 +82,19 @@ struct GeometryFeature : Feature
 
     bool occlusion = true;
     bool occlusion_frame = true;
+    bool hiz_build_frame = true;
+    bool freeze = false;
+    bool frozen = false;
+    bool frozen_ready = false;
+    bool frozen_has_skin = false;
+    uint32_t frozen_instance_count = 0;
+    CameraUniform frozen_camera{};
+    drivers::DeviceDriverVulkan::Buffer frozen_refs;
+    drivers::DeviceDriverVulkan::Buffer frozen_visible;
+    drivers::DeviceDriverVulkan::Buffer frozen_visible2;
+    drivers::DeviceDriverVulkan::Buffer frozen_retest;
+    drivers::DeviceDriverVulkan::Buffer frozen_skin;
+    drivers::DeviceDriverVulkan::Buffer frozen_skin2;
     bool contribution_culling = true;
     bool mesh_shading = true;
     bool task_shading = true;
@@ -147,6 +160,7 @@ struct GeometryFeature : Feature
     RenderGraph::Pass material_resolve_pass;
     RenderGraph::Pass stats_pass;
     RenderGraph::Pass ref_feedback_pass;
+    RenderGraph::Pass freeze_capture_pass;
 
     drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline node_seed_pipe;
@@ -184,6 +198,10 @@ struct GeometryFeature : Feature
     void _create_material_resolve_pass();
     void _create_stats_pass();
     void _create_ref_feedback_pass();
+    void _create_freeze_capture_pass();
+    bool _frozen_allocate();
+    void _frozen_release();
+    void _frozen_import(RenderGraph& g, bool p_capture);
     void _ref_update(uint32_t p_slot);
     VkDeviceSize _skin_refs_bytes() const { return ((VkDeviceSize)std::max(1u, ref_capacity) * sizeof(uint32_t) + SKIN_REFS_ALIGN - 1) / SKIN_REFS_ALIGN * SKIN_REFS_ALIGN; }
 

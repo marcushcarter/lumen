@@ -80,6 +80,14 @@ struct CharacterAnim
     static constexpr float TURN_MAX_DELAY = 0.75f;
     static constexpr float TURN_CURVE_MIN = 30.0f;
     static constexpr float TURN_BLEND = 0.2f;
+    static constexpr uint32_t TRANSITION_FADE_SLOTS = 3;
+
+    struct FadingClip {
+        Guid clip;
+        float time = 0.0f;
+        float duration = 0.0f;
+        float weight = 0.0f;
+    };
     static constexpr uint32_t TURN_CURVE_SAMPLES = 32;
     static constexpr uint32_t TURN_JOINT_DEPTH = 2;
     static constexpr float ROTATE_THRESHOLD = 50.0f;
@@ -120,6 +128,8 @@ struct CharacterAnim
     float transition_time = -1.0f;
     float transition_duration = 0.0f;
     float transition_weight = 0.0f;
+    float transition_elapsed = 0.0f;
+    FadingClip transition_fading[TRANSITION_FADE_SLOTS];
     float pivot_time = 0.0f;
     Guid stop_clip;
     float stop_time = -1.0f;

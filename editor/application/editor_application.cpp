@@ -139,7 +139,10 @@ Error EditorApplication::on_init()
         else _play_start();
     };
     _ctx.pie_is_paused = [this] { return play.editing(); };
-    _ctx.pie_toggle_pause = [this] { play.toggle(); };
+    _ctx.pie_toggle_pause = [this] {
+        if (play.playing()) editor_camera.place(play.session.camera);
+        play.toggle();
+    };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
         if (run.is_running_for(p_root)) { run.stop(); return; }
@@ -1088,8 +1091,20 @@ EditorContext& EditorApplication::_context()
 
 void EditorApplication::update_camera(float p_dt)
 {
-    (void)p_dt;
-    editor_camera.update(0.0f);
+    Viewport& viewport = world_tab.layout.viewport;
+    EditorCamera::Input input;
+    input.flying = viewport.flying && tabs.active == &world_tab && !play.playing();
+    if (input.flying) {
+        input.look = vec2(viewport.fly_look.x, viewport.fly_look.y);
+        input.wheel = viewport.fly_wheel;
+        input.move.x = (ImGui::IsKeyDown(ImGuiKey_D) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(ImGuiKey_A) ? 1.0f : 0.0f);
+        input.move.y = (ImGui::IsKeyDown(ImGuiKey_E) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(ImGuiKey_Q) ? 1.0f : 0.0f);
+        input.move.z = (ImGui::IsKeyDown(ImGuiKey_W) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(ImGuiKey_S) ? 1.0f : 0.0f);
+        input.fast = ImGui::IsKeyDown(ImGuiMod_Shift);
+    }
+    viewport.fly_look = ImVec2(0.0f, 0.0f);
+    viewport.fly_wheel = 0.0f;
+    editor_camera.update(input, p_dt);
 }
 
 const Camera& EditorApplication::active_camera() const

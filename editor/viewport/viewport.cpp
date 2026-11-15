@@ -257,6 +257,7 @@ void Viewport::_draw_image(EditorContext& ctx)
     bool look_click = false;
     bool look_hover = false;
     bool game_click = false;
+    bool fly_click = false;
     ImVec2 pick_mouse = ImGui::GetMousePos();
     if (set) {
         ImGui::Dummy(size);
@@ -268,6 +269,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         pick_click = allow_pick && !allow_look && !playing && !gizmo_hot && image_clicked && size.x > 0.0f && size.y > 0.0f;
         look_click = allow_look && !playing && !gizmo_hot && image_clicked;
         game_click = playing && image_clicked;
+        fly_click = allow_fly && !playing && ImGui::IsItemClicked(ImGuiMouseButton_Right);
         look_hover = allow_look && image_hovered;
         if (allow_asset_drop && !playing) _asset_drop(ctx, pos, size);
         if (overlay) overlay(ImGui::GetWindowDrawList(), pos, size);
@@ -300,6 +302,7 @@ void Viewport::_draw_image(EditorContext& ctx)
         game_look.y += dy;
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
+    _update_fly(fly_click && gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame);
     look_zoom = (look_hover && !ImGui::IsAnyItemHovered() && !popup_open_last_frame) ? ImGui::GetIO().MouseWheel : 0.0f;
     _update_look(look_click && !ImGui::IsAnyItemHovered() && !popup_open_last_frame, ImVec2(ImFloor(pos.x + size.x * 0.5f), ImFloor(pos.y + size.y * 0.5f)));
     if (allow_pick && allow_look && look_clicked && !playing && ctx.render_path && size.x > 0.0f && size.y > 0.0f) {
@@ -307,7 +310,10 @@ void Viewport::_draw_image(EditorContext& ctx)
     }
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
-    if (ctx.render_path) ctx.render_path->debug.view = (uint32_t)std::clamp(viewport_view().debug_view, 0, DEBUG_VIEW_COUNT - 1);
+    if (ctx.render_path) {
+        ctx.render_path->geometry.freeze = viewport_view().culling_paused;
+        ctx.render_path->debug.view = (uint32_t)std::clamp(viewport_view().debug_view, 0, DEBUG_VIEW_COUNT - 1);
+    }
 }
 
 void Viewport::draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
@@ -330,7 +336,7 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
 
     right_overlay.begin(pos, size, OverlayBar::Align::RIGHT, p_margin);
 
-    if (right_overlay.begin_menu(ICON_FA_SLIDERS "###render_settings")) {
+    if (right_overlay.begin_menu(ICON_FA_SLIDERS "  Options###render_settings")) {
         _draw_options(ctx);
         right_overlay.end_menu();
     }
@@ -362,6 +368,8 @@ void Viewport::_draw_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max, fl
             right_overlay.end_menu();
         }
     }
+    right_overlay.toggle(ICON_FA_EYE_SLASH "###culling_paused", viewport_view().culling_paused);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", viewport_view().culling_paused ? "Culling paused: clusters stay as seen from where you paused" : "Pause culling");
     right_overlay.end();
 }
 
@@ -380,12 +388,14 @@ uint32_t Viewport::_debug_mask() const
     if (view.show_bones && (allow_debug_draw || has_bones)) mask |= (uint32_t)DebugCategory::BONES;
     if (view.show_collision && (allow_debug_draw || has_collision)) mask |= (uint32_t)DebugCategory::COLLISION;
     if (allow_debug_draw && view.show_debug_lines) mask |= (uint32_t)DebugCategory::GENERAL;
+    if (view.culling_paused) mask |= (uint32_t)DebugCategory::GENERAL;
     return mask;
 }
 
 void Viewport::_submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live)
 {
     if (p_mask == 0) return;
+    if (viewport_view().culling_paused) _draw_cull_frustum(ctx);
     if (debug_lines) debug_lines();
     if (!allow_debug_draw) return;
     if ((p_mask & (uint32_t)DebugCategory::COLLISION) && ctx.renderer && ctx.project) {
@@ -396,6 +406,32 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_li
         const World* world = p_live ? &play->runtime : ctx.world;
         if (world) debug_draw_bones(debug_draw(), *world, *ctx.renderer);
     }
+}
+
+void Viewport::_draw_cull_frustum(EditorContext& ctx)
+{
+    if (!ctx.render_path || !ctx.render_path->geometry.frozen) return;
+    const CameraUniform& cam = ctx.render_path->geometry.frozen_camera;
+    const vec3 eye = vec3(cam.position);
+    const float t = CULL_FRUSTUM_DISTANCE / cam.far_z;
+    vec3 near_pts[4];
+    vec3 far_pts[4];
+    static constexpr vec2 CORNERS[4] = { vec2(-1.0f, -1.0f), vec2(1.0f, -1.0f), vec2(1.0f, 1.0f), vec2(-1.0f, 1.0f) };
+    for (uint32_t i = 0; i < 4; i++) {
+        const vec4 n = cam.inv_view_proj * vec4(CORNERS[i], 1.0f, 1.0f);
+        const vec4 f = cam.inv_view_proj * vec4(CORNERS[i], 0.0f, 1.0f);
+        near_pts[i] = vec3(n) / n.w;
+        far_pts[i] = eye + (vec3(f) / f.w - eye) * t;
+    }
+    DebugDraw& draw = debug_draw();
+    const DebugDraw::Style style{ .color = DebugDraw::YELLOW };
+    for (uint32_t i = 0; i < 4; i++) {
+        const uint32_t j = (i + 1) % 4;
+        draw.line(near_pts[i], near_pts[j], style);
+        draw.line(far_pts[i], far_pts[j], style);
+        draw.line(eye, far_pts[i], style);
+    }
+    draw.point(eye, 4.0f, style);
 }
 
 void Viewport::_draw_options(EditorContext& ctx)
@@ -447,6 +483,27 @@ void Viewport::_update_look(bool p_start, ImVec2 p_center)
     }
     cursor_lock.take_delta(look_delta.x, look_delta.y);
     _look_travel += std::fabs(look_delta.x) + std::fabs(look_delta.y);
+    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+}
+
+void Viewport::_update_fly(bool p_start)
+{
+    if (!flying && p_start && !looking && !game_captured) {
+        flying = true;
+        cursor_lock.begin();
+    }
+    if (!flying) return;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) || !allow_fly || (play && play->playing())) {
+        flying = false;
+        cursor_lock.end();
+        return;
+    }
+    float dx = 0.0f;
+    float dy = 0.0f;
+    cursor_lock.take_delta(dx, dy);
+    fly_look.x += dx;
+    fly_look.y += dy;
+    fly_wheel += ImGui::GetIO().MouseWheel;
     ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 }
 

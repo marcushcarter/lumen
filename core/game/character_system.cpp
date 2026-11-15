@@ -697,13 +697,14 @@ void CharacterSystem::_start_ragdoll(Character& r_character, const LLocomotion& 
     r_character.action.stop();
     rag.time = 0.0f;
     rag.still_time = 0.0f;
+    rag.can_get_up = false;
     rag.step = pw->steps();
     rag.previous_positions.clear();
     rag.previous_rotations.clear();
     pw->read_ragdoll(rag.body, rag.positions, rag.rotations, &rag.velocities);
 }
 
-void CharacterSystem::_update_ragdoll(Character& r_character, const LLocomotion& p_asset, bool p_toggle, float p_dt) const
+void CharacterSystem::_update_ragdoll(Character& r_character, const LLocomotion& p_asset, bool p_toggle, bool p_wants_up, float p_dt) const
 {
     PhysicsWorld* pw = _physics_mut();
     CharacterRagdoll& rag = r_character.ragdoll;
@@ -758,7 +759,8 @@ void CharacterSystem::_update_ragdoll(Character& r_character, const LLocomotion&
     pw->drive_ragdoll(rag.body, rag.muscle_target, rag.muscle, RAGDOLL_PART_COUNT, CharacterRagdoll::MUSCLE_FREQUENCY);
 
     const bool settled = rag.time > CharacterRagdoll::MIN_TIME && rag.still_time > CharacterRagdoll::SETTLE_TIME;
-    if (settled || rag.time > CharacterRagdoll::MAX_TIME || (p_toggle && rag.time > CharacterRagdoll::TOGGLE_MIN_TIME)) _end_ragdoll(r_character, p_asset);
+    if (settled || rag.time > CharacterRagdoll::MAX_TIME) rag.can_get_up = true;
+    if ((rag.can_get_up && p_wants_up) || (p_toggle && rag.time > CharacterRagdoll::TOGGLE_MIN_TIME)) _end_ragdoll(r_character, p_asset);
 }
 
 void CharacterSystem::_end_ragdoll(Character& r_character, const LLocomotion& p_asset) const
@@ -906,7 +908,11 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
             _apply_hit(c, *asset);
         }
         const bool controllable = rag.state == RagdollState::OFF;
-        if (rag.state == RagdollState::ACTIVE) _update_ragdoll(c, *asset, toggle, p_dt);
+        if (rag.state == RagdollState::ACTIVE) {
+            const GameInput& in = r_session.input;
+            const bool wants_up = !is_player || length(in.move) > GameInput::STICK_DEADZONE || in.jump || in.roll || in.crouch_toggle || in.sprint || in.aim;
+            _update_ragdoll(c, *asset, toggle, wants_up, p_dt);
+        }
         else if (is_player && controllable) _simulate(c, *asset, *body, r_session.input, camera_yaw, camera_pitch, p_dt);
         else _simulate(c, *asset, *body, idle, c.yaw, 0.0f, p_dt);
         if (controllable && c.landed && !c.action.active() && asset->ragdoll_land_speed > 0.0f && c.land_speed >= asset->ragdoll_land_speed) {

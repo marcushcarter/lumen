@@ -22,6 +22,7 @@ struct ViewportView
     bool show_bones = true;
     bool show_collision = false;
     bool show_debug_lines = true;
+    bool culling_paused = false;
 };
 
 ViewportView& viewport_view();
@@ -29,6 +30,7 @@ ViewportView& viewport_view();
 struct Viewport
 {
     static constexpr float LOOK_CLICK_SLOP = 3.0f;
+    static constexpr float CULL_FRUSTUM_DISTANCE = 40.0f;
 
     OverlayBar left_overlay;
     OverlayBar right_overlay;
@@ -44,6 +46,7 @@ struct Viewport
     bool allow_outline = true;
     bool allow_gizmo = true;
     bool allow_look = false;
+    bool allow_fly = false;
     bool allow_grid = true;
     bool allow_asset_drop = true;
     bool allow_debug_draw = false;
@@ -58,6 +61,9 @@ struct Viewport
     std::function<void()> debug_lines;
 
     bool looking = false;
+    bool flying = false;
+    ImVec2 fly_look = ImVec2(0.0f, 0.0f);
+    float fly_wheel = 0.0f;
     bool game_captured = false;
     ImVec2 game_look = ImVec2(0.0f, 0.0f);
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
@@ -76,10 +82,12 @@ struct Viewport
     void _draw_view_menu();
     uint32_t _debug_mask() const;
     void _submit_debug_draw(EditorContext& ctx, uint32_t p_mask, bool p_live);
+    void _draw_cull_frustum(EditorContext& ctx);
     bool _view_submenu(const DebugViewCategory& p_category, bool p_active);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     void _draw_image(EditorContext& ctx);
     void _update_look(bool p_start, ImVec2 p_center);
+    void _update_fly(bool p_start);
     void _asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
 
     void draw_header_controls(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);

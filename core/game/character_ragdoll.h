@@ -96,6 +96,7 @@ struct CharacterRagdoll
     PhysicsRagdollId body;
     float time = 0.0f;
     float still_time = 0.0f;
+    bool can_get_up = false;
     uint64_t step = 0;
     std::vector<vec3> positions;
     std::vector<quat> rotations;

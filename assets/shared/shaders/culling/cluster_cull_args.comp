@@ -23,6 +23,7 @@ layout(push_constant) uniform Push {
     CompactArgsInit compact_args;
     uint ref_capacity;
     uint init_compact;
+    uint keep_lists;
 } pc;
 
 void main() {
@@ -36,9 +37,11 @@ void main() {
     pc.cull_args.y = (groups + 65534u) / 65535u;
     pc.cull_args.z = 1u;
 
-    pc.visible_clusters.count = 0u;
-    pc.visible_clusters2.count = 0u;
-    pc.cluster_retest.count = 0u;
+    if (pc.keep_lists == 0u) {
+        pc.visible_clusters.count = 0u;
+        pc.visible_clusters2.count = 0u;
+        pc.cluster_retest.count = 0u;
+    }
 
     if (pc.init_compact != 0u) {
         for (uint i = 0u; i < COMPACT_ARGS_UINTS; i++) pc.compact_args.data[i] = 0u;

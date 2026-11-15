@@ -42,6 +42,7 @@ struct CharacterSystem : GameSystem
     static constexpr float DYNAMIC_RETRIGGER = 0.5f;
     static constexpr float DYNAMIC_SETTLE = 0.3f;
     static constexpr float LOOK_INTERP = 10.0f;
+    static constexpr float AIM_BLEND_INTERP = 8.0f;
     static constexpr float LOOK_FADE_START = 100.0f;
     static constexpr float LOOK_FADE_RANGE = 40.0f;
     static constexpr float PIVOT_ROTATION_BOOST = 2.0f;

@@ -283,6 +283,7 @@ struct Character
     float look_yaw = 0.0f;
     float look_pitch = 0.0f;
     float look_weight = 0.0f;
+    float aim_weight = 0.0f;
     float lean_lr = 0.0f;
     float lean_fb = 0.0f;
     float model_yaw = 0.0f;

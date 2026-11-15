@@ -357,6 +357,7 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
         c.look_yaw = _interp(c.look_yaw, std::clamp(relative, -p_asset.look_yaw_limit, p_asset.look_yaw_limit), p_dt, LOOK_INTERP);
         c.look_pitch = _interp(c.look_pitch, std::clamp(c.aim_pitch, -p_asset.look_pitch_limit, p_asset.look_pitch_limit), p_dt, LOOK_INTERP);
         c.look_weight = _interp(c.look_weight, c.action.active() ? 0.0f : weight, p_dt, LOOK_INTERP);
+        c.aim_weight = _interp(c.aim_weight, c.rotation_mode == RotationMode::AIMING ? 1.0f : 0.0f, p_dt, AIM_BLEND_INTERP);
     }
     c.speed = length(vec3(c.velocity.x, 0.0f, c.velocity.z));
     c.moving = c.speed > 0.01f;

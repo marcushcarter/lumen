@@ -680,9 +680,9 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
         const vec3 right = facing * vec3(-1.0f, 0.0f, 0.0f);
         const float yaw = glm::radians(r_character.look_yaw * r_character.look_weight);
         const float up = glm::radians(r_character.look_pitch * r_character.look_weight);
-        const bool aiming = r_character.rotation_mode == RotationMode::AIMING;
-        const float spine_share = aiming && lean_count > 0 ? 0.6f : 0.0f;
-        const float neck_share = ik.head >= 0 ? (aiming ? 0.15f : 0.4f) : (1.0f - spine_share);
+        const float aim = r_character.aim_weight;
+        const float spine_share = lean_count > 0 ? 0.6f * aim : 0.0f;
+        const float neck_share = ik.head >= 0 ? 0.4f + (0.15f - 0.4f) * aim : (1.0f - spine_share);
         const float head_share = ik.head >= 0 ? 1.0f - spine_share - (ik.neck >= 0 ? neck_share : 0.0f) : 0.0f;
         auto turn = [&](int32_t p_joint, float p_share) {
             if (p_joint < 0 || p_share <= 0.0f) return;

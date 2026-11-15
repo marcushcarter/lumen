@@ -166,6 +166,14 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::TextDisabled("Stance clips play when the stance changes while still. Transitions only run in game.");
     }
 
+    if (ui_category("Actions")) {
+        asset_field(ctx, "Roll", "###roll", c.roll, AssetType::ANIMATION);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Press Alt (B on a controller) to roll. The clip's root motion moves the character.");
+        ImGui::DragFloat("Roll Land Speed", &c.roll_land_speed, 0.05f, 0.0f, 60.0f, "%.2f m/s");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Landing at least this fast while moving rolls instead of a heavy landing. It also saves you from ragdolling up to 3 m/s past Ragdoll Land Speed.");
+        ImGui::TextDisabled("Only runs in game.");
+    }
+
     if (ui_category("Lean")) {
         ImGui::DragFloat("Lean Angle", &c.lean_angle, 0.1f, 0.0f, 45.0f, "%.1f deg");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the spine leans into turns, speeding up and braking");

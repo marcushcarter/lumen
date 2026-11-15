@@ -143,6 +143,8 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
     stop_right = _guid(section["stop_right"]);
     transition_left = _guid(section["transition_left"]);
     transition_right = _guid(section["transition_right"]);
+    roll = _guid(section["roll"]);
+    roll_land_speed = _float(section["roll_land_speed"], roll_land_speed);
     ragdoll = section["ragdoll"].value_or(ragdoll);
     ragdoll_mass = _float(section["ragdoll_mass"], ragdoll_mass);
     muscle_strength = _float(section["muscle_strength"], muscle_strength);
@@ -206,6 +208,8 @@ Error LLocomotion::save(const std::filesystem::path& p_path) const
             { "stop_right", _guid_text(stop_right) },
             { "transition_left", _guid_text(transition_left) },
             { "transition_right", _guid_text(transition_right) },
+            { "roll", _guid_text(roll) },
+            { "roll_land_speed", (double)roll_land_speed },
             { "ragdoll", ragdoll },
             { "ragdoll_mass", (double)ragdoll_mass },
             { "muscle_strength", (double)muscle_strength },

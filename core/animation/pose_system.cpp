@@ -86,6 +86,7 @@ void PoseSystem::update(World& r_world, const Renderer& p_renderer, float p_dt)
             ragdoll.record(_local.data(), _global, p_dt);
         } else {
             anims.skeleton = &skeleton->skeleton;
+            r_state.character.action.bind(anims, skeleton->skeleton);
             _local = skeleton->skeleton.rest;
             const bool posed = character_pose(*locomotion, r_state.character, anims, evaluator, skeleton->skeleton, p_dt, _local.data());
             if (posed && ragdoll.state == RagdollState::GETTING_UP) {

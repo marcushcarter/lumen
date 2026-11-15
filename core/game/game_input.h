@@ -17,7 +17,7 @@ struct GameInput
     bool aim = false;
     bool jump = false;
     bool crouch_toggle = false;
-    bool walk_toggle = false;
+    bool roll = false;
     bool rotation_toggle = false;
     bool ragdoll_toggle = false;
     bool hit_light = false;

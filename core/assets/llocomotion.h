@@ -80,6 +80,8 @@ struct LLocomotion
     Guid stop_right;
     Guid transition_left;
     Guid transition_right;
+    Guid roll;
+    float roll_land_speed = 7.0f;
     bool ragdoll = true;
     float ragdoll_mass = 70.0f;
     float muscle_strength = 1.0f;

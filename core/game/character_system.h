@@ -108,7 +108,9 @@ struct CharacterSystem : GameSystem
 
     static void respawn(Character& r_character);
     const PhysicsWorld* _physics() const;
+    static bool _low(const Character& p_character);
     static float _height(const Character& p_character, const LocomotionComponent& p_body);
+    static float _stance_height(const Character& p_character, const LocomotionComponent& p_body);
     bool _cast(float p_height, float p_radius, const vec3& p_position, const vec3& p_direction, float p_distance, PhysicsHit& r_hit) const;
     PhysicsWorld* _physics_mut() const;
     void _sync_shape(Character& r_character, const LocomotionComponent& p_body) const;

@@ -215,8 +215,10 @@ void EditorApplication::on_update(float p_dt)
         import_dialog.draw(ctx);
         references_dialog.draw(ctx);
         thumbnails.update(ctx);
-        if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal) && !_tab_locked(tabs.active)) tabs.active->save(ctx);
-        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();
+        if (!world_tab.layout.viewport.game_captured) {
+            if (tabs.active && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal) && !_tab_locked(tabs.active)) tabs.active->save(ctx);
+            if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();
+        }
 
         const uint64_t signature = _tabs_hash();
         if (signature != _tabs_signature) {

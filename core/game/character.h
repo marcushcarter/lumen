@@ -212,13 +212,48 @@ struct FootIK
     quat tilt[2] = { quat(1.0f, 0.0f, 0.0f, 0.0f), quat(1.0f, 0.0f, 0.0f, 0.0f) };
 };
 
+struct CharacterAction
+{
+    static constexpr float BLEND_IN = 0.2f;
+    static constexpr float BLEND_OUT = 0.25f;
+    static constexpr float CURVE_STEP = 1.0f / 30.0f;
+    static constexpr float LAND_ROLL_MARGIN = 3.0f;
+    static constexpr float TURN_INTERP = 15.0f;
+    static constexpr float EXIT_SHARE = 0.9f;
+    static constexpr float EXIT_FALLBACK = 0.6f;
+    static constexpr float MAX_MOMENTUM = 2.4f;
+    static constexpr float MOMENTUM_RATE = 0.35f;
+    static constexpr float CARRY_FALLOFF = 0.5f;
+
+    Guid clip;
+    float time = -1.0f;
+    float duration = 0.0f;
+    float weight = 0.0f;
+    float yaw = 0.0f;
+    float exit_time = 0.0f;
+    float average_speed = 0.0f;
+    float fade = -1.0f;
+    vec3 start_velocity = vec3(0.0f);
+    std::vector<vec3> root;
+    std::vector<JointTransform> _blend;
+
+    bool active() const { return time >= 0.0f; }
+    bool controlling() const { return active() && duration > 0.0f && fade < 0.0f && time < duration - BLEND_OUT; }
+    vec3 root_at(float p_time) const;
+    void start(Guid p_clip, float p_yaw, const vec3& p_velocity);
+    void exit();
+    float momentum() const;
+    void stop();
+    void bind(ClipProvider& r_assets, const LSkeleton& p_skeleton);
+    bool layer(ClipProvider& r_assets, const LSkeleton& p_skeleton, std::vector<JointTransform>& r_scratch, JointTransform* r_pose, bool p_posed);
+};
+
 struct Character
 {
     Guid asset;
     MovementState movement = MovementState::GROUNDED;
     Stance stance = Stance::STANDING;
     Gait gait = Gait::WALKING;
-    Gait desired_gait = Gait::RUNNING;
     RotationMode rotation_mode = RotationMode::LOOKING_DIRECTION;
     RotationMode desired_rotation_mode = RotationMode::LOOKING_DIRECTION;
 
@@ -260,7 +295,7 @@ struct Character
     float pivot_cooldown = 0.0f;
     float pivot_boost = 0.0f;
     PhysicsCharacterId body;
-    Stance body_stance = Stance::STANDING;
+    bool body_low = false;
     bool teleport = false;
     bool jump_flight = false;
     float ground_gap = -1.0f;
@@ -274,6 +309,7 @@ struct Character
     CharacterAnim anim;
     FootIK ik;
     CharacterRagdoll ragdoll;
+    CharacterAction action;
 
     float direction() const;
 };

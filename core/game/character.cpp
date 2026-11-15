@@ -8,6 +8,104 @@
 
 namespace lumen {
 
+vec3 CharacterAction::root_at(float p_time) const
+{
+    if (root.empty()) return vec3(0.0f);
+    const float f = std::clamp(p_time / CURVE_STEP, 0.0f, (float)(root.size() - 1));
+    const uint32_t i = std::min((uint32_t)f, (uint32_t)root.size() - 1);
+    const uint32_t j = std::min(i + 1, (uint32_t)root.size() - 1);
+    return mix(root[i], root[j], f - (float)i);
+}
+
+void CharacterAction::start(Guid p_clip, float p_yaw, const vec3& p_velocity)
+{
+    if (p_clip != clip) {
+        root.clear();
+        duration = 0.0f;
+    }
+    clip = p_clip;
+    time = 0.0f;
+    weight = 0.0f;
+    fade = -1.0f;
+    yaw = p_yaw;
+    start_velocity = vec3(p_velocity.x, 0.0f, p_velocity.z);
+}
+
+float CharacterAction::momentum() const
+{
+    if (average_speed <= 0.1f) return 1.0f;
+    return std::clamp(length(start_velocity) / average_speed, 1.0f, MAX_MOMENTUM);
+}
+
+void CharacterAction::exit()
+{
+    if (fade < 0.0f) fade = 0.0f;
+}
+
+void CharacterAction::stop()
+{
+    time = -1.0f;
+    weight = 0.0f;
+    fade = -1.0f;
+}
+
+void CharacterAction::bind(ClipProvider& r_assets, const LSkeleton& p_skeleton)
+{
+    if (!active() || duration > 0.0f) return;
+    const BoundClip bound = r_assets.clip(clip);
+    if (!bound.valid() || bound.clip->duration <= 0.0f) {
+        stop();
+        return;
+    }
+    int32_t track = -1;
+    for (uint32_t t = 0; t < (uint32_t)bound.map->size() && track < 0; t++) {
+        const int32_t joint = (*bound.map)[t];
+        if (joint >= 0 && p_skeleton.parents[joint] < 0) track = (int32_t)t;
+    }
+    root.clear();
+    for (float t = 0.0f; t < bound.clip->duration + CURVE_STEP; t += CURVE_STEP) root.push_back(track >= 0 ? bound.clip->sample((uint32_t)track, std::min(t, bound.clip->duration)).translation : vec3(0.0f));
+    duration = bound.clip->duration;
+    const vec3 total = root.back() - root.front();
+    const float distance = length(vec2(total.x, total.z));
+    exit_time = duration * EXIT_FALLBACK;
+    if (distance > 0.1f) {
+        for (size_t i = 0; i < root.size(); i++) {
+            const vec3 moved = root[i] - root.front();
+            if (length(vec2(moved.x, moved.z)) < distance * EXIT_SHARE) continue;
+            exit_time = (float)i * CURVE_STEP;
+            break;
+        }
+    }
+    exit_time = std::min(exit_time, std::max(duration - BLEND_OUT, 0.0f));
+    average_speed = exit_time > 0.0f ? distance * EXIT_SHARE / exit_time : 0.0f;
+}
+
+bool CharacterAction::layer(ClipProvider& r_assets, const LSkeleton& p_skeleton, std::vector<JointTransform>& r_scratch, JointTransform* r_pose, bool p_posed)
+{
+    if (!active() || duration <= 0.0f) return false;
+    const BoundClip bound = r_assets.clip(clip);
+    if (!bound.valid()) return false;
+    weight = std::clamp(std::min(time / BLEND_IN, (duration - time) / BLEND_OUT), 0.0f, 1.0f);
+    if (fade >= 0.0f) weight *= std::clamp(1.0f - fade / BLEND_OUT, 0.0f, 1.0f);
+    if (weight <= BLEND_MIN_WEIGHT) return false;
+    r_scratch = p_skeleton.rest;
+    clip_sample(*bound.clip, *bound.map, time, r_scratch.data());
+    const vec3 hold = root.empty() ? vec3(0.0f) : root.front();
+    const uint32_t joints = p_skeleton.joint_count();
+    for (uint32_t j = 0; j < joints; j++) {
+        if (p_skeleton.parents[j] < 0) r_scratch[j].translation = hold;
+    }
+    if (!p_posed) {
+        std::copy(r_scratch.begin(), r_scratch.end(), r_pose);
+        return true;
+    }
+    const PoseInput inputs[2] = { { r_pose, 1.0f - weight }, { r_scratch.data(), weight } };
+    _blend.resize(joints);
+    pose_blend(inputs, 2, joints, _blend.data());
+    std::copy(_blend.begin(), _blend.end(), r_pose);
+    return true;
+}
+
 float character_wrap(float p_degrees)
 {
     float d = std::fmod(p_degrees + 180.0f, 360.0f);
@@ -846,6 +944,7 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
             a.land_time += p_dt;
         }
     }
+    if (r_character.action.layer(r_assets, p_skeleton, a._scratch_pose, r_pose, posed)) posed = true;
     return posed;
 }
 

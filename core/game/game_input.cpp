@@ -44,8 +44,8 @@ void GameInput::read(bool p_captured, vec2 p_mouse_delta, float p_dt)
     sprint = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_GamepadL3);
     aim = ImGui::IsMouseDown(ImGuiMouseButton_Right) || _analog(ImGuiKey_GamepadL2) > 0.5f;
     jump = ImGui::IsKeyPressed(ImGuiKey_Space, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false);
-    crouch_toggle = ImGui::IsKeyPressed(ImGuiKey_LeftAlt, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
-    walk_toggle = ImGui::IsKeyPressed(ImGuiKey_LeftCtrl, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadR3, false);
+    crouch_toggle = ImGui::IsKeyPressed(ImGuiKey_LeftCtrl, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadR3, false);
+    roll = ImGui::IsKeyPressed(ImGuiKey_LeftAlt, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
     ragdoll_toggle = ImGui::IsKeyPressed(ImGuiKey_X, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, false);
     hit_light = ImGui::IsKeyPressed(ImGuiKey_H, false);
     hit_heavy = ImGui::IsKeyPressed(ImGuiKey_J, false);

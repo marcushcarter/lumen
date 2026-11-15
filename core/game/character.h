@@ -78,6 +78,7 @@ struct CharacterAnim
     static constexpr float TURN_180_THRESHOLD = 130.0f;
     static constexpr float TURN_AIM_RATE_LIMIT = 50.0f;
     static constexpr float TURN_MAX_DELAY = 0.75f;
+    static constexpr float TURN_CURVE_MIN = 30.0f;
     static constexpr float TURN_BLEND = 0.2f;
     static constexpr uint32_t TURN_CURVE_SAMPLES = 32;
     static constexpr uint32_t TURN_JOINT_DEPTH = 2;
@@ -102,13 +103,17 @@ struct CharacterAnim
     float turn_applied = 0.0f;
     bool turn_stopping = false;
     std::vector<float> turn_curve;
+    float turn_offset = 0.0f;
+    bool turn_measured = false;
     Guid rotate_clip;
     float rotate_time = 0.0f;
     float rotate_duration = 0.0f;
     float rotate_speed = 0.0f;
+    float rotate_sign = 1.0f;
     float rotate_rate = 1.0f;
     float rotate_weight = 0.0f;
     std::vector<float> rotate_curve;
+    float rotate_offset = 0.0f;
     Stance last_stance = Stance::STANDING;
     bool stance_known = false;
     Guid transition_clip;

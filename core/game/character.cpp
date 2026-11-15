@@ -160,7 +160,7 @@ static float _flat_yaw(const vec3& p_axis)
     return glm::degrees(std::atan2(p_axis.x, p_axis.z));
 }
 
-static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_clip, CharacterAnim& r_anim, std::vector<float>& r_curve)
+static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_clip, CharacterAnim& r_anim, std::vector<float>& r_curve, float& r_offset)
 {
     const uint32_t joints = p_skeleton.joint_count();
     std::vector<uint32_t> depth(joints, 0);
@@ -177,6 +177,8 @@ static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_cli
     std::vector<float> last(candidates.size(), 0.0f);
     std::vector<uint8_t> use_z(candidates.size(), 1);
     r_anim._turn_globals.resize(joints);
+    std::vector<mat4> rest(joints);
+    p_skeleton.globals(p_skeleton.rest.data(), rest.data());
     for (uint32_t s = 0; s < samples; s++) {
         r_anim._scratch_pose = p_skeleton.rest;
         clip_sample(*p_clip.clip, *p_clip.map, p_clip.clip->duration * (float)s / (float)(samples - 1), r_anim._scratch_pose.data());
@@ -195,15 +197,24 @@ static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_cli
 
     size_t best = 0;
     float best_total = 0.0f;
+    uint32_t best_depth = UINT32_MAX;
     for (size_t c = 0; c < candidates.size(); c++) {
         const float total = yaws[c * samples + samples - 1] - yaws[c * samples];
-        if (std::fabs(total) > std::fabs(best_total)) {
+        const uint32_t d = depth[candidates[c]];
+        const bool turns = std::fabs(total) >= CharacterAnim::TURN_CURVE_MIN;
+        const bool best_turns = std::fabs(best_total) >= CharacterAnim::TURN_CURVE_MIN;
+        const bool better = turns ? (!best_turns || d < best_depth || (d == best_depth && std::fabs(total) > std::fabs(best_total))) : (!best_turns && std::fabs(total) > std::fabs(best_total));
+        if (better) {
             best_total = total;
             best = c;
+            best_depth = d;
         }
     }
     r_curve.resize(samples);
     for (uint32_t s = 0; s < samples; s++) r_curve[s] = yaws[best * samples + s] - yaws[best * samples];
+    const mat4& reference = rest[candidates[best]];
+    const float rest_yaw = _flat_yaw(normalize(vec3(use_z[best] ? reference[2] : reference[0])));
+    r_offset = character_wrap(yaws[best * samples] - rest_yaw);
     return true;
 }
 
@@ -357,16 +368,17 @@ static void _turn_in_place(const LLocomotion& p_asset, Character& r_character, C
         }
         a.turn_delay += p_dt;
         const float t = std::clamp((std::fabs(angle) - CharacterAnim::TURN_MIN_ANGLE) / (180.0f - CharacterAnim::TURN_MIN_ANGLE), 0.0f, 1.0f);
-        if (a.turn_delay <= t * CharacterAnim::TURN_MAX_DELAY) return;
+        if (a.turn_delay <= (1.0f - t) * CharacterAnim::TURN_MAX_DELAY) return;
 
         const bool big = std::fabs(angle) >= CharacterAnim::TURN_180_THRESHOLD;
         const TurnClip which = angle > 0.0f ? (big ? TurnClip::LEFT_180 : TurnClip::LEFT_90) : (big ? TurnClip::RIGHT_180 : TurnClip::RIGHT_90);
         const Guid guid = stance.turn(which);
         const BoundClip clip = r_assets.clip(guid);
         a.turn_delay = 0.0f;
-        if (!clip.valid() || clip.clip->duration <= 0.0f || !_build_yaw_curve(p_skeleton, clip, a, a.turn_curve)) return;
+        if (!clip.valid() || clip.clip->duration <= 0.0f || !_build_yaw_curve(p_skeleton, clip, a, a.turn_curve, a.turn_offset)) return;
         float total = a.turn_curve.back();
-        if (std::fabs(total) < 5.0f) {
+        a.turn_measured = std::fabs(total) >= 5.0f;
+        if (!a.turn_measured) {
             total = std::copysign(big ? 180.0f : 90.0f, angle);
             for (uint32_t s = 0; s < a.turn_curve.size(); s++) a.turn_curve[s] = total * (float)s / (float)(a.turn_curve.size() - 1);
         }
@@ -397,7 +409,7 @@ static void _turn_in_place(const LLocomotion& p_asset, Character& r_character, C
     }
     if (a.turn_time >= a.turn_duration || (a.turn_stopping && a.turn_weight <= 0.0f)) a.turn_time = -1.0f;
     if (a.turn_weight <= BLEND_MIN_WEIGHT) return;
-    _layer(p_skeleton, clip, time, yaw, a.turn_weight, a, r_pose, p_posed);
+    _layer(p_skeleton, clip, time, (a.turn_measured ? yaw : 0.0f) + a.turn_offset, a.turn_weight, a, r_pose, p_posed);
 }
 
 static void _rotate_in_place(const LLocomotion& p_asset, Character& r_character, ClipProvider& r_assets, const LSkeleton& p_skeleton, float p_dt, JointTransform* r_pose, bool p_posed, bool p_blocked)
@@ -411,13 +423,14 @@ static void _rotate_in_place(const LLocomotion& p_asset, Character& r_character,
         const Guid guid = angle > 0.0f ? stance.rotate_left : stance.rotate_right;
         if (guid != a.rotate_clip) {
             const BoundClip clip = r_assets.clip(guid);
-            if (clip.valid() && clip.clip->duration > 0.0f && _build_yaw_curve(p_skeleton, clip, a, a.rotate_curve)) {
+            if (clip.valid() && clip.clip->duration > 0.0f && _build_yaw_curve(p_skeleton, clip, a, a.rotate_curve, a.rotate_offset)) {
                 a.rotate_clip = guid;
                 a.rotate_duration = clip.clip->duration;
                 a.rotate_time = 0.0f;
-                const float total = std::fabs(a.rotate_curve.back());
-                a.rotate_speed = total >= 5.0f ? total / a.rotate_duration : CharacterAnim::ROTATE_FALLBACK_SPEED;
-                if (total < 5.0f) std::fill(a.rotate_curve.begin(), a.rotate_curve.end(), 0.0f);
+                const float total = a.rotate_curve.back();
+                a.rotate_speed = std::fabs(total) >= 5.0f ? std::fabs(total) / a.rotate_duration : CharacterAnim::ROTATE_FALLBACK_SPEED;
+                a.rotate_sign = (total >= 0.0f) == (angle >= 0.0f) ? 1.0f : -1.0f;
+                if (std::fabs(total) < 5.0f) std::fill(a.rotate_curve.begin(), a.rotate_curve.end(), 0.0f);
             }
         }
         const float t = std::clamp((r_character.aim_yaw_rate - 90.0f) / 180.0f, 0.0f, 1.0f);
@@ -432,12 +445,16 @@ static void _rotate_in_place(const LLocomotion& p_asset, Character& r_character,
     }
 
     const float step = p_dt * a.rotate_rate;
-    a.rotate_time = std::fmod(a.rotate_time + step, a.rotate_duration);
-    if (active) {
-        const float delta = std::copysign(std::min(a.rotate_speed * step, std::fabs(angle)), angle);
-        r_character.turn_delta += delta;
-    }
-    _layer(p_skeleton, clip, a.rotate_time, _curve_at(a.rotate_curve, a.rotate_duration, a.rotate_time), a.rotate_weight, a, r_pose, p_posed);
+    const float before = _curve_at(a.rotate_curve, a.rotate_duration, a.rotate_time);
+    const float next = a.rotate_time + step;
+    const bool wrapped = next >= a.rotate_duration;
+    a.rotate_time = std::fmod(next, a.rotate_duration);
+    const float after = _curve_at(a.rotate_curve, a.rotate_duration, a.rotate_time);
+    const bool curved = a.rotate_curve.size() >= 2 && std::fabs(a.rotate_curve.back()) >= 5.0f;
+    float delta = curved ? (after - before + (wrapped ? a.rotate_curve.back() : 0.0f)) * a.rotate_sign : std::copysign(a.rotate_speed * step, angle);
+    if (active && std::fabs(delta) > std::fabs(angle)) delta = std::copysign(std::fabs(angle), delta);
+    r_character.turn_delta += delta * a.rotate_weight;
+    _layer(p_skeleton, clip, a.rotate_time, after + a.rotate_offset, a.rotate_weight, a, r_pose, p_posed);
 }
 
 static quat _between(vec3 p_from, vec3 p_to)

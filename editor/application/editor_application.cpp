@@ -149,6 +149,7 @@ Error EditorApplication::on_init()
     };
 
     git.ignore_lines = { std::string("/") + Project::DIR_EDITOR + "/" };
+    git.lfs_patterns = { std::string(Project::DIR_CONTENT) + "/**/*.bin" };
     _project_state_default = _project_state_write();
     _load_state();
     _apply_theme();

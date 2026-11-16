@@ -23,8 +23,14 @@ struct GitDriver
     std::filesystem::path repo_root;
     std::function<void(const std::string&)> log_callback;
     std::vector<std::string> ignore_lines;
+    std::vector<std::string> lfs_patterns;
 
+    static void _lines_ensure(const std::filesystem::path& p_path, const std::vector<std::string>& p_lines);
     void _ignore_ensure();
+    bool _lfs_available();
+    bool _lfs_hooked() const;
+    void _lfs_attributes_ensure();
+    void _lfs_ensure();
     void initialize(const std::filesystem::path& p_root);
     void shutdown();
 

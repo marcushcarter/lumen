@@ -66,18 +66,17 @@ static void _write_if_missing(const std::filesystem::path& p_path, const std::st
     f << p_text;
 }
 
-void GitDriver::_ignore_ensure()
+void GitDriver::_lines_ensure(const std::filesystem::path& p_path, const std::vector<std::string>& p_lines)
 {
-    if (ignore_lines.empty() || repo_root.empty()) return;
-    const std::filesystem::path path = repo_root / ".gitignore";
+    if (p_lines.empty()) return;
     std::string text;
     {
-        std::ifstream in(path, std::ios::binary);
+        std::ifstream in(p_path, std::ios::binary);
         if (in) text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
 
     std::string append;
-    for (const std::string& line : ignore_lines) {
+    for (const std::string& line : p_lines) {
         bool found = false;
         size_t start = 0;
         while (!found && start < text.size()) {
@@ -92,8 +91,50 @@ void GitDriver::_ignore_ensure()
     }
     if (append.empty()) return;
     if (!text.empty() && text.back() != '\n') append.insert(0, "\n");
-    std::ofstream out(path, std::ios::binary | std::ios::app);
+    std::ofstream out(p_path, std::ios::binary | std::ios::app);
     out << append;
+}
+
+void GitDriver::_ignore_ensure()
+{
+    if (repo_root.empty()) return;
+    _lines_ensure(repo_root / ".gitignore", ignore_lines);
+}
+
+bool GitDriver::_lfs_available()
+{
+    std::string out;
+    return _run({ { "lfs", "version" }, {} }, out);
+}
+
+bool GitDriver::_lfs_hooked() const
+{
+    std::ifstream in(repo_root / ".git" / "hooks" / "pre-push", std::ios::binary);
+    if (!in) return false;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return text.find("git-lfs") != std::string::npos || text.find("git lfs") != std::string::npos;
+}
+
+void GitDriver::_lfs_attributes_ensure()
+{
+    if (repo_root.empty() || lfs_patterns.empty()) return;
+    std::vector<std::string> lines;
+    lines.reserve(lfs_patterns.size());
+    for (const std::string& p : lfs_patterns) lines.push_back(p + " filter=lfs diff=lfs merge=lfs -text");
+    _lines_ensure(repo_root / ".gitattributes", lines);
+}
+
+void GitDriver::_lfs_ensure()
+{
+    if (repo_root.empty() || lfs_patterns.empty()) return;
+    _lfs_attributes_ensure();
+    if (_lfs_hooked()) return;
+    std::string out;
+    if (!_lfs_available()) {
+        if (log_callback) log_callback("Git LFS isn't installed. Large content files can't be pushed to GitHub until it is.");
+        return;
+    }
+    _run({ { "lfs", "install", "--local" }, {} }, out);
 }
 
 static std::vector<std::string> _split(const std::string& p_s, char p_sep)
@@ -123,7 +164,10 @@ void GitDriver::initialize(const std::filesystem::path& p_root)
         _ref_signature.clear();
     }
     // existing repos pick up new ignore patterns too, so editor-only files never show up as changes
-    if (_git_dir_exists()) _ignore_ensure();
+    if (_git_dir_exists()) {
+        _ignore_ensure();
+        _lfs_ensure();
+    }
     refresh();
 }
 
@@ -171,14 +215,17 @@ bool GitDriver::repo_create(const std::string& p_project_name)
     _write_if_missing(repo_root / "README.md", "# " + p_project_name + "\n");
     _write_if_missing(repo_root / ".gitignore", "");
     _ignore_ensure();
-    return _start({
+    _lfs_attributes_ensure();
+    std::vector<Step> steps = {
         { { "init", "-b", "main" }, {} },
         { { "config", "core.fsmonitor", "true" }, {} },
         { { "config", "core.untrackedCache", "true" }, {} },
         { { "config", "core.longpaths", "true" }, {} },
-        { { "add", "-A" }, {} },
-        { { "commit", "-F", "-" }, "Initial commit" },
-    });
+    };
+    if (!lfs_patterns.empty() && _lfs_available()) steps.push_back({ { "lfs", "install", "--local" }, {} });
+    steps.push_back({ { "add", "-A" }, {} });
+    steps.push_back({ { "commit", "-F", "-" }, "Initial commit" });
+    return _start(std::move(steps));
 }
 
 bool GitDriver::remote_set(const std::string& p_url)
@@ -514,12 +561,14 @@ bool GitDriver::repo_init_now(const std::filesystem::path& p_root, const std::st
         _write_if_missing(repo_root / "README.md", "# " + p_project_name + "\n");
         _write_if_missing(repo_root / ".gitignore", "");
         _ignore_ensure();
+        _lfs_attributes_ensure();
         std::vector<Step> steps = {
             { { "init", "-b", "main" }, {} },
             { { "config", "core.fsmonitor", "true" }, {} },
             { { "config", "core.untrackedCache", "true" }, {} },
             { { "config", "core.longpaths", "true" }, {} },
         };
+        if (!lfs_patterns.empty() && _lfs_available()) steps.push_back({ { "lfs", "install", "--local" }, {} });
         std::string name;
         std::string email;
         _run({ { "config", "--global", "user.name" }, {} }, name);

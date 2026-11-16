@@ -5,6 +5,7 @@
 #extension GL_EXT_scalar_block_layout : require
 
 const uint SKIN_NONE = 0xFFFFFFFFu;
+const uint INSTANCE_FLAG_PLAYER = 1u << 0u;
 
 struct Instance {
     uint mesh_id;
@@ -12,6 +13,7 @@ struct Instance {
     uint entity_id;
     uint slot_base;
     uint skin_id;
+    uint flags;
 };
 
 struct SkinInstance {

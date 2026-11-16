@@ -13,6 +13,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+layout(set = 0, binding = 2) uniform samplerShadow u_shadow_samplers[];
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
@@ -23,7 +24,11 @@ layout(push_constant, scalar) uniform Push {
     uint out_slot;
     uint width;
     uint height;
+    uint player_shadow_index;
+    uint shadow_sampler_index;
 } pc;
+
+const uint SHADOW_MAP_NONE = 0xFFFFFFFFu;
 
 const float PI = 3.14159265359;
 const float HDR_MAX = 60000.0;
@@ -47,6 +52,27 @@ vec3 sky_ambient(vec3 p_n) {
     return mix(SKY_GROUND, up, p_n.y * 0.5 + 0.5) * SKY_NITS;
 }
 
+bool player_shadow_covers(ivec2 p_pixel) {
+    const uvec4 r = pc.direct_light.player_shadow_rect;
+    return pc.player_shadow_index != SHADOW_MAP_NONE && uint(p_pixel.x) >= r.x && uint(p_pixel.y) >= r.y && uint(p_pixel.x) < r.z && uint(p_pixel.y) < r.w;
+}
+
+float player_shadow(vec2 p_ndc, float p_depth, vec3 p_n) {
+    const vec4 params = pc.direct_light.player_shadow_params;
+    const vec4 h = pc.direct_light.player_shadow_screen * vec4(p_ndc, p_depth, 1.0);
+    const vec3 s = h.xyz / h.w + mat3(pc.direct_light.player_shadow_view_proj) * (p_n * params.x);
+    const vec2 uv = s.xy * 0.5 + 0.5;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || s.z <= 0.0 || s.z >= 1.0) return 1.0;
+    const float ref = s.z - params.y;
+    const vec2 texel = 0.5 / vec2(textureSize(u_textures[nonuniformEXT(pc.player_shadow_index)], 0));
+    float lit = 0.0;
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(pc.player_shadow_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(uv + vec2(-texel.x, -texel.y), ref));
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(pc.player_shadow_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(uv + vec2(texel.x, -texel.y), ref));
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(pc.player_shadow_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(uv + vec2(-texel.x, texel.y), ref));
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(pc.player_shadow_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(uv + vec2(texel.x, texel.y), ref));
+    return lit * 0.25;
+}
+
 void main() {
     const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (group >= pc.tiles.args[TILE_TYPE].w) return;
@@ -65,7 +91,10 @@ void main() {
 
     vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
 
-    vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
+    const float n_dot_l = clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
+    float shadow = 1.0;
+    if (n_dot_l > 0.0 && player_shadow_covers(p)) shadow = player_shadow((vec2(p) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0, depth, n);
+    vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * n_dot_l * shadow;
     vec3 ambient = ALBEDO * sky_ambient(n);
 
     vec3 color = (direct + ambient) * pc.camera.pre_exposure;

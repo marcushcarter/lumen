@@ -248,6 +248,7 @@ struct GeometryPool
     uint64_t frame_number = 0;
     uint32_t current_slot = 0;
     uint64_t version = 0;
+    uint64_t residency_version = 0;
 
     Arena arenas[ARENA_COUNT];
     std::vector<drivers::DeviceDriverVulkan::Buffer> address_buffers;

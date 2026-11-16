@@ -1165,11 +1165,13 @@ bool GeometryPool::_page_install(uint32_t p_mesh, uint32_t p_page, const LMeshPa
     s.resident_pages++;
     _stream_resident_pages++;
     _stream_resident_bytes += _page_gpu_bytes(info, wide, skinned);
+    residency_version++;
     return true;
 }
 
 void GeometryPool::_page_evict(uint32_t p_mesh, uint32_t p_page)
 {
+    residency_version++;
     StreamMesh& s = streams[p_mesh];
     StreamPage& sp = s.pages[p_page];
     const LMeshPage& info = s.source->tables->pages[p_page];

@@ -9,6 +9,10 @@ layout(buffer_reference, scalar) readonly buffer DirectLightBuffer {
     float angular_radius;
     vec3 illuminance;
     float _pad;
+    mat4 player_shadow_view_proj;
+    mat4 player_shadow_screen;
+    vec4 player_shadow_params;
+    uvec4 player_shadow_rect;
 };
 
 #endif

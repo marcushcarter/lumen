@@ -351,14 +351,90 @@ static uint32_t _ref_capacity_add(uint32_t p_a, uint32_t p_b)
     return (uint32_t)std::min<uint64_t>((uint64_t)p_a + p_b, MAX_CLUSTER_REFS);
 }
 
-static void _world_box(const LMesh& p_mesh, const mat4& p_model, vec3& r_min, vec3& r_max)
+static void _box_transform(const vec3& p_min, const vec3& p_extent, const mat4& p_model, vec3& r_min, vec3& r_max)
 {
-    const vec3 half = p_mesh.pos_extent * 0.5f;
-    const vec3 center = vec3(p_model * vec4(p_mesh.pos_min + half, 1.0f));
+    const vec3 half = p_extent * 0.5f;
+    const vec3 center = vec3(p_model * vec4(p_min + half, 1.0f));
     vec3 extent(0.0f);
     for (int r = 0; r < 3; r++) extent[r] = std::abs(p_model[0][r]) * half.x + std::abs(p_model[1][r]) * half.y + std::abs(p_model[2][r]) * half.z;
     r_min = center - extent;
     r_max = center + extent;
+}
+
+static void _world_box(const LMesh& p_mesh, const mat4& p_model, vec3& r_min, vec3& r_max)
+{
+    _box_transform(p_mesh.pos_min, p_mesh.pos_extent, p_model, r_min, r_max);
+}
+
+static constexpr float PLAYER_SHADOW_RADIUS_STEP = 0.125f;
+static constexpr float PLAYER_SHADOW_MARGIN = 0.5f;
+static constexpr float PLAYER_SHADOW_RECEIVER_RANGE = 16.0f;
+static constexpr float PLAYER_SHADOW_DEPTH_BIAS = 0.01f;
+static constexpr float PLAYER_SHADOW_NORMAL_OFFSET_TEXELS = 1.5f;
+
+static uvec4 _player_shadow_rect(const mat4& p_shadow_view_proj, const mat4& p_view_proj, uint32_t p_width, uint32_t p_height)
+{
+    const uvec4 full(0u, 0u, p_width, p_height);
+    const mat4 to_world = inverse(p_shadow_view_proj);
+    vec2 lo(FLT_MAX);
+    vec2 hi(-FLT_MAX);
+    uint32_t behind = 0;
+    for (uint32_t i = 0; i < 8; i++) {
+        const vec4 corner((i & 1) ? 1.0f : -1.0f, (i & 2) ? 1.0f : -1.0f, (i & 4) ? 1.0f : 0.0f, 1.0f);
+        const vec4 world = to_world * corner;
+        const vec4 clip = p_view_proj * vec4(vec3(world) / world.w, 1.0f);
+        if (clip.w <= 1e-4f) {
+            behind++;
+            continue;
+        }
+        const vec2 ndc = vec2(clip) / clip.w;
+        lo = glm::min(lo, ndc);
+        hi = glm::max(hi, ndc);
+    }
+    if (behind == 8) return uvec4(0u);
+    if (behind != 0) return full;
+    const vec2 size((float)p_width, (float)p_height);
+    const vec2 px_lo = glm::floor((lo * 0.5f + 0.5f) * size - 0.5f);
+    const vec2 px_hi = glm::ceil((hi * 0.5f + 0.5f) * size - 0.5f) + 1.0f;
+    const vec2 c_lo = glm::clamp(px_lo, vec2(0.0f), size);
+    const vec2 c_hi = glm::clamp(px_hi, vec2(0.0f), size);
+    return uvec4((uint32_t)c_lo.x, (uint32_t)c_lo.y, (uint32_t)c_hi.x, (uint32_t)c_hi.y);
+}
+
+static void _player_shadow_fit(FrameData& r_frame, uint32_t p_width, uint32_t p_height)
+{
+    DirectLight& light = r_frame.direct_light;
+    light.player_shadow_params = vec4(0.0f);
+    light.player_shadow_rect = uvec4(0u);
+    if (r_frame.player_instance == UINT32_MAX) return;
+
+    const vec3 center = (r_frame.player_box_min + r_frame.player_box_max) * 0.5f;
+    const float radius = std::ceil(length(r_frame.player_box_max - r_frame.player_box_min) * 0.5f / PLAYER_SHADOW_RADIUS_STEP) * PLAYER_SHADOW_RADIUS_STEP;
+    if (!std::isfinite(radius) || radius <= 0.0f || !std::isfinite(center.x + center.y + center.z)) return;
+
+    const vec3 dir = normalize(light.direction);
+    const vec3 up = std::abs(dir.y) > 0.99f ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f);
+    const mat4 rotation = lookAt(vec3(0.0f), dir, up);
+    const float texel = 2.0f * radius / (float)PLAYER_SHADOW_SIZE;
+    vec3 aligned = vec3(rotation * vec4(center, 1.0f));
+    aligned.x = std::floor(aligned.x / texel) * texel;
+    aligned.y = std::floor(aligned.y / texel) * texel;
+    const vec3 snapped = vec3(transpose(rotation) * vec4(aligned, 1.0f));
+
+    const float back = radius + PLAYER_SHADOW_MARGIN;
+    const float depth_range = back + radius + PLAYER_SHADOW_RECEIVER_RANGE;
+    const mat4 view = lookAt(snapped - dir * back, snapped, up);
+    mat4 proj(1.0f);
+    proj[0][0] = 1.0f / radius;
+    proj[1][1] = 1.0f / radius;
+    proj[2][2] = -1.0f / depth_range;
+    proj[3][2] = 0.0f;
+
+    light.player_shadow_view_proj = proj * view;
+    light.player_shadow_screen = light.player_shadow_view_proj * r_frame.camera.inv_view_proj;
+    light.player_shadow_rect = _player_shadow_rect(light.player_shadow_view_proj, r_frame.camera.curr_view_proj, p_width, p_height);
+    light.player_shadow_params = vec4(texel * PLAYER_SHADOW_NORMAL_OFFSET_TEXELS, PLAYER_SHADOW_DEPTH_BIAS / depth_range, 1.0f, 1.0f / texel);
+    r_frame.player_lod_density /= texel;
 }
 
 static void _static_add(StaticInstances& r_static, const LMesh& p_mesh, uint32_t p_mesh_index, uint32_t p_entity, uint32_t p_slot_base, const mat4& p_model)
@@ -467,6 +543,21 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         Instance instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base };
         const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
         if (pose && geometry.joint_boxes(cache.mesh_index)) instance.skin_id = _skin_add(frame, cache, continuous, *pose, geometry, cache.mesh_index);
+        if (p_world.has<PlayerTag>(p_entity)) {
+            instance.flags |= INSTANCE_FLAG_PLAYER;
+            if (frame.player_instance == UINT32_MAX) {
+                frame.player_instance = base + (uint32_t)frame.instances_scratch.size();
+                frame.player_node_count = mesh->node_count;
+                frame.player_mesh = cache.mesh_index;
+                frame.player_lod_density = std::max(length(vec3(model[0])), std::max(length(vec3(model[1])), length(vec3(model[2]))));
+                if (instance.skin_id != SKIN_NONE) {
+                    const SkinInstance& skin = frame.skins_scratch[instance.skin_id];
+                    _box_transform(skin.box_min, skin.box_extent, model, frame.player_box_min, frame.player_box_max);
+                } else {
+                    _world_box(*mesh, model, frame.player_box_min, frame.player_box_max);
+                }
+            }
+        }
         frame.instances_scratch.push_back(instance);
         frame.transforms_scratch.push_back(Transform{ prev_mtx, model });
         frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
@@ -523,6 +614,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         frame.direct_light.illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
+    _player_shadow_fit(frame, width, height);
 
     r_view.camera_cut_pending = false;
     r_view.hiz_reset_pending = false;

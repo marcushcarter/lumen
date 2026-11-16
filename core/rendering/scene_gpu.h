@@ -11,6 +11,12 @@ static constexpr uint32_t MAX_CLUSTER_REFS = (1u << 22) - 1;
 static constexpr uint32_t MAX_SKINNED_INSTANCES = 4u * 1024;
 static constexpr uint32_t MAX_SKIN_JOINTS = 64u * 1024;
 static constexpr uint32_t SKIN_NONE = 0xFFFFFFFFu;
+static constexpr uint32_t INSTANCE_FLAG_PLAYER = 1u << 0;
+static constexpr uint32_t PLAYER_SHADOW_SIZE = 1024;
+static constexpr uint32_t PLAYER_SHADOW_MAX_CLUSTERS = 4u * 1024;
+static constexpr uint32_t PLAYER_SHADOW_MAX_INDICES = 768u * 1024;
+static constexpr uint32_t PLAYER_SHADOW_SLOT_SHIFT = 8u;
+
 struct CameraUniform
 {
     mat4 prev_view_proj;
@@ -33,9 +39,13 @@ struct DirectLight
     float angular_radius;
     vec3 illuminance;
     float _pad;
+    mat4 player_shadow_view_proj = mat4(1.0f);
+    mat4 player_shadow_screen = mat4(1.0f);
+    vec4 player_shadow_params = vec4(0.0f);
+    uvec4 player_shadow_rect = uvec4(0u);
 };
 
-static_assert(sizeof(DirectLight) == 32, "DirectLight layout changed");
+static_assert(sizeof(DirectLight) == 192, "DirectLight layout changed");
 
 struct Instance
 {
@@ -44,6 +54,7 @@ struct Instance
     uint32_t entity_id;
     uint32_t slot_base;
     uint32_t skin_id = SKIN_NONE;
+    uint32_t flags = 0;
 };
 
 struct SkinInstance

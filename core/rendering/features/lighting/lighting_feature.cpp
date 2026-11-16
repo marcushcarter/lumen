@@ -19,6 +19,7 @@ void LightingFeature::_create_lighting_pass()
         b.read_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("DirectLight", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+        if (b.graph->image_resource("PlayerShadow")) b.read_image("PlayerShadow", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -28,6 +29,7 @@ void LightingFeature::_create_lighting_pass()
         auto* direct_light = cl.graph->buffer("DirectLight");
         auto* tiles = cl.graph->buffer("ShadingTiles");
         auto* out = cl.graph->image("SceneColor");
+        auto* player_shadow = cl.graph->image("PlayerShadow");
         if (!depth || !normal || !camera || !direct_light || !tiles || !out) return;
 
         struct Push {
@@ -39,6 +41,8 @@ void LightingFeature::_create_lighting_pass()
             uint32_t out_slot;
             uint32_t width;
             uint32_t height;
+            uint32_t player_shadow_index;
+            uint32_t shadow_sampler_index;
         } pc{};
         pc.camera_addr = camera->device_address;
         pc.tiles_addr = tiles->device_address;
@@ -48,6 +52,8 @@ void LightingFeature::_create_lighting_pass()
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;
+        pc.player_shadow_index = player_shadow ? player_shadow->bindless_sampled : UINT32_MAX;
+        pc.shadow_sampler_index = shadow_sampler.bindless_sampler;
 
         static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
         static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (mixed)" };
@@ -61,6 +67,15 @@ void LightingFeature::_create_lighting_pass()
 
 Error LightingFeature::create_resources()
 {
+    drivers::DeviceDriverVulkan::SamplerCreateInfo sampler_ci{};
+    sampler_ci.filter = VK_FILTER_LINEAR;
+    sampler_ci.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler_ci.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_ci.compare = true;
+    sampler_ci.compare_op = VK_COMPARE_OP_LESS_OR_EQUAL;
+    sampler_ci.name = "player_shadow";
+    shadow_sampler = ctx->dd->sampler_create(sampler_ci);
+    LUMEN_ERR_FAIL_COND_V(!shadow_sampler.sampler, Error::FAILED);
     _create_lighting_pass();
     return Error::OK;
 }
@@ -85,6 +100,7 @@ void LightingFeature::destroy_resources()
         ctx->dd->pipeline_free(p);
         p = {};
     }
+    ctx->dd->sampler_free(shadow_sampler);
 }
 
 void LightingFeature::build(RenderGraph& g)

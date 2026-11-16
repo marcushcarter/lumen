@@ -12,6 +12,7 @@ void FrameData::reset()
     transforms_scratch.clear();
     instance_count = 0;
     cluster_ref_capacity = 0;
+    player_instance = UINT32_MAX;
 }
 
 }

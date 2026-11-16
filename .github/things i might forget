@@ -1,5 +1,4 @@
 GBUFFER
-
 Normal RG16UNORM - normal oct encoded xy
 Albedo RGB10A2 - base color xyz, 
 Material RGBA8UNORM - 
@@ -12,23 +11,14 @@ Mesh SDFs
 reflections
 Planar mirros
 SS reflection
-Box reflection probe rfallbacks|
-
-
-
-
-
-
-
-NEXT STEPS
-outliner panel just showing the entities and folders
-outliner panel having a selected entity
-details panel showing components
-viewport picking entities
-
-
-
+Box reflection probe rfallbacks
 
 SHADING IDS
 0 - Backbuffer / skybox
 1 - 
+
+SUN SHADOW MAPS (Decima style)
+Compartment Cascade - 1024x1024 fit to aloy
+Cascade 0 - 2048x2048 up to 8m
+Cascade 1 - 2048x2048 up to 80m
+Distant Cascade - 1.5kmx1.5km height-field based

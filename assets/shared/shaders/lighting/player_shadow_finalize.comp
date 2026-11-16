@@ -1,0 +1,19 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "lighting/player_shadow_common.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(push_constant, scalar) uniform Push {
+    PlayerShadowListBuffer list;
+} pc;
+
+void main() {
+    pc.list.index_count = min(pc.list.index_total, pc.list.valid_end);
+    pc.list.instance_count = 1u;
+    pc.list.first_index = 0u;
+    pc.list.vertex_offset = 0;
+    pc.list.first_instance = 0u;
+}

@@ -57,6 +57,13 @@ struct FrameData
 
     DirectLight direct_light{ vec3(0.0f, -1.0f, 0.0f), 0.0f, vec3(0.0f), 0.0f };
 
+    uint32_t player_instance = UINT32_MAX;
+    uint32_t player_node_count = 0;
+    uint32_t player_mesh = UINT32_MAX;
+    float player_lod_density = 0.0f;
+    vec3 player_box_min = vec3(0.0f);
+    vec3 player_box_max = vec3(0.0f);
+
     float px_per_unit = 1.0f;
     bool hiz_history_valid = false;
 

@@ -51,6 +51,16 @@ void main() {
         mat4 model = pc.transforms.data[instance.transform_id].curr_mtx;
         skinned = instance.skin_id != SKIN_NONE;
         backfacing = cluster_backfacing(pc.camera, pc.geometry, instance, model, ref.y);
+        if (!backfacing && skinned) {
+            const Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
+            const SkinInstance skin = pc.camera.skins.data[instance.skin_id];
+            vec3 box_min, box_extent;
+            if (skinned_cluster_box(pc.camera, pc.geometry, mesh, skin, ref.y, box_min, box_extent)) {
+                const vec3 center = (model * vec4(box_min + box_extent * 0.5, 1.0)).xyz;
+                backfacing = frustum_cull_sphere(pc.camera, center, length(box_extent) * 0.5 * transform_max_scale(model));
+                if (!backfacing && pc.hiz_enabled != 0u) occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.curr_view_proj, model, box_min, box_extent);
+            }
+        }
         if (!backfacing && !skinned && pc.hiz_enabled != 0u) {
             vec3 box_min, box_extent;
             cluster_box(pc.geometry, pc.geometry.meshes.data[instance.mesh_id], ref.y, box_min, box_extent);

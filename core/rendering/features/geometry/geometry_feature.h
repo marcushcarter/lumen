@@ -22,7 +22,8 @@ struct GeometryFeature : Feature
     static constexpr uint32_t COMPACT_SHRINK_FRAMES = 300;
     static constexpr uint64_t COMPACT_INDEX_LIMIT_TRIS = 0xFFFFFFFFull / 3ull;
     static constexpr uint32_t MAX_TRAVERSE_LEVELS = 16;
-    static constexpr uint32_t SKIN_CACHE_VERTS = 512u * 1024;
+    static constexpr uint32_t SKIN_CACHE_VERTS = 1024u * 1024;
+    static constexpr VkDeviceSize SKIN_POSITION_BYTES = 2 * sizeof(uint32_t);
     static constexpr uint32_t SKIN_REFS_ALIGN = 16;
 
     struct SkinHeader {
@@ -107,6 +108,8 @@ struct GeometryFeature : Feature
     uint32_t ref_low_frames = 0;
     std::vector<drivers::DeviceDriverVulkan::Buffer> ref_feedback;
     std::vector<drivers::DeviceDriverVulkan::Buffer> skin_headers;
+    drivers::DeviceDriverVulkan::Buffer player_skin_table;
+    uint32_t player_skin_table_entries = 0;
     std::vector<uint8_t> ref_feedback_written;
     std::vector<uint32_t> ref_feedback_capacity;
 

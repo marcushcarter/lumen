@@ -144,9 +144,10 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
     vec3 prev0, prev1, prev2;
     const uint cached = o.skin_id != SKIN_NONE ? skin_cache_base(pc.skin_cache, ref_index) : SKIN_CACHE_NONE;
     if (cached != SKIN_CACHE_NONE) {
-        tri.l0 = pc.skin_cache.positions.data[cached + lv.x];
-        tri.l1 = pc.skin_cache.positions.data[cached + lv.y];
-        tri.l2 = pc.skin_cache.positions.data[cached + lv.z];
+        const SkinQuant quant = skin_quant(pc.camera.skins.data[o.skin_id]);
+        tri.l0 = skin_cache_position(pc.skin_cache, quant, cached + lv.x);
+        tri.l1 = skin_cache_position(pc.skin_cache, quant, cached + lv.y);
+        tri.l2 = skin_cache_position(pc.skin_cache, quant, cached + lv.z);
         tri.n0 = cached_normal(cached + lv.x);
         tri.n1 = cached_normal(cached + lv.y);
         tri.n2 = cached_normal(cached + lv.z);
@@ -154,9 +155,9 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
         prev1 = tri.l1;
         prev2 = tri.l2;
         if (p_motion) {
-            prev0 = pc.skin_cache.prev_positions.data[cached + lv.x];
-            prev1 = pc.skin_cache.prev_positions.data[cached + lv.y];
-            prev2 = pc.skin_cache.prev_positions.data[cached + lv.z];
+            prev0 = skin_cache_prev_position(pc.skin_cache, quant, cached + lv.x);
+            prev1 = skin_cache_prev_position(pc.skin_cache, quant, cached + lv.y);
+            prev2 = skin_cache_prev_position(pc.skin_cache, quant, cached + lv.z);
         }
     } else {
         tri.l0 = stream_position(pc.geometry, streams, lv.x, o.pos_min, o.pos_extent);

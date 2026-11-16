@@ -18,7 +18,7 @@ struct PreviewClips : ClipProvider
     BoundClip clip(Guid p_guid) override
     {
         const AnimPreview::LoadedClip* c = preview.clip(ctx, rig, p_guid);
-        return c ? BoundClip{ &c->clip, &c->map } : BoundClip{};
+        return c ? BoundClip{ &c->clip, &c->map, &c->retarget } : BoundClip{};
     }
 
     const LBlendSpace* blend_space(Guid p_guid) override
@@ -60,6 +60,9 @@ const AnimPreview::LoadedClip* AnimPreview::clip(EditorContext& ctx, const RigPr
     if (c.mapped_version != p_rig.version) {
         c.mapped_version = p_rig.version;
         clip_track_map(p_rig.skeleton_data(), c.clip, c.map);
+        c.retarget = {};
+        LSkeleton source;
+        if (c.clip.skeleton.valid() && source.load_cooked(ctx.project->content_path(c.clip.skeleton)) == Error::OK) clip_retarget(source, p_rig.skeleton_data(), c.map, c.retarget);
     }
     return &c;
 }

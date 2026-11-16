@@ -13,8 +13,9 @@ static constexpr uint32_t MAX_SKIN_JOINTS = 64u * 1024;
 static constexpr uint32_t SKIN_NONE = 0xFFFFFFFFu;
 static constexpr uint32_t INSTANCE_FLAG_PLAYER = 1u << 0;
 static constexpr uint32_t PLAYER_SHADOW_SIZE = 1024;
-static constexpr uint32_t PLAYER_SHADOW_MAX_CLUSTERS = 4u * 1024;
-static constexpr uint32_t PLAYER_SHADOW_MAX_INDICES = 768u * 1024;
+static constexpr uint32_t PLAYER_SHADOW_MAX_CLUSTERS = 16u * 1024;
+static constexpr uint32_t PLAYER_SHADOW_MAX_TRIANGLES = 768u * 1024;
+static constexpr uint32_t PLAYER_SHADOW_MAX_INDICES = PLAYER_SHADOW_MAX_TRIANGLES * 3u;
 static constexpr uint32_t PLAYER_SHADOW_SLOT_SHIFT = 8u;
 
 struct CameraUniform

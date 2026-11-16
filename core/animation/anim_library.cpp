@@ -27,6 +27,7 @@ void AnimLibrary::clear()
     assets_dir.clear();
     asset_paths.clear();
     clips.clear();
+    sources.clear();
     spaces.clear();
     locomotions.clear();
     skeleton = nullptr;
@@ -104,8 +105,27 @@ BoundClip AnimLibrary::clip(Guid p_guid)
     }
     if (c.failed) return {};
     auto [it, added] = c.maps.try_emplace(skeleton->guid);
-    if (added) clip_track_map(*skeleton, c.clip, it->second);
-    return BoundClip{ &c.clip, &it->second };
+    Binding& b = it->second;
+    if (added) {
+        clip_track_map(*skeleton, c.clip, b.map);
+        if (c.clip.skeleton.valid() && c.clip.skeleton != skeleton->guid) {
+            Source& source = sources[c.clip.skeleton];
+            if (!source.failed && source.skeleton.joint_count() == 0) {
+                char sbuf[Guid::PATH_BUFFER];
+                c.clip.skeleton.to_path_chars(sbuf);
+                source.failed = source.skeleton.load_cooked(content_dir / (std::string(sbuf) + ".bin")) != Error::OK;
+                if (source.failed) log_write("Animation: failed to load skeleton %s of clip %s.", c.clip.skeleton.to_string().c_str(), p_guid.to_string().c_str());
+            }
+            if (!source.failed) clip_retarget(source.skeleton, *skeleton, b.map, b.retarget);
+        }
+    }
+    return BoundClip{ &c.clip, &b.map, &b.retarget };
+}
+
+void AnimLibrary::unbind()
+{
+    for (auto& [guid, c] : clips) c.maps.clear();
+    sources.clear();
 }
 
 }

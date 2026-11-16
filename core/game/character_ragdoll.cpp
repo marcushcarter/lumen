@@ -408,7 +408,7 @@ void CharacterRagdoll::apply_get_up(ClipProvider& r_assets, uint32_t p_joints, f
     const float t = get_up_time;
     if (has_clip) {
         _clip_pose.assign(r_pose, r_pose + p_joints);
-        clip_sample(*clip.clip, *clip.map, std::min(t, duration), _clip_pose.data());
+        clip_sample(clip, std::min(t, duration), _clip_pose.data());
         const float weight = std::clamp((duration - t) / GET_UP_BLEND_OUT, 0.0f, 1.0f);
         const PoseInput inputs[2] = { { r_pose, 1.0f - weight }, { _clip_pose.data(), weight } };
         _blend_pose.resize(p_joints);

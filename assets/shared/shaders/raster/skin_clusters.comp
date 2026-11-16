@@ -6,11 +6,13 @@
 #include "common/camera.glsl"
 #include "common/instances.glsl"
 #include "common/skinning.glsl"
+#include "lighting/player_shadow_common.glsl"
 
 layout(local_size_x = 64) in;
 
 layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
 layout(buffer_reference, scalar) readonly buffer VisibleClusterBuffer { uint count; uint data[]; };
+layout(buffer_reference, scalar) buffer PlayerSkinTable { uint data[]; };
 
 layout(push_constant) uniform Push {
     CameraBuffer camera;
@@ -19,35 +21,67 @@ layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
     VisibleClusterBuffer visible;
     SkinCacheBuffer skin_cache;
+    PlayerSkinTable player_table;
+    PlayerShadowListBuffer shadow_list;
+    uint write_prev;
+    uint mode;
+    uint player_instance;
+    uint shadow_capacity;
 } pc;
 
 const uint GROUP_SIZE = 64u;
+const uint MODE_VISIBLE = 0u;
+const uint MODE_SHADOW = 1u;
 
 shared uint s_offset[GROUP_SIZE + 1u];
-shared uint s_cluster[GROUP_SIZE];
-shared uint s_mesh[GROUP_SIZE];
+shared ClusterStreams s_streams[GROUP_SIZE];
+shared vec3 s_pos_min[GROUP_SIZE];
+shared vec3 s_pos_extent[GROUP_SIZE];
 shared uint s_joint_base[GROUP_SIZE];
+shared vec3 s_quant_lo[GROUP_SIZE];
+shared vec3 s_quant_extent[GROUP_SIZE];
 shared uint s_base;
+
+bool has_table() {
+    return !all(equal(uvec2(pc.player_table), uvec2(0u)));
+}
 
 void main() {
     const uint lid = gl_LocalInvocationIndex;
     const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     const uint slot = group * GROUP_SIZE + lid;
-    if (group * GROUP_SIZE >= pc.visible.count) return;
+    const uint total_items = pc.mode == MODE_SHADOW ? min(pc.shadow_list.cluster_count, pc.shadow_capacity) : pc.visible.count;
+    if (group * GROUP_SIZE >= total_items) return;
 
     uint count = 0u;
     uint ref_index = 0u;
-    bool skinned = false;
-    if (slot < pc.visible.count) {
-        ref_index = pc.visible.data[slot];
-        const uvec2 ref = pc.cluster_refs.data[ref_index];
-        const uint skin_id = pc.instances.data[ref.x].skin_id;
-        if (skin_id != SKIN_NONE) {
-            skinned = true;
-            count = cluster_vertex_count(cluster_streams(pc.geometry, ref.y));
-            s_cluster[lid] = ref.y;
-            s_mesh[lid] = pc.instances.data[ref.x].mesh_id;
-            s_joint_base[lid] = pc.camera.skins.data[skin_id].joint_base;
+    uint cluster = 0u;
+    uint instance = 0u;
+    if (slot < total_items) {
+        bool wanted = true;
+        if (pc.mode == MODE_SHADOW) {
+            cluster = pc.shadow_list.clusters[slot];
+            instance = pc.player_instance;
+            wanted = pc.player_table.data[cluster] == SKIN_CACHE_NONE;
+        } else {
+            ref_index = pc.visible.data[slot];
+            const uvec2 ref = pc.cluster_refs.data[ref_index];
+            cluster = ref.y;
+            instance = ref.x;
+        }
+        const uint skin_id = pc.instances.data[instance].skin_id;
+        if (wanted && skin_id != SKIN_NONE) {
+            const ClusterStreams streams = cluster_streams(pc.geometry, cluster);
+            const Mesh mesh = pc.geometry.meshes.data[pc.instances.data[instance].mesh_id];
+            count = cluster_vertex_count(streams);
+            s_streams[lid] = streams;
+            s_pos_min[lid] = mesh.pos_min;
+            s_pos_extent[lid] = mesh.pos_extent;
+            const SkinInstance skin = pc.camera.skins.data[skin_id];
+            const SkinQuant quant = skin_quant(skin);
+            s_joint_base[lid] = skin.joint_base;
+            s_quant_lo[lid] = quant.lo;
+            s_quant_extent[lid] = quant.extent;
         }
     }
     s_offset[lid + 1u] = count;
@@ -67,8 +101,21 @@ void main() {
     barrier();
 
     const uint base = s_base;
-    if (skinned) pc.skin_cache.refs.data[ref_index] = base == SKIN_CACHE_NONE ? SKIN_CACHE_NONE : base + s_offset[lid];
+    const uint cache_slot = base == SKIN_CACHE_NONE ? SKIN_CACHE_NONE : base + s_offset[lid];
+    if (count > 0u) {
+        if (pc.mode == MODE_VISIBLE) pc.skin_cache.refs.data[ref_index] = cache_slot;
+        if (has_table() && instance == pc.player_instance) pc.player_table.data[cluster] = cache_slot;
+    }
     if (base == SKIN_CACHE_NONE) return;
+
+    StreamBuffer positions = pc.geometry.positions;
+    StreamBuffer attributes = pc.geometry.attributes;
+    StreamBuffer skin_stream = pc.geometry.skin;
+    JointBuffer joint_rows = pc.camera.joints;
+    SkinPositionBuffer out_positions = pc.skin_cache.positions;
+    SkinPositionBuffer out_prev = pc.skin_cache.prev_positions;
+    SkinNormalBuffer out_normals = pc.skin_cache.normals;
+    const bool write_prev = pc.write_prev != 0u;
 
     const uint total = s_offset[GROUP_SIZE];
     for (uint i = lid; i < total; i += GROUP_SIZE) {
@@ -80,19 +127,19 @@ void main() {
             else hi = mid;
         }
         const uint local = i - s_offset[lo];
-        const ClusterStreams streams = cluster_streams(pc.geometry, s_cluster[lo]);
-        const uint mesh_id = s_mesh[lo];
-        const vec3 p = stream_position(pc.geometry, streams, local, pc.geometry.meshes.data[mesh_id].pos_min, pc.geometry.meshes.data[mesh_id].pos_extent);
-        const vec3 n = oct_decode_unnormalized(stream_normal_oct(pc.geometry, streams, local));
+        const ClusterStreams streams = s_streams[lo];
+        const uint joint_base = s_joint_base[lo];
+        const vec3 p = stream_position_from(positions, streams, local, s_pos_min[lo], s_pos_extent[lo]);
+        const vec3 n = oct_decode_unnormalized(stream_normal_oct_from(attributes, streams, local));
         uvec4 joints;
         vec4 weights;
-        stream_skin(pc.geometry, streams, local, joints, weights);
-        const SkinRows curr = skin_blend(pc.camera, s_joint_base[lo], joints, weights, SKIN_CURR);
-        const SkinRows prev = skin_blend(pc.camera, s_joint_base[lo], joints, weights, SKIN_PREV);
+        stream_skin_from(skin_stream, streams, local, joints, weights);
+        const SkinRows curr = skin_blend_from(joint_rows, joint_base, joints, weights, SKIN_CURR);
         const vec3 sn = skin_direction(curr, n);
         const uint out_index = base + i;
-        pc.skin_cache.positions.data[out_index] = skin_point(curr, p);
-        pc.skin_cache.prev_positions.data[out_index] = skin_point(prev, p);
-        pc.skin_cache.normals.data[out_index] = packSnorm2x16(oct_encode(dot(sn, sn) > 0.0 ? sn : vec3(0.0, 0.0, 1.0)));
+        const SkinQuant quant = SkinQuant(s_quant_lo[lo], s_quant_extent[lo]);
+        out_positions.data[out_index] = skin_encode_position(quant, skin_point(curr, p));
+        if (write_prev) out_prev.data[out_index] = skin_encode_position(quant, skin_point(skin_blend_from(joint_rows, joint_base, joints, weights, SKIN_PREV), p));
+        out_normals.data[out_index] = packSnorm2x16(oct_encode(dot(sn, sn) > 0.0 ? sn : vec3(0.0, 0.0, 1.0)));
     }
 }

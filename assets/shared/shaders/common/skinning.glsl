@@ -18,7 +18,7 @@ struct SkinRows {
 };
 
 layout(buffer_reference, scalar) buffer SkinRefBuffer { uint data[]; };
-layout(buffer_reference, scalar) buffer SkinPositionBuffer { vec3 data[]; };
+layout(buffer_reference, scalar) buffer SkinPositionBuffer { uvec2 data[]; };
 layout(buffer_reference, scalar) buffer SkinNormalBuffer { uint data[]; };
 
 layout(buffer_reference, scalar, buffer_reference_align = 16) buffer SkinCacheBuffer {
@@ -32,7 +32,7 @@ layout(buffer_reference, scalar, buffer_reference_align = 16) buffer SkinCacheBu
     SkinNormalBuffer normals;
 };
 
-SkinRows skin_blend(CameraBuffer p_camera, uint p_joint_base, uvec4 p_joints, vec4 p_weights, uint p_frame) {
+SkinRows skin_blend_from(readonly JointBuffer p_joint_rows, uint p_joint_base, uvec4 p_joints, vec4 p_weights, uint p_frame) {
     SkinRows s;
     s.r0 = vec4(0.0);
     s.r1 = vec4(0.0);
@@ -40,11 +40,15 @@ SkinRows skin_blend(CameraBuffer p_camera, uint p_joint_base, uvec4 p_joints, ve
     for (uint k = 0u; k < 4u; k++) {
         if (p_weights[k] == 0.0) continue;
         const uint row = (p_joint_base + p_joints[k]) * 6u + p_frame;
-        s.r0 += p_weights[k] * p_camera.joints.data[row];
-        s.r1 += p_weights[k] * p_camera.joints.data[row + 1u];
-        s.r2 += p_weights[k] * p_camera.joints.data[row + 2u];
+        s.r0 += p_weights[k] * p_joint_rows.data[row];
+        s.r1 += p_weights[k] * p_joint_rows.data[row + 1u];
+        s.r2 += p_weights[k] * p_joint_rows.data[row + 2u];
     }
     return s;
+}
+
+SkinRows skin_blend(CameraBuffer p_camera, uint p_joint_base, uvec4 p_joints, vec4 p_weights, uint p_frame) {
+    return skin_blend_from(p_camera.joints, p_joint_base, p_joints, p_weights, p_frame);
 }
 
 SkinRows skin_vertex_rows(CameraBuffer p_camera, GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local, uint p_joint_base, uint p_frame) {
@@ -65,6 +69,37 @@ vec3 skin_direction(SkinRows p_s, vec3 p_d) {
 
 uint skin_cache_base(SkinCacheBuffer p_cache, uint p_ref_index) {
     return all(equal(uvec2(p_cache), uvec2(0u))) ? SKIN_CACHE_NONE : p_cache.refs.data[p_ref_index];
+}
+
+const float SKIN_QUANT_MARGIN = 0.01;
+const float SKIN_QUANT_MAX = 65535.0;
+
+struct SkinQuant {
+    vec3 lo;
+    vec3 extent;
+};
+
+SkinQuant skin_quant(SkinInstance p_skin) {
+    const float margin = max(p_skin.box_extent.x, max(p_skin.box_extent.y, p_skin.box_extent.z)) * SKIN_QUANT_MARGIN + 1e-4;
+    return SkinQuant(p_skin.box_min - margin, max(p_skin.box_extent + 2.0 * margin, vec3(1e-4)));
+}
+
+uvec2 skin_encode_position(SkinQuant p_q, vec3 p_p) {
+    const uvec3 q = uvec3(clamp(round((p_p - p_q.lo) / p_q.extent * SKIN_QUANT_MAX), vec3(0.0), vec3(SKIN_QUANT_MAX)));
+    return uvec2(q.x | (q.y << 16u), q.z);
+}
+
+vec3 skin_decode_position(SkinQuant p_q, uvec2 p_w) {
+    const vec3 q = vec3(float(p_w.x & 0xFFFFu), float(p_w.x >> 16u), float(p_w.y & 0xFFFFu));
+    return p_q.lo + q * (p_q.extent / SKIN_QUANT_MAX);
+}
+
+vec3 skin_cache_position(SkinCacheBuffer p_cache, SkinQuant p_q, uint p_index) {
+    return skin_decode_position(p_q, p_cache.positions.data[p_index]);
+}
+
+vec3 skin_cache_prev_position(SkinCacheBuffer p_cache, SkinQuant p_q, uint p_index) {
+    return skin_decode_position(p_q, p_cache.prev_positions.data[p_index]);
 }
 
 #endif

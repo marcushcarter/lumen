@@ -20,6 +20,7 @@ struct AnimPreview
     struct LoadedClip {
         LAnimation clip;
         std::vector<int32_t> map;
+        ClipRetarget retarget;
         uint64_t mapped_version = UINT64_MAX;
         bool failed = false;
     };

@@ -26,6 +26,10 @@ float lod_parent_error_px(GeometryBuffer geo, Cluster c, mat4 model, float scale
     return c.parent_group == CLUSTER_GROUP_NONE ? 3.402823e38 : lod_group_error_px(geo, c.parent_group, model, scale, cam, ppu);
 }
 
+float lod_group_error_density(GeometryBuffer geo, uint gi, float density) {
+    return gi == CLUSTER_GROUP_NONE ? 0.0 : geo.groups.data[gi].error * density;
+}
+
 uint lod_cluster_level(GeometryBuffer geo, uint cluster_id) {
     Cluster c = geo.clusters.data[cluster_id];
     return c.self_group == CLUSTER_GROUP_NONE ? 0u : geo.groups.data[c.self_group].level;
@@ -38,6 +42,13 @@ bool lod_group_refined(GeometryBuffer geo, uint gi) {
 bool lod_selected(GeometryBuffer geo, Cluster c, mat4 model, float scale, vec3 cam, float ppu) {
     bool parent_wants = lod_parent_error_px(geo, c, model, scale, cam, ppu) > LOD_THRESHOLD_PX && lod_group_refined(geo, c.parent_group);
     bool self_enough = lod_self_error_px(geo, c, model, scale, cam, ppu) <= LOD_THRESHOLD_PX || !lod_group_refined(geo, c.self_group);
+    return parent_wants && self_enough;
+}
+
+bool lod_selected_density(GeometryBuffer geo, Cluster c, float density) {
+    const float parent = c.parent_group == CLUSTER_GROUP_NONE ? 3.402823e38 : lod_group_error_density(geo, c.parent_group, density);
+    const bool parent_wants = parent > LOD_THRESHOLD_PX && lod_group_refined(geo, c.parent_group);
+    const bool self_enough = lod_group_error_density(geo, c.self_group, density) <= LOD_THRESHOLD_PX || !lod_group_refined(geo, c.self_group);
     return parent_wants && self_enough;
 }
 

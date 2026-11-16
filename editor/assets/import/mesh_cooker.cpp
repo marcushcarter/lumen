@@ -59,6 +59,7 @@ static i16vec2 _oct_encode(vec3 n)
 }
 
 static const SkinVertex SKIN_RIGID = { u8vec4(0), u8vec4(255, 0, 0, 0) };
+static constexpr float SKIN_WEIGHT_TRIM = 0.05f;
 
 static mat4 _to_glm(const aiMatrix4x4& m)
 {
@@ -123,7 +124,12 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
 
             for (uint32_t vi = 0; vi < mesh->mNumVertices; vi++) {
                 vec4 wv = acc_w[vi];
-                const float sum = wv.x + wv.y + wv.z + wv.w;
+                float sum = wv.x + wv.y + wv.z + wv.w;
+                wv = sum > 0.0f ? wv / sum : vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                for (int k = 0; k < 4; k++) {
+                    if (wv[k] < SKIN_WEIGHT_TRIM) wv[k] = 0.0f;
+                }
+                sum = wv.x + wv.y + wv.z + wv.w;
                 wv = sum > 0.0f ? wv / sum : vec4(1.0f, 0.0f, 0.0f, 0.0f);
                 SkinVertex sv{};
                 sv.joints = u8vec4((uint8_t)glm::min(acc_j[vi].x, 255u), (uint8_t)glm::min(acc_j[vi].y, 255u), (uint8_t)glm::min(acc_j[vi].z, 255u), (uint8_t)glm::min(acc_j[vi].w, 255u));
@@ -362,7 +368,6 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     p_step.report(MeshCooker::GATHER_SHARE);
     if (!skin.empty()) r_src.skin_vertices = std::move(skin);
 
-    const float scale = meshopt_simplifyScale(&verts[0].p.x, verts.size(), sizeof(SrcVert));
     meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), verts.size());
 
     std::vector<uint32_t> flat;
@@ -434,7 +439,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
             float simp_err = 0.0f;
             size_t n = 0;
             if (target >= 3)
-                n = meshopt_simplifyWithAttributes(simp.data(), gidx.data(), gidx.size(), &verts[0].p.x, verts.size(), sizeof(SrcVert), &verts[0].n.x, sizeof(SrcVert), SIMPLIFY_ATTRIBUTE_WEIGHTS, SIMPLIFY_ATTRIBUTE_COUNT, lock.data(), target, FLT_MAX, 0, &simp_err);
+                n = meshopt_simplifyWithAttributes(simp.data(), gidx.data(), gidx.size(), &verts[0].p.x, verts.size(), sizeof(SrcVert), &verts[0].n.x, sizeof(SrcVert), SIMPLIFY_ATTRIBUTE_WEIGHTS, SIMPLIFY_ATTRIBUTE_COUNT, lock.data(), target, FLT_MAX, meshopt_SimplifySparse | meshopt_SimplifyPrune | meshopt_SimplifyErrorAbsolute, &simp_err);
 
             if (n < 3 || n >= gidx.size()) {
                 for (uint32_t ci : members) next.push_back(ci);
@@ -444,7 +449,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
 
             const meshopt_Bounds gb = meshopt_computeSphereBounds(&child_spheres[0].x, child_spheres.size(), sizeof(vec4), &child_spheres[0].w, sizeof(vec4));
             const uint32_t gid = (uint32_t)r_src.groups.size();
-            r_src.groups.push_back(ClusterGroup{ vec4(gb.center[0], gb.center[1], gb.center[2], gb.radius), child_err + simp_err * scale, L });
+            r_src.groups.push_back(ClusterGroup{ vec4(gb.center[0], gb.center[1], gb.center[2], gb.radius), child_err + simp_err, L });
 
             for (uint32_t ci : members) r_src.clusters[ci].parent_group = gid;
 

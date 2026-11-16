@@ -15,10 +15,20 @@ struct AnimLibrary : ClipProvider
     static constexpr double POLL_S = 1.0;
     static constexpr const char* SPACE_EXTENSION = ".lblendspace";
 
+    struct Binding {
+        std::vector<int32_t> map;
+        ClipRetarget retarget;
+    };
+
     struct Clip {
         LAnimation clip;
         bool failed = false;
-        std::unordered_map<Guid, std::vector<int32_t>> maps;
+        std::unordered_map<Guid, Binding> maps;
+    };
+
+    struct Source {
+        LSkeleton skeleton;
+        bool failed = false;
     };
 
     template<typename T>
@@ -34,6 +44,7 @@ struct AnimLibrary : ClipProvider
     std::filesystem::path assets_dir;
     std::unordered_map<Guid, std::filesystem::path> asset_paths;
     std::unordered_map<Guid, Clip> clips;
+    std::unordered_map<Guid, Source> sources;
     std::unordered_map<Guid, Cached<LBlendSpace>> spaces;
     std::unordered_map<Guid, Cached<LLocomotion>> locomotions;
     const LSkeleton* skeleton = nullptr;
@@ -47,6 +58,7 @@ struct AnimLibrary : ClipProvider
     const LBlendSpace* blend_space(Guid p_guid) override;
     const LLocomotion* locomotion(Guid p_guid);
     BoundClip clip(Guid p_guid) override;
+    void unbind();
 
     static std::filesystem::path cooked_path(const std::filesystem::path& p_content_dir, Guid p_guid, const char* p_extension);
     void _scan();

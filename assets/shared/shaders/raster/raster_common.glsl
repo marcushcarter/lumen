@@ -26,7 +26,7 @@ vec4 raster_vertex(CameraBuffer p_camera, GeometryBuffer p_geometry, InstanceBuf
     const uint cached = skin_id != SKIN_NONE ? skin_cache_base(p_skin_cache, p_ref_index) : SKIN_CACHE_NONE;
     vec3 p;
     if (cached != SKIN_CACHE_NONE) {
-        p = p_skin_cache.positions.data[cached + p_local];
+        p = skin_cache_position(p_skin_cache, skin_quant(p_camera.skins.data[skin_id]), cached + p_local);
     } else {
         p = stream_position(p_geometry, streams, p_local, p_geometry.meshes.data[mesh_id].pos_min, p_geometry.meshes.data[mesh_id].pos_extent);
         if (skin_id != SKIN_NONE) p = skin_point(skin_vertex_rows(p_camera, p_geometry, streams, p_local, p_camera.skins.data[skin_id].joint_base, SKIN_CURR), p);

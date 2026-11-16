@@ -8,12 +8,18 @@ layout(local_size_x = 1) in;
 
 layout(push_constant, scalar) uniform Push {
     PlayerShadowListBuffer list;
+    uint triangle_capacity;
+    uint cluster_capacity;
 } pc;
 
+const uint PLAYER_SHADOW_SKIN_GROUP = 64u;
+const uint PLAYER_SHADOW_DISPATCH_MAX = 65535u;
+
 void main() {
-    pc.list.index_count = min(pc.list.index_total, pc.list.valid_end);
-    pc.list.instance_count = 1u;
-    pc.list.first_index = 0u;
-    pc.list.vertex_offset = 0;
-    pc.list.first_instance = 0u;
+    const uint culled = pc.list.culled_total;
+    const uint masked = pc.list.masked_total;
+    pc.list.draws[PLAYER_SHADOW_DRAW_CULLED] = PlayerShadowDraw(culled * 3u, 1u, 0u, 0, 0u);
+    pc.list.draws[PLAYER_SHADOW_DRAW_MASKED] = PlayerShadowDraw(masked * 3u, 1u, (pc.triangle_capacity - masked) * 3u, 0, 0u);
+    const uint groups = (min(pc.list.cluster_count, pc.cluster_capacity) + PLAYER_SHADOW_SKIN_GROUP - 1u) / PLAYER_SHADOW_SKIN_GROUP;
+    pc.list.skin_dispatch = uvec3(min(groups, PLAYER_SHADOW_DISPATCH_MAX), (groups + PLAYER_SHADOW_DISPATCH_MAX - 1u) / PLAYER_SHADOW_DISPATCH_MAX, 1u);
 }

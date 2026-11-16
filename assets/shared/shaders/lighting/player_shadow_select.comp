@@ -4,6 +4,7 @@
 
 #include "common/geometry.glsl"
 #include "common/lod.glsl"
+#include "common/compact_draw.glsl"
 #include "lighting/player_shadow_common.glsl"
 
 layout(local_size_x = 64) in;
@@ -12,14 +13,31 @@ layout(push_constant, scalar) uniform Push {
     GeometryBuffer geometry;
     PlayerShadowListBuffer list;
     PlayerShadowIndexBuffer indices;
+    PlayerShadowMaterialBuffer materials;
     uint mesh;
     uint cluster_capacity;
     uint index_capacity;
     float lod_density;
+    uint slot_base;
 } pc;
 
-float group_error_texels(uint p_group) {
-    return p_group == CLUSTER_GROUP_NONE ? 0.0 : pc.geometry.groups.data[p_group].error * pc.lod_density;
+uint tri_entry(uint p_cluster_slot, uint p_tri, uint p_lt) {
+    const uint slot = p_cluster_slot == CLUSTER_SLOT_MIXED ? geometry_tri_slot(pc.geometry, p_tri, p_lt) : p_cluster_slot;
+    return geometry_slot_entry(pc.geometry, pc.slot_base, slot);
+}
+
+bool entry_culled(uint p_entry) {
+    return (slot_bin(p_entry) & (RASTER_BIN_MASKED | RASTER_BIN_TWO_SIDED)) == 0u;
+}
+
+uint entry_material(uint p_entry) {
+    return (slot_bin(p_entry) & RASTER_BIN_MASKED) != 0u ? slot_material(p_entry) : PLAYER_SHADOW_OPAQUE;
+}
+
+void write_tri(uint p_out, uint p_key, uint p_lt) {
+    pc.indices.data[p_out * 3u] = p_key | (p_lt & 0xFFu);
+    pc.indices.data[p_out * 3u + 1u] = p_key | ((p_lt >> 8u) & 0xFFu);
+    pc.indices.data[p_out * 3u + 2u] = p_key | ((p_lt >> 16u) & 0xFFu);
 }
 
 void main() {
@@ -29,29 +47,51 @@ void main() {
     const Node node = pc.geometry.nodes.data[mesh.node_base + n];
     if (node.page == NODE_INNER) return;
     if (pc.geometry.page_resident.data[mesh.page_base + node.page] == PAGE_ABSENT) return;
+    const uint triangle_capacity = pc.index_capacity / 3u;
 
     for (uint k = 0u; k < node.count; k++) {
         const uint id = node.first + k;
         const Cluster c = pc.geometry.clusters.data[id];
-        const float parent = c.parent_group == CLUSTER_GROUP_NONE ? 3.402823e38 : group_error_texels(c.parent_group);
-        const bool parent_wants = parent > LOD_THRESHOLD_PX && lod_group_refined(pc.geometry, c.parent_group);
-        const bool self_enough = group_error_texels(c.self_group) <= LOD_THRESHOLD_PX || !lod_group_refined(pc.geometry, c.self_group);
-        if (!parent_wants || !self_enough) continue;
+        if (!lod_selected_density(pc.geometry, c, pc.lod_density)) continue;
 
-        const uint slot = atomicAdd(pc.list.cluster_count, 1u);
+        const uint tri_count = c.index_count / 3u;
         const uint base = atomicAdd(pc.list.index_total, c.index_count);
-        if (slot >= pc.cluster_capacity || base + c.index_count > pc.index_capacity) {
-            atomicMin(pc.list.valid_end, base);
-            return;
+        if (base + c.index_count > pc.index_capacity) {
+            atomicAdd(pc.list.index_total, uint(-int(c.index_count)));
+            continue;
+        }
+        const uint slot = atomicAdd(pc.list.cluster_count, 1u);
+        if (slot >= pc.cluster_capacity) {
+            atomicAdd(pc.list.cluster_count, uint(-1));
+            atomicAdd(pc.list.index_total, uint(-int(c.index_count)));
+            continue;
         }
         pc.list.clusters[slot] = id;
+
         const uint key = slot << PLAYER_SHADOW_SLOT_SHIFT;
         const uint tri_base = c.index_base / 3u;
-        for (uint t = 0u; t * 3u < c.index_count; t++) {
+        const uint cluster_slot = pc.geometry.cluster_slots.data[id];
+        uint culled_count = 0u;
+        if (cluster_slot == CLUSTER_SLOT_MIXED) {
+            for (uint t = 0u; t < tri_count; t++) {
+                if (entry_culled(tri_entry(cluster_slot, tri_base + t, pc.geometry.local_triangles.data[tri_base + t]))) culled_count++;
+            }
+        } else if (entry_culled(geometry_slot_entry(pc.geometry, pc.slot_base, cluster_slot))) {
+            culled_count = tri_count;
+        }
+        const uint masked_count = tri_count - culled_count;
+        uint culled_out = culled_count > 0u ? atomicAdd(pc.list.culled_total, culled_count) : 0u;
+        uint masked_out = masked_count > 0u ? triangle_capacity - atomicAdd(pc.list.masked_total, masked_count) - masked_count : 0u;
+
+        for (uint t = 0u; t < tri_count; t++) {
             const uint lt = pc.geometry.local_triangles.data[tri_base + t];
-            pc.indices.data[base + t * 3u] = key | (lt & 0xFFu);
-            pc.indices.data[base + t * 3u + 1u] = key | ((lt >> 8u) & 0xFFu);
-            pc.indices.data[base + t * 3u + 2u] = key | ((lt >> 16u) & 0xFFu);
+            const uint entry = tri_entry(cluster_slot, tri_base + t, lt);
+            if (entry_culled(entry)) {
+                write_tri(culled_out++, key, lt);
+            } else {
+                pc.materials.data[masked_out] = entry_material(entry);
+                write_tri(masked_out++, key, lt);
+            }
         }
     }
 }

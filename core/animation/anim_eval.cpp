@@ -50,7 +50,7 @@ bool AnimEvaluator::blend_sample(ClipProvider& r_clips, const LSkeleton& p_skele
         const BoundClip c = r_clips.clip(p_space.samples[i].clip);
         if (!c.valid()) continue;
         _sample_poses[i] = p_skeleton.rest;
-        clip_sample(*c.clip, *c.map, p_phase * c.clip->duration, _sample_poses[i].data());
+        clip_sample(c, p_phase * c.clip->duration, _sample_poses[i].data());
         _inputs.push_back({ _sample_poses[i].data(), _weights[i] });
     }
     if (_inputs.empty()) return false;
@@ -75,14 +75,14 @@ void AnimEvaluator::overlay_apply(ClipProvider& r_clips, const LSkeleton& p_skel
 
     _layer = p_skeleton.rest;
     const float duration = source.clip->duration;
-    clip_sample(*source.clip, *source.map, duration > 0.0f ? std::fmod(p_time, duration) : 0.0f, _layer.data());
+    clip_sample(source, duration > 0.0f ? std::fmod(p_time, duration) : 0.0f, _layer.data());
 
     if (p_overlay.mode == OverlayMode::OVERRIDE) {
         pose_layer(r_pose, _layer.data(), p_weight, p_mask, joints);
         return;
     }
     _reference = p_skeleton.rest;
-    if (const BoundClip reference = r_clips.clip(p_overlay.reference); reference.valid()) clip_sample(*reference.clip, *reference.map, 0.0f, _reference.data());
+    if (const BoundClip reference = r_clips.clip(p_overlay.reference); reference.valid()) clip_sample(reference, 0.0f, _reference.data());
     pose_additive_delta(_layer.data(), _reference.data(), joints, _layer.data());
     pose_add(r_pose, _layer.data(), p_weight, p_mask, joints);
 }

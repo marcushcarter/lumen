@@ -127,6 +127,9 @@ void AnimationDocument::_sync_preview(EditorContext& ctx)
     if (rig_preview.version == _mapped_version) return;
     _mapped_version = rig_preview.version;
     clip_track_map(rig_preview.skeleton_data(), clip, _track_map);
+    _retarget = {};
+    LSkeleton authored;
+    if (ctx.project && clip.skeleton.valid() && authored.load_cooked(ctx.project->content_path(clip.skeleton)) == Error::OK) clip_retarget(authored, rig_preview.skeleton_data(), _track_map, _retarget);
     missing_tracks = 0;
     for (int32_t j : _track_map) {
         if (j == SKELETON_NO_JOINT) missing_tracks++;
@@ -138,7 +141,7 @@ void AnimationDocument::_pose()
     const LSkeleton& skeleton = rig_preview.skeleton_data();
     if (skeleton.joint_count() == 0) return;
     _local = skeleton.rest;
-    clip_sample(clip, _track_map, player.time, _local.data());
+    clip_sample(BoundClip{ &clip, &_track_map, &_retarget }, player.time, _local.data());
     rig_preview.pose(_local.data());
 }
 

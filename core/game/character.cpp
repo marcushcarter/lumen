@@ -89,7 +89,7 @@ bool CharacterAction::layer(ClipProvider& r_assets, const LSkeleton& p_skeleton,
     if (fade >= 0.0f) weight *= std::clamp(1.0f - fade / BLEND_OUT, 0.0f, 1.0f);
     if (weight <= BLEND_MIN_WEIGHT) return false;
     r_scratch = p_skeleton.rest;
-    clip_sample(*bound.clip, *bound.map, time, r_scratch.data());
+    clip_sample(bound, time, r_scratch.data());
     const vec3 hold = root.empty() ? vec3(0.0f) : root.front();
     const uint32_t joints = p_skeleton.joint_count();
     for (uint32_t j = 0; j < joints; j++) {
@@ -229,7 +229,7 @@ static bool _stance_pose(const CharacterStance& p_stance, CharacterAnim& r_anim,
     if (has_idle && (r_anim.idle > BLEND_MIN_WEIGHT || total <= 0.0f)) {
         std::vector<JointTransform>& pose = r_anim._cycle_poses[CYCLE_DIRECTION_COUNT];
         pose = p_skeleton.rest;
-        clip_sample(*idle.clip, *idle.map, std::fmod(r_anim.idle_time, idle.clip->duration), pose.data());
+        clip_sample(idle, std::fmod(r_anim.idle_time, idle.clip->duration), pose.data());
         inputs.push_back({ pose.data(), total > 0.0f ? r_anim.idle : 1.0f });
     }
     for (uint32_t d = 0; d < CYCLE_DIRECTION_COUNT && total > 0.0f; d++) {
@@ -279,7 +279,7 @@ static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_cli
     p_skeleton.globals(p_skeleton.rest.data(), rest.data());
     for (uint32_t s = 0; s < samples; s++) {
         r_anim._scratch_pose = p_skeleton.rest;
-        clip_sample(*p_clip.clip, *p_clip.map, p_clip.clip->duration * (float)s / (float)(samples - 1), r_anim._scratch_pose.data());
+        clip_sample(p_clip, p_clip.clip->duration * (float)s / (float)(samples - 1), r_anim._scratch_pose.data());
         p_skeleton.globals(r_anim._scratch_pose.data(), r_anim._turn_globals.data());
         for (size_t c = 0; c < candidates.size(); c++) {
             const mat4& m = r_anim._turn_globals[candidates[c]];
@@ -332,7 +332,7 @@ static bool _still(const Character& p_character)
 static void _layer(const LSkeleton& p_skeleton, const BoundClip& p_clip, float p_time, float p_counter_yaw, float p_weight, CharacterAnim& r_anim, JointTransform* r_pose, bool p_posed)
 {
     r_anim._scratch_pose = p_skeleton.rest;
-    clip_sample(*p_clip.clip, *p_clip.map, p_time, r_anim._scratch_pose.data());
+    clip_sample(p_clip, p_time, r_anim._scratch_pose.data());
     if (p_counter_yaw != 0.0f) _rotate_roots(p_skeleton, angleAxis(glm::radians(-p_counter_yaw), vec3(0.0f, 1.0f, 0.0f)), r_anim._scratch_pose.data());
     if (p_posed) _mix(r_pose, r_anim._scratch_pose.data(), p_weight, p_skeleton.joint_count());
     else std::copy(r_anim._scratch_pose.begin(), r_anim._scratch_pose.end(), r_pose);
@@ -411,7 +411,7 @@ static float _stop_settle(const LSkeleton& p_skeleton, const BoundClip& p_clip, 
     for (uint32_t s = 0; s < samples; s++) {
         const float t = duration * (float)s / (float)(samples - 1);
         r_anim._scratch_pose = p_skeleton.rest;
-        clip_sample(*p_clip.clip, *p_clip.map, t, r_anim._scratch_pose.data());
+        clip_sample(p_clip, t, r_anim._scratch_pose.data());
         p_skeleton.globals(r_anim._scratch_pose.data(), r_anim._turn_globals.data());
         for (int i = 0; i < 2; i++) {
             if (r_anim._turn_globals[p_ik.foot[i]][3].y - p_ik.rest_height[i] > FootIK::PLANT_HEIGHT) settle = t;
@@ -940,11 +940,11 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
         const BoundClip current = r_assets.clip(a.air_current.clip);
         if (current.valid() && current.clip->duration > 0.0f) {
             a._air_pose = p_skeleton.rest;
-            clip_sample(*current.clip, *current.map, a.air_current.time, a._air_pose.data());
+            clip_sample(current, a.air_current.time, a._air_pose.data());
             const BoundClip previous = r_assets.clip(a.air_previous.clip);
             if (a.air_fade < 1.0f && previous.valid() && previous.clip->duration > 0.0f) {
                 a._air_previous_pose = p_skeleton.rest;
-                clip_sample(*previous.clip, *previous.map, a.air_previous.time, a._air_previous_pose.data());
+                clip_sample(previous, a.air_previous.time, a._air_previous_pose.data());
                 const PoseInput inputs[2] = { { a._air_previous_pose.data(), 1.0f - a.air_fade }, { a._air_pose.data(), a.air_fade } };
                 pose_blend(inputs, 2, joints, a._air_pose.data());
             }
@@ -965,7 +965,7 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
             const float blend_out = std::clamp((duration - a.land_time) / (duration * CharacterAnim::LAND_BLEND_OUT), 0.0f, 1.0f);
             const float weight = std::min(blend_in, blend_out) * a.land_strength;
             a._land_pose = p_skeleton.rest;
-            clip_sample(*land.clip, *land.map, a.land_time, a._land_pose.data());
+            clip_sample(land, a.land_time, a._land_pose.data());
             if (posed) _mix(r_pose, a._land_pose.data(), weight, joints);
             else std::copy(a._land_pose.begin(), a._land_pose.end(), r_pose);
             posed = true;

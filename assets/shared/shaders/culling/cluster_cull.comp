@@ -46,7 +46,19 @@ void main() {
         uvec2 ref = pc.cluster_refs.data[id];
         Instance instance = pc.instances.data[ref.x];
         skinned = instance.skin_id != SKIN_NONE;
-        backfacing = cluster_backfacing(pc.camera, pc.geometry, instance, pc.transforms.data[instance.transform_id].curr_mtx, ref.y);
+        const mat4 curr = pc.transforms.data[instance.transform_id].curr_mtx;
+        backfacing = cluster_backfacing(pc.camera, pc.geometry, instance, curr, ref.y);
+        if (!backfacing && skinned) {
+            const Mesh mesh = pc.geometry.meshes.data[instance.mesh_id];
+            const SkinInstance skin = pc.camera.skins.data[instance.skin_id];
+            vec3 box_min, box_extent, prev_min, prev_extent;
+            bool prev_valid;
+            if (skinned_cluster_boxes(pc.camera, pc.geometry, mesh, skin, ref.y, pc.hiz_enabled != 0u, box_min, box_extent, prev_min, prev_extent, prev_valid)) {
+                const vec3 center = (curr * vec4(box_min + box_extent * 0.5, 1.0)).xyz;
+                backfacing = frustum_cull_sphere(pc.camera, center, length(box_extent) * 0.5 * transform_max_scale(curr));
+                if (!backfacing && prev_valid) occluded = hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen_size, pc.camera.prev_view_proj, pc.transforms.data[instance.transform_id].prev_mtx, prev_min, prev_extent);
+            }
+        }
         if (!backfacing && !skinned && pc.hiz_enabled != 0u) {
             mat4 model = pc.transforms.data[instance.transform_id].prev_mtx;
             vec3 box_min, box_extent;

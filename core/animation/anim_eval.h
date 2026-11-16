@@ -1,5 +1,6 @@
 #pragma once
 #include <core/animation/blend_space.h>
+#include <core/animation/clip_player.h>
 #include <core/animation/pose_blend.h>
 #include <core/assets/lanim.h>
 #include <core/assets/lblendspace.h>
@@ -9,14 +10,6 @@
 #include <vector>
 
 namespace lumen {
-
-struct BoundClip
-{
-    const LAnimation* clip = nullptr;
-    const std::vector<int32_t>* map = nullptr;
-
-    bool valid() const { return clip && map; }
-};
 
 struct ClipProvider
 {

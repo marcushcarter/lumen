@@ -336,7 +336,7 @@ void ThumbnailCache::_pose_animation(Guid p_guid)
     std::vector<int32_t> map;
     clip_track_map(skeleton, clip, map);
     std::vector<JointTransform> local = skeleton.rest;
-    clip_sample(clip, map, clip.duration * ANIMATION_POSE_FRACTION, local.data());
+    clip_sample(BoundClip{ &clip, &map }, clip.duration * ANIMATION_POSE_FRACTION, local.data());
     rig.pose(local.data());
 }
 

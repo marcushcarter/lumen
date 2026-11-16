@@ -26,6 +26,7 @@ struct AnimationDocument : AssetDocument
     uint32_t missing_tracks = 0;
 
     std::vector<int32_t> _track_map;
+    ClipRetarget _retarget;
     std::vector<JointTransform> _local;
     uint64_t _mapped_version = UINT64_MAX;
     Guid _shown_mesh;

@@ -60,6 +60,9 @@ struct FrameData
     uint32_t player_instance = UINT32_MAX;
     uint32_t player_node_count = 0;
     uint32_t player_mesh = UINT32_MAX;
+    uint32_t player_slot_base = 0;
+    uint64_t skin_cache_header = 0;
+    uint64_t player_skin_table = 0;
     float player_lod_density = 0.0f;
     vec3 player_box_min = vec3(0.0f);
     vec3 player_box_max = vec3(0.0f);

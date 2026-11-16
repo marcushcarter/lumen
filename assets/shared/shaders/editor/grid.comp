@@ -64,7 +64,7 @@ float axis_line(float p_coord, float p_deriv) {
     return clamp(AXIS_LINE_PX * 0.5 + 0.5 - px, 0.0, 1.0);
 }
 
-vec4 grid(GridParams p, vec2 p_center, bool p_grid, bool p_axes, out float r_depth) {
+vec4 grid(GridParams p, vec2 p_center, float p_scene_depth, bool p_grid, bool p_axes, out float r_depth) {
     const vec3 cam = p.camera.xyz;
     const vec3 d = p.ray.xyz + p.ray_dx.xyz * p_center.x + p.ray_dy.xyz * p_center.y;
     r_depth = 0.0;
@@ -75,6 +75,8 @@ vec4 grid(GridParams p, vec2 p_center, bool p_grid, bool p_axes, out float r_dep
     const float dist = distance(hit.xz, cam.xz);
     const float radius = p.camera.w;
     if (dist >= radius) return vec4(0.0);
+    r_depth = dot(p.clip_z, vec4(hit, 1.0)) / dot(p.clip_w, vec4(hit, 1.0));
+    if (r_depth < p_scene_depth) return vec4(0.0);
 
     const vec3 dx = d + p.ray_dx.xyz;
     const vec3 dy = d + p.ray_dy.xyz;
@@ -84,7 +86,6 @@ vec4 grid(GridParams p, vec2 p_center, bool p_grid, bool p_axes, out float r_dep
     const vec2 ddy = hit_y - hit.xz;
     const vec2 deriv = vec2(length(vec2(ddx.x, ddy.x)), length(vec2(ddx.y, ddy.y)));
     const float fade = 1.0 - smoothstep(radius * 0.5, radius, dist);
-    r_depth = dot(p.clip_z, vec4(hit, 1.0)) / dot(p.clip_w, vec4(hit, 1.0));
 
     vec4 c = vec4(p.grid_color.rgb, 0.0);
     if (p_grid) {
@@ -112,13 +113,12 @@ void main() {
     const bool draw_axes = (pc.flags & FLAG_AXES) != 0u;
     if (!draw_grid && !draw_axes) return;
 
-    float depth = 0.0;
-    const vec4 g = grid(p, center, draw_grid, draw_axes, depth);
-    if (g.a < MIN_ALPHA) return;
-
     const ivec2 sp = ivec2(center * vec2(p.size.zw) / vec2(p.size.xy));
     const float scene = texelFetch(u_textures[pc.depth_index], sp, 0).r * (1.0 - DEPTH_TOLERANCE);
-    if (depth < scene) return;
+
+    float depth = 0.0;
+    const vec4 g = grid(p, center, scene, draw_grid, draw_axes, depth);
+    if (g.a < MIN_ALPHA) return;
 
     vec4 c = imageLoad(u_storage_rgba16f[pc.out_slot], pixel);
     c.rgb = to_linear(mix(to_srgb(c.rgb), to_srgb(g.rgb), g.a));

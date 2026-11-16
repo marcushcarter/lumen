@@ -39,6 +39,7 @@ layout(push_constant) uniform Push {
     uint queue_capacity;
     uint first_level;
     uint level;
+    float player_lod_density;
 } pc;
 
 shared bool s_last;
@@ -63,6 +64,7 @@ void main() {
     mat4 model = mat4(1.0);
     float scale = 1.0;
     bool skinned = false;
+    bool fixed_density = false;
     vec3 cam = pc.camera.position.xyz;
 
     if (id < count) {
@@ -82,10 +84,11 @@ void main() {
         model = pc.transforms.data[instance.transform_id].curr_mtx;
         scale = transform_max_scale(model);
         skinned = instance.skin_id != SKIN_NONE;
+        fixed_density = (instance.flags & INSTANCE_FLAG_PLAYER) != 0u && pc.player_lod_density > 0.0;
 
         if (mesh.node_count > 0u) {
             node = pc.geometry.nodes.data[node_id];
-            error_px = lod_sphere_error_px(node.lod_sphere, node.max_parent_error, model, scale, cam, pc.px_per_unit);
+            error_px = fixed_density ? node.max_parent_error * pc.player_lod_density : lod_sphere_error_px(node.lod_sphere, node.max_parent_error, model, scale, cam, pc.px_per_unit);
             alive = error_px > threshold && _in_frustum(node.cull_sphere, model, scale, skinned);
         }
     }
@@ -128,7 +131,7 @@ void main() {
         if (i < clusters) {
             cluster_id = node.first + i;
             Cluster cl = pc.geometry.clusters.data[cluster_id];
-            keep = lod_selected(pc.geometry, cl, model, scale, cam, pc.px_per_unit) && _in_frustum(cl.cull_sphere, model, scale, skinned);
+            keep = (fixed_density ? lod_selected_density(pc.geometry, cl, pc.player_lod_density) : lod_selected(pc.geometry, cl, model, scale, cam, pc.px_per_unit)) && _in_frustum(cl.cull_sphere, model, scale, skinned);
         }
 
         uvec4 ballot = subgroupBallot(keep);

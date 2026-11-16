@@ -43,7 +43,7 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt)
     anims.tick(p_dt);
     if (geometry_version != p_renderer.geometry.version || skeleton_version != p_renderer.skeletons.version) {
         bindings.clear();
-        for (auto& [guid, clip] : anims.clips) clip.maps.clear();
+        anims.unbind();
         geometry_version = p_renderer.geometry.version;
         skeleton_version = p_renderer.skeletons.version;
     }

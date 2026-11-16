@@ -4,6 +4,12 @@
 
 namespace lumen {
 
+struct PickReadback
+{
+    uint32_t entity;
+    float depth;
+};
+
 void PickFeature::request(float p_u, float p_v)
 {
     pending = true;
@@ -12,11 +18,12 @@ void PickFeature::request(float p_u, float p_v)
     if (++request_serial == 0) request_serial = 1;
 }
 
-bool PickFeature::take_result(uint32_t& r_entity_index)
+bool PickFeature::take_result(uint32_t& r_entity_index, float& r_depth)
 {
     if (!result_ready) return false;
     result_ready = false;
     r_entity_index = result;
+    r_depth = result_depth;
     return true;
 }
 
@@ -73,7 +80,7 @@ Error PickFeature::create_resources()
     slot_serial.assign(count, 0);
     for (uint32_t i = 0; i < count; i++) {
         drivers::DeviceDriverVulkan::BufferCreateInfo ci{};
-        ci.size = sizeof(uint32_t);
+        ci.size = sizeof(PickReadback);
         ci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         ci.device_local = false;
         ci.host_visible = true;
@@ -107,9 +114,10 @@ void PickFeature::build(RenderGraph& g)
 
     if (slot_serial[slot] != 0) {
         ctx->dd->buffer_invalidate(readback[slot]);
-        const uint32_t entity = *static_cast<const uint32_t*>(readback[slot].mapped);
+        const PickReadback data = *static_cast<const PickReadback*>(readback[slot].mapped);
         if (slot_serial[slot] == request_serial) {
-            result = entity;
+            result = data.entity;
+            result_depth = data.depth;
             result_ready = true;
         }
         slot_serial[slot] = 0;
@@ -122,7 +130,7 @@ void PickFeature::build(RenderGraph& g)
     pass_v = pending_v;
     slot_serial[slot] = request_serial;
 
-    *static_cast<uint32_t*>(readback[slot].mapped) = NONE;
+    *static_cast<PickReadback*>(readback[slot].mapped) = { NONE, 0.0f };
     ctx->dd->buffer_flush(readback[slot]);
 
     g.import_buffer("PickResult", &readback[slot], VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT, true);

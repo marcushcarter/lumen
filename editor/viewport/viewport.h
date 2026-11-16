@@ -52,6 +52,20 @@ struct Viewport
     bool game_captured = false;
     ImVec2 game_look = ImVec2(0.0f, 0.0f);
 
+    static constexpr uint32_t DROP_TIMEOUT_FRAMES = 8;
+
+    struct PendingDrop
+    {
+        bool active = false;
+        bool is_template = false;
+        Guid guid;
+        vec3 origin = vec3(0.0f);
+        vec3 direction = vec3(0.0f, 0.0f, -1.0f);
+        uint32_t frames = 0;
+    } drop;
+
+    void _finish_drop(EditorContext& ctx, float p_depth, bool p_hit);
+
     void _submit_debug_draw(EditorContext& ctx, bool p_live);
     void _draw_cull_frustum(EditorContext& ctx);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);

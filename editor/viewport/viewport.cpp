@@ -361,7 +361,10 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     const bool playing = play && play->playing();
 
     uint32_t picked = PickFeature::NONE;
-    if (ctx.render_path && ctx.scene && ctx.selection && ctx.render_path->pick.take_result(picked)) {
+    float picked_depth = 0.0f;
+    const bool pick_ready = ctx.render_path && ctx.scene && ctx.selection && ctx.render_path->pick.take_result(picked, picked_depth);
+    if (drop.active && (pick_ready || ++drop.frames > DROP_TIMEOUT_FRAMES)) _finish_drop(ctx, picked_depth, pick_ready);
+    else if (pick_ready) {
         Scene& world = *ctx.scene;
         Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
         const Entity root = template_root_of(world, e);
@@ -477,11 +480,37 @@ void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
         const bool template_ok = asset.type == AssetType::TEMPLATE && !ctx.template_doc;
         if ((asset.type == AssetType::MODEL || template_ok) && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
-            if (asset.type == AssetType::MODEL) editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, asset.guid);
-            else editor_spawn_template(ctx, asset.guid, ENTITY_NULL);
+            const Camera& cam = ctx.renderer->main_view.camera;
+            const ImVec2 mouse = ImGui::GetMousePos();
+            const float u = std::clamp((mouse.x - p_pos.x) / p_size.x, 0.0f, 1.0f);
+            const float v = std::clamp((mouse.y - p_pos.y) / p_size.y, 0.0f, 1.0f);
+            const float tan_half = std::tan(cam.fov_y * 0.5f);
+            const float aspect = p_size.x / std::max(p_size.y, 1.0f);
+            drop.active = true;
+            drop.is_template = asset.type == AssetType::TEMPLATE;
+            drop.guid = asset.guid;
+            drop.origin = cam.position;
+            drop.direction = normalize(cam.forward() + cam.right() * ((u * 2.0f - 1.0f) * tan_half * aspect) + cam.up() * ((1.0f - v * 2.0f) * tan_half));
+            drop.frames = 0;
+            if (ctx.render_path) ctx.render_path->pick.request(u, 1.0f - v);
         }
     }
     ImGui::EndDragDropTarget();
+}
+
+void Viewport::_finish_drop(EditorContext& ctx, float p_depth, bool p_hit)
+{
+    drop.active = false;
+    if (!ctx.scene || !ctx.selection) return;
+    const Camera& cam = ctx.renderer->main_view.camera;
+    float distance = SPAWN_DISTANCE;
+    if (p_hit && p_depth > 0.0f) {
+        const float view_z = (cam.near_z * cam.far_z) / (p_depth * (cam.far_z - cam.near_z) + cam.near_z);
+        distance = view_z / std::max(dot(drop.direction, cam.forward()), 1e-4f);
+    }
+    const vec3 position = drop.origin + drop.direction * distance;
+    if (drop.is_template) editor_spawn_template(ctx, drop.guid, ENTITY_NULL, &position);
+    else editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, drop.guid, &position);
 }
 
 void Viewport::_update_fly(bool p_start)

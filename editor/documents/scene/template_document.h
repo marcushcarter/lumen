@@ -41,7 +41,7 @@ struct TemplateDocument
     static void template_changed(EditorContext& ctx, Guid p_template, std::unique_ptr<Template> p_old, const TemplateDocument* p_source);
 };
 
-Entity editor_spawn_template(EditorContext& ctx, Guid p_template, Entity p_parent);
+Entity editor_spawn_template(EditorContext& ctx, Guid p_template, Entity p_parent, const vec3* p_position = nullptr);
 bool editor_create_template(EditorContext& ctx, const std::vector<Entity>& p_tops);
 void editor_revert_template(EditorContext& ctx, Entity p_entity);
 void editor_unpack_template(EditorContext& ctx, Entity p_entity);

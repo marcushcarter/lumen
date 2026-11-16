@@ -152,14 +152,14 @@ bool TemplateDocument::frame(EditorContext& ctx)
 /**** ACTIONS ****/
 /*****************/
 
-Entity editor_spawn_template(EditorContext& ctx, Guid p_template, Entity p_parent)
+Entity editor_spawn_template(EditorContext& ctx, Guid p_template, Entity p_parent, const vec3* p_position)
 {
     Template* tmpl = template_library().get(p_template);
     if (!tmpl || !ctx.scene || !ctx.renderer) return ENTITY_NULL;
     Scene& scene = *ctx.scene;
     const Camera& cam = ctx.renderer->main_view.camera;
     TransformComponent xf;
-    xf.position = cam.position + cam.forward() * SPAWN_DISTANCE;
+    xf.position = p_position ? *p_position : cam.position + cam.forward() * SPAWN_DISTANCE;
     const Entity e = template_spawn(scene, *tmpl, ENTITY_NULL, xf);
     if (e == ENTITY_NULL) return e;
     if (scene.valid(p_parent)) {

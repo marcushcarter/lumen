@@ -9,7 +9,7 @@
 
 namespace lumen {
 
-Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid p_model)
+Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid p_model, const vec3* p_position)
 {
     Scene& world = *ctx.scene;
     const Camera& cam = ctx.renderer->main_view.camera;
@@ -21,7 +21,7 @@ Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid 
 
     if (p_type != SpawnType::FOLDER) {
         TransformComponent xf;
-        xf.position = cam.position + cam.forward() * SPAWN_DISTANCE;
+        xf.position = p_position ? *p_position : cam.position + cam.forward() * SPAWN_DISTANCE;
         world.add<TransformComponent>(e, xf);
     }
 
@@ -29,6 +29,7 @@ Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid 
         case SpawnType::MODEL:
             world.add<ModelComponent>(e, { p_model });
             world.add<StaticTag>(e);
+            world.add<CollisionComponent>(e, {});
             break;
         default:
             break;

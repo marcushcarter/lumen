@@ -13,7 +13,7 @@ layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 
 layout(buffer_reference, scalar) readonly buffer ClusterRefsBuffer { uint count; uint _pad; uvec2 data[]; };
-layout(buffer_reference, scalar) writeonly buffer PickResultBuffer { uint entity; };
+layout(buffer_reference, scalar) writeonly buffer PickResultBuffer { uint entity; float depth; };
 
 layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
@@ -39,4 +39,5 @@ void main() {
         }
     }
     pc.result.entity = entity;
+    pc.result.depth = depth;
 }

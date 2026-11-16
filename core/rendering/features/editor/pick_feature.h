@@ -23,9 +23,10 @@ struct PickFeature : Feature
 
     bool result_ready = false;
     uint32_t result = NONE;
+    float result_depth = 0.0f;
 
     void request(float p_u, float p_v);
-    bool take_result(uint32_t& r_entity_index);
+    bool take_result(uint32_t& r_entity_index, float& r_depth);
 
     void _create_pick_pass();
 

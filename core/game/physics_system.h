@@ -1,10 +1,12 @@
 #pragma once
 #include <core/game/game_session.h>
+#include <core/game/terrain_collision.h>
 #include <core/physics/collision_cache.h>
 #include <core/physics/physics_world.h>
 #include <core/scene/components.h>
 #include <core/scene/scene.h>
 #include <unordered_map>
+#include <cfloat>
 
 namespace lumen {
 
@@ -31,8 +33,13 @@ struct PhysicsSystem : GameSystem
     const Project* project = nullptr;
     PhysicsWorld physics;
     CollisionCache collision;
+    TerrainCollision terrain;
+    std::vector<vec3> _anchors;
     std::unordered_map<uint64_t, Body> bodies;
     bool optimize_pending = false;
+    bool floor_dirty = true;
+    float static_floor = FLT_MAX;
+    float world_floor = FLT_MAX;
 
     void start(GameSession& r_session) override;
     void update(GameSession& r_session, float p_dt) override;
@@ -45,6 +52,9 @@ struct PhysicsSystem : GameSystem
     Guid _model_mesh(const Scene& p_world, Entity p_entity) const;
     bool _build(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body);
     void _sync(Scene& r_world, float p_dt);
+    void _sync_terrain(GameSession& r_session);
+    void _update_floor();
+    bool has_floor() const { return world_floor < FLT_MAX; }
     void _write_back(Scene& r_world, uint32_t p_steps);
     void _clear();
 };

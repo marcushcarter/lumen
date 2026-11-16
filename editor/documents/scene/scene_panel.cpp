@@ -251,12 +251,14 @@ void ScenePanel::_draw_table(EditorContext& ctx, float p_footer_h)
         scroll_to_selected = false;
         const int index = _row_find(ctx.selection->primary());
         if (index >= 0) {
-            const float y = (float)index * row_h;
+            const float y = (float)(index + (int)_world_row_count(ctx)) * row_h;
             const float view_h = ImGui::GetWindowHeight() - row_h;
             const float scroll = ImGui::GetScrollY();
             if (y < scroll || y + row_h > scroll + view_h) ImGui::SetScrollY(y - (view_h - row_h) * 0.5f);
         }
     }
+
+    _draw_world_rows(ctx, row_h);
 
     ImGuiListClipper clipper;
     clipper.Begin((int)rows.size(), row_h);
@@ -290,6 +292,58 @@ void ScenePanel::_draw_table(EditorContext& ctx, float p_footer_h)
 
     ImGui::EndTable();
     ImGui::PopStyleVar(2);
+}
+
+uint32_t ScenePanel::_world_row_count(const EditorContext& ctx) const
+{
+    if (ctx.template_doc) return 0;
+    return world_open ? 3u : 1u;
+}
+
+void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
+{
+    if (ctx.template_doc) return;
+    EditorSelection& selection = *ctx.selection;
+    const UiStyle& ui = ui_style();
+    const float font = ImGui::GetFontSize();
+    const float content_h = p_row_h - ui.outliner.row_pad_y * 2.0f;
+    const float icon_w = font * ui.outliner.icon_width_scale;
+    const ImU32 text_col = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
+    ImGui::PushID("##world");
+    ImGui::TableSetColumnIndex(1);
+    ImVec2 cell = ImGui::GetCursorScreenPos();
+    float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
+    if (ImGui::Selectable("##world_row", false, sel_flags, ImVec2(0.0f, content_h)) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) world_open = !world_open;
+    ImGui::SetCursorScreenPos(ImVec2(cell.x, cell.y));
+    if (ImGui::InvisibleButton("##world_arrow", ImVec2(font, content_h))) world_open = !world_open;
+    ImGui::RenderArrow(dl, ImVec2(cell.x, text_y + font * ui.outliner.arrow_offset_scale), ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled), world_open ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
+    float x = cell.x + font;
+    const char* folder_icon = world_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
+    dl->AddText(ImVec2(ImFloor(x + (icon_w - ImGui::CalcTextSize(folder_icon).x) * 0.5f), text_y), ui.color.folder, folder_icon);
+    dl->AddText(ImVec2(x + icon_w + ui.outliner.icon_gap, text_y), text_col, "World");
+    ImGui::PopID();
+
+    if (!world_open) return;
+
+    const auto row = [&](const char* p_id, const char* p_icon, const char* p_label, bool p_selected) {
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
+        ImGui::PushID(p_id);
+        ImGui::TableSetColumnIndex(1);
+        const ImVec2 c = ImGui::GetCursorScreenPos();
+        const float ty = c.y + ImFloor((content_h - font) * 0.5f);
+        const bool clicked = ImGui::Selectable("##row", p_selected, sel_flags, ImVec2(0.0f, content_h));
+        const float rx = c.x + font * 2.0f;
+        dl->AddText(ImVec2(ImFloor(rx + (icon_w - ImGui::CalcTextSize(p_icon).x) * 0.5f), ty), text_col, p_icon);
+        dl->AddText(ImVec2(rx + icon_w + ui.outliner.icon_gap, ty), text_col, p_label);
+        ImGui::PopID();
+        return clicked;
+    };
+    if (row("##terrain", ICON_FA_MOUNTAIN, "Terrain", selection.terrain)) selection.select_terrain();
+    if (row("##shadows", ICON_FA_CIRCLE_HALF_STROKE, "Shadows", selection.shadows)) selection.select_shadows();
 }
 
 void ScenePanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)

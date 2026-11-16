@@ -17,6 +17,7 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
@@ -399,6 +400,44 @@ PhysicsBodyId PhysicsWorld::create_body(const PhysicsBodyDesc& p_desc)
     return to_lumen(id);
 }
 
+static constexpr uint32_t HEIGHT_FIELD_BLOCK = 4;
+static constexpr float HEIGHT_FIELD_ERROR = 0.005f;
+
+PhysicsHeightField PhysicsWorld::build_height_field(const float* p_samples, uint32_t p_count, const vec3& p_offset, const vec3& p_scale)
+{
+    JPH::HeightFieldShapeSettings settings(p_samples, to_jph(p_offset), to_jph(p_scale), p_count);
+    settings.mBlockSize = HEIGHT_FIELD_BLOCK;
+    settings.mBitsPerSample = settings.CalculateBitsPerSampleForError(HEIGHT_FIELD_ERROR);
+    JPH::Shape::ShapeResult result = settings.Create();
+    if (result.HasError()) {
+        log_write("Physics: couldn't build terrain collision: %s", result.GetError().c_str());
+        return {};
+    }
+    JPH::Shape* shape = const_cast<JPH::Shape*>(result.Get().GetPtr());
+    shape->AddRef();
+    return { shape };
+}
+
+void PhysicsWorld::release_height_field(PhysicsHeightField& r_field)
+{
+    if (r_field.shape) static_cast<JPH::Shape*>(r_field.shape)->Release();
+    r_field.shape = nullptr;
+}
+
+PhysicsBodyId PhysicsWorld::create_height_field_body(PhysicsHeightField& r_field, float p_friction)
+{
+    if (!impl || !r_field.shape) return {};
+    JPH::BodyCreationSettings settings(static_cast<JPH::Shape*>(r_field.shape), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), JPH::EMotionType::Static, to_jph(PhysicsLayer::STATIC));
+    settings.mFriction = p_friction;
+    const JPH::BodyID id = impl->bodies().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+    release_height_field(r_field);
+    if (id.IsInvalid()) {
+        log_write("Physics: body limit reached.");
+        return {};
+    }
+    return to_lumen(id);
+}
+
 void PhysicsWorld::destroy_body(PhysicsBodyId p_body)
 {
     if (!impl || !p_body.valid()) return;
@@ -446,6 +485,15 @@ bool PhysicsWorld::get_transform(PhysicsBodyId p_body, vec3& r_position, quat& r
     impl->bodies().GetPositionAndRotation(to_jph(p_body), position, rotation);
     r_position = to_glm(position);
     r_rotation = to_glm(rotation);
+    return true;
+}
+
+bool PhysicsWorld::body_bounds(PhysicsBodyId p_body, vec3& r_min, vec3& r_max) const
+{
+    if (!impl || !p_body.valid() || !impl->bodies().IsAdded(to_jph(p_body))) return false;
+    const JPH::AABox box = impl->bodies().GetTransformedShape(to_jph(p_body)).GetWorldSpaceBounds();
+    r_min = to_glm(box.mMin);
+    r_max = to_glm(box.mMax);
     return true;
 }
 

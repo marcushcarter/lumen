@@ -33,7 +33,6 @@ struct LegacyFolder
     Guid guid;
     int64_t parent = -1;
     std::string name;
-    bool expanded = true;
 };
 
 static std::unordered_map<int64_t, LegacyFolder> _legacy_folders(const toml::array* p_folders)
@@ -49,13 +48,12 @@ static std::unordered_map<int64_t, LegacyFolder> _legacy_folders(const toml::arr
         if (!f.guid.valid()) f.guid = Guid::generate();
         f.parent = (*t)["parent"].value_or<int64_t>(-1);
         f.name = (*t)["name"].value_or(std::string("Folder"));
-        f.expanded = (*t)["expanded"].value_or(true);
         if (index >= 0) out[index] = std::move(f);
     }
     return out;
 }
 
-static void _add_legacy_folders(Scene& r_world, const std::unordered_map<int64_t, LegacyFolder>& p_folders, bool p_editor)
+static void _add_legacy_folders(Scene& r_world, const std::unordered_map<int64_t, LegacyFolder>& p_folders)
 {
     for (const auto& [index, f] : p_folders) {
         if (r_world.find(f.guid) != ENTITY_NULL) continue;
@@ -63,7 +61,6 @@ static void _add_legacy_folders(Scene& r_world, const std::unordered_map<int64_t
         NameComponent name{};
         std::snprintf(name.name, NameComponent::MAX_LENGTH, "%s", f.name.c_str());
         r_world.add<NameComponent>(e, name);
-        if (p_editor && f.expanded) r_world.add<EditorExpandedTag>(e);
         auto parent = p_folders.find(f.parent);
         if (parent != p_folders.end() && parent->first != index) r_world.add<ParentComponent>(e, { parent->second.guid });
     }
@@ -176,6 +173,16 @@ std::string SceneFile::write_text(Scene& r_world, const SceneFile& p_file)
         TomlWriter env_writer(environment);
         serialize(env_writer, r_world.environment);
         section.insert_or_assign(KEY_ENVIRONMENT, std::move(environment));
+        toml::table shadows;
+        TomlWriter shadow_writer(shadows);
+        serialize(shadow_writer, r_world.shadows);
+        section.insert_or_assign(KEY_SHADOWS, std::move(shadows));
+        if (r_world.terrain.terrain.valid()) {
+            toml::table terrain;
+            TomlWriter terrain_writer(terrain);
+            serialize(terrain_writer, r_world.terrain);
+            section.insert_or_assign(KEY_TERRAIN, std::move(terrain));
+        }
     } else if (p_file.root.valid()) {
         section.insert_or_assign(KEY_ROOT, p_file.root.to_string());
     }
@@ -227,9 +234,17 @@ Error SceneFile::read_text(std::string_view p_text, Scene& r_world, bool p_edito
         TomlReader reader(*environment);
         serialize(reader, r_world.environment);
     }
+    if (const toml::table* shadows = section->get_as<toml::table>(KEY_SHADOWS)) {
+        TomlReader reader(*shadows);
+        serialize(reader, r_world.shadows);
+    }
+    if (const toml::table* terrain = section->get_as<toml::table>(KEY_TERRAIN)) {
+        TomlReader reader(*terrain);
+        serialize(reader, r_world.terrain);
+    }
 
     const std::unordered_map<int64_t, LegacyFolder> legacy = _legacy_folders(section->get_as<toml::array>(KEY_LEGACY_FOLDERS));
-    _add_legacy_folders(r_world, legacy, p_editor);
+    _add_legacy_folders(r_world, legacy);
 
     const toml::array* list = section->get_as<toml::array>(KEY_ENTITIES);
     if (!list) return OK;
@@ -276,6 +291,8 @@ uint64_t SceneFile::hash(Scene& r_world)
 {
     HashWriter writer;
     serialize(writer, r_world.environment);
+    serialize(writer, r_world.terrain);
+    serialize(writer, r_world.shadows);
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);

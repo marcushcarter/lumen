@@ -203,10 +203,12 @@ ProjectManager::ContentStats ProjectManager::_scan_content(const std::filesystem
         std::error_code fec;
         if (!it->is_regular_file(fec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".lmesh") s.meshes++;
-        else if (ext == ".ltexture") s.textures++;
-        else if (ext == ".lmaterial") s.materials++;
-        else if (ext == ".lmodel") s.models++;
+        for (uint32_t k = 0; k < CONTENT_KIND_COUNT; k++) {
+            const ContentKind& kind = CONTENT_KINDS[k];
+            if (ext != kind.extension && (!kind.legacy_extension || ext != kind.legacy_extension)) continue;
+            s.counts[k]++;
+            break;
+        }
     }
     return s;
 }
@@ -454,28 +456,13 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(p_value).x);
         ImGui::TextUnformatted(p_value);
     };
-    char meshes[16] = "...";
-    char textures[16] = "...";
-    char materials[16] = "...";
-    char models[16] = "...";
-    const char* disk = "...";
-    if (e.missing) {
-        snprintf(meshes, sizeof(meshes), "-");
-        snprintf(textures, sizeof(textures), "-");
-        snprintf(materials, sizeof(materials), "-");
-        snprintf(models, sizeof(models), "-");
-        disk = "-";
-    } else if (e.stats_valid) {
-        snprintf(meshes, sizeof(meshes), "%u", e.stats.meshes);
-        snprintf(textures, sizeof(textures), "%u", e.stats.textures);
-        snprintf(materials, sizeof(materials), "%u", e.stats.materials);
-        snprintf(models, sizeof(models), "%u", e.stats.models);
-        disk = fmt_bytes(e.stats.disk_bytes);
+    for (uint32_t k = 0; k < CONTENT_KIND_COUNT; k++) {
+        char value[16] = "...";
+        if (e.missing) snprintf(value, sizeof(value), "-");
+        else if (e.stats_valid) snprintf(value, sizeof(value), "%u", e.stats.counts[k]);
+        content_row(CONTENT_KINDS[k].label, value);
     }
-    content_row("Meshes", meshes);
-    content_row("Textures", textures);
-    content_row("Materials", materials);
-    content_row("Models", models);
+    const char* disk = e.missing ? "-" : e.stats_valid ? fmt_bytes(e.stats.disk_bytes) : "...";
     content_row("Disk", disk);
 
     ImGui::Dummy(ImVec2(0.0f, ui.space.xxl));

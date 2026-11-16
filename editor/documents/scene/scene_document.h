@@ -37,7 +37,13 @@ struct SceneDocument
 
     const std::filesystem::path* _path(EditorContext& ctx) const;
     bool _confirm_discard(const std::string& p_name, const wchar_t* p_action) const;
+    static constexpr float PLAYER_EYE_HEIGHT = 1.2f;
+    static constexpr float PLAYER_DISTANCE = 4.0f;
+    static constexpr float PLAYER_RISE = 1.0f;
+    static constexpr vec3 DEFAULT_CAMERA = vec3(0.0f, 2.0f, 5.0f);
+
     void _load(EditorContext& ctx, Guid p_scene);
+    void _place_camera(EditorContext& ctx);
     void _unload(EditorContext& ctx);
     void _close_all(EditorContext& ctx);
     void _draw_empty(ImVec2 p_min, ImVec2 p_max);

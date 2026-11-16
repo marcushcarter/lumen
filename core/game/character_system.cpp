@@ -371,7 +371,8 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
     if (c.stagger_time <= 0.0f && !c.action.controlling()) _rotate(c, stance, p_dt);
     c.turn_delta = 0.0f;
     c.step_offset = _interp(c.step_offset, 0.0f, p_dt, STEP_SMOOTH);
-    if (c.position.y < c.spawn_position.y - RESPAWN_DROP) respawn(c);
+    const float kill_y = physics && physics->has_floor() ? physics->world_floor - FLOOR_MARGIN : c.spawn_position.y - RESPAWN_DROP;
+    if (c.position.y < kill_y) respawn(c);
 }
 
 static void _spring(float& r_value, float& r_velocity, float p_target, float p_omega, float p_dt)

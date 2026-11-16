@@ -90,4 +90,14 @@ void serialize(Archive& a, EnvironmentSettings& r_c)
     a.field("manual_ev100", r_c.manual_ev100);
 }
 
+void serialize(Archive& a, ShadowSettings& r_c)
+{
+    a.field("player_shadow", r_c.player_shadow);
+}
+
+void serialize(Archive& a, TerrainSettings& r_c)
+{
+    a.field("terrain", r_c.terrain);
+}
+
 }

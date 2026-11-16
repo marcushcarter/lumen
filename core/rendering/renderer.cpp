@@ -101,6 +101,8 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = materials.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    err = terrain.initialize(r_dd, frame_count);
+    LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
     err = main_view.graph.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -121,6 +123,7 @@ void Renderer::shutdown()
     unload();
     materials.shutdown();
     models.shutdown();
+    terrain.shutdown();
     geometry.shutdown();
     textures.shutdown();
 
@@ -181,6 +184,9 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
             case AssetType::SKELETON:
                 skeletons.load(ah.guid, path);
                 break;
+            case AssetType::TERRAIN:
+                terrain.register_path(ah.guid, path);
+                break;
             case AssetType::MODEL: {
                 if (authoring) break;
                 LModel model;
@@ -207,6 +213,7 @@ void Renderer::unload()
     models.clear();
     materials.clear();
     skeletons.clear();
+    terrain.clear();
     geometry.free();
     _view_reset(main_view);
     for (RenderView* v : views) _view_reset(*v);
@@ -401,12 +408,12 @@ static uvec4 _player_shadow_rect(const mat4& p_shadow_view_proj, const mat4& p_v
     return uvec4((uint32_t)c_lo.x, (uint32_t)c_lo.y, (uint32_t)c_hi.x, (uint32_t)c_hi.y);
 }
 
-static void _player_shadow_fit(FrameData& r_frame, uint32_t p_width, uint32_t p_height)
+static void _player_shadow_fit(FrameData& r_frame, uint32_t p_width, uint32_t p_height, bool p_enabled)
 {
     DirectLight& light = r_frame.direct_light;
     light.player_shadow_params = vec4(0.0f);
     light.player_shadow_rect = uvec4(0u);
-    if (r_frame.player_instance == UINT32_MAX) return;
+    if (!p_enabled || r_frame.player_instance == UINT32_MAX) return;
 
     const vec3 center = (r_frame.player_box_min + r_frame.player_box_max) * 0.5f;
     const float radius = std::ceil(length(r_frame.player_box_max - r_frame.player_box_min) * 0.5f / PLAYER_SHADOW_RADIUS_STEP) * PLAYER_SHADOW_RADIUS_STEP;
@@ -614,7 +621,11 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         frame.direct_light.illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
         frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
     }
-    _player_shadow_fit(frame, width, height);
+    _player_shadow_fit(frame, width, height, p_world.shadows.player_shadow);
+    if (&r_view == &main_view) {
+        terrain.update(p_world.terrain.terrain, frame.camera, frame_number, current_frame);
+        terrain.owner = &frame;
+    }
 
     r_view.camera_cut_pending = false;
     r_view.hiz_reset_pending = false;
@@ -940,6 +951,7 @@ RenderContext Renderer::make_context(RenderView& r_view)
     ctx.graph = &r_view.graph;
     ctx.textures = &textures;
     ctx.geometry = &geometry;
+    ctx.terrain = &terrain;
     ctx.frame = &r_view.frame;
     ctx.profiling = profiling;
     return ctx;

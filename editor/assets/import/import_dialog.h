@@ -1,6 +1,7 @@
 #pragma once
 #include <editor/assets/import/model_cooker.h>
 #include <editor/assets/import/texture_cooker.h>
+#include <editor/assets/import/terrain_cooker.h>
 #include <editor/assets/import/reimport.h>
 #include <filesystem>
 #include <deque>
@@ -25,6 +26,7 @@ struct ImportDialog
         char name[NAME_SIZE] = {};
         ModelCooker::Settings model;
         TextureCooker::CookSettings texture;
+        bool heightfield = false;
         bool reimport = false;
         ReimportTarget target;
     };
@@ -41,6 +43,7 @@ struct ImportDialog
     void _draw_header(Pending& r_pending);
     void _draw_model(ModelCooker::Settings& r_settings, bool p_materials);
     void _draw_transform(MeshCooker::CookSettings& r_settings);
+    void _draw_import_as(Pending& r_pending);
     void _draw_texture(TextureCooker::CookSettings& r_settings);
     void _apply_to_rest(const Pending& p_pending);
     void _draw_collision(CollisionSettings& r_settings, bool* r_generate);

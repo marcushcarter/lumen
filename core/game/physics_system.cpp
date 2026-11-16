@@ -124,6 +124,10 @@ void PhysicsSystem::stop(GameSession& r_session)
 
 void PhysicsSystem::_clear()
 {
+    floor_dirty = true;
+    static_floor = FLT_MAX;
+    world_floor = FLT_MAX;
+    terrain.clear(physics);
     if (physics.initialized()) physics.destroy_all_bodies();
     bodies.clear();
     collision.clear();
@@ -159,6 +163,7 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
             body.seen = true;
             bodies.emplace(k, body);
             optimize_pending = true;
+            floor_dirty = true;
             continue;
         }
         Body& body = it->second;
@@ -169,13 +174,17 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
         quat rotation;
         decompose(matrix, position, rotation, scale);
         if (body.motion == PhysicsMotion::KINEMATIC) physics.move_kinematic(body.id, position, rotation, std::max(p_dt, PhysicsWorld::FIXED_DT));
-        else physics.set_transform(body.id, position, rotation);
+        else {
+            physics.set_transform(body.id, position, rotation);
+            floor_dirty = true;
+        }
     }
 
     for (auto it = bodies.begin(); it != bodies.end();) {
         if (it->second.seen) { ++it; continue; }
         physics.destroy_body(it->second.id);
         it = bodies.erase(it);
+        floor_dirty = true;
     }
 }
 
@@ -197,11 +206,40 @@ void PhysicsSystem::_write_back(Scene& r_world, uint32_t p_steps)
     }
 }
 
+void PhysicsSystem::_update_floor()
+{
+    if (floor_dirty) {
+        floor_dirty = false;
+        static_floor = FLT_MAX;
+        for (const auto& [k, body] : bodies) {
+            if (body.motion != PhysicsMotion::STATIC) continue;
+            vec3 lo, hi;
+            if (physics.body_bounds(body.id, lo, hi)) static_floor = std::min(static_floor, lo.y);
+        }
+    }
+    world_floor = terrain.source.valid() ? std::min(static_floor, terrain.lowest) : static_floor;
+}
+
+void PhysicsSystem::_sync_terrain(GameSession& r_session)
+{
+    const Scene& world = *r_session.world;
+    const Guid guid = world.terrain.terrain;
+    const std::filesystem::path path = guid.valid() && project ? project->content_path(guid) : std::filesystem::path();
+    _anchors.clear();
+    _anchors.push_back(r_session.camera.position);
+    world.view<TransformComponent, LocomotionComponent>([&](Entity p_entity, const TransformComponent&, const LocomotionComponent&) {
+        _anchors.push_back(vec3(world.world_matrix(p_entity)[3]));
+    });
+    terrain.update(physics, guid, path, _anchors);
+}
+
 void PhysicsSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || !physics.initialized()) return;
     Scene& world = *r_session.world;
     _sync(world, p_dt);
+    _sync_terrain(r_session);
+    _update_floor();
     if (optimize_pending) {
         physics.optimize_broadphase();
         optimize_pending = false;

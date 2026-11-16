@@ -19,6 +19,8 @@ struct EditorPlay
     CharacterSystem character_system;
     Guid scene_guid;
     EnvironmentSettings _environment;
+    TerrainSettings _terrain;
+    ShadowSettings _shadows;
     bool step_pending = false;
     float simulated_dt = 0.0f;
 

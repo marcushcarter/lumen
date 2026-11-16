@@ -304,6 +304,9 @@ void EditorApplication::_tick_imports()
             case AssetType::SKELETON:
                 renderer.skeletons.load(c.guid, c.content_bin);
                 break;
+            case AssetType::TERRAIN:
+                renderer.terrain.reload(c.guid, c.content_bin);
+                break;
             default:
                 break;
         }

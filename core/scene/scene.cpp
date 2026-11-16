@@ -23,7 +23,7 @@ Error Scene::initialize()
     component_register<TemplatePartComponent>("Template Part", false);
     component_register_saved<StaticTag>("Static", "static", false);
     component_register_saved<DisabledTag>("Disabled", "disabled", false);
-    component_register_saved<EditorExpandedTag>("Expanded", "expanded", false, true);
+    component_register<EditorExpandedTag>("Expanded", false);
 
     return OK;
 }
@@ -58,6 +58,8 @@ void Scene::unload()
     _deferred.clear();
     _by_guid.clear();
     environment = {};
+    terrain = {};
+    shadows = {};
     if (track_changes) changed_all = true;
     static_version++;
     structure_version++;

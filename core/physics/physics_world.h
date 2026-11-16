@@ -18,8 +18,15 @@ struct PhysicsWorldSettings
     vec3 gravity = vec3(0.0f, -9.81f, 0.0f);
 };
 
+struct PhysicsHeightField
+{
+    void* shape = nullptr;
+};
+
 struct PhysicsWorld
 {
+    static constexpr float HEIGHT_FIELD_HOLE = 3.402823466e+38f;
+
     static constexpr float FIXED_DT = 1.0f / 60.0f;
     static constexpr uint32_t MAX_STEPS_PER_UPDATE = 4;
 
@@ -39,6 +46,9 @@ struct PhysicsWorld
     bool initialized() const { return impl != nullptr; }
 
     PhysicsBodyId create_body(const PhysicsBodyDesc& p_desc);
+    static PhysicsHeightField build_height_field(const float* p_samples, uint32_t p_count, const vec3& p_offset, const vec3& p_scale);
+    static void release_height_field(PhysicsHeightField& r_field);
+    PhysicsBodyId create_height_field_body(PhysicsHeightField& r_field, float p_friction);
     void destroy_body(PhysicsBodyId p_body);
     void destroy_all_bodies();
     uint32_t body_count() const;
@@ -46,6 +56,7 @@ struct PhysicsWorld
 
     void set_transform(PhysicsBodyId p_body, const vec3& p_position, const quat& p_rotation);
     bool get_transform(PhysicsBodyId p_body, vec3& r_position, quat& r_rotation) const;
+    bool body_bounds(PhysicsBodyId p_body, vec3& r_min, vec3& r_max) const;
     void move_kinematic(PhysicsBodyId p_body, const vec3& p_position, const quat& p_rotation, float p_dt);
     void set_linear_velocity(PhysicsBodyId p_body, const vec3& p_velocity);
     vec3 get_linear_velocity(PhysicsBodyId p_body) const;

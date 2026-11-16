@@ -1,6 +1,10 @@
 #include <editor/documents/scene/scene_document.h>
 #include <core/rendering/render_path/editor_render_path.h>
 #include <core/scene/scene_file.h>
+#include <core/scene/components.h>
+#include <core/rendering/renderer.h>
+#include <algorithm>
+#include <cmath>
 #include <drivers/windows/dialogs_win32.h>
 #include <drivers/windows/window_driver_win32.h>
 #include <editor/assets/asset_registry.h>
@@ -88,6 +92,35 @@ void SceneDocument::_load(EditorContext& ctx, Guid p_scene)
     guid = p_scene;
     _hash = _saved_hash = SceneFile::hash(*ctx.main_scene);
     _hash_poll = ImGui::GetTime();
+    _place_camera(ctx);
+}
+
+void SceneDocument::_place_camera(EditorContext& ctx)
+{
+    EditorCamera* cam = ctx.editor_camera;
+    if (!cam) return;
+    Scene& world = *ctx.main_scene;
+    Entity player = ENTITY_NULL;
+    world.view<PlayerTag, TransformComponent>([&](Entity p_entity, const PlayerTag&, const TransformComponent&) {
+        if (player == ENTITY_NULL) player = p_entity;
+    });
+
+    vec3 target(0.0f);
+    vec3 position = DEFAULT_CAMERA;
+    if (player != ENTITY_NULL) {
+        const mat4 m = world.world_matrix(player);
+        target = vec3(m[3]) + vec3(0.0f, PLAYER_EYE_HEIGHT, 0.0f);
+        vec3 facing = vec3(m * vec4(0.0f, 0.0f, 1.0f, 0.0f));
+        facing.y = 0.0f;
+        facing = dot(facing, facing) > 1e-6f ? normalize(facing) : vec3(0.0f, 0.0f, 1.0f);
+        position = target - facing * PLAYER_DISTANCE + vec3(0.0f, PLAYER_RISE, 0.0f);
+    }
+    const vec3 dir = normalize(target - position);
+    cam->position = position;
+    cam->yaw = std::atan2(dir.x, dir.z);
+    cam->pitch = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
+    scene_camera = *cam;
+    if (ctx.renderer) ctx.renderer->camera_cut();
 }
 
 Error SceneDocument::write(EditorContext& ctx, const std::filesystem::path& p_path) const

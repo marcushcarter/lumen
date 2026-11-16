@@ -7,6 +7,7 @@
 #include <core/rendering/resources/model_cache.h>
 #include <core/rendering/resources/material_cache.h>
 #include <core/rendering/resources/skeleton_cache.h>
+#include <core/rendering/resources/terrain_cache.h>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/render_context.h>
 #include <core/rendering/scene_gpu.h>
@@ -32,6 +33,7 @@ struct Renderer
     ModelCache models;
     MaterialCache materials;
     SkeletonCache skeletons;
+    TerrainCache terrain;
 
     uint32_t frame_count = 1;
     uint32_t current_frame = 0;

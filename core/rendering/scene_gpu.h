@@ -114,4 +114,51 @@ static_assert(sizeof(GPUMaterial) == 12, "GPUMaterial layout changed");
 
 struct IndirectDispatch { uint32_t x, y, z; };
 
+static constexpr uint32_t TERRAIN_PATCH_QUADS = 16;
+static constexpr uint32_t TERRAIN_QUARTER_QUADS = 8;
+static constexpr uint32_t TERRAIN_QUARTER_VERTS = (TERRAIN_QUARTER_QUADS + 1) * (TERRAIN_QUARTER_QUADS + 1);
+static constexpr uint32_t TERRAIN_QUARTER_INDICES = TERRAIN_QUARTER_QUADS * TERRAIN_QUARTER_QUADS * 6;
+static constexpr uint32_t TERRAIN_LEVELS = 5;
+static constexpr uint32_t TERRAIN_COARSE_LEVEL = TERRAIN_LEVELS - 1;
+static constexpr uint32_t TERRAIN_MAX_PATCHES = 16u * 1024;
+static constexpr uint32_t TERRAIN_FINE_SLOTS = 32;
+static constexpr uint32_t TERRAIN_SMALL_SLOTS = 256;
+static constexpr uint32_t TERRAIN_LOD_NONE = 0xFFFFFFFFu;
+
+struct TerrainPatch
+{
+    uint32_t origin_x;
+    uint32_t origin_z;
+    uint32_t tile;
+    uint32_t packed;
+};
+static_assert(sizeof(TerrainPatch) == 16, "TerrainPatch layout changed");
+
+struct TerrainTileGpu
+{
+    uint32_t word_base;
+    uint32_t lod;
+};
+static_assert(sizeof(TerrainTileGpu) == 8, "TerrainTileGpu layout changed");
+
+struct TerrainUniform
+{
+    vec4 origin_spacing;
+    vec4 morph_camera;
+    vec4 morph[TERRAIN_LEVELS];
+    float height_min;
+    float height_scale;
+    uint32_t tiles_x;
+    uint32_t tiles_y;
+    uint32_t samples_x;
+    uint32_t samples_y;
+    uint32_t coarse_w;
+    uint32_t coarse_h;
+    uint64_t heights;
+    uint64_t tile_table;
+    uint64_t patches;
+    uint64_t _pad;
+};
+static_assert(sizeof(TerrainUniform) == 176, "TerrainUniform layout changed");
+
 }

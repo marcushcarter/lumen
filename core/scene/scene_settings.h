@@ -16,4 +16,18 @@ struct EnvironmentSettings
     float manual_ev100 = 15.0f;
 };
 
+struct ShadowSettings
+{
+    bool player_shadow = true;
+
+    bool operator==(const ShadowSettings&) const = default;
+};
+
+struct TerrainSettings
+{
+    Guid terrain;
+
+    bool operator==(const TerrainSettings&) const = default;
+};
+
 }

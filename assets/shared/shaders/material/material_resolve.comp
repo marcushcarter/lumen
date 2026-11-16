@@ -15,10 +15,12 @@
 #include "common/visbuffer.glsl"
 #include "common/shading_tiles.glsl"
 #include "common/skinning.glsl"
+#include "common/terrain.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
 
 layout(set = 0, binding = 1, rg16) uniform writeonly image2D u_storage_rg16[];
 layout(set = 0, binding = 1, rg16f) uniform writeonly image2D u_storage_rg16f[];
@@ -33,7 +35,9 @@ layout(push_constant) uniform Push {
     ClusterRefsBuffer cluster_refs;
     ShadingTileBuffer shading_tiles;
     SkinCacheBuffer skin_cache;
+    TerrainBuffer terrain;
     uint vis_index;
+    uint depth_index;
     uint normal_slot;
     uint motion_slot;
     uint width;
@@ -112,10 +116,24 @@ vec3 cached_normal(uint p_index) {
     return oct_decode_unnormalized(unpackSnorm2x16(pc.skin_cache.normals.data[p_index]));
 }
 
+bool resolve_terrain(ivec2 p_coord, vec2 p_ndc, bool p_motion, out Surface r_s) {
+    r_s.normal = vec3(0.0, 1.0, 0.0);
+    r_s.motion = vec2(0.0);
+    if (all(equal(uvec2(pc.terrain), uvec2(0u)))) return false;
+    const float depth = texelFetch(u_textures[pc.depth_index], p_coord, 0).r;
+    const vec4 h = pc.camera.inv_view_proj * vec4(p_ndc, depth, 1.0);
+    const vec3 world = h.xyz / h.w;
+    r_s.normal = terrain_normal(pc.terrain, world);
+    if (p_motion) {
+        const vec4 prev_clip = pc.camera.prev_view_proj * vec4(world, 1.0);
+        if (prev_clip.w > 0.0) r_s.motion = ((p_ndc - pc.camera.jitter.xy) - (prev_clip.xy / prev_clip.w - pc.camera.jitter.zw)) * 0.5;
+    }
+    return true;
+}
+
 bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surface r_s) {
     r_s.normal = vec3(0.0, 1.0, 0.0);
     r_s.motion = vec2(0.0);
-    if (vis_is_terrain(p_vis)) return false;
 
     const uint ref_index = vis_cluster_ref(p_vis);
     const uvec2 ref = pc.cluster_refs.data[ref_index];
@@ -228,7 +246,8 @@ bool resolve_pixel(ivec2 coord) {
     }
 
     Surface s;
-    resolve_surface(v, ndc, h.xyz / h.w - cam, write_motion, s);
+    if (vis_is_terrain(v)) resolve_terrain(coord, ndc, write_motion, s);
+    else resolve_surface(v, ndc, h.xyz / h.w - cam, write_motion, s);
 
     imageStore(u_storage_rg16[pc.normal_slot], coord, vec4(gbuffer_encode_normal(s.normal), 0.0, 0.0));
     if (write_motion) imageStore(u_storage_rg16f[pc.motion_slot], coord, vec4(s.motion, 0.0, 0.0));

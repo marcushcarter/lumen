@@ -106,6 +106,7 @@ void ImportDialog::_apply_to_rest(const Pending& p_pending)
         if (&p == &p_pending) continue;
         if (p_pending.kind == ImportKind::TEXTURE && p.kind == ImportKind::TEXTURE) {
             const TextureUsage usage = p.texture.usage;
+            p.heightfield = p_pending.heightfield;
             p.texture = p_pending.texture;
             p.texture.usage = usage;
         } else if (p_pending.kind == ImportKind::ANIMATION || p.kind == ImportKind::ANIMATION) {
@@ -156,6 +157,18 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
 static const char* const TEXTURE_USAGE_LABELS[] = { "Color", "Normal Map", "Mask", "Linear" };
 static const char* const TEXTURE_QUALITY_LABELS[] = { "Fast", "Normal", "Best" };
 static constexpr uint32_t TEXTURE_MAX_SIZES[] = { 0, 8192, 4096, 2048, 1024, 512, 256 };
+
+static const char* const IMPORT_AS_LABELS[] = { "Texture", "Heightfield" };
+
+void ImportDialog::_draw_import_as(Pending& r_pending)
+{
+    if (r_pending.reimport) return;
+    if (ui_category("Import As")) {
+        int as = r_pending.heightfield ? 1 : 0;
+        if (ImGui::Combo("Type", &as, IMPORT_AS_LABELS, (int)std::size(IMPORT_AS_LABELS))) r_pending.heightfield = as == 1;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Heightfield creates a terrain from the image. Use a 16-bit grayscale image.");
+    }
+}
 
 void ImportDialog::_draw_texture(TextureCooker::CookSettings& r_settings)
 {
@@ -241,6 +254,10 @@ void ImportDialog::_start(EditorContext& ctx, Pending& r_pending)
         return;
     }
     const std::wstring name = r_pending.name[0] ? std::filesystem::path((const char8_t*)r_pending.name).wstring() : r_pending.source.stem().wstring();
+    if (r_pending.kind == ImportKind::TEXTURE && r_pending.heightfield) {
+        TerrainCooker::import_async(ctx, r_pending.source, r_pending.dst_dir / (name + L".lterrain"));
+        return;
+    }
     if (r_pending.kind == ImportKind::TEXTURE) {
         TextureCooker::import_async(ctx, r_pending.source, r_pending.dst_dir / (name + L".ltexture"), r_pending.texture);
         return;
@@ -340,7 +357,7 @@ void ImportDialog::_draw_footer(EditorContext& ctx, Pending& r_pending)
 static const char* _dialog_title(const ImportDialog::Pending& p_pending)
 {
     switch (p_pending.kind) {
-        case ImportKind::TEXTURE: return p_pending.reimport ? "Reimport Texture" : "Import Texture";
+        case ImportKind::TEXTURE: return p_pending.reimport ? "Reimport Texture" : p_pending.heightfield ? "Import Heightfield" : "Import Texture";
         case ImportKind::MESH: return "Reimport Mesh";
         case ImportKind::ANIMATION: return "Reimport Animation";
         default: return p_pending.reimport ? "Reimport Model" : "Import Model";
@@ -374,7 +391,11 @@ void ImportDialog::draw(EditorContext& ctx)
     ImGui::PushID(&p);
     ui_field_push_style();
     _draw_header(p);
-    if (p.kind == ImportKind::TEXTURE) _draw_texture(p.texture);
+    if (p.kind == ImportKind::TEXTURE) {
+        _draw_import_as(p);
+        if (p.heightfield) ui_category_flush();
+        else _draw_texture(p.texture);
+    }
     else if (p.kind == ImportKind::ANIMATION) _draw_transform(p.model.mesh_settings);
     else _draw_model(p.model, p.kind == ImportKind::MODEL);
     ui_field_pop_style();

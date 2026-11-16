@@ -14,11 +14,30 @@ struct ProjectManager
     enum class Filter { ALL, FAVORITES, MISSING };
     enum class NewProjectStatus { VALID, WARNING, INVALID };
 
+    struct ContentKind {
+        const char* label;
+        const char* extension;
+        const char* legacy_extension;
+    };
+
+    static constexpr ContentKind CONTENT_KINDS[] = {
+        { "Scenes", ".lscene", nullptr },
+        { "Templates", ".ltemplate", nullptr },
+        { "Terrains", ".lterrain", nullptr },
+        { "Models", ".lmodel", nullptr },
+        { "Meshes", ".lmesh", nullptr },
+        { "Materials", ".lmaterial", nullptr },
+        { "Textures", ".ltexture", nullptr },
+        { "Skeletons", ".lskeleton", nullptr },
+        { "Animations", ".lanim", nullptr },
+        { "Blend Spaces", ".lblendspace", nullptr },
+        { "Locomotion", ".llocomotion", ".lcharacter" },
+        { "Overlays", ".loverlay", nullptr },
+    };
+    static constexpr uint32_t CONTENT_KIND_COUNT = (uint32_t)(sizeof(CONTENT_KINDS) / sizeof(CONTENT_KINDS[0]));
+
     struct ContentStats {
-        uint32_t meshes = 0;
-        uint32_t textures = 0;
-        uint32_t materials = 0;
-        uint32_t models = 0;
+        uint32_t counts[CONTENT_KIND_COUNT] = {};
         uint64_t disk_bytes = 0;
     };
 

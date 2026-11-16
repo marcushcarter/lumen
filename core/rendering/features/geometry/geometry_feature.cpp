@@ -1,6 +1,7 @@
 #include <core/rendering/features/geometry/geometry_feature.h>
 #include <core/rendering/frame_data.h>
 #include <core/rendering/resources/geometry_pool.h>
+#include <core/rendering/resources/terrain_cache.h>
 #include <core/base/profiling.h>
 #include <core/io/embedded_resource.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
@@ -789,6 +790,23 @@ void GeometryFeature::_create_draw_compact_pass(RenderGraph::Pass& r_pass, bool 
     };
 }
 
+void GeometryFeature::_create_terrain_upload_pass()
+{
+    terrain_upload_pass.name = "TerrainUpload";
+    terrain_upload_pass.category = PASS_CATEGORY_UPLOAD;
+    terrain_upload_pass.never_cull = true;
+    terrain_upload_pass.setup = [](RenderGraph::Builder& b) {
+        b.write_buffer("TerrainHeights", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    };
+    terrain_upload_pass.execute = [this](RenderGraph::CommandList& cl) {
+        const TerrainCache& t = *ctx->terrain;
+        auto* heights = cl.graph->buffer("TerrainHeights");
+        if (!heights) return;
+        const drivers::DeviceDriverVulkan::Buffer& src = t.staging[t.upload_slot];
+        for (const TerrainCache::Upload& u : t.uploads) cl.dd->command_copy_buffer(cl.cmd, src, *heights, u.size, u.src, u.dst);
+    };
+}
+
 void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, bool p_late)
 {
     r_pass.name = p_late ? "Visbuffer2" : "Visbuffer1";
@@ -825,6 +843,10 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer(p_late ? "VisibleClusters2" : "VisibleClusters", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         if (b.graph->buffer_resource("SkinCache")) b.read_buffer("SkinCache", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        if (!p_late && b.graph->buffer_resource("TerrainHeights")) {
+            b.read_buffer("Terrain", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+            b.read_buffer("TerrainHeights", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
     };
     r_pass.execute = [this, p_late](RenderGraph::CommandList& cl) {
         auto* vis = cl.graph->image("G_Visibility");
@@ -867,6 +889,18 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});
+
+        if (!p_late && terrain_frame) {
+            const TerrainCache& t = *ctx->terrain;
+            struct TerrainPush {
+                VkDeviceAddress camera_addr;
+                VkDeviceAddress terrain_addr;
+            } tp{ pc.camera_addr, cl.graph->buffer("Terrain")->device_address };
+            cl.dd->command_bind_pipeline(cl.cmd, terrain_pipe);
+            cl.dd->command_bind_push_constants(cl.cmd, sizeof(tp), &tp);
+            cl.dd->command_bind_index_buffer(cl.cmd, t.quarter_indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+            cl.draw_indexed("Terrain", TERRAIN_QUARTER_INDICES, t.patch_count);
+        }
 
         if (indices && prims && materials) {
             cl.dd->command_bind_index_buffer(cl.cmd, indices->buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -942,6 +976,11 @@ void GeometryFeature::_create_material_resolve_pass()
         b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         if (b.graph->buffer_resource("SkinCache")) b.read_buffer("SkinCache", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        if (b.graph->buffer_resource("TerrainHeights")) {
+            b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+            b.read_buffer("Terrain", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+            b.read_buffer("TerrainHeights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
         b.write_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
         b.write_image("G_Normal", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -958,6 +997,8 @@ void GeometryFeature::_create_material_resolve_pass()
         auto refs = cl.graph->buffer("ClusterRefs");
         auto tiles = cl.graph->buffer("ShadingTiles");
         auto skin_cache = cl.graph->buffer("SkinCache");
+        auto terrain = cl.graph->buffer("TerrainHeights") ? cl.graph->buffer("Terrain") : nullptr;
+        auto depth = cl.graph->image("G_Depth");
         if (!tiles) return;
 
         uint32_t gx = (vis->extent.width + 7) / 8;
@@ -971,7 +1012,9 @@ void GeometryFeature::_create_material_resolve_pass()
             VkDeviceAddress cluster_refs_addr;
             VkDeviceAddress shading_tiles_addr;
             VkDeviceAddress skin_cache_addr;
+            VkDeviceAddress terrain_addr;
             uint32_t vis_index;
+            uint32_t depth_index;
             uint32_t normal_slot;
             uint32_t motion_slot;
             uint32_t width;
@@ -985,7 +1028,9 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.cluster_refs_addr = refs->device_address;
         pc.shading_tiles_addr = tiles->device_address;
         pc.skin_cache_addr = skin_cache ? skin_headers[cl.graph->current_frame].device_address : 0;
+        pc.terrain_addr = terrain ? terrain->device_address : 0;
         pc.vis_index = vis->bindless_sampled;
+        pc.depth_index = depth ? depth->bindless_sampled : 0u;
         pc.normal_slot = normal->bindless_storage;
         pc.motion_slot = motion->bindless_storage;
         pc.width = vis->extent.width;
@@ -1240,6 +1285,7 @@ Error GeometryFeature::create_resources()
     _create_cluster_retest_pass();
     _create_draw_compact_pass(draw_compact_pass, false);
     _create_draw_compact_pass(draw_compact_pass_2, true);
+    _create_terrain_upload_pass();
     _create_visbuffer_compact_pass(visbuffer_compact_pass, false);
     _create_visbuffer_compact_pass(visbuffer_compact_pass_2, true);
     _create_hiz_pass(hiz_build_pass_2, "HiZBuild2", "HiZArgs2");
@@ -1359,6 +1405,16 @@ Error GeometryFeature::create_pipelines()
         visbuffer_spill_pipes[b] = ctx->dd->graphics_pipeline_create(pipeline_ci);
     }
     for (VkShaderModule m : shaders) ctx->dd->shader_free(m);
+
+    VkShaderModule terrain_vs = shader(L"SHADERS_RASTER_TERRAIN_VERT", Stage::VERTEX, "raster/terrain.vert");
+    VkShaderModule terrain_fs = shader(L"SHADERS_RASTER_TERRAIN_FRAG", Stage::FRAGMENT, "raster/terrain.frag");
+    pipeline_ci.cull_mode = VK_CULL_MODE_FRONT_BIT;
+    pipeline_ci.vertex_shader = terrain_vs;
+    pipeline_ci.fragment_shader = terrain_fs;
+    pipeline_ci.name = "raster/terrain";
+    terrain_pipe = ctx->dd->graphics_pipeline_create(pipeline_ci);
+    ctx->dd->shader_free(terrain_vs);
+    ctx->dd->shader_free(terrain_fs);
     }
 
     return OK;
@@ -1366,6 +1422,8 @@ Error GeometryFeature::create_pipelines()
 
 void GeometryFeature::destroy_resources()
 {
+    ctx->dd->pipeline_free(terrain_pipe);
+    terrain_pipe = {};
     ctx->dd->pipeline_free(instance_cull_pipe);
     ctx->dd->pipeline_free(node_seed_pipe);
     ctx->dd->pipeline_free(node_traverse_pipe);
@@ -1417,6 +1475,14 @@ void GeometryFeature::build(RenderGraph& g)
     }
 
     const uint32_t slot = ctx->graph->current_frame;
+    TerrainCache* terrain = ctx->terrain;
+    terrain_frame = false;
+    if (terrain && terrain->owner == ctx->frame && terrain->frame_active) {
+        g.import_buffer("TerrainHeights", &terrain->heights, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+        g.import_buffer("Terrain", &terrain->uniform_buffers[terrain->upload_slot], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+        if (!terrain->uploads.empty()) g.add(&terrain_upload_pass);
+        terrain_frame = terrain->patch_count > 0;
+    }
     constexpr bool MESH_PATH_READY = false;
     bool ms_active = MESH_PATH_READY && mesh_shading && ctx->dd->capabilities.mesh.mesh_shader;
     bool task_active = ms_active && task_shading && ctx->dd->capabilities.mesh.task_shader;
@@ -1429,7 +1495,7 @@ void GeometryFeature::build(RenderGraph& g)
     if (frozen) skin_frame = skin_frame && frozen_has_skin;
     else _ref_update(slot);
 
-    const bool want_stats = ctx->profiling && ctx->profiling->gpu_on();
+    const bool want_stats = collect_stats || (ctx->profiling && ctx->profiling->gpu_on());
     if (want_stats && slot < stats_readback.size() && stats_written[slot]) {
         drivers::DeviceDriverVulkan::Buffer& rb = stats_readback[slot];
         ctx->dd->buffer_invalidate(rb, 0, sizeof(CullStats));

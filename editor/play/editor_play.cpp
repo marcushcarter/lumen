@@ -107,6 +107,14 @@ void EditorPlay::_sync_entity(Entity p_authored)
 
 void EditorPlay::_sync_environment()
 {
+    if (authored->terrain != _terrain) {
+        _terrain = authored->terrain;
+        runtime.terrain = authored->terrain;
+    }
+    if (authored->shadows != _shadows) {
+        _shadows = authored->shadows;
+        runtime.shadows = authored->shadows;
+    }
     if (std::memcmp(&authored->environment, &_environment, sizeof(EnvironmentSettings)) == 0) return;
     _environment = authored->environment;
     runtime.environment = authored->environment;
@@ -118,6 +126,10 @@ void EditorPlay::_clone()
     runtime.load();
     std::memcpy((void*)&_environment, &authored->environment, sizeof(EnvironmentSettings));
     runtime.environment = authored->environment;
+    _terrain = authored->terrain;
+    runtime.terrain = authored->terrain;
+    _shadows = authored->shadows;
+    runtime.shadows = authored->shadows;
     std::vector<Entity> entities;
     authored->view<EntityIdComponent>([&](Entity p_entity, const EntityIdComponent&) { entities.push_back(p_entity); });
     for (const Entity e : entities) _sync_entity(e);

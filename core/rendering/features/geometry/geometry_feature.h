@@ -84,6 +84,7 @@ struct GeometryFeature : Feature
     bool occlusion_frame = true;
     bool hiz_build_frame = true;
     bool freeze = false;
+    bool collect_stats = false;
     bool frozen = false;
     bool frozen_ready = false;
     bool frozen_has_skin = false;
@@ -161,6 +162,8 @@ struct GeometryFeature : Feature
     RenderGraph::Pass stats_pass;
     RenderGraph::Pass ref_feedback_pass;
     RenderGraph::Pass freeze_capture_pass;
+    RenderGraph::Pass terrain_upload_pass;
+    bool terrain_frame = false;
 
     drivers::DeviceDriverVulkan::Pipeline instance_cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline node_seed_pipe;
@@ -175,6 +178,7 @@ struct GeometryFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline visbuffer_spill_pipes[RASTER_BIN_COUNT];
     drivers::DeviceDriverVulkan::Pipeline material_resolve_pipe;
     drivers::DeviceDriverVulkan::Pipeline skin_clusters_pipe;
+    drivers::DeviceDriverVulkan::Pipeline terrain_pipe;
 
     void _compact_update(bool p_feedback, const uint64_t* p_demand);
     bool _compact_reserve(const uint32_t* p_bin_tris);
@@ -193,6 +197,7 @@ struct GeometryFeature : Feature
     void _create_cluster_retest_args_pass();
     void _create_cluster_retest_pass();
     void _create_draw_compact_pass(RenderGraph::Pass& r_pass, bool p_late);
+    void _create_terrain_upload_pass();
     void _create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, bool p_late);
     void _create_compact_feedback_pass();
     void _create_material_resolve_pass();

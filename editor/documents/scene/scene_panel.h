@@ -46,6 +46,7 @@ struct ScenePanel : Panel
     double last_rebuild = -1.0;
     bool dirty = true;
     bool expect_world_change = false;
+    bool world_open = false;
 
     char filter[128] = {};
     bool sort_ascending = true;
@@ -66,6 +67,8 @@ struct ScenePanel : Panel
     void _draw_toolbar(EditorContext& ctx);
     void _draw_table(EditorContext& ctx, float p_footer_h);
     void _draw_row(EditorContext& ctx, int p_index, float p_row_h);
+    uint32_t _world_row_count(const EditorContext& ctx) const;
+    void _draw_world_rows(EditorContext& ctx, float p_row_h);
     void _draw_footer(EditorContext& ctx);
     void _row_menu(EditorContext& ctx, const Row& p_row);
 

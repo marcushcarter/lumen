@@ -330,19 +330,36 @@ void Viewport::draw_stats(EditorContext& ctx, ImVec2 p_pos)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const RenderView& v = ctx.renderer->main_view;
     const float ms = ctx.frame_stats ? ctx.frame_stats->frame_avg : 0.0f;
-    char tris[32] = "-";
-    char clusters[32] = "-";
+    const TerrainCache& terrain = ctx.renderer->terrain;
+    const uint32_t patches = terrain.owner == &v.frame && terrain.frame_active ? terrain.patch_count : 0u;
+    const uint64_t terrain_tris = (uint64_t)patches * TERRAIN_QUARTER_QUADS * TERRAIN_QUARTER_QUADS * 2u;
+    uint64_t mesh_tris = 0;
+    uint32_t clusters = 0;
     if (ctx.render_path) {
         const GeometryFeature& geo = ctx.render_path->geometry;
-        if (geo.compact_raster_frame) std::snprintf(tris, sizeof(tris), "%u", geo.compact_demand);
-        if (ctx.profiling && ctx.profiling->gpu_on()) std::snprintf(clusters, sizeof(clusters), "%u", geo.stats.phase1_visible + geo.stats.phase2_visible);
-        else std::snprintf(clusters, sizeof(clusters), "%u", v.frame.cluster_ref_capacity);
+        if (geo.compact_raster_frame) mesh_tris = geo.compact_demand;
+        clusters = geo.stats.phase1_visible + geo.stats.phase2_visible;
     }
     char line0[256];
-    std::snprintf(line0, sizeof(line0), "FPS: %.1f (%.2f ms) - Instances: %u - Triangles: %s - Clusters: %s", ms > 0.0f ? 1000.0f / ms : 0.0f, ms, v.frame.instance_count, tris, clusters);
-    const VkPhysicalDeviceProperties& props = ctx.renderer->dd->physical_device_properties;
+    const float cpu_ms = ctx.frame_stats ? std::max(ctx.frame_stats->frame_avg - ctx.frame_stats->wait_avg, 0.0f) : 0.0f;
+    std::snprintf(line0, sizeof(line0), "FPS Main: %.1f Render: %.1f (ms: %.2f, %.2f) - Instances: %u - Triangles: %llu - Clusters: %u - Patches: %u", ms > 0.0f ? 1000.0f / ms : 0.0f, cpu_ms > 0.0f ? 1000.0f / cpu_ms : 0.0f, ms, cpu_ms, v.frame.instance_count + patches, (unsigned long long)(mesh_tris + terrain_tris), clusters, patches);
+
+    drivers::DeviceDriverVulkan& dd = *ctx.renderer->dd;
+    VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
+    vmaGetHeapBudgets(dd.allocator, budgets);
+    VkPhysicalDeviceMemoryProperties mem{};
+    vkGetPhysicalDeviceMemoryProperties(dd.physical_device, &mem);
+    uint64_t used = 0;
+    uint64_t total = 0;
+    for (uint32_t h = 0; h < mem.memoryHeapCount; h++) {
+        if ((mem.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0) continue;
+        used += budgets[h].usage;
+        total += mem.memoryHeaps[h].size;
+    }
+    constexpr double MB = 1024.0 * 1024.0;
+    const VkPhysicalDeviceProperties& props = dd.physical_device_properties;
     char line1[320];
-    std::snprintf(line1, sizeof(line1), "Vulkan %u.%u.%u - %s", VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion), props.deviceName);
+    std::snprintf(line1, sizeof(line1), "Vulkan %u.%u.%u.%u (%s, [%u x %u], VRAM %.1f%% %.0fMB/%.0fMB)", VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion), VK_API_VERSION_VARIANT(props.apiVersion), props.deviceName, v.width, v.height, total ? 100.0 * (double)used / (double)total : 0.0, (double)used / MB, (double)total / MB);
     const float lh = ImGui::GetTextLineHeight();
     const ImVec2 at(p_pos.x + ui.space.sm, p_pos.y + ui.space.xs);
     const char* lines[2] = { line0, line1 };
@@ -468,6 +485,8 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 
     if (ctx.render_path) {
         ctx.render_path->geometry.freeze = view.culling_paused;
+        ctx.render_path->geometry.collect_stats = view.stats;
+        ctx.renderer->terrain.freeze = view.culling_paused;
         ctx.render_path->debug.view = (uint32_t)std::clamp(view.debug_view, 0, DEBUG_VIEW_COUNT - 1);
     }
 }

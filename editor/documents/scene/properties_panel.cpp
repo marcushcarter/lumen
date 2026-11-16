@@ -154,7 +154,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const Scene* live = live_on ? &ctx.play->runtime : nullptr;
 
     const Entity selected = ctx.selection->primary();
-    const bool has_target = ctx.selection->environment || world.valid(selected);
+    const bool has_target = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || world.valid(selected);
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x;
@@ -179,7 +179,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (!has_target) return;
 
     const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX;
-    const float footer_h = ctx.selection->environment ? 0.0f : ui.row;
+    const float footer_h = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows ? 0.0f : ui.row;
     ui_field_push_style();
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ui.space.sm, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.0f));
@@ -191,6 +191,30 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
     ImGui::TableSetupColumn("Live Value", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
+
+    if (ctx.selection->shadows) {
+        if (_section("Shadows")) {
+            _name("Player Shadow");
+            ImGui::Checkbox("##player_shadow", &world.shadows.player_shadow);
+            _live("%s", live ? (live->shadows.player_shadow ? "On" : "Off") : "-");
+        }
+        ImGui::EndTable();
+        ImGui::PopStyleVar(2);
+        ui_field_pop_style();
+        return;
+    }
+
+    if (ctx.selection->terrain) {
+        if (_section("Terrain")) {
+            _name("Terrain");
+            asset_field(ctx, "", "###terrain_asset", world.terrain.terrain, AssetType::TERRAIN);
+            _live("%s", live && live->terrain.terrain.valid() ? "Set" : "-");
+        }
+        ImGui::EndTable();
+        ImGui::PopStyleVar(2);
+        ui_field_pop_style();
+        return;
+    }
 
     if (ctx.selection->environment) {
         EnvironmentSettings& env = world.environment;

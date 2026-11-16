@@ -23,6 +23,7 @@ struct CharacterSystem : GameSystem
     static constexpr float MIN_SLOPE_DEGREES = 1.0f;
     static constexpr float MAX_SLOPE_DEGREES = 89.0f;
     static constexpr float RESPAWN_DROP = 100.0f;
+    static constexpr float FLOOR_MARGIN = 50.0f;
     static constexpr float MOVING_SPEED = 1.5f;
     static constexpr float GAIT_MARGIN = 0.1f;
     static constexpr float SPRINT_INPUT = 0.9f;

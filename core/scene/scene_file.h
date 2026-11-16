@@ -19,6 +19,8 @@ struct SceneFile
     static constexpr const char* TEMPLATE_SECTION = "template";
     static constexpr const char* KEY_ROOT = "root";
     static constexpr const char* KEY_ENVIRONMENT = "environment";
+    static constexpr const char* KEY_TERRAIN = "terrain";
+    static constexpr const char* KEY_SHADOWS = "shadows";
     static constexpr const char* KEY_LEGACY_FOLDERS = "folders";
     static constexpr const char* KEY_LEGACY_FOLDER = "folder";
     static constexpr const char* KEY_ENTITIES = "entities";

@@ -34,7 +34,8 @@ struct PoseComponent
     std::vector<mat4> skin;
 };
 
-enum class CollisionShapeType : uint8_t { BOX, SPHERE, CAPSULE, MODEL, COUNT };
+enum class CollisionShapeType : uint8_t { BOX, SPHERE, CAPSULE, CYLINDER, TAPERED_CYLINDER, TAPERED_CAPSULE, WEDGE, COUNT };
+enum class CollisionSource : uint8_t { MESH, SHAPES, COUNT };
 
 static constexpr uint32_t COLLISION_MAX_SHAPES = 8;
 
@@ -46,16 +47,18 @@ struct CollisionShapeEntry
     vec3 half_extents = vec3(0.5f);
     float radius = 0.5f;
     float half_height = 0.5f;
+    float top_radius = 0.25f;
 };
 
 struct CollisionComponent
 {
+    CollisionSource source = CollisionSource::MESH;
     PhysicsMotion motion = PhysicsMotion::STATIC;
     float mass = 10.0f;
     float friction = 0.5f;
     float restitution = 0.0f;
     bool trigger = false;
-    uint32_t shape_count = 1;
+    uint32_t shape_count = 0;
     CollisionShapeEntry shapes[COLLISION_MAX_SHAPES];
 };
 

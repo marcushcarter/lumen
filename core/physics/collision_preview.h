@@ -3,6 +3,7 @@
 #include <core/assets/lcollision.h>
 #include <core/rendering/debug_draw.h>
 #include <core/scene/components.h>
+#include <core/physics/physics_types.h>
 #include <chrono>
 #include <filesystem>
 #include <unordered_map>
@@ -33,6 +34,10 @@ mat4 collision_shape_matrix(const CollisionShapeEntry& p_shape);
 uint32_t collision_color(const CollisionComponent& p_collision);
 void collision_edges(const LCollision& p_collision, std::vector<uint32_t>& r_edges);
 void debug_draw_lcollision(DebugDraw& r_draw, const mat4& p_transform, const LCollision& p_collision, const std::vector<uint32_t>& p_edges, const DebugDraw::Style& p_style, bool p_meshes);
-void debug_draw_collision_shape(DebugDraw& r_draw, const mat4& p_world, const CollisionShapeEntry& p_shape, const CollisionMeshCache::Entry* p_model, const DebugDraw::Style& p_style, bool p_meshes);
+PhysicsShape physics_shape(const CollisionShapeEntry& p_shape);
+PhysicsShape physics_shape(const LCollisionShape& p_shape);
+void debug_draw_physics_shape(DebugDraw& r_draw, const mat4& p_transform, const PhysicsShape& p_shape, const DebugDraw::Style& p_style);
+void debug_draw_lcollision_shape(DebugDraw& r_draw, const mat4& p_transform, const LCollisionShape& p_shape, const DebugDraw::Style& p_style);
+void debug_draw_collision_shape(DebugDraw& r_draw, const mat4& p_world, const CollisionShapeEntry& p_shape, const DebugDraw::Style& p_style);
 
 }

@@ -6,6 +6,13 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/Memory.h>
 #include <Jolt/RegisterTypes.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/TaperedCapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/TaperedCylinderShape.h>
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -13,6 +20,65 @@
 namespace lumen {
 
 namespace jolt {
+
+static constexpr float MIN_PRIMITIVE = 1e-3f;
+static constexpr float TAPER_EPSILON = 1e-3f;
+
+static JPH::RefConst<JPH::Shape> _created(const JPH::ShapeSettings::ShapeResult& p_result, const char* p_what)
+{
+    if (p_result.HasError()) {
+        log_write("Physics: %s shape failed: %s", p_what, p_result.GetError().c_str());
+        return nullptr;
+    }
+    return p_result.Get();
+}
+
+static float _convex(float p_smallest)
+{
+    return std::min(JPH::cDefaultConvexRadius, p_smallest * 0.5f);
+}
+
+JPH::RefConst<JPH::Shape> primitive_shape(const PhysicsShape& p_shape)
+{
+    const float radius = std::max(p_shape.radius, MIN_PRIMITIVE);
+    const float top = std::max(p_shape.top_radius, MIN_PRIMITIVE);
+    const float half_height = std::max(p_shape.half_height, MIN_PRIMITIVE);
+    const vec3 half = glm::max(p_shape.half_extents, vec3(MIN_PRIMITIVE));
+    switch (p_shape.type) {
+        case PhysicsShapeType::BOX: {
+            JPH::BoxShapeSettings settings(to_jph(half), _convex(std::min(half.x, std::min(half.y, half.z))));
+            return _created(settings.Create(), "box");
+        }
+        case PhysicsShapeType::SPHERE:
+            return new JPH::SphereShape(radius);
+        case PhysicsShapeType::CAPSULE:
+            return new JPH::CapsuleShape(half_height, radius);
+        case PhysicsShapeType::CYLINDER:
+            return new JPH::CylinderShape(half_height, radius, _convex(std::min(half_height, radius)));
+        case PhysicsShapeType::TAPERED_CYLINDER: {
+            if (std::fabs(top - radius) < TAPER_EPSILON) return new JPH::CylinderShape(half_height, radius, _convex(std::min(half_height, radius)));
+            JPH::TaperedCylinderShapeSettings settings(half_height, top, radius, _convex(std::min(half_height, std::min(top, radius))));
+            return _created(settings.Create(), "tapered cylinder");
+        }
+        case PhysicsShapeType::TAPERED_CAPSULE: {
+            if (std::fabs(top - radius) < TAPER_EPSILON) return new JPH::CapsuleShape(half_height, radius);
+            JPH::TaperedCapsuleShapeSettings settings(half_height, top, radius);
+            return _created(settings.Create(), "tapered capsule");
+        }
+        case PhysicsShapeType::WEDGE: {
+            JPH::Array<JPH::Vec3> points = {
+                JPH::Vec3(-half.x, -half.y, -half.z), JPH::Vec3(half.x, -half.y, -half.z),
+                JPH::Vec3(-half.x, -half.y, half.z), JPH::Vec3(half.x, -half.y, half.z),
+                JPH::Vec3(-half.x, half.y, half.z), JPH::Vec3(half.x, half.y, half.z),
+            };
+            JPH::ConvexHullShapeSettings settings(points, _convex(std::min(half.x, std::min(half.y, half.z))));
+            return _created(settings.Create(), "wedge");
+        }
+        default:
+            return nullptr;
+    }
+}
+
 
 static std::unique_ptr<Layers> g_layers;
 static std::unique_ptr<JobAdapter> g_jobs;

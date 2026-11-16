@@ -3,6 +3,8 @@
 #include <core/assets/lmodel.h>
 #include <core/animation/anim_library.h>
 #include <core/project/project.h>
+#include <core/scene/scene_file.h>
+#include <core/scene/template.h>
 #include <system_error>
 
 namespace lumen {
@@ -57,7 +59,7 @@ void ContentCooker::_cook_copy(const Project& p_project, const std::filesystem::
         r_result.failed++;
         return;
     }
-    const std::filesystem::path cooked = AnimLibrary::cooked_path(p_project.content_dir, info.guid, p_extension);
+    const std::filesystem::path cooked = p_project.content_path(info.guid, p_extension);
     std::error_code ec;
     const auto cooked_time = std::filesystem::last_write_time(cooked, ec);
     if (!ec && cooked_time >= std::filesystem::last_write_time(p_source, ec) && !ec) {
@@ -86,6 +88,8 @@ ContentCooker::Result ContentCooker::cook(const Project& p_project)
         else if (ext == ".lmaterial") _cook_file(p_project, it->path(), AssetType::MATERIAL, result);
         else if (ext == AnimLibrary::SPACE_EXTENSION) _cook_copy(p_project, it->path(), AnimLibrary::SPACE_EXTENSION, result);
         else if (ext == LLocomotion::EXTENSION || ext == LLocomotion::LEGACY_EXTENSION) _cook_copy(p_project, it->path(), LLocomotion::EXTENSION, result);
+        else if (ext == SceneFile::EXTENSION) _cook_copy(p_project, it->path(), SceneFile::EXTENSION, result);
+        else if (ext == TemplateLibrary::EXTENSION) _cook_copy(p_project, it->path(), TemplateLibrary::EXTENSION, result);
     }
     if (ec) {
         log_write("Cook: couldn't scan '%s' (%s).", p_project.assets_dir.string().c_str(), ec.message().c_str());

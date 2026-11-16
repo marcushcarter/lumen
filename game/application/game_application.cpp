@@ -14,10 +14,12 @@ namespace lumen {
 
 void GameApplication::_load_world()
 {
+    if (world_path.empty() && project.settings.start_scene.valid()) world_path = project.content_path(project.settings.start_scene, SceneFile::EXTENSION);
     if (world_path.empty()) {
-        log_write("Game: no scene to load, starting empty.");
+        log_write("Game: no start scene is set in Project Settings, starting empty.");
         return;
     }
+    template_library().index(project.content_dir);
     template_library().index(project.assets_dir);
     SceneFile file;
     if (SceneFile::read(world_path, scene, false, file) != Error::OK) log_write("Game: failed to load the scene '%s'.", world_path.string().c_str());

@@ -5,10 +5,14 @@
 #include <editor/ui/ui_widgets.h>
 #include <editor/assets/import/import_dialog.h>
 #include <editor/assets/import/collision_cooker.h>
+#include <editor/viewport/shape_gizmo.h>
 #include <drivers/windows/dialogs_win32.h>
 #include <editor/assets/import/asset_import_tracker.h>
 #include <IconsFontAwesome6.h>
 #include <imgui.h>
+#include <imgui_internal.h>
+#include <cstdio>
+#include <vector>
 
 namespace lumen {
 
@@ -51,42 +55,86 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
         const bool locked = tab->locked(ctx);
         if (locked) ImGui::BeginDisabled();
 
-        if (!c.generate || !c.has) {
-            ImGui::TextDisabled(!c.generate ? "Generate Collision is off for this mesh." : "This mesh has no collision yet.");
+        static constexpr CollisionType MODES[] = { CollisionType::MESH, CollisionType::HULL, CollisionType::SHAPES };
+        const bool none = !tab->shapes_mode() && (!c.generate || !c.has) && c.edit == c.settings;
+        const char* current = none ? "None" : collision_type_label(c.edit.type);
+        if (ImGui::BeginCombo("Mode", current)) {
+            if (ImGui::Selectable("None", none) && !none) {
+                if (!c.has) {
+                    c.edit = c.settings;
+                    if (c.edit.type == CollisionType::SHAPES) c.edit.type = CollisionType::HULL;
+                } else if (drivers::Win32Dialogs::ask(L"Lumen Editor", L"Delete this mesh's collision?", L"Reimports won't bring it back. You can build it again from here.", L"Delete", L"Cancel")) {
+                    CollisionCooker::remove(ctx, tab->path);
+                    c.edit = c.settings;
+                    if (c.edit.type == CollisionType::SHAPES) c.edit.type = CollisionType::HULL;
+                }
+            }
+            for (CollisionType t : MODES) {
+                if (!ImGui::Selectable(collision_type_label(t), !none && c.edit.type == t) || (!none && c.edit.type == t)) continue;
+                c.edit.type = t;
+                if (t == CollisionType::SHAPES && c.edit.shapes.empty()) tab->add_shape(CollisionType::BOX);
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Triangle Mesh is exact but static only. Convex Hull and Shapes work on moving objects.");
+
+        if (!none && tab->shapes_mode()) {
+            std::vector<CollisionShapeSettings>& shapes = c.edit.shapes;
+            if (ImGui::BeginCombo("##add_shape", ICON_FA_PLUS "  Add Shape", ImGuiComboFlags_NoArrowButton)) {
+                for (int i = 0; i < (int)CollisionShapeType::COUNT; i++) if (ImGui::Selectable(SHAPE_NAMES[i])) tab->add_shape(shape_collision_type((CollisionShapeType)i));
+                ImGui::EndCombo();
+            }
+            int32_t remove = -1;
+            for (int32_t i = 0; i < (int32_t)shapes.size(); i++) {
+                ImGui::PushID(i);
+                char label[160];
+                std::snprintf(label, sizeof(label), "%s  %s", SHAPE_NAMES[(int)shape_kind(shapes[i].type)], shapes[i].name.c_str());
+                if (ImGui::Selectable(label, tab->selected_shape == i, 0, ImVec2(ImMax(1.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x), 0.0f))) tab->selected_shape = i;
+                ImGui::SameLine();
+                if (ImGui::SmallButton(ICON_FA_XMARK)) remove = i;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Remove this shape");
+                ImGui::PopID();
+            }
+            if (remove >= 0) {
+                shapes.erase(shapes.begin() + remove);
+                if (tab->selected_shape == remove) tab->selected_shape = -1;
+                else if (tab->selected_shape > remove) tab->selected_shape--;
+            }
+
+            const int32_t sel = tab->selected_shape;
+            if (sel >= 0 && sel < (int32_t)shapes.size()) {
+                CollisionShapeSettings& s = shapes[sel];
+                ImGui::Spacing();
+                int type = (int)shape_kind(s.type);
+                if (ImGui::Combo("Type", &type, SHAPE_NAMES, (int)CollisionShapeType::COUNT)) s.type = shape_collision_type((CollisionShapeType)type);
+                char name[64];
+                std::snprintf(name, sizeof(name), "%s", s.name.c_str());
+                if (ImGui::InputText("Name", name, sizeof(name))) s.name = name;
+                const ShapeFields fields = shape_fields(shape_kind(s.type));
+                ImGui::DragFloat3("Position", &s.position.x, 0.01f, -1000.0f, 1000.0f, "%.2f");
+                if (fields.rotation) ImGui::DragFloat3("Rotation", &s.rotation.x, 0.5f, -360.0f, 360.0f, "%.1f");
+                if (fields.half_extents) ImGui::DragFloat3("Half Extents", &s.half_extents.x, 0.01f, 0.001f, 1000.0f, "%.2f");
+                if (fields.radius) ImGui::DragFloat(fields.top_radius ? "Bottom Radius" : "Radius", &s.radius, 0.01f, 0.001f, 1000.0f, "%.2f");
+                if (fields.top_radius) ImGui::DragFloat("Top Radius", &s.top_radius, 0.01f, 0.001f, 1000.0f, "%.2f");
+                if (fields.half_height) ImGui::DragFloat("Half Height", &s.half_height, 0.01f, 0.001f, 1000.0f, "%.2f");
+                if (ImGui::Button(ICON_FA_EXPAND "  Fit to Mesh")) tab->fit_shape(s);
+            }
+            if (tab->shapes_dirty()) ImGui::TextDisabled("Save (Ctrl+S) to cook these shapes into the mesh.");
+        } else if (!none) {
             collision_settings_fields(c.edit);
-            if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Generate Collision")) CollisionCooker::reimport(ctx, tab->path, c.edit);
-        } else {
-            if (c.loaded) {
+            if (c.loaded && c.edit.type == c.data.type) {
                 const LCollision& d = c.data;
                 const vec3 size = d.bounds_max - d.bounds_min;
-                ImGui::Text("Type: %s", collision_type_label(d.type));
-                if (!d.primitive()) {
-                    ImGui::Text("Triangles: %s", fmt_count(d.triangle_count()));
-                    ImGui::Text("Source Triangles: %s", fmt_count(d.source_triangles));
-                    ImGui::Text("Vertices: %s", fmt_count((uint32_t)d.vertices.size()));
-                }
+                ImGui::Text("Triangles: %s", fmt_count(d.triangle_count()));
+                ImGui::Text("Vertices: %s", fmt_count((uint32_t)d.vertices.size()));
                 ImGui::Text("Size: %.2fm x %.2fm x %.2fm", size.x, size.y, size.z);
-            } else {
-                ImGui::TextDisabled("Collision data couldn't be read.");
             }
-            ImGui::Spacing();
-
-            collision_settings_fields(c.edit);
-            const bool changed = !(c.edit == c.settings);
+            const bool changed = !(c.edit == c.settings) || !c.has || !c.generate;
             if (!changed) ImGui::BeginDisabled();
-            if (ImGui::Button(ICON_FA_CHECK "  Apply")) CollisionCooker::reimport(ctx, tab->path, c.edit);
+            if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Generate")) CollisionCooker::reimport(ctx, tab->path, c.edit);
             ImGui::SameLine();
             if (ImGui::Button("Revert")) c.edit = c.settings;
             if (!changed) ImGui::EndDisabled();
-
-            ImGui::Spacing();
-            ui_push_buttons(UiButton::DANGER);
-            const bool remove = ImGui::Button(ICON_FA_TRASH_CAN "  Delete Collision");
-            ui_pop_buttons();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the collision and turns Generate Collision off for this mesh");
-            if (remove && drivers::Win32Dialogs::ask(L"Lumen Editor", L"Delete this mesh's collision?", L"Generate Collision is turned off so reimports won't bring it back. You can generate it again from here.", L"Delete", L"Cancel")) {
-                CollisionCooker::remove(ctx, tab->path);
-            }
         }
 
         if (locked) ImGui::EndDisabled();

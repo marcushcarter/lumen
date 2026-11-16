@@ -20,6 +20,7 @@ struct EditorPlay
     Guid scene_guid;
     EnvironmentSettings _environment;
     bool step_pending = false;
+    float simulated_dt = 0.0f;
 
     Error initialize();
     void shutdown();

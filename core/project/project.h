@@ -36,6 +36,7 @@ struct Project
     void _resolve_dirs(const std::filesystem::path& p_root);
     static Error _ensure_layout(const std::filesystem::path& p_root);
     std::filesystem::path content_path(Guid p_guid) const;
+    std::filesystem::path content_path(Guid p_guid, const char* p_extension) const;
     void remove_content(Guid p_guid) const;
     std::filesystem::path icon_path() const { return root / FILE_ICON; }
     std::filesystem::path splash_path() const { return root / FILE_SPLASH; }

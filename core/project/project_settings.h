@@ -16,6 +16,7 @@ struct ProjectSettings
     int height = DEFAULT_HEIGHT;
     Guid window_icon;
     Guid splash_image;
+    Guid start_scene;
     std::string window_title;
     std::string export_folder;
     std::string export_exe;

@@ -56,6 +56,7 @@ struct CharacterSystem : GameSystem
     static constexpr float IMPACT_PROBE_RADIUS = 0.12f;
     static constexpr float IMPACT_REACH = 0.15f;
     static constexpr float IMPACT_MIN_SPEED = 0.5f;
+    static constexpr float IMPACT_MIN_MASS = 150.0f;
     static constexpr float HEAD_PROBE_DROP = 0.2f;
     static constexpr float BODY_PROBE_HEIGHT = 0.45f;
     static constexpr float CHEST_PROBE_HEIGHT = 0.6f;

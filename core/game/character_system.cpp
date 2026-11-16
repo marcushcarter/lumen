@@ -523,6 +523,7 @@ bool CharacterSystem::_detect_impact(Character& r_character, const LLocomotion& 
     CharacterRagdoll& rag = r_character.ragdoll;
 
     const auto take = [&](const PhysicsHit& p_hit, const vec3& p_dir, float p_speed, float p_push, float p_scale, bool p_soft) {
+        if (pw->body_mass(p_hit.body) < IMPACT_MIN_MASS) return false;
         const bool repeat = rag.obstacle_memory > 0.0f && length(p_hit.position - rag.last_obstacle) < CharacterRagdoll::OBSTACLE_RADIUS;
         rag.last_obstacle = p_hit.position;
         rag.obstacle_memory = CharacterRagdoll::OBSTACLE_MEMORY;

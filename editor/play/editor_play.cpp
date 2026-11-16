@@ -61,6 +61,7 @@ void EditorPlay::step()
 
 void EditorPlay::update(float p_dt)
 {
+    simulated_dt = 0.0f;
     if (!active()) return;
     _mirror();
     if (step_pending && editing()) {
@@ -68,10 +69,12 @@ void EditorPlay::update(float p_dt)
         session.resume();
         session.update(STEP_DT);
         session.pause();
+        simulated_dt = STEP_DT;
         return;
     }
     step_pending = false;
     session.update(p_dt);
+    if (playing()) simulated_dt = p_dt;
 }
 
 Entity EditorPlay::to_runtime(Entity p_authored) const

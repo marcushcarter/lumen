@@ -31,6 +31,7 @@ struct MeshDocument : AssetDocument
         std::filesystem::file_time_type time{};
     };
     CollisionView collision;
+    int32_t selected_shape = -1;
 
     std::filesystem::file_time_type _stats_time{};
     double _stats_poll = -1.0e9;
@@ -43,9 +44,16 @@ struct MeshDocument : AssetDocument
     void _refresh_stats(EditorContext& ctx);
     void _refresh_collision(EditorContext& ctx);
     void _draw_collision(DebugDraw& r_draw) const;
+    void _edit_selected_shape(EditorContext& ctx);
+
+    bool shapes_mode() const { return collision.edit.type == CollisionType::SHAPES; }
+    bool shapes_dirty() const { return shapes_mode() && (!(collision.edit == collision.settings) || (!collision.edit.shapes.empty() && !(collision.generate && collision.has))); }
+    void fit_shape(CollisionShapeSettings& r_shape) const;
+    void add_shape(CollisionType p_type);
     void _frame(EditorContext& ctx);
 
-    bool dirty() const override { return rig_preview.skinned && rig_preview.skeleton != rig_preview.rig.skeleton; }
+    bool skeleton_dirty() const { return rig_preview.skinned && rig_preview.skeleton != rig_preview.rig.skeleton; }
+    bool dirty() const override { return skeleton_dirty() || shapes_dirty(); }
     Error create(EditorContext& ctx) override;
     Error save(EditorContext& ctx) override;
     void on_update(EditorContext& ctx, float p_dt) override;

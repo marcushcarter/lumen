@@ -14,6 +14,7 @@ struct Scene;
 
 struct SceneFile
 {
+    static constexpr const char* EXTENSION = ".lscene";
     static constexpr const char* SECTION = "world";
     static constexpr const char* TEMPLATE_SECTION = "template";
     static constexpr const char* KEY_ROOT = "root";

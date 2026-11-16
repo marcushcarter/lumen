@@ -1,6 +1,7 @@
 #include <core/physics/collision_cache.h>
 #include <core/assets/lmesh.h>
 #include <core/physics/jolt_bridge.h>
+#include <core/physics/collision_preview.h>
 #include <core/base/error.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -8,6 +9,7 @@
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <unordered_map>
 
 namespace lumen {
@@ -43,6 +45,20 @@ static JPH::RefConst<JPH::Shape> _place(JPH::RefConst<JPH::Shape> p_shape, const
     return _result(settings.Create(), "placed");
 }
 
+static JPH::RefConst<JPH::Shape> _build_shapes(const LCollision& p_collision)
+{
+    JPH::StaticCompoundShapeSettings compound;
+    uint32_t added = 0;
+    for (const LCollisionShape& s : p_collision.shapes) {
+        JPH::RefConst<JPH::Shape> shape = jolt::primitive_shape(physics_shape(s));
+        if (!shape) continue;
+        compound.AddShape(jolt::to_jph(vec3(s.center)), jolt::to_jph(normalize(s.orientation())), shape);
+        added++;
+    }
+    if (added == 0) return nullptr;
+    return _result(compound.Create(), "compound");
+}
+
 static JPH::RefConst<JPH::Shape> _build(const LCollision& p_collision)
 {
     switch (p_collision.type) {
@@ -73,6 +89,8 @@ static JPH::RefConst<JPH::Shape> _build(const LCollision& p_collision)
             return _place(new JPH::SphereShape(std::max(p_collision.radius, MIN_EXTENT)), p_collision);
         case CollisionType::CAPSULE:
             return _place(new JPH::CapsuleShape(std::max(p_collision.half_height, MIN_EXTENT), std::max(p_collision.radius, MIN_EXTENT)), p_collision);
+        case CollisionType::SHAPES:
+            return _build_shapes(p_collision);
         default:
             return nullptr;
     }

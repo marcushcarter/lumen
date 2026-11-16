@@ -347,11 +347,14 @@ void EditorApplication::_reload_document(EditorDocument* p_document)
     const AssetDocument* old = static_cast<const AssetDocument*>(p_document);
     const OrbitCamera orbit = old->orbit;
     const std::filesystem::path path = old->path;
+    const bool was_active = workspace.active_document == p_document;
 
     documents._remove_at(ctx, index);
+    if (was_active) workspace.active_document = nullptr;
     EditorDocument* fresh = _open_document(kind, guid);
     if (!fresh) return;
-    fresh->_focus_request = false;
+    fresh->_focus_request = was_active;
+    if (was_active) workspace.active_document = fresh;
     std::unique_ptr<EditorDocument> moved = std::move(documents.documents.back());
     documents.documents.pop_back();
     documents.documents.insert(documents.documents.begin() + (std::ptrdiff_t)std::min(index, documents.documents.size()), std::move(moved));

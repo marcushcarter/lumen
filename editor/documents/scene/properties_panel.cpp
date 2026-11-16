@@ -9,6 +9,10 @@
 #include <editor/documents/scene/scene_document.h>
 #include <editor/documents/scene/template_document.h>
 #include <editor/play/editor_play.h>
+#include <editor/assets/import/collision_cooker.h>
+#include <editor/viewport/shape_gizmo.h>
+#include <editor/assets/import/mesh_cooker.h>
+#include <core/rendering/renderer.h>
 #include <core/scene/template.h>
 #include <core/scene/scene.h>
 #include <imgui.h>
@@ -18,6 +22,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace lumen {
@@ -113,6 +118,29 @@ static void _live_float(bool p_has, float p_v, const char* p_unit = "")
 {
     if (p_has) _live("%.3f%s", p_v, p_unit);
     else _live("-");
+}
+
+static constexpr double MESH_STATUS_POLL_S = 1.0;
+
+static const char* _mesh_collision_status(EditorContext& ctx, const Scene& p_world, Entity p_entity)
+{
+    const ModelComponent* model = p_world.try_get<ModelComponent>(p_entity);
+    if (!model || !ctx.renderer || !ctx.assets) return nullptr;
+    const uint32_t mesh_index = ctx.renderer->models.mesh_index(model->model);
+    if (!ctx.renderer->geometry.get(mesh_index)) return nullptr;
+    const AssetRegistry::Entry* entry = ctx.assets->find(ctx.renderer->geometry.mesh_guids[mesh_index]);
+    if (!entry) return nullptr;
+    struct Cached { double time = -1.0e9; const char* status = nullptr; };
+    static std::unordered_map<std::string, Cached> cache;
+    Cached& c = cache[entry->path.string()];
+    const double now = ImGui::GetTime();
+    if (now - c.time < MESH_STATUS_POLL_S) return c.status;
+    c.time = now;
+    MeshCooker::CookSettings settings;
+    std::filesystem::path source;
+    MeshCooker::load_settings(entry->path, settings, source);
+    c.status = settings.generate_collision && CollisionCooker::has_collision(entry->path) ? collision_type_label(settings.collision.type) : nullptr;
+    return c.status;
 }
 
 void PropertiesPanel::draw_contents(EditorContext& ctx)
@@ -382,6 +410,24 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         const CollisionComponent* lc = has_live ? live->try_get<CollisionComponent>(le) : nullptr;
         if (_section("Collision", &remove, overridden(collision_index) ? &revert_collision : nullptr)) {
             bool changed = false;
+            static const char* SOURCES[] = { "Mesh", "Shapes" };
+            int source = (int)col->source;
+            _name("Source");
+            if (ImGui::Combo("##source", &source, SOURCES, (int)CollisionSource::COUNT)) {
+                col->source = (CollisionSource)source;
+                if (col->source == CollisionSource::SHAPES && col->shape_count == 0) col->shape_count = 1;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Mesh: the collision built in the mesh's tab. Shapes: this entity's own shapes, for triggers and meshless things.");
+            if (lc) _live("%s", SOURCES[ImClamp((int)lc->source, 0, 1)]);
+            else _live("-");
+            if (col->source == CollisionSource::MESH) {
+                _name("Mesh Collision");
+                const char* status = _mesh_collision_status(ctx, world, e);
+                if (status) ImGui::TextDisabled("%s", status);
+                else ImGui::TextColored(ui_vec4(ui.color.danger), "%s", world.has<ModelComponent>(e) ? "Mesh has no collision" : "Needs a Model component");
+                _live("-");
+            }
             static const char* MOTIONS[] = { "Static", "Kinematic", "Dynamic" };
             int motion = (int)col->motion;
             _name("Motion");
@@ -408,76 +454,87 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             if (lc) _live("%s", lc->trigger ? "True" : "False");
             else _live("-");
 
-            static const char* TYPES[] = { "Box", "Sphere", "Capsule", "Model" };
-            uint32_t remove_shape = UINT32_MAX;
-            col->shape_count = std::min(col->shape_count, COLLISION_MAX_SHAPES);
-            for (uint32_t i = 0; i < col->shape_count; i++) {
-                CollisionShapeEntry& s = col->shapes[i];
-                ImGui::PushID((int)i);
-                char shape_name[32];
-                std::snprintf(shape_name, sizeof(shape_name), "Shape %u", i + 1);
-                _name(shape_name);
-                int type = (int)s.type;
-                ImGui::SetNextItemWidth(ImMax(1.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x));
-                if (ImGui::Combo("##type", &type, TYPES, (int)CollisionShapeType::COUNT)) {
-                    s.type = (CollisionShapeType)type;
+            if (col->source == CollisionSource::SHAPES) {
+                col->shape_count = std::min(col->shape_count, COLLISION_MAX_SHAPES);
+                int32_t shape_sel = ctx.selection ? ctx.selection->shape() : -1;
+                if (shape_sel >= (int32_t)col->shape_count) shape_sel = -1;
+                uint32_t remove_shape = UINT32_MAX;
+                _name("Shapes");
+                ImGui::BeginDisabled(col->shape_count >= COLLISION_MAX_SHAPES);
+                if (ImGui::BeginCombo("##add_shape", ICON_FA_PLUS "  Add Shape", ImGuiComboFlags_NoArrowButton)) {
+                    for (int t = 0; t < (int)CollisionShapeType::COUNT; t++) {
+                        if (!ImGui::Selectable(SHAPE_NAMES[t])) continue;
+                        CollisionShapeEntry added;
+                        added.type = (CollisionShapeType)t;
+                        col->shapes[col->shape_count++] = added;
+                        shape_sel = (int32_t)col->shape_count - 1;
+                        changed = true;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::EndDisabled();
+                _live("-");
+                for (uint32_t i = 0; i < col->shape_count; i++) {
+                    ImGui::PushID((int)i);
+                    char shape_name[32];
+                    std::snprintf(shape_name, sizeof(shape_name), "    %s", SHAPE_NAMES[(int)col->shapes[i].type]);
+                    _name(shape_name);
+                    if (ImGui::Selectable(shape_sel == (int32_t)i ? "Selected##shape" : "Select##shape", shape_sel == (int32_t)i, 0, ImVec2(ImMax(1.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x), 0.0f))) shape_sel = (int32_t)i;
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton(ICON_FA_XMARK "##remove_shape")) remove_shape = i;
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Remove this shape");
+                    _live("-");
+                    ImGui::PopID();
+                }
+                if (remove_shape != UINT32_MAX) {
+                    for (uint32_t i = remove_shape; i + 1 < col->shape_count; i++) col->shapes[i] = col->shapes[i + 1];
+                    col->shapes[col->shape_count - 1] = CollisionShapeEntry{};
+                    col->shape_count--;
+                    if (shape_sel == (int32_t)remove_shape) shape_sel = -1;
+                    else if (shape_sel > (int32_t)remove_shape) shape_sel--;
                     changed = true;
                 }
-                ImGui::SameLine();
-                if (ImGui::SmallButton(ICON_FA_XMARK "##remove_shape")) remove_shape = i;
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Remove this shape");
-                _live("-");
-                _name("    Position");
-                changed |= ImGui::DragFloat3("##shape_position", &s.position.x, 0.01f, -1000.0f, 1000.0f, "%.2f");
-                _live("-");
-                _name("    Rotation");
-                changed |= ImGui::DragFloat3("##shape_rotation", &s.rotation.x, 0.5f, -360.0f, 360.0f, "%.1f");
-                _live("-");
-                switch (s.type) {
-                    case CollisionShapeType::BOX:
-                        _name("    Half Extents");
+                if (shape_sel >= 0) {
+                    CollisionShapeEntry& s = col->shapes[shape_sel];
+                    int type = (int)s.type;
+                    _name("Type");
+                    if (ImGui::Combo("##type", &type, SHAPE_NAMES, (int)CollisionShapeType::COUNT)) {
+                        s.type = (CollisionShapeType)type;
+                        changed = true;
+                    }
+                    _live("-");
+                    const ShapeFields fields = shape_fields(s.type);
+                    _name("Position");
+                    changed |= ImGui::DragFloat3("##shape_position", &s.position.x, 0.01f, -1000.0f, 1000.0f, "%.2f");
+                    _live("-");
+                    if (fields.rotation) {
+                        _name("Rotation");
+                        changed |= ImGui::DragFloat3("##shape_rotation", &s.rotation.x, 0.5f, -360.0f, 360.0f, "%.1f");
+                        _live("-");
+                    }
+                    if (fields.half_extents) {
+                        _name("Half Extents");
                         changed |= ImGui::DragFloat3("##half_extents", &s.half_extents.x, 0.01f, 0.001f, 1000.0f, "%.2f");
                         _live("-");
-                        break;
-                    case CollisionShapeType::SPHERE:
-                        _name("    Radius");
+                    }
+                    if (fields.radius) {
+                        _name(fields.top_radius ? "Bottom Radius" : "Radius");
                         changed |= ImGui::DragFloat("##shape_radius", &s.radius, 0.01f, 0.001f, 1000.0f, "%.2f");
                         _live("-");
-                        break;
-                    case CollisionShapeType::CAPSULE:
-                        _name("    Radius");
-                        changed |= ImGui::DragFloat("##shape_radius", &s.radius, 0.01f, 0.001f, 1000.0f, "%.2f");
+                    }
+                    if (fields.top_radius) {
+                        _name("Top Radius");
+                        changed |= ImGui::DragFloat("##top_radius", &s.top_radius, 0.01f, 0.001f, 1000.0f, "%.2f");
                         _live("-");
-                        _name("    Half Height");
+                    }
+                    if (fields.half_height) {
+                        _name("Half Height");
                         changed |= ImGui::DragFloat("##half_height", &s.half_height, 0.01f, 0.001f, 1000.0f, "%.2f");
                         _live("-");
-                        break;
-                    case CollisionShapeType::MODEL:
-                        _name("    Source");
-                        if (!world.has<ModelComponent>(e)) ImGui::TextColored(ui_vec4(ui.color.danger), "Needs a Model component");
-                        else ImGui::TextDisabled("Model's imported collision");
-                        _live("-");
-                        break;
-                    default:
-                        break;
+                    }
                 }
-                ImGui::PopID();
+                if (ctx.selection && shape_sel != ctx.selection->shape()) ctx.selection->select_shape(shape_sel);
             }
-            if (remove_shape != UINT32_MAX) {
-                for (uint32_t i = remove_shape; i + 1 < col->shape_count; i++) col->shapes[i] = col->shapes[i + 1];
-                col->shapes[col->shape_count - 1] = CollisionShapeEntry{};
-                col->shape_count--;
-                changed = true;
-            }
-            _name("Shapes");
-            ImGui::BeginDisabled(col->shape_count >= COLLISION_MAX_SHAPES);
-            if (ImGui::SmallButton(ICON_FA_PLUS " Add Shape")) {
-                col->shapes[col->shape_count] = CollisionShapeEntry{};
-                col->shape_count++;
-                changed = true;
-            }
-            ImGui::EndDisabled();
-            _live("-");
             if (changed) world.touch(e);
         }
         if (remove) world.deferred_remove<CollisionComponent>(e);

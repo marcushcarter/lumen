@@ -13,7 +13,9 @@ namespace lumen {
 
 using namespace glm;
 
-enum class CollisionType : uint8_t { MESH, HULL, BOX, SPHERE, CAPSULE, COUNT };
+enum class CollisionType : uint8_t { MESH, HULL, BOX, SPHERE, CAPSULE, SHAPES, CYLINDER, TAPERED_CYLINDER, TAPERED_CAPSULE, WEDGE, COUNT };
+
+bool collision_type_shape(CollisionType p_type);
 
 const char* collision_type_name(CollisionType p_type);
 const char* collision_type_label(CollisionType p_type);
@@ -35,6 +37,23 @@ struct LCollisionPayloadHeader
 static_assert(sizeof(LCollisionPayloadHeader) == 96, "LCollisionPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LCollisionPayloadHeader>, "must be blittable");
 
+struct LCollisionShape
+{
+    uint32_t type = (uint32_t)CollisionType::BOX;
+    float radius = 0.5f;
+    float half_height = 0.5f;
+    float top_radius = 0.25f;
+    vec4 center = vec4(0.0f);
+    vec4 rotation = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    vec4 half_extents = vec4(0.5f, 0.5f, 0.5f, 0.0f);
+
+    CollisionType kind() const { return (CollisionType)type; }
+    quat orientation() const { return quat(rotation.w, rotation.x, rotation.y, rotation.z); }
+};
+
+static_assert(sizeof(LCollisionShape) == 64, "LCollisionShape layout changed");
+static_assert(std::is_trivially_copyable_v<LCollisionShape>, "must be blittable");
+
 struct LCollision
 {
     Guid guid;
@@ -49,6 +68,7 @@ struct LCollision
     vec3 half_extents = vec3(0.0f);
     float radius = 0.0f;
     float half_height = 0.0f;
+    std::vector<LCollisionShape> shapes;
 
     uint32_t triangle_count() const { return (uint32_t)(indices.size() / 3); }
     bool primitive() const { return type == CollisionType::BOX || type == CollisionType::SPHERE || type == CollisionType::CAPSULE; }

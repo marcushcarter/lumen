@@ -1,4 +1,5 @@
 #include <core/game/physics_system.h>
+#include <core/physics/collision_preview.h>
 #include <core/base/console.h>
 #include <core/base/hash.h>
 #include <core/project/project.h>
@@ -24,6 +25,7 @@ static uint64_t _hash_vec3(uint64_t p_hash, const vec3& p_value)
 uint64_t PhysicsSystem::settings_hash(const CollisionComponent& p_collision, Guid p_model)
 {
     uint64_t h = hash_combine((uint64_t)p_collision.motion, p_collision.trigger ? 1u : 0u);
+    h = hash_combine(h, (uint64_t)p_collision.source);
     h = _hash_float(h, p_collision.mass);
     h = _hash_float(h, p_collision.friction);
     h = _hash_float(h, p_collision.restitution);
@@ -37,6 +39,7 @@ uint64_t PhysicsSystem::settings_hash(const CollisionComponent& p_collision, Gui
         h = _hash_vec3(h, s.half_extents);
         h = _hash_float(h, s.radius);
         h = _hash_float(h, s.half_height);
+        h = _hash_float(h, s.top_radius);
     }
     return h;
 }
@@ -61,25 +64,22 @@ Guid PhysicsSystem::_model_mesh(const Scene& p_world, Entity p_entity) const
 bool PhysicsSystem::_build(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body)
 {
     PhysicsBodyDesc desc;
-    for (uint32_t i = 0; i < std::min(p_collision.shape_count, COLLISION_MAX_SHAPES); i++) {
-        const CollisionShapeEntry& s = p_collision.shapes[i];
-        PhysicsShapePart part;
-        part.position = s.position;
-        part.rotation = quat(radians(s.rotation));
-        switch (s.type) {
-            case CollisionShapeType::BOX: part.shape = PhysicsShape::box(s.half_extents); break;
-            case CollisionShapeType::SPHERE: part.shape = PhysicsShape::sphere(s.radius); break;
-            case CollisionShapeType::CAPSULE: part.shape = PhysicsShape::capsule(s.half_height, s.radius); break;
-            case CollisionShapeType::MODEL: {
-                const Guid mesh = _model_mesh(p_world, p_entity);
-                if (!mesh.valid() || !project) continue;
-                if (!collision.has(mesh) && !collision.load(mesh, project->content_path(mesh))) continue;
-                part.shape = PhysicsShape::mesh_collision(mesh);
-                break;
-            }
-            default: continue;
+    if (p_collision.source == CollisionSource::MESH) {
+        const Guid mesh = _model_mesh(p_world, p_entity);
+        if (mesh.valid() && project && (collision.has(mesh) || collision.load(mesh, project->content_path(mesh)))) {
+            PhysicsShapePart part;
+            part.shape = PhysicsShape::mesh_collision(mesh);
+            desc.parts.push_back(part);
         }
-        desc.parts.push_back(part);
+    } else {
+        for (uint32_t i = 0; i < std::min(p_collision.shape_count, COLLISION_MAX_SHAPES); i++) {
+            const CollisionShapeEntry& s = p_collision.shapes[i];
+            PhysicsShapePart part;
+            part.position = s.position;
+            part.rotation = quat(radians(s.rotation));
+            part.shape = physics_shape(s);
+            desc.parts.push_back(part);
+        }
     }
     if (desc.parts.empty()) return false;
 

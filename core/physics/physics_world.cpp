@@ -61,23 +61,9 @@ static JPH::RefConst<JPH::Shape> _make_shape(const PhysicsShape& p_shape, const 
             }
             return shape;
         }
-        case PhysicsShapeType::BOX: {
-            const vec3 half = max(p_shape.half_extents, vec3(MIN_SHAPE_SIZE));
-            const float convex = std::min(JPH::cDefaultConvexRadius, std::min(half.x, std::min(half.y, half.z)) * 0.5f);
-            JPH::BoxShapeSettings settings(to_jph(half), convex);
-            JPH::ShapeSettings::ShapeResult result = settings.Create();
-            if (result.HasError()) {
-                log_write("Physics: box shape failed: %s", result.GetError().c_str());
-                return nullptr;
-            }
-            return result.Get();
-        }
-        case PhysicsShapeType::SPHERE:
-            return new JPH::SphereShape(std::max(p_shape.radius, MIN_SHAPE_SIZE));
-        case PhysicsShapeType::CAPSULE:
-            return new JPH::CapsuleShape(std::max(p_shape.half_height, MIN_SHAPE_SIZE), std::max(p_shape.radius, MIN_SHAPE_SIZE));
+        default:
+            return primitive_shape(p_shape);
     }
-    return nullptr;
 }
 
 static JPH::RefConst<JPH::Shape> _make_body_shape(const PhysicsBodyDesc& p_desc, const CollisionCache* p_cache)
@@ -149,6 +135,8 @@ PhysicsCharacterId PhysicsWorld::create_character(const vec3& p_position, float 
     settings->mMaxSlopeAngle = JPH::DegreesToRadians(p_max_slope_degrees);
     settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -std::max(p_radius, MIN_SHAPE_SIZE));
     settings->mUp = JPH::Vec3::sAxisY();
+    settings->mInnerBodyShape = settings->mShape;
+    settings->mInnerBodyLayer = to_jph(PhysicsLayer::CHARACTER);
     JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(settings, to_jph_r(p_position), JPH::Quat::sIdentity(), 0, &impl->system);
     for (uint32_t i = 0; i < (uint32_t)impl->characters.size(); i++) {
         if (impl->characters[i]) continue;
@@ -182,7 +170,10 @@ bool PhysicsWorld::set_character_shape(PhysicsCharacterId p_character, float p_r
     if (!character) return false;
     const QueryBroadPhaseFilter bp(PHYSICS_QUERY_WORLD);
     const QueryObjectFilter ol(PHYSICS_QUERY_WORLD);
-    return character->SetShape(_character_shape(p_radius, p_height), 1.5f * character->GetCharacterPadding(), bp, ol, {}, {}, *impl->temp);
+    const JPH::RefConst<JPH::Shape> shape = _character_shape(p_radius, p_height);
+    if (!character->SetShape(shape, 1.5f * character->GetCharacterPadding(), bp, ol, {}, {}, *impl->temp)) return false;
+    character->SetInnerBodyShape(shape);
+    return true;
 }
 
 void PhysicsWorld::set_character_position(PhysicsCharacterId p_character, const vec3& p_position)
@@ -197,7 +188,9 @@ bool PhysicsWorld::move_character(PhysicsCharacterId p_character, const PhysicsC
 {
     JPH::CharacterVirtual* character = _character(impl.get(), p_character);
     if (!character || p_dt <= 0.0f) return false;
-    character->SetLinearVelocity(to_jph(p_move.velocity));
+    character->UpdateGroundVelocity();
+    const JPH::Vec3 ground = character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround ? character->GetGroundVelocity() : JPH::Vec3::sZero();
+    character->SetLinearVelocity(to_jph(p_move.velocity) + ground);
     JPH::CharacterVirtual::ExtendedUpdateSettings settings;
     settings.mWalkStairsStepUp = JPH::Vec3(0.0f, std::max(p_move.step_up, 0.0f), 0.0f);
     settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -std::max(p_move.stick_down, 0.0f), 0.0f);
@@ -205,7 +198,7 @@ bool PhysicsWorld::move_character(PhysicsCharacterId p_character, const PhysicsC
     const QueryObjectFilter ol(PHYSICS_QUERY_WORLD);
     character->ExtendedUpdate(p_dt, impl->system.GetGravity(), settings, bp, ol, {}, {}, *impl->temp);
     r_result.position = to_glm(character->GetPosition());
-    r_result.velocity = to_glm(character->GetLinearVelocity());
+    r_result.velocity = to_glm(character->GetLinearVelocity() - ground);
     r_result.ground_normal = to_glm(character->GetGroundNormal());
     const JPH::CharacterBase::EGroundState state = character->GetGroundState();
     r_result.on_ground = state == JPH::CharacterBase::EGroundState::OnGround;
@@ -415,6 +408,7 @@ void PhysicsWorld::destroy_all_bodies()
 {
     if (!impl) return;
     destroy_all_ragdolls();
+    destroy_all_characters();
     JPH::BodyIDVector ids;
     impl->system.GetBodies(ids);
     if (ids.empty()) return;
@@ -466,6 +460,17 @@ vec3 PhysicsWorld::get_linear_velocity(PhysicsBodyId p_body) const
 {
     if (!impl || !p_body.valid()) return vec3(0.0f);
     return to_glm(impl->bodies().GetLinearVelocity(to_jph(p_body)));
+}
+
+float PhysicsWorld::body_mass(PhysicsBodyId p_body) const
+{
+    if (!impl || !p_body.valid()) return INFINITY;
+    JPH::BodyLockRead lock(impl->system.GetBodyLockInterface(), to_jph(p_body));
+    if (!lock.Succeeded()) return INFINITY;
+    const JPH::Body& body = lock.GetBody();
+    if (!body.IsDynamic()) return INFINITY;
+    const float inverse = body.GetMotionProperties()->GetInverseMass();
+    return inverse > 0.0f ? 1.0f / inverse : INFINITY;
 }
 
 void PhysicsWorld::add_impulse(PhysicsBodyId p_body, const vec3& p_impulse)

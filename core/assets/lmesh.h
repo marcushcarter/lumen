@@ -285,6 +285,7 @@ struct LMeshStats
     uint32_t lods = 0;
     uint32_t joints = 0;
     vec3 size = vec3(0.0f);
+    vec3 bounds_min = vec3(0.0f);
 };
 
 const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data);

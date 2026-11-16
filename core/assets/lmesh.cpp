@@ -1274,6 +1274,7 @@ bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats)
         r_stats.cluster_triangles = h.tri_count;
         r_stats.lods = h.level_count;
         r_stats.size = h.pos_extent;
+        r_stats.bounds_min = h.pos_min;
         return true;
     }
 
@@ -1293,6 +1294,7 @@ bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats)
     r_stats.cluster_triangles = ph.tri_count;
     r_stats.lods = ph.cluster_count ? 1u : 0u;
     r_stats.size = ph.pos_extent;
+    r_stats.bounds_min = ph.pos_min;
     if (ah.version < LMESH_VERSION_NO_RIG || ph.cluster_count == 0) return true;
 
     std::vector<uint32_t> indices(ph.index_count);

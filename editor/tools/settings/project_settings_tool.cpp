@@ -20,6 +20,7 @@ Error ProjectSettingsTool::create(EditorContext& ctx)
     saved = ctx.project->settings;
     edit = saved;
     _title = "Project Settings";
+    layout.add("Game", [this](EditorContext& r_ctx) { _draw_game(r_ctx); });
     layout.add("Window", [this](EditorContext& r_ctx) { _draw_window(r_ctx); });
     layout.add("Export", [this](EditorContext& r_ctx) { _draw_export(r_ctx); });
     return OK;
@@ -61,6 +62,13 @@ bool ProjectSettingsTool::_text_setting(const char* p_label, const char* p_hint,
     if (changed) r_value = r_buf;
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", p_tooltip);
     return changed;
+}
+
+void ProjectSettingsTool::_draw_game(EditorContext& ctx)
+{
+    asset_field(ctx, "Start Scene", "###start_scene", edit.start_scene, AssetType::SCENE);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The scene the game opens when you Run it or play an export");
+    if (!edit.start_scene.valid()) ui_warning("No start scene: Run and exports open an empty scene");
 }
 
 void ProjectSettingsTool::_draw_window(EditorContext& ctx)

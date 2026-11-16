@@ -87,6 +87,9 @@ void debug_draw_lcollision(DebugDraw& r_draw, const mat4& p_transform, const LCo
             r_draw.capsule(vec3(p_transform * vec4(c.center - axis * c.half_height, 1.0f)), vec3(p_transform * vec4(c.center + axis * c.half_height, 1.0f)), c.radius * scale, p_style);
             return;
         }
+        case CollisionType::SHAPES:
+            for (const LCollisionShape& shape : c.shapes) debug_draw_lcollision_shape(r_draw, p_transform, shape, p_style);
+            return;
         case CollisionType::MESH:
             if (!p_meshes) return;
             break;
@@ -98,26 +101,91 @@ void debug_draw_lcollision(DebugDraw& r_draw, const mat4& p_transform, const LCo
     }
 }
 
-void debug_draw_collision_shape(DebugDraw& r_draw, const mat4& p_world, const CollisionShapeEntry& p_shape, const CollisionMeshCache::Entry* p_model, const DebugDraw::Style& p_style, bool p_meshes)
+PhysicsShape physics_shape(const CollisionShapeEntry& p_shape)
 {
-    const mat4 m = p_world * collision_shape_matrix(p_shape);
-    const float scale = _max_scale(p_world);
     switch (p_shape.type) {
-        case CollisionShapeType::BOX:
+        case CollisionShapeType::SPHERE: return PhysicsShape::sphere(p_shape.radius);
+        case CollisionShapeType::CAPSULE: return PhysicsShape::capsule(p_shape.half_height, p_shape.radius);
+        case CollisionShapeType::CYLINDER: return PhysicsShape::cylinder(p_shape.half_height, p_shape.radius);
+        case CollisionShapeType::TAPERED_CYLINDER: return PhysicsShape::tapered_cylinder(p_shape.half_height, p_shape.top_radius, p_shape.radius);
+        case CollisionShapeType::TAPERED_CAPSULE: return PhysicsShape::tapered_capsule(p_shape.half_height, p_shape.top_radius, p_shape.radius);
+        case CollisionShapeType::WEDGE: return PhysicsShape::wedge(p_shape.half_extents);
+        default: return PhysicsShape::box(p_shape.half_extents);
+    }
+}
+
+PhysicsShape physics_shape(const LCollisionShape& p_shape)
+{
+    const vec3 half(p_shape.half_extents);
+    switch (p_shape.kind()) {
+        case CollisionType::SPHERE: return PhysicsShape::sphere(p_shape.radius);
+        case CollisionType::CAPSULE: return PhysicsShape::capsule(p_shape.half_height, p_shape.radius);
+        case CollisionType::CYLINDER: return PhysicsShape::cylinder(p_shape.half_height, p_shape.radius);
+        case CollisionType::TAPERED_CYLINDER: return PhysicsShape::tapered_cylinder(p_shape.half_height, p_shape.top_radius, p_shape.radius);
+        case CollisionType::TAPERED_CAPSULE: return PhysicsShape::tapered_capsule(p_shape.half_height, p_shape.top_radius, p_shape.radius);
+        case CollisionType::WEDGE: return PhysicsShape::wedge(half);
+        default: return PhysicsShape::box(half);
+    }
+}
+
+static void _rings(DebugDraw& r_draw, const mat4& p_m, float p_scale, float p_half_height, float p_top, float p_bottom, const DebugDraw::Style& p_style)
+{
+    const vec3 up = normalize(vec3(p_m[1]));
+    const vec3 top(p_m * vec4(0.0f, p_half_height, 0.0f, 1.0f));
+    const vec3 bottom(p_m * vec4(0.0f, -p_half_height, 0.0f, 1.0f));
+    r_draw.circle(top, up, p_top * p_scale, p_style);
+    r_draw.circle(bottom, up, p_bottom * p_scale, p_style);
+    const vec3 sides[4] = { vec3(1.0f, 0.0f, 0.0f), vec3(-1.0f, 0.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, -1.0f) };
+    for (const vec3& d : sides) r_draw.line(vec3(p_m * vec4(d * p_top + vec3(0.0f, p_half_height, 0.0f), 1.0f)), vec3(p_m * vec4(d * p_bottom - vec3(0.0f, p_half_height, 0.0f), 1.0f)), p_style);
+}
+
+static void _wedge(DebugDraw& r_draw, const mat4& p_m, const vec3& p_half, const DebugDraw::Style& p_style)
+{
+    const vec3 h = p_half;
+    const vec3 p[6] = { vec3(-h.x, -h.y, -h.z), vec3(h.x, -h.y, -h.z), vec3(-h.x, -h.y, h.z), vec3(h.x, -h.y, h.z), vec3(-h.x, h.y, h.z), vec3(h.x, h.y, h.z) };
+    static constexpr int EDGES[9][2] = { { 0, 1 }, { 2, 3 }, { 0, 2 }, { 1, 3 }, { 4, 5 }, { 2, 4 }, { 3, 5 }, { 0, 4 }, { 1, 5 } };
+    for (const auto& e : EDGES) r_draw.line(vec3(p_m * vec4(p[e[0]], 1.0f)), vec3(p_m * vec4(p[e[1]], 1.0f)), p_style);
+}
+
+void debug_draw_physics_shape(DebugDraw& r_draw, const mat4& p_transform, const PhysicsShape& p_shape, const DebugDraw::Style& p_style)
+{
+    const mat4& m = p_transform;
+    const float scale = _max_scale(m);
+    switch (p_shape.type) {
+        case PhysicsShapeType::BOX:
             r_draw.box(m, p_shape.half_extents, p_style);
             return;
-        case CollisionShapeType::SPHERE:
+        case PhysicsShapeType::SPHERE:
             r_draw.sphere(vec3(m[3]), p_shape.radius * scale, p_style);
             return;
-        case CollisionShapeType::CAPSULE:
+        case PhysicsShapeType::CAPSULE:
             r_draw.capsule(vec3(m * vec4(0.0f, -p_shape.half_height, 0.0f, 1.0f)), vec3(m * vec4(0.0f, p_shape.half_height, 0.0f, 1.0f)), p_shape.radius * scale, p_style);
             return;
-        case CollisionShapeType::MODEL:
-            if (p_model) debug_draw_lcollision(r_draw, m, p_model->data, p_model->edges, p_style, p_meshes);
+        case PhysicsShapeType::CYLINDER:
+        case PhysicsShapeType::TAPERED_CYLINDER:
+            _rings(r_draw, m, scale, p_shape.half_height, p_shape.top_radius, p_shape.radius, p_style);
+            return;
+        case PhysicsShapeType::TAPERED_CAPSULE:
+            r_draw.sphere(vec3(m * vec4(0.0f, p_shape.half_height, 0.0f, 1.0f)), p_shape.top_radius * scale, p_style);
+            r_draw.sphere(vec3(m * vec4(0.0f, -p_shape.half_height, 0.0f, 1.0f)), p_shape.radius * scale, p_style);
+            _rings(r_draw, m, scale, p_shape.half_height, p_shape.top_radius, p_shape.radius, p_style);
+            return;
+        case PhysicsShapeType::WEDGE:
+            _wedge(r_draw, m, p_shape.half_extents, p_style);
             return;
         default:
             return;
     }
+}
+
+void debug_draw_lcollision_shape(DebugDraw& r_draw, const mat4& p_transform, const LCollisionShape& p_shape, const DebugDraw::Style& p_style)
+{
+    debug_draw_physics_shape(r_draw, p_transform * translate(mat4(1.0f), vec3(p_shape.center)) * mat4_cast(p_shape.orientation()), physics_shape(p_shape), p_style);
+}
+
+void debug_draw_collision_shape(DebugDraw& r_draw, const mat4& p_world, const CollisionShapeEntry& p_shape, const DebugDraw::Style& p_style)
+{
+    debug_draw_physics_shape(r_draw, p_world * collision_shape_matrix(p_shape), physics_shape(p_shape), p_style);
 }
 
 }

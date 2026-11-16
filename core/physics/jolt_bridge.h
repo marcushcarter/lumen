@@ -105,6 +105,7 @@ DebugRenderer* debug_renderer();
 
 const Layers& layers();
 const JPH::Shape* collision_shape(const CollisionCache& p_cache, Guid p_guid, CollisionType& r_type);
+JPH::RefConst<JPH::Shape> primitive_shape(const PhysicsShape& p_shape);
 JPH::JobSystem* jobs();
 
 }

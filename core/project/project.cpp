@@ -47,6 +47,13 @@ void Project::remove_content(Guid p_guid) const
     if (shard != content_dir && std::filesystem::is_empty(shard, ec) && !ec) std::filesystem::remove(shard, ec);
 }
 
+std::filesystem::path Project::content_path(Guid p_guid, const char* p_extension) const
+{
+    char buf[Guid::PATH_BUFFER];
+    p_guid.to_path_chars(buf);
+    return content_dir / (std::string(buf) + p_extension);
+}
+
 std::filesystem::path Project::content_path(Guid p_guid) const
 {
     char buf[Guid::PATH_BUFFER + 4];
@@ -90,6 +97,7 @@ Error Project::load(const std::filesystem::path& p_root, bool p_authoring)
     settings.window_title = tbl.at_path("window.title").value_or(std::string{});
     settings.export_folder = tbl.at_path("export.folder").value_or(std::string{});
     settings.export_exe = tbl.at_path("export.exe").value_or(std::string{});
+    settings.start_scene = Guid::from_string(tbl.at_path("game.start_scene").value_or(std::string{}));
 
     if (p_authoring) {
         if (Error e = _ensure_layout(p_root); e != OK) return e;
@@ -143,9 +151,13 @@ Error Project::save() const
     export_tbl.insert_or_assign("folder", settings.export_folder);
     export_tbl.insert_or_assign("exe", settings.export_exe);
 
+    toml::table game;
+    game.insert_or_assign("start_scene", !settings.start_scene.valid() ? std::string{} : settings.start_scene.to_string());
+
     toml::table out_tbl;
     out_tbl.insert_or_assign("project", std::move(project));
     out_tbl.insert_or_assign("window", std::move(window));
+    out_tbl.insert_or_assign("game", std::move(game));
     out_tbl.insert_or_assign("export", std::move(export_tbl));
 
     std::ostringstream ss;

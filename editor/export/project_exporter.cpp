@@ -104,6 +104,7 @@ Error ProjectExporter::run(const Project& p_project, const std::filesystem::path
     const std::filesystem::path out = p_destination / _folder_name(p_project);
     LUMEN_ERR_FAIL_COND_V_MSG(Paths::is_under(out, p_project.data_dir), FAILED, "Export: the export folder can't be inside the project's Data folder.");
 
+    if (!p_project.settings.start_scene.valid()) log_write("Export: no start scene is set in Project Settings, the game will open an empty scene.");
     if (ContentCooker::cook(p_project).failed) {
         log_write("Export: cooking failed, see the log above.");
         return FAILED;

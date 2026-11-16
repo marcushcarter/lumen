@@ -250,8 +250,122 @@ static void _fit_primitive(const std::vector<vec3>& p_points, CollisionType p_ty
     r_collision.half_height = std::max(half[axis] - r_collision.radius, CollisionCooker::MIN_PRIMITIVE_SIZE);
 }
 
+static constexpr float RAD_PER_DEG = 0.017453292519943295f;
+static constexpr float DEG_PER_RAD = 57.29577951308232f;
+
+LCollisionShape collision_shape_cook(const CollisionShapeSettings& p_shape)
+{
+    LCollisionShape s;
+    s.type = (uint32_t)p_shape.type;
+    s.center = vec4(p_shape.position, 0.0f);
+    const quat q = normalize(quat(p_shape.rotation * RAD_PER_DEG));
+    s.rotation = vec4(q.x, q.y, q.z, q.w);
+    s.half_extents = vec4(max(p_shape.half_extents, vec3(CollisionCooker::MIN_PRIMITIVE_SIZE)), 0.0f);
+    s.radius = std::max(p_shape.radius, CollisionCooker::MIN_PRIMITIVE_SIZE);
+    s.half_height = std::max(p_shape.half_height, CollisionCooker::MIN_PRIMITIVE_SIZE);
+    s.top_radius = std::max(p_shape.top_radius, CollisionCooker::MIN_PRIMITIVE_SIZE);
+    return s;
+}
+
+CollisionShapeSettings collision_shape_from(const LCollision& p_collision)
+{
+    CollisionShapeSettings s;
+    s.name = collision_type_label(p_collision.type);
+    s.type = p_collision.type;
+    s.position = p_collision.center;
+    s.rotation = eulerAngles(p_collision.rotation) * DEG_PER_RAD;
+    s.half_extents = p_collision.half_extents;
+    s.radius = p_collision.radius;
+    s.half_height = p_collision.half_height;
+    return s;
+}
+
+static vec3 _read_vec3(const toml::node_view<const toml::node> p_node, vec3 p_fallback)
+{
+    const toml::array* a = p_node.as_array();
+    if (!a || a->size() != 3) return p_fallback;
+    return vec3((float)(*a)[0].value_or((double)p_fallback.x), (float)(*a)[1].value_or((double)p_fallback.y), (float)(*a)[2].value_or((double)p_fallback.z));
+}
+
+static toml::array _vec3(vec3 p_v)
+{
+    return toml::array{ (double)p_v.x, (double)p_v.y, (double)p_v.z };
+}
+
+void collision_settings_read(const toml::table& p_import, CollisionSettings& r_settings)
+{
+    const toml::node_view<const toml::node> rec(p_import);
+    r_settings.type = collision_type_from_name(rec["collision_type"].value_or(std::string()), r_settings.type);
+    r_settings.error = (float)rec["collision_error"].value_or((double)r_settings.error);
+    r_settings.min_feature = (float)rec["collision_min_feature"].value_or((double)r_settings.min_feature);
+    r_settings.exclude_masked = rec["collision_exclude_masked"].value_or(r_settings.exclude_masked);
+    r_settings.shapes.clear();
+    const toml::array* shapes = rec["collision_shapes"].as_array();
+    if (!shapes) return;
+    for (const toml::node& n : *shapes) {
+        const toml::table* t = n.as_table();
+        if (!t) continue;
+        const toml::node_view<const toml::node> v(*t);
+        CollisionShapeSettings s;
+        s.name = v["name"].value_or(std::string());
+        s.type = collision_type_from_name(v["type"].value_or(std::string()), CollisionType::BOX);
+        if (!collision_type_shape(s.type)) s.type = CollisionType::BOX;
+        s.position = _read_vec3(v["position"], s.position);
+        s.rotation = _read_vec3(v["rotation"], s.rotation);
+        s.half_extents = _read_vec3(v["half_extents"], s.half_extents);
+        s.radius = (float)v["radius"].value_or((double)s.radius);
+        s.half_height = (float)v["half_height"].value_or((double)s.half_height);
+        s.top_radius = (float)v["top_radius"].value_or((double)s.top_radius);
+        r_settings.shapes.push_back(std::move(s));
+    }
+}
+
+void collision_settings_write(toml::table& r_import, const CollisionSettings& p_settings)
+{
+    r_import.insert_or_assign("collision_type", collision_type_name(p_settings.type));
+    r_import.insert_or_assign("collision_error", static_cast<double>(p_settings.error));
+    r_import.insert_or_assign("collision_min_feature", static_cast<double>(p_settings.min_feature));
+    r_import.insert_or_assign("collision_exclude_masked", p_settings.exclude_masked);
+    if (p_settings.shapes.empty()) {
+        r_import.erase("collision_shapes");
+        return;
+    }
+    toml::array shapes;
+    for (const CollisionShapeSettings& s : p_settings.shapes) {
+        shapes.push_back(toml::table{
+            { "name", s.name },
+            { "type", collision_type_name(s.type) },
+            { "position", _vec3(s.position) },
+            { "rotation", _vec3(s.rotation) },
+            { "half_extents", _vec3(s.half_extents) },
+            { "radius", static_cast<double>(s.radius) },
+            { "half_height", static_cast<double>(s.half_height) },
+            { "top_radius", static_cast<double>(s.top_radius) } });
+    }
+    r_import.insert_or_assign("collision_shapes", std::move(shapes));
+}
+
+static bool _build_shapes(const CollisionSettings& p_settings, LCollision& r_collision)
+{
+    r_collision = LCollision{};
+    r_collision.type = CollisionType::SHAPES;
+    vec3 lo(FLT_MAX), hi(-FLT_MAX);
+    for (const CollisionShapeSettings& s : p_settings.shapes) {
+        const LCollisionShape shape = collision_shape_cook(s);
+        r_collision.shapes.push_back(shape);
+        const vec3 reach(std::max({ length(vec3(shape.half_extents)), shape.radius + shape.half_height, shape.top_radius + shape.half_height }));
+        lo = min(lo, s.position - reach);
+        hi = max(hi, s.position + reach);
+    }
+    if (r_collision.shapes.empty()) return false;
+    r_collision.bounds_min = lo;
+    r_collision.bounds_max = hi;
+    return true;
+}
+
 bool CollisionCooker::build(const aiScene* p_scene, const CollisionSettings& p_settings, const mat4& p_import, LCollision& r_collision)
 {
+    if (p_settings.type == CollisionType::SHAPES) return _build_shapes(p_settings, r_collision);
     r_collision = LCollision{};
     r_collision.type = p_settings.type;
     if (!p_scene || !p_scene->mRootNode) return false;
@@ -325,18 +439,34 @@ struct CollisionReimport
     MeshCooker::CookSettings settings;
 };
 
+static Error _write_record(const CollisionReimport& p_job, const std::filesystem::path& p_out)
+{
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_job.lmesh.string()); }
+    catch (const toml::parse_error&) { return Error::FAILED; }
+    if (toml::table* rec = tbl["import"].as_table()) {
+        rec->insert_or_assign("generate_collision", true);
+        collision_settings_write(*rec, p_job.settings.collision);
+    }
+    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->insert_or_assign("collision", true);
+    std::ostringstream ss;
+    ss << tbl;
+    return write_file_atomic(p_out, ss.str()) ? Error::OK : Error::FAILED;
+}
+
 static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_step)
 {
     using enum Error;
     Assimp::Importer importer;
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
-    const aiScene* scene = importer.ReadFile(p_job.source.string(), MeshCooker::import_flags());
+    const bool shapes = p_job.settings.collision.type == CollisionType::SHAPES;
+    const aiScene* scene = shapes ? nullptr : importer.ReadFile(p_job.source.string(), MeshCooker::import_flags());
     if (p_step.cancelled()) return CANCELED;
-    if (!scene) {
+    if (!scene && !shapes) {
         log_write("CollisionCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return FAILED;
     }
-    ModelCooker::fbx_to_meters(scene);
+    if (scene) ModelCooker::fbx_to_meters(scene);
     p_step.report(0.5f);
 
     LCollision collision;
@@ -347,23 +477,34 @@ static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_st
         return FAILED;
     }
 
-    toml::table tbl;
-    try { tbl = toml::parse_file(p_job.lmesh.string()); }
-    catch (const toml::parse_error&) { return FAILED; }
-    if (toml::table* rec = tbl["import"].as_table()) {
-        const CollisionSettings& c = p_job.settings.collision;
-        rec->insert_or_assign("generate_collision", true);
-        rec->insert_or_assign("collision_type", collision_type_name(c.type));
-        rec->insert_or_assign("collision_error", static_cast<double>(c.error));
-        rec->insert_or_assign("collision_min_feature", static_cast<double>(c.min_feature));
-        rec->insert_or_assign("collision_exclude_masked", c.exclude_masked);
-    }
-    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->insert_or_assign("collision", true);
-    std::ostringstream ss;
-    ss << tbl;
-    if (!write_file_atomic(p_job.staged_record, ss.str())) return FAILED;
+    if (_write_record(p_job, p_job.staged_record) != OK) return FAILED;
     p_step.report(1.0f);
     return OK;
+}
+
+Error CollisionCooker::write_shapes(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings)
+{
+    using enum Error;
+    const AssetInfo info = read_asset_info(p_lmesh);
+    if (!info.valid() || info.type != AssetType::MESH || !ctx.project) return FAILED;
+    CollisionReimport job;
+    std::filesystem::path source;
+    MeshCooker::load_settings(p_lmesh, job.settings, source);
+    job.settings.collision = p_settings;
+    job.settings.collision.type = CollisionType::SHAPES;
+    job.settings.generate_collision = true;
+    job.lmesh = p_lmesh;
+    job.mesh = info.guid;
+    job.mesh_bin = ctx.project->content_path(info.guid);
+    if (!lmesh_has_collision_slot(job.mesh_bin)) return reimport(ctx, p_lmesh, job.settings.collision);
+
+    LCollision collision;
+    if (!_build_shapes(job.settings.collision, collision)) return remove(ctx, p_lmesh);
+    if (lmesh_write_collision(job.mesh_bin, job.mesh_bin, collision.to_payload()) != LMeshCollisionWrite::OK) {
+        log_write("CollisionCooker: couldn't write collision into '%s'.", job.mesh_bin.string().c_str());
+        return FAILED;
+    }
+    return _write_record(job, p_lmesh);
 }
 
 Error CollisionCooker::remove(EditorContext& ctx, const std::filesystem::path& p_lmesh)

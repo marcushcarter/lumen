@@ -22,15 +22,10 @@ static void _draw_collision(DebugDraw& r_draw, const Scene& p_scene, Entity p_en
     if (const CollisionComponent* collision = p_scene.try_get<CollisionComponent>(p_entity)) {
         const mat4 world = p_scene.world_matrix(p_entity);
         const DebugDraw::Style style{ .color = collision_color(*collision), .category = DebugCategory::COLLISION };
-        const CollisionMeshCache::Entry* model = nullptr;
-        bool model_looked = false;
-        for (uint32_t i = 0; i < std::min(collision->shape_count, COLLISION_MAX_SHAPES); i++) {
-            const CollisionShapeEntry& shape = collision->shapes[i];
-            if (shape.type == CollisionShapeType::MODEL && !model_looked) {
-                model = _model_collision(p_scene, p_entity, p_source);
-                model_looked = true;
-            }
-            debug_draw_collision_shape(r_draw, world, shape, model, style, p_meshes);
+        if (collision->source == CollisionSource::MESH) {
+            if (const CollisionMeshCache::Entry* model = _model_collision(p_scene, p_entity, p_source)) debug_draw_lcollision(r_draw, world, model->data, model->edges, style, p_meshes);
+        } else {
+            for (uint32_t i = 0; i < std::min(collision->shape_count, COLLISION_MAX_SHAPES); i++) debug_draw_collision_shape(r_draw, world, collision->shapes[i], style);
         }
     }
 

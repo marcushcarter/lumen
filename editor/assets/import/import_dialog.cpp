@@ -195,9 +195,10 @@ static constexpr float CM_PER_M = 100.0f;
 void collision_settings_fields(CollisionSettings& r_settings)
 {
     const char* current = collision_type_label(r_settings.type);
+    if (r_settings.type == CollisionType::SHAPES) return;
     if (ImGui::BeginCombo("Collision Type", current)) {
-        for (uint32_t i = 0; i < (uint32_t)CollisionType::COUNT; i++) {
-            const CollisionType t = (CollisionType)i;
+        static constexpr CollisionType IMPORT_TYPES[] = { CollisionType::MESH, CollisionType::HULL, CollisionType::BOX, CollisionType::SPHERE, CollisionType::CAPSULE };
+        for (const CollisionType t : IMPORT_TYPES) {
             if (ImGui::Selectable(collision_type_label(t), t == r_settings.type)) r_settings.type = t;
         }
         ImGui::EndCombo();

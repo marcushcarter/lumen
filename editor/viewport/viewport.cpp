@@ -105,25 +105,26 @@ bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool
     const Entity selected = ctx.selection->primary();
     if (!ctx.scene->has<TransformComponent>(selected)) {
         gizmo.reset();
+        shape_gizmo.reset();
         return false;
     }
-    TransformComponent xf = ctx.scene->world_transform(selected);
-
     const ImGuiIO& io = ImGui::GetIO();
-    const Camera& cam = ctx.renderer->main_view.camera;
-    const mat4 proj = cam.proj(p_size.x / p_size.y);
-
-    TransformGizmo::Frame frame;
-    frame.view_proj = proj * cam.view();
-    frame.cam_position = cam.position;
-    frame.cam_rotation = cam.rotation;
-    frame.near_z = cam.near_z;
-    frame.proj_x = proj[0][0];
-    frame.proj_y = proj[1][1];
-    frame.min = p_pos;
-    frame.size = p_size;
-
+    const TransformGizmo::Frame frame = ShapeGizmo::frame(ctx.renderer->main_view.camera, p_pos, p_size);
     const bool input_ok = ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
+
+    CollisionComponent* collision = ctx.scene->try_get<CollisionComponent>(selected);
+    const int32_t shape = ctx.selection->shape();
+    if (collision && collision->source == CollisionSource::SHAPES && shape >= 0 && shape < (int32_t)std::min(collision->shape_count, COLLISION_MAX_SHAPES)) {
+        gizmo.reset();
+        CollisionShapeEntry& s = collision->shapes[shape];
+        const ShapeEdit edit{ .kind = s.type, .position = &s.position, .rotation = &s.rotation, .half_extents = &s.half_extents, .radius = &s.radius, .half_height = &s.half_height, .top_radius = &s.top_radius };
+        bool shape_changed = false;
+        const bool shape_hot = shape_gizmo.update(frame, ctx.scene->world_matrix(selected), gizmo_world, p_hover_ok && input_ok, edit, shape_changed);
+        if (shape_changed) ctx.scene->touch(selected);
+        return shape_hot;
+    }
+    shape_gizmo.reset();
+    TransformComponent xf = ctx.scene->world_transform(selected);
     bool changed = false;
     const bool hot = gizmo.update(frame, gizmo_world, p_hover_ok && input_ok, xf, changed);
     if (changed) ctx.scene->set_world_matrix(selected, transform_matrix(xf));
@@ -427,7 +428,10 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 
     const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
     const bool gizmo_hot = !playing && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
-    if (playing) gizmo.reset();
+    if (playing) {
+        gizmo.reset();
+        shape_gizmo.reset();
+    }
     const bool pick_click = !playing && !gizmo_hot && image_clicked;
     const bool game_click = playing && image_clicked;
     const ImVec2 mouse = ImGui::GetMousePos();
@@ -456,7 +460,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         game_look.y += dy;
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
-    _update_fly(fly_click && gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame);
+    _update_fly(fly_click && gizmo.active == TransformGizmo::Handle::NONE && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame);
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) {

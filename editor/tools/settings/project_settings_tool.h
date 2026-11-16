@@ -30,6 +30,7 @@ struct ProjectSettingsTool : EditorDocument
     void on_update(EditorContext& ctx, float p_dt) override;
 
     bool _text_setting(const char* p_label, const char* p_hint, const char* p_tooltip, char* r_buf, std::string& r_value);
+    void _draw_game(EditorContext& ctx);
     void _draw_window(EditorContext& ctx);
     void _draw_export(EditorContext& ctx);
 };

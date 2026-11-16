@@ -2,6 +2,7 @@
 #include <core/physics/collision_preview.h>
 #include <core/game/entity_debug.h>
 #include <editor/viewport/transform_gizmo.h>
+#include <editor/viewport/shape_gizmo.h>
 #include <editor/application/editor_context.h>
 #include <core/scene/scene.h>
 #include <drivers/windows/cursor_lock_win32.h>
@@ -36,6 +37,7 @@ struct Viewport
     static constexpr float CULL_FRUSTUM_DISTANCE = 40.0f;
 
     TransformGizmo gizmo;
+    ShapeGizmo shape_gizmo;
     drivers::CursorLockWin32 cursor_lock;
     CollisionMeshCache collision_meshes;
     std::vector<Entity> _view_selection;

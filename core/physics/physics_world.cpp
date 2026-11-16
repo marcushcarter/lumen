@@ -176,6 +176,11 @@ bool PhysicsWorld::set_character_shape(PhysicsCharacterId p_character, float p_r
     return true;
 }
 
+void PhysicsWorld::set_character_max_slope(PhysicsCharacterId p_character, float p_degrees)
+{
+    if (JPH::CharacterVirtual* character = _character(impl.get(), p_character)) character->SetMaxSlopeAngle(JPH::DegreesToRadians(p_degrees));
+}
+
 void PhysicsWorld::set_character_position(PhysicsCharacterId p_character, const vec3& p_position)
 {
     if (JPH::CharacterVirtual* character = _character(impl.get(), p_character)) {

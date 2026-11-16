@@ -20,8 +20,8 @@ struct CharacterSystem : GameSystem
     static constexpr float STEP_SLOPE_ALLOWANCE = 1.2f;
     static constexpr float STEP_VISUAL_MIN = 0.01f;
     static constexpr float STICK_DOWN = 0.5f;
-    static constexpr float MAX_SLOPE_DEGREES = 50.0f;
-    static constexpr float WALKABLE_COS = 0.64f;
+    static constexpr float MIN_SLOPE_DEGREES = 1.0f;
+    static constexpr float MAX_SLOPE_DEGREES = 89.0f;
     static constexpr float RESPAWN_DROP = 100.0f;
     static constexpr float MOVING_SPEED = 1.5f;
     static constexpr float GAIT_MARGIN = 0.1f;
@@ -122,8 +122,9 @@ struct CharacterSystem : GameSystem
     static void _smooth_rotation(Character& r_character, float p_target, float p_target_speed, float p_actor_speed, float p_dt);
     static void _rotate(Character& r_character, const CharacterStance& p_stance, float p_dt);
     void _simulate(Character& r_character, const LLocomotion& p_asset, const LocomotionComponent& p_body, const GameInput& p_input, float p_aim_yaw, float p_aim_pitch, float p_dt) const;
-    bool _ground_at(const vec3& p_position, float p_top, PhysicsHit& r_hit) const;
-    void _update_foot_ik(Character& r_character, const LLocomotion& p_asset, float p_model_yaw, float p_dt) const;
+    static float _walkable_cos(const LocomotionComponent& p_body);
+    bool _ground_at(const vec3& p_position, float p_top, float p_walkable_cos, PhysicsHit& r_hit) const;
+    void _update_foot_ik(Character& r_character, const LLocomotion& p_asset, const LocomotionComponent& p_body, float p_dt) const;
     bool _detect_impact(Character& r_character, const LLocomotion& p_asset, const LocomotionComponent& p_body, float p_dt) const;
     void _apply_hit(Character& r_character, const LLocomotion& p_asset) const;
     bool _air_catch(const Character& p_character, float p_limit) const;

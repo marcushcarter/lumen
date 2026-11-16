@@ -118,7 +118,7 @@ void CharacterSystem::_move(Character& r_character, const LocomotionComponent& p
     }
     if (!r_character.body.valid()) {
         const float height = _height(r_character, p_body);
-        r_character.body = pw->create_character(r_character.position, std::min(p_body.radius, height * 0.5f - 0.01f), height, MAX_SLOPE_DEGREES);
+        r_character.body = pw->create_character(r_character.position, std::min(p_body.radius, height * 0.5f - 0.01f), height, std::clamp(p_body.max_slope, MIN_SLOPE_DEGREES, MAX_SLOPE_DEGREES));
         r_character.body_low = _low(r_character);
         r_character.teleport = false;
     }
@@ -132,6 +132,7 @@ void CharacterSystem::_move(Character& r_character, const LocomotionComponent& p
     const float old_y = r_character.position.y;
     PhysicsCharacterMove move;
     move.velocity = r_character.velocity;
+    pw->set_character_max_slope(r_character.body, std::clamp(p_body.max_slope, MIN_SLOPE_DEGREES, MAX_SLOPE_DEGREES));
     move.step_up = was_grounded ? p_body.max_step_height : 0.0f;
     move.stick_down = was_grounded && r_character.velocity.y <= 0.0f ? std::max(p_body.max_step_height, STICK_DOWN) : 0.0f;
     PhysicsCharacterResult result;
@@ -386,16 +387,21 @@ static void _spring(float& r_value, float& r_velocity, float p_target, float p_o
     r_velocity = v * inv;
 }
 
-bool CharacterSystem::_ground_at(const vec3& p_position, float p_top, PhysicsHit& r_hit) const
+float CharacterSystem::_walkable_cos(const LocomotionComponent& p_body)
+{
+    return std::cos(glm::radians(std::clamp(p_body.max_slope, MIN_SLOPE_DEGREES, MAX_SLOPE_DEGREES)));
+}
+
+bool CharacterSystem::_ground_at(const vec3& p_position, float p_top, float p_walkable_cos, PhysicsHit& r_hit) const
 {
     const PhysicsWorld* pw = _physics();
     if (!pw) return false;
     const vec3 origin(p_position.x, p_top, p_position.z);
     const vec3 end = origin - UP * (FootIK::TRACE_ABOVE + FootIK::TRACE_BELOW);
     bool found = pw->sphere_cast(origin, FootIK::TRACE_RADIUS, -UP, FootIK::TRACE_ABOVE + FootIK::TRACE_BELOW, r_hit);
-    if (found && r_hit.normal.y < WALKABLE_COS) {
+    if (found && r_hit.normal.y < p_walkable_cos) {
         PhysicsHit ray;
-        found = pw->raycast(origin, -UP, FootIK::TRACE_ABOVE + FootIK::TRACE_BELOW + FootIK::TRACE_RADIUS, ray) && ray.normal.y >= WALKABLE_COS;
+        found = pw->raycast(origin, -UP, FootIK::TRACE_ABOVE + FootIK::TRACE_BELOW + FootIK::TRACE_RADIUS, ray) && ray.normal.y >= p_walkable_cos;
         if (found) r_hit = ray;
     }
     if (!_debug) return found;
@@ -405,12 +411,14 @@ bool CharacterSystem::_ground_at(const vec3& p_position, float p_top, PhysicsHit
     return found;
 }
 
-void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion& p_asset, float p_model_yaw, float p_dt) const
+void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion& p_asset, const LocomotionComponent& p_body, float p_dt) const
 {
+    const float model_yaw = p_body.model_yaw;
+    const float walkable = _walkable_cos(p_body);
     FootIK& ik = r_character.ik;
     const bool active = p_asset.foot_ik && ik.valid && r_character.grounded && _physics();
     ik.alpha = _interp(ik.alpha, active ? 1.0f : 0.0f, p_dt, FootIK::ALPHA_INTERP);
-    const quat rotation = angleAxis(glm::radians(r_character.yaw + p_model_yaw), UP);
+    const quat rotation = angleAxis(glm::radians(r_character.yaw + model_yaw), UP);
     const vec3 root = r_character.position + UP * r_character.step_offset;
     const vec3 forward = character_forward(r_character.yaw);
 
@@ -441,12 +449,12 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
         float target = 0.0f;
         quat tilt(1.0f, 0.0f, 0.0f, 0.0f);
         PhysicsHit heel;
-        if (active && _ground_at(foot, root.y + FootIK::TRACE_ABOVE, heel)) {
+        if (active && _ground_at(foot, root.y + FootIK::TRACE_ABOVE, walkable, heel)) {
             target = std::clamp(heel.position.y - root.y, -FootIK::MAX_DROP, FootIK::MAX_RAISE);
             const vec3 side = normalize(vec3(heel.normal.x, 0.0f, heel.normal.z) - forward * dot(vec3(heel.normal.x, 0.0f, heel.normal.z), forward) + vec3(0.0f, heel.normal.y, 0.0f));
             tilt = normalize(quat(1.0f + dot(UP, side), cross(UP, side).x, cross(UP, side).y, cross(UP, side).z));
             PhysicsHit ball;
-            if (_ground_at(foot + forward * FootIK::BALL_DISTANCE, root.y + FootIK::TRACE_ABOVE, ball)) {
+            if (_ground_at(foot + forward * FootIK::BALL_DISTANCE, root.y + FootIK::TRACE_ABOVE, walkable, ball)) {
                 const float rise = ball.position.y - heel.position.y;
                 if (std::fabs(rise) < FootIK::MAX_PITCH_STEP) {
                     const float pitch = std::clamp(glm::degrees(std::atan2(rise, FootIK::BALL_DISTANCE)), -FootIK::MAX_PITCH, FootIK::MAX_PITCH);
@@ -944,7 +952,7 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
             if (length(flat) > 0.05f) draw.arrow(base, base + flat * 0.25f, DebugDraw::Style{ .color = DebugDraw::GREEN });
             if (c.has_input) draw.arrow(base, base + character_forward(c.input_yaw) * c.input_amount, DebugDraw::Style{ .color = DebugDraw::YELLOW });
         }
-        if (rag.state == RagdollState::OFF) _update_foot_ik(c, *asset, body->model_yaw, p_dt);
+        if (rag.state == RagdollState::OFF) _update_foot_ik(c, *asset, *body, p_dt);
         if (is_player) _update_camera(r_session, c, *body, p_dt);
     }
 }

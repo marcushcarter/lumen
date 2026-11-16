@@ -69,6 +69,7 @@ struct PhysicsWorld
     void destroy_all_characters();
     bool set_character_shape(PhysicsCharacterId p_character, float p_radius, float p_height);
     void set_character_position(PhysicsCharacterId p_character, const vec3& p_position);
+    void set_character_max_slope(PhysicsCharacterId p_character, float p_degrees);
     bool move_character(PhysicsCharacterId p_character, const PhysicsCharacterMove& p_move, float p_dt, PhysicsCharacterResult& r_result);
 
     PhysicsRagdollId create_ragdoll(const PhysicsRagdollDesc& p_desc);

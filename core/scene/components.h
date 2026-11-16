@@ -70,6 +70,7 @@ struct LocomotionComponent
     float crouch_height = 1.2f;
     float model_yaw = 0.0f;
     float max_step_height = 0.45f;
+    float max_slope = 45.0f;
 };
 
 struct PlayerTag {};

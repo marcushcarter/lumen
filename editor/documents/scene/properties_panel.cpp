@@ -386,6 +386,10 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             changed |= ImGui::DragFloat("##max_step", &loco->max_step_height, 0.005f, 0.0f, 1.0f, "%.2f m");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Tallest ledge or stair the character walks up without jumping");
             _live_float(ll != nullptr, ll ? ll->max_step_height : 0.0f, " m");
+            _name("Max Slope");
+            changed |= ImGui::DragFloat("##max_slope", &loco->max_slope, 0.5f, 1.0f, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Steepest slope the character can walk up. Steeper ground makes it slide.");
+            _live_float(ll != nullptr, ll ? ll->max_slope : 0.0f, " deg");
             _name("Model Yaw");
             changed |= ImGui::DragFloat("##model_yaw", &loco->model_yaw, 1.0f, -180.0f, 180.0f, "%.0f deg");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turn this if the model faces the wrong way in game");

@@ -345,6 +345,11 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
 }
 
 static constexpr float DAG_LEVEL0_SHARE = 0.15f;
+static constexpr float SIMPLIFY_NORMAL_WEIGHT = 0.5f;
+static constexpr float SIMPLIFY_UV_WEIGHT = 0.25f;
+static constexpr float SIMPLIFY_ATTRIBUTE_WEIGHTS[] = { SIMPLIFY_NORMAL_WEIGHT, SIMPLIFY_NORMAL_WEIGHT, SIMPLIFY_NORMAL_WEIGHT, SIMPLIFY_UV_WEIGHT, SIMPLIFY_UV_WEIGHT };
+static constexpr size_t SIMPLIFY_ATTRIBUTE_COUNT = std::size(SIMPLIFY_ATTRIBUTE_WEIGHTS);
+static_assert(offsetof(SrcVert, uv) == offsetof(SrcVert, n) + sizeof(vec3), "normal and uv must be contiguous floats");
 
 bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, const ImportStep& p_step, MeshSource& r_src)
 {
@@ -429,7 +434,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
             float simp_err = 0.0f;
             size_t n = 0;
             if (target >= 3)
-                n = meshopt_simplifyWithAttributes(simp.data(), gidx.data(), gidx.size(), &verts[0].p.x, verts.size(), sizeof(SrcVert), nullptr, 0, nullptr, 0, lock.data(), target, FLT_MAX, 0, &simp_err);
+                n = meshopt_simplifyWithAttributes(simp.data(), gidx.data(), gidx.size(), &verts[0].p.x, verts.size(), sizeof(SrcVert), &verts[0].n.x, sizeof(SrcVert), SIMPLIFY_ATTRIBUTE_WEIGHTS, SIMPLIFY_ATTRIBUTE_COUNT, lock.data(), target, FLT_MAX, 0, &simp_err);
 
             if (n < 3 || n >= gidx.size()) {
                 for (uint32_t ci : members) next.push_back(ci);

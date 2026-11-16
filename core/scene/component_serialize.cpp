@@ -29,6 +29,7 @@ void serialize(Archive& a, LocomotionComponent& r_c)
     a.field("crouch_height", r_c.crouch_height);
     a.field("model_yaw", r_c.model_yaw);
     a.field("max_step_height", r_c.max_step_height);
+    a.field("max_slope", r_c.max_slope);
 }
 
 void serialize(Archive& a, CollisionComponent& r_c)

@@ -1,0 +1,84 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/instances.glsl"
+#include "lighting/sun_cascade_kind.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform Push {
+    GeometryBuffer geometry;
+    InstanceBuffer instances;
+    SunCascadeListBuffer list;
+    SunCascadeIndexBuffer indices;
+    SunCascadeMaterialBuffer materials;
+    SunCascadeSpillBuffer spill;
+    uvec4 capacity;
+    uvec4 base;
+} pc;
+
+const uint GROUP_SIZE = 64u;
+
+shared uint s_count[4];
+shared uint s_base[4];
+shared uint s_cursor[4];
+shared bool s_ok[4];
+
+void main() {
+    const uint slot = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (slot >= min(pc.list.cluster_count, pc.list.capacity)) return;
+    const uint lid = gl_LocalInvocationID.x;
+    const uvec2 e = pc.list.entries[slot];
+    const Cluster c = pc.geometry.clusters.data[e.y];
+    const uint n = c.index_count / 3u;
+    const uint first = c.index_base / 3u;
+    const uint slot_base = pc.instances.data[e.x].slot_base;
+    const bool mixed = pc.geometry.cluster_slots.data[e.y] == CLUSTER_SLOT_MIXED;
+    const uint key = slot << SUN_CASCADE_SLOT_SHIFT;
+
+    if (lid < SUN_CASCADE_KINDS) {
+        s_count[lid] = 0u;
+        s_cursor[lid] = 0u;
+    }
+    barrier();
+    for (uint t = lid; t < n; t += GROUP_SIZE) {
+        const uint lt = pc.geometry.local_triangles.data[first + t];
+        atomicAdd(s_count[sun_cascade_kind(geometry_slot_entry(pc.geometry, slot_base, geometry_tri_slot(pc.geometry, first + t, lt)), mixed)], 1u);
+    }
+    barrier();
+    if (lid < SUN_CASCADE_KINDS) {
+        const uint count = s_count[lid];
+        const uint start = count != 0u ? atomicAdd(pc.list.tri_count[lid], count) : 0u;
+        s_base[lid] = start;
+        s_ok[lid] = start + count <= pc.capacity[lid];
+        if (count != 0u && !s_ok[lid]) {
+            const uint index = atomicAdd(pc.list.spill_count[lid], 1u);
+            if (index < SUN_CASCADE_SPILL_STRIDE) pc.spill.data[lid * SUN_CASCADE_SPILL_STRIDE + index] = slot;
+        }
+    }
+    barrier();
+
+    for (uint kind = 0u; kind < SUN_CASCADE_KINDS; kind++) {
+        if (s_ok[kind] || s_base[kind] >= pc.capacity[kind]) continue;
+        for (uint t = s_base[kind] + lid; t < pc.capacity[kind]; t += GROUP_SIZE) {
+            const uint out_tri = pc.base[kind] + t;
+            pc.indices.data[out_tri * 3u + 0u] = key;
+            pc.indices.data[out_tri * 3u + 1u] = key;
+            pc.indices.data[out_tri * 3u + 2u] = key;
+        }
+    }
+
+    for (uint t = lid; t < n; t += GROUP_SIZE) {
+        const uint lt = pc.geometry.local_triangles.data[first + t];
+        const uint entry = geometry_slot_entry(pc.geometry, slot_base, geometry_tri_slot(pc.geometry, first + t, lt));
+        const uint kind = sun_cascade_kind(entry, mixed);
+        if (!s_ok[kind]) continue;
+        const uint k = s_base[kind] + atomicAdd(s_cursor[kind], 1u);
+        const uint out_tri = pc.base[kind] + k;
+        pc.indices.data[out_tri * 3u + 0u] = key | (lt & 0xFFu);
+        pc.indices.data[out_tri * 3u + 1u] = key | ((lt >> 8u) & 0xFFu);
+        pc.indices.data[out_tri * 3u + 2u] = key | ((lt >> 16u) & 0xFFu);
+        if (kind == SUN_CASCADE_MIXED) pc.materials.data[k] = slot_material(entry);
+    }
+}

@@ -4,8 +4,7 @@
 
 namespace lumen {
 
-static constexpr uint32_t PLANE_COUNT = 6;
-static constexpr uint32_t ALL_PLANES = (1u << PLANE_COUNT) - 1u;
+static constexpr uint32_t MAX_PLANES = 32;
 static constexpr uint32_t STACK_SIZE = 64;
 
 void InstanceBvh::clear()
@@ -57,8 +56,10 @@ uint32_t InstanceBvh::_build(const std::vector<vec3>& p_min, const std::vector<v
     return index;
 }
 
-void InstanceBvh::cull(const vec4* p_planes, std::vector<uint32_t>& r_out) const
+void InstanceBvh::cull(const vec4* p_planes, std::vector<uint32_t>& r_out, uint32_t p_count) const
 {
+    const uint32_t count = std::min(p_count, MAX_PLANES);
+    const uint32_t all_planes = count >= 32 ? 0xFFFFFFFFu : (1u << count) - 1u;
     if (nodes.empty()) return;
     struct Item {
         uint32_t node;
@@ -66,7 +67,7 @@ void InstanceBvh::cull(const vec4* p_planes, std::vector<uint32_t>& r_out) const
     };
     Item stack[STACK_SIZE];
     uint32_t top = 0;
-    stack[top++] = { 0u, ALL_PLANES };
+    stack[top++] = { 0u, all_planes };
     while (top > 0) {
         const Item item = stack[--top];
         const Node& n = nodes[item.node];
@@ -74,7 +75,7 @@ void InstanceBvh::cull(const vec4* p_planes, std::vector<uint32_t>& r_out) const
         const vec3 half = (n.max - n.min) * 0.5f;
         uint32_t planes = item.planes;
         bool outside = false;
-        for (uint32_t p = 0; p < PLANE_COUNT && !outside; p++) {
+        for (uint32_t p = 0; p < count && !outside; p++) {
             if ((planes & (1u << p)) == 0) continue;
             const vec3 normal = vec3(p_planes[p]);
             const float d = dot(normal, center) + p_planes[p].w;

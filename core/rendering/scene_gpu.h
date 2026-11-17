@@ -17,6 +17,14 @@ static constexpr uint32_t PLAYER_SHADOW_MAX_CLUSTERS = 16u * 1024;
 static constexpr uint32_t PLAYER_SHADOW_MAX_TRIANGLES = 768u * 1024;
 static constexpr uint32_t PLAYER_SHADOW_MAX_INDICES = PLAYER_SHADOW_MAX_TRIANGLES * 3u;
 static constexpr uint32_t PLAYER_SHADOW_SLOT_SHIFT = 8u;
+static constexpr uint32_t SUN_CASCADE_COUNT = 2;
+static constexpr uint32_t SUN_CASCADE_SIZE = 2048;
+static constexpr uint32_t SUN_HEIGHTFIELD_SIZE = 1024;
+static constexpr uint32_t SUN_CASCADE_MAX_CLUSTERS = 128u * 1024;
+static constexpr uint32_t SUN_CASCADE_MAX_PLANES = 16;
+static constexpr uint32_t SUN_RECEIVER_SIZE = 128;
+static constexpr uint32_t SUN_RECEIVER_LEVELS = 8;
+static constexpr uint32_t SUN_RECEIVER_CELLS = (SUN_RECEIVER_SIZE * SUN_RECEIVER_SIZE * 4 - 1) / 3;
 
 struct CameraUniform
 {
@@ -44,9 +52,14 @@ struct DirectLight
     mat4 player_shadow_screen = mat4(1.0f);
     vec4 player_shadow_params = vec4(0.0f);
     uvec4 player_shadow_rect = uvec4(0u);
+    mat4 cascade_view_proj[SUN_CASCADE_COUNT] = { mat4(1.0f), mat4(1.0f) };
+    vec4 cascade_params[SUN_CASCADE_COUNT] = {};
+    vec4 cascade_splits = vec4(0.0f);
+    vec4 cascade_planes[SUN_CASCADE_COUNT][SUN_CASCADE_MAX_PLANES] = {};
+    uvec4 cascade_plane_count = uvec4(0u);
 };
 
-static_assert(sizeof(DirectLight) == 192, "DirectLight layout changed");
+static_assert(sizeof(DirectLight) == 896, "DirectLight layout changed");
 
 struct Instance
 {

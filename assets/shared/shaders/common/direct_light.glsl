@@ -13,6 +13,11 @@ layout(buffer_reference, scalar) readonly buffer DirectLightBuffer {
     mat4 player_shadow_screen;
     vec4 player_shadow_params;
     uvec4 player_shadow_rect;
+    mat4 cascade_view_proj[2];
+    vec4 cascade_params[2];
+    vec4 cascade_splits;
+    vec4 cascade_planes[32];
+    uvec4 cascade_plane_count;
 };
 
 #endif

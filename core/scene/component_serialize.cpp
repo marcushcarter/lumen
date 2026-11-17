@@ -93,6 +93,9 @@ void serialize(Archive& a, EnvironmentSettings& r_c)
 void serialize(Archive& a, ShadowSettings& r_c)
 {
     a.field("player_shadow", r_c.player_shadow);
+    a.field("cascade0_shadow", r_c.cascade0_shadow);
+    a.field("cascade1_shadow", r_c.cascade1_shadow);
+    a.field("heightfield_shadow", r_c.heightfield_shadow);
 }
 
 void serialize(Archive& a, PhysicsSettings& r_c)

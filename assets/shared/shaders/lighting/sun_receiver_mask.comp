@@ -1,0 +1,65 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/camera.glsl"
+#include "common/direct_light.glsl"
+#include "lighting/sun_receiver_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    DirectLightBuffer light;
+    SunReceiverBuffer receivers;
+    uint depth_index;
+    uint width;
+    uint height;
+} pc;
+
+const uint BLOCK = 4u;
+const uint NO_CELL = 0xFFFFFFFFu;
+
+void flush(uint p_cell, uint p_bits) {
+    if (p_cell != NO_CELL && p_bits > pc.receivers.data[p_cell]) atomicMax(pc.receivers.data[p_cell], p_bits);
+}
+
+void main() {
+    const uvec2 origin = gl_GlobalInvocationID.xy * BLOCK;
+    if (origin.x >= pc.width || origin.y >= pc.height) return;
+    const vec2 to_ndc = 2.0 / vec2(pc.width, pc.height);
+    uint cell[2] = uint[2](NO_CELL, NO_CELL);
+    uint bits[2] = uint[2](0u, 0u);
+
+    for (uint by = 0u; by < BLOCK; by++) {
+        for (uint bx = 0u; bx < BLOCK; bx++) {
+            const uvec2 p = origin + uvec2(bx, by);
+            if (p.x >= pc.width || p.y >= pc.height) continue;
+            const float depth = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], ivec2(p), 0).r;
+            if (depth == 0.0) continue;
+            const vec4 h = pc.camera.inv_view_proj * vec4((vec2(p) + 0.5) * to_ndc - 1.0, depth, 1.0);
+            const vec3 world = h.xyz / h.w;
+            for (uint c = 0u; c < 2u; c++) {
+                if (pc.light.cascade_params[c].z == 0.0) continue;
+                const vec3 s = (pc.light.cascade_view_proj[c] * vec4(world, 1.0)).xyz;
+                if (abs(s.x) >= 1.0 || abs(s.y) >= 1.0) continue;
+                const uvec2 g = min(uvec2((s.xy * 0.5 + 0.5) * float(SUN_RECEIVER_SIZE)), uvec2(SUN_RECEIVER_SIZE - 1u));
+                const uint index = c * SUN_RECEIVER_CELLS + g.y * SUN_RECEIVER_SIZE + g.x;
+                const uint value = floatBitsToUint(clamp(s.z, 0.0, 1.0));
+                if (index != cell[c]) {
+                    flush(cell[c], bits[c]);
+                    cell[c] = index;
+                    bits[c] = value;
+                } else {
+                    bits[c] = max(bits[c], value);
+                }
+            }
+        }
+    }
+    flush(cell[0], bits[0]);
+    flush(cell[1], bits[1]);
+}

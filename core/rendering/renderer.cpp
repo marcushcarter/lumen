@@ -454,6 +454,142 @@ static void _player_shadow_fit(FrameData& r_frame, uint32_t p_width, uint32_t p_
     light.player_shadow_params = vec4(texel * PLAYER_SHADOW_NORMAL_OFFSET_TEXELS, PLAYER_SHADOW_DEPTH_BIAS / depth_range, 1.0f, 1.0f / texel);
 }
 
+static constexpr float SUN_CASCADE_SPLITS[SUN_CASCADE_COUNT] = { 8.0f, 80.0f };
+static constexpr float SUN_CASCADE_RADIUS_STEP = 0.5f;
+static constexpr float SUN_CASCADE_BACK_SCALE = 2.0f;
+static constexpr float SUN_CASCADE_BIAS_TEXELS = 1.5f;
+static constexpr float SUN_CASCADE_NORMAL_OFFSET_TEXELS = 1.5f;
+static constexpr float SUN_CASCADE_FRONT_SCALE = 4.0f;
+static constexpr float SUN_CASCADE_RECEIVER_REACH = 4.25f;
+
+static void _sun_cascade_ortho(FrameData& r_frame, uint32_t p_cascade, const vec3& p_center, float p_radius, float p_back, uint32_t p_size)
+{
+    DirectLight& light = r_frame.direct_light;
+    const vec3 dir = normalize(light.direction);
+    const vec3 up = std::abs(dir.y) > 0.99f ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f);
+    const mat4 rotation = lookAt(vec3(0.0f), dir, up);
+    const float texel = 2.0f * p_radius / (float)p_size;
+    vec3 aligned = vec3(rotation * vec4(p_center, 1.0f));
+    aligned.x = std::floor(aligned.x / texel) * texel;
+    aligned.y = std::floor(aligned.y / texel) * texel;
+    const vec3 snapped = vec3(transpose(rotation) * vec4(aligned, 1.0f));
+
+    const float front = p_radius * SUN_CASCADE_FRONT_SCALE;
+    const float depth_range = p_back + front;
+    const mat4 view = lookAt(snapped - dir * p_back, snapped, up);
+    mat4 proj(1.0f);
+    proj[0][0] = 1.0f / p_radius;
+    proj[1][1] = 1.0f / p_radius;
+    proj[2][2] = -1.0f / depth_range;
+    proj[3][2] = 0.0f;
+
+    light.cascade_view_proj[p_cascade] = proj * view;
+    light.cascade_params[p_cascade] = vec4(texel * SUN_CASCADE_NORMAL_OFFSET_TEXELS, texel * SUN_CASCADE_BIAS_TEXELS / depth_range, 1.0f / p_radius, 1.0f / depth_range);
+
+    const vec3 right(rotation[0][0], rotation[1][0], rotation[2][0]);
+    const vec3 top(rotation[0][1], rotation[1][1], rotation[2][1]);
+    vec4* planes = light.cascade_planes[p_cascade];
+    planes[0] = vec4(right, -dot(right, snapped) + p_radius);
+    planes[1] = vec4(-right, dot(right, snapped) + p_radius);
+    planes[2] = vec4(top, -dot(top, snapped) + p_radius);
+    planes[3] = vec4(-top, dot(top, snapped) + p_radius);
+    planes[4] = vec4(-dir, dot(dir, snapped) + front);
+    light.cascade_plane_count[p_cascade] = 5;
+    r_frame.sun_cascade_sphere[p_cascade] = vec4(snapped, p_radius);
+}
+
+static void _sun_cascade_volume(DirectLight& r_light, uint32_t p_cascade, const Camera& p_camera, float p_aspect, float p_near, float p_far)
+{
+    const vec3 dir = normalize(r_light.direction);
+    const vec3 forward = p_camera.forward();
+    const vec3 right = p_camera.right();
+    const vec3 up = p_camera.up();
+    const float t = std::tan(p_camera.fov_y * 0.5f);
+    vec3 corners[8];
+    for (uint32_t i = 0; i < 8; i++) {
+        const float d = (i & 4) ? p_far : p_near;
+        const float x = ((i & 1) ? 1.0f : -1.0f) * d * t * p_aspect;
+        const float y = ((i & 2) ? 1.0f : -1.0f) * d * t;
+        corners[i] = p_camera.position + forward * d + right * x + up * y;
+    }
+    vec3 centroid(0.0f);
+    for (const vec3& c : corners) centroid += c * 0.125f;
+
+    static constexpr uint32_t FACES[6][4] = { { 0, 1, 3, 2 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 }, { 2, 3, 7, 6 }, { 0, 2, 6, 4 }, { 1, 3, 7, 5 } };
+    static constexpr uint32_t EDGES[12][4] = {
+        { 0, 1, 0, 2 }, { 2, 3, 0, 3 }, { 0, 2, 0, 4 }, { 1, 3, 0, 5 },
+        { 4, 5, 1, 2 }, { 6, 7, 1, 3 }, { 4, 6, 1, 4 }, { 5, 7, 1, 5 },
+        { 0, 4, 2, 4 }, { 1, 5, 2, 5 }, { 2, 6, 3, 4 }, { 3, 7, 3, 5 },
+    };
+    auto inward = [&](vec3 p_normal, const vec3& p_point) {
+        vec4 plane(p_normal, -dot(p_normal, p_point));
+        if (dot(vec3(plane), centroid) + plane.w < 0.0f) plane = -plane;
+        return plane;
+    };
+
+    vec4 faces[6];
+    bool kept[6];
+    for (uint32_t f = 0; f < 6; f++) {
+        const vec3& a = corners[FACES[f][0]];
+        const vec3 n = cross(corners[FACES[f][1]] - a, corners[FACES[f][3]] - a);
+        const float len = length(n);
+        faces[f] = len > 1e-6f ? inward(n / len, a) : vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        kept[f] = dot(vec3(faces[f]), dir) <= 0.0f;
+    }
+
+    vec4* planes = r_light.cascade_planes[p_cascade];
+    uint32_t count = r_light.cascade_plane_count[p_cascade];
+    for (uint32_t f = 0; f < 6 && count < SUN_CASCADE_MAX_PLANES; f++) {
+        if (kept[f]) planes[count++] = faces[f];
+    }
+    for (const auto& e : EDGES) {
+        if (kept[e[2]] == kept[e[3]] || count >= SUN_CASCADE_MAX_PLANES) continue;
+        const vec3 n = cross(corners[e[1]] - corners[e[0]], dir);
+        const float len = length(n);
+        if (len < 1e-6f) continue;
+        planes[count++] = inward(n / len, corners[e[0]]);
+    }
+    r_light.cascade_plane_count[p_cascade] = count;
+}
+
+static void _sun_cascade_fit(FrameData& r_frame, const Camera& p_camera, const ShadowSettings& p_settings, uint64_t p_frame_number)
+{
+    DirectLight& light = r_frame.direct_light;
+    const bool enabled[SUN_CASCADE_COUNT] = { p_settings.cascade0_shadow, p_settings.cascade1_shadow };
+    const bool alternate[SUN_CASCADE_COUNT] = { false, true };
+    light.cascade_splits = vec4(0.0f);
+    for (uint32_t c = 0; c < SUN_CASCADE_COUNT; c++) {
+        r_frame.sun_cascade_reuse[c] = enabled[c] && alternate[c] && (p_frame_number & 1u) != 0 && r_frame.sun_cascade_history[c] && light.cascade_params[c].z != 0.0f;
+        if (!enabled[c]) r_frame.sun_cascade_history[c] = false;
+        if (r_frame.sun_cascade_reuse[c]) continue;
+        light.cascade_params[c] = vec4(0.0f);
+        light.cascade_plane_count[c] = 0;
+        r_frame.sun_cascade_sphere[c] = vec4(0.0f);
+    }
+    r_frame.sun_heightfield = p_settings.heightfield_shadow;
+    if (!std::isfinite(p_camera.position.x + p_camera.position.y + p_camera.position.z)) return;
+
+    const float t = std::tan(p_camera.fov_y * 0.5f);
+    const float k2 = t * t * (1.0f + r_frame.aspect * r_frame.aspect);
+    const vec3 forward = p_camera.forward();
+    for (uint32_t c = 0; c < SUN_CASCADE_COUNT; c++) {
+        if (!enabled[c]) continue;
+        light.cascade_splits[c] = SUN_CASCADE_SPLITS[c];
+        if (r_frame.sun_cascade_reuse[c]) continue;
+        const float n = p_camera.near_z;
+        const float f = std::max(SUN_CASCADE_SPLITS[c], n + 1.0f);
+        const float z = std::min(0.5f * (n + f) * (1.0f + k2), f);
+        float radius = std::sqrt(std::max((f - z) * (f - z) + f * f * k2, (z - n) * (z - n) + n * n * k2));
+        radius = std::ceil(radius / SUN_CASCADE_RADIUS_STEP) * SUN_CASCADE_RADIUS_STEP;
+        if (!std::isfinite(radius) || radius <= 0.0f) {
+            light.cascade_splits[c] = 0.0f;
+            continue;
+        }
+        _sun_cascade_ortho(r_frame, c, p_camera.position + forward * z, radius, radius * SUN_CASCADE_BACK_SCALE, SUN_CASCADE_SIZE);
+        _sun_cascade_volume(light, c, p_camera, r_frame.aspect, n, z + radius * SUN_CASCADE_RECEIVER_REACH);
+    }
+}
+
 static void _player_lod_fit(FrameData& r_frame)
 {
     const float scale = r_frame.player_lod_density;
@@ -602,6 +738,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         const uint32_t out_w = r_view.output_width ? r_view.output_width : width;
         const uint32_t out_h = r_view.output_height ? r_view.output_height : height;
         const float aspect = out_h ? (float)out_w / (float)out_h : 1.0f;
+        frame.aspect = aspect;
         const float ratio = out_w ? (float)width / (float)out_w : 1.0f;
         const mat4 prev_vp = frame.camera.curr_view_proj;
         const vec2 prev_jitter = vec2(frame.camera.jitter);
@@ -647,6 +784,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
     }
     _player_lod_fit(frame);
     _player_shadow_fit(frame, width, height, p_world.shadows.player_shadow);
+    _sun_cascade_fit(frame, camera, p_world.shadows, frame_number);
     if (&r_view == &main_view) {
         terrain.update(p_world.terrain.terrain, frame.camera, frame_number, current_frame);
         terrain.owner = &frame;

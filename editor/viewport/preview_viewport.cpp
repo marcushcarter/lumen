@@ -94,6 +94,7 @@ void PreviewViewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         path->grid.axis_z_color = vec4(zc.x, zc.y, zc.z, zc.w);
         path->outline.enabled = false;
         path->geometry.freeze = false;
+        path->sun_shadow.freeze = false;
         path->debug.view = (uint32_t)std::clamp(view.debug_view, 0, DEBUG_VIEW_COUNT - 1);
         path->lines.mask = (uint32_t)DebugCategory::GENERAL | (uint32_t)DebugCategory::COLLISION | (uint32_t)DebugCategory::BONES;
         if (debug_lines) debug_lines(debug_draw());

@@ -481,6 +481,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 
     if (ctx.render_path) {
         ctx.render_path->geometry.freeze = view.culling_paused;
+        ctx.render_path->sun_shadow.freeze = view.culling_paused;
         ctx.render_path->geometry.collect_stats = view.stats;
         ctx.renderer->terrain.freeze = view.culling_paused;
         ctx.render_path->debug.view = (uint32_t)std::clamp(view.debug_view, 0, DEBUG_VIEW_COUNT - 1);

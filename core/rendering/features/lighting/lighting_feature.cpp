@@ -4,6 +4,8 @@
 
 namespace lumen {
 
+static constexpr const char* CASCADE_IMAGES[SUN_CASCADE_COUNT] = { "SunCascade0", "SunCascade1" };
+
 void LightingFeature::_create_lighting_pass()
 {
     lighting_pass.name = "DeferredLighting";
@@ -20,6 +22,13 @@ void LightingFeature::_create_lighting_pass()
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("DirectLight", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         if (b.graph->image_resource("PlayerShadow")) b.read_image("PlayerShadow", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        for (const char* name : CASCADE_IMAGES) {
+            if (b.graph->image_resource(name)) b.read_image(name, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        }
+        for (const char* name : { "SunHeightfield0", "SunHeightfield1", "SunHeightfieldOld0", "SunHeightfieldOld1" }) {
+            if (b.graph->image_resource(name)) b.read_image(name, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        }
+        if (b.graph->buffer_resource("SunHeightfieldInfo")) b.read_buffer("SunHeightfieldInfo", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.write_image("SceneColor", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
@@ -43,7 +52,16 @@ void LightingFeature::_create_lighting_pass()
             uint32_t height;
             uint32_t player_shadow_index;
             uint32_t shadow_sampler_index;
+            uint32_t cascade_index[SUN_CASCADE_COUNT];
+            uint32_t point_sampler_index;
+            VkDeviceAddress heightfield_info_addr;
         } pc{};
+        auto* heightfield_info = cl.graph->buffer("SunHeightfieldInfo");
+        pc.heightfield_info_addr = heightfield_info ? heightfield_info->device_address : 0;
+        for (uint32_t c = 0; c < SUN_CASCADE_COUNT; c++) {
+            auto* cascade = cl.graph->image(CASCADE_IMAGES[c]);
+            pc.cascade_index[c] = cascade ? cascade->bindless_sampled : UINT32_MAX;
+        }
         pc.camera_addr = camera->device_address;
         pc.tiles_addr = tiles->device_address;
         pc.direct_light_addr = direct_light->device_address;
@@ -54,6 +72,7 @@ void LightingFeature::_create_lighting_pass()
         pc.height = out->extent.height;
         pc.player_shadow_index = player_shadow ? player_shadow->bindless_sampled : UINT32_MAX;
         pc.shadow_sampler_index = shadow_sampler.bindless_sampler;
+        pc.point_sampler_index = point_sampler.bindless_sampler;
 
         static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
         static const char* NAMES[SHADING_TILE_TYPES] = { "Deferred lighting (sky)", "Deferred lighting (lit)", "Deferred lighting (mixed)" };
@@ -76,6 +95,13 @@ Error LightingFeature::create_resources()
     sampler_ci.name = "player_shadow";
     shadow_sampler = ctx->dd->sampler_create(sampler_ci);
     LUMEN_ERR_FAIL_COND_V(!shadow_sampler.sampler, Error::FAILED);
+    drivers::DeviceDriverVulkan::SamplerCreateInfo point_ci{};
+    point_ci.filter = VK_FILTER_NEAREST;
+    point_ci.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    point_ci.address_mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    point_ci.name = "heightfield_point";
+    point_sampler = ctx->dd->sampler_create(point_ci);
+    LUMEN_ERR_FAIL_COND_V(!point_sampler.sampler, Error::FAILED);
     _create_lighting_pass();
     return Error::OK;
 }
@@ -101,6 +127,7 @@ void LightingFeature::destroy_resources()
         p = {};
     }
     ctx->dd->sampler_free(shadow_sampler);
+    ctx->dd->sampler_free(point_sampler);
 }
 
 void LightingFeature::build(RenderGraph& g)

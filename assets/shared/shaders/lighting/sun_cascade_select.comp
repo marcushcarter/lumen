@@ -1,0 +1,126 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+#include "common/geometry.glsl"
+#include "common/camera.glsl"
+#include "common/instances.glsl"
+#include "common/lod.glsl"
+#include "common/compact_draw.glsl"
+#include "culling/cone_cull.glsl"
+#include "lighting/sun_cascade_common.glsl"
+#include "lighting/sun_receiver_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    GeometryBuffer geometry;
+    InstanceBuffer instances;
+    TransformBuffer transforms;
+    DirectLightBuffer light;
+    SunCascadeWorkBuffer work;
+    SunCascadeListBuffer list;
+    SunReceiverBuffer receivers;
+    uint cascade;
+    uint work_count;
+    float density;
+} pc;
+
+const uint MAX_PLANES = 16u;
+const float STREAM_PRIORITY_SCALE = 0.5;
+const float RECEIVER_FILTER_TEXELS = 4.0;
+const float RECEIVER_TEXELS = 2048.0;
+
+bool outside_volume(vec3 p_center, float p_radius) {
+    const uint count = pc.light.cascade_plane_count[pc.cascade];
+    const uint base = pc.cascade * MAX_PLANES;
+    for (uint i = 0u; i < count; i++) {
+        const vec4 plane = pc.light.cascade_planes[base + i];
+        if (dot(plane.xyz, p_center) + plane.w < -p_radius) return true;
+    }
+    return false;
+}
+
+bool no_receivers(mat4 p_vp, vec4 p_params, vec3 p_center, float p_radius) {
+    if (all(equal(uvec2(pc.receivers), uvec2(0u)))) return false;
+    const vec3 s = (p_vp * vec4(p_center, 1.0)).xyz;
+    const float near_depth = s.z - p_radius * p_params.w;
+    if (near_depth <= 0.0) return false;
+    const float margin = p_radius * p_params.z + p_params.x * p_params.z + RECEIVER_FILTER_TEXELS * 2.0 / RECEIVER_TEXELS;
+    const vec2 lo = clamp((s.xy - margin) * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+    const vec2 hi = clamp((s.xy + margin) * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+    const vec2 span = (hi - lo) * float(SUN_RECEIVER_SIZE);
+    const uint level = min(uint(ceil(log2(max(max(span.x, span.y), 1.0)))), SUN_RECEIVER_LEVELS - 1u);
+    const uint size = SUN_RECEIVER_SIZE >> level;
+    const uvec2 a = min(uvec2(lo * float(size)), uvec2(size - 1u));
+    const uvec2 b = min(uvec2(hi * float(size)), uvec2(size - 1u));
+    const uint base = pc.cascade * SUN_RECEIVER_CELLS + sun_receiver_level_offset(level);
+    uint deepest = 0u;
+    for (uint y = a.y; y <= b.y; y++) {
+        for (uint x = a.x; x <= b.x; x++) deepest = max(deepest, pc.receivers.data[base + y * size + x]);
+    }
+    return near_depth > uintBitsToFloat(deepest) + 2.0 * p_params.y;
+}
+
+bool culled(mat4 p_vp, vec4 p_params, vec3 p_center, float p_radius) {
+    return outside_volume(p_center, p_radius) || no_receivers(p_vp, p_params, p_center, p_radius);
+}
+
+bool sun_backfacing(Instance p_inst, mat4 p_model, uint p_cluster, vec3 p_dir) {
+    const uint cluster_slot = pc.geometry.cluster_slots.data[p_cluster];
+    if (cluster_slot == CLUSTER_SLOT_MIXED) return false;
+    if ((slot_bin(geometry_slot_entry(pc.geometry, p_inst.slot_base, cluster_slot)) & RASTER_BIN_MASKED) != 0u) return false;
+    ClusterCone cone;
+    if (!cluster_cone(pc.camera, pc.geometry, p_inst, p_model, p_cluster, cone)) return false;
+    return dot(p_dir, cone.axis) >= cone.cutoff;
+}
+
+void main() {
+    const uint item_index = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (item_index >= pc.work_count) return;
+    const uvec2 item = pc.work.data[item_index];
+    const Instance inst = pc.instances.data[item.x];
+    const Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+    const uint n = item.y + gl_LocalInvocationID.x;
+    if (n >= mesh.node_count) return;
+    const Node node = pc.geometry.nodes.data[mesh.node_base + n];
+    if (node.page == NODE_INNER) return;
+
+    const mat4 model = pc.transforms.data[inst.transform_id].curr_mtx;
+    const float scale = transform_max_scale(model);
+    const float density = pc.density * scale;
+    const float error_px = node.max_parent_error * density;
+    const float threshold = (mesh.flags & MESH_FLAG_STREAMED) != 0u ? LOD_PREFETCH_PX : LOD_THRESHOLD_PX;
+    if (error_px <= threshold) return;
+
+    const mat4 vp = pc.light.cascade_view_proj[pc.cascade];
+    const vec4 params = pc.light.cascade_params[pc.cascade];
+    const vec3 dir = pc.light.direction;
+    const bool skinned = inst.skin_id != SKIN_NONE;
+    if (!skinned && culled(vp, params, (model * vec4(node.cull_sphere.xyz, 1.0)).xyz, node.cull_sphere.w * scale)) return;
+
+    const uint page = mesh.page_base + node.page;
+    const uint residency = pc.geometry.page_resident.data[page];
+    const uint frame = pc.geometry.stream_frame;
+    if (residency != PAGE_PERMANENT && pc.geometry.page_stamp.data[page] != frame && atomicExchange(pc.geometry.page_stamp.data[page], frame) != frame) {
+        const uint request = atomicAdd(pc.geometry.stream_requests.count, 1u);
+        if (request < pc.geometry.stream_request_capacity) {
+            const uint key = page | (residency == PAGE_ABSENT ? 0u : STREAM_REQUEST_RESIDENT_BIT);
+            pc.geometry.stream_requests.data[request] = uvec2(key, floatBitsToUint(min(error_px * STREAM_PRIORITY_SCALE, 3.0e38)));
+        }
+    }
+    if (residency == PAGE_ABSENT) return;
+    if (error_px <= LOD_THRESHOLD_PX) return;
+
+    for (uint k = 0u; k < node.count; k++) {
+        const uint id = node.first + k;
+        const Cluster c = pc.geometry.clusters.data[id];
+        if (!lod_selected_density(pc.geometry, c, density)) continue;
+        if (!skinned && culled(vp, params, (model * vec4(c.cull_sphere.xyz, 1.0)).xyz, c.cull_sphere.w * scale)) continue;
+        if (sun_backfacing(inst, model, id, dir)) continue;
+        const uint slot = atomicAdd(pc.list.cluster_count, 1u);
+        if (slot < pc.list.capacity) pc.list.entries[slot] = uvec2(item.x, id);
+    }
+}

@@ -9,7 +9,7 @@ using namespace glm;
 
 struct EnvironmentSettings
 {
-    static constexpr vec3 SUN_DIRECTION = vec3(-0.35f, -0.8f, -0.48f);
+    static constexpr vec3 SUN_DIRECTION = vec3(-0.6f, -0.35f, -0.7f);
     static constexpr float SUN_ILLUMINANCE_LUX = 128000.0f;
     static constexpr float SUN_ANGULAR_RADIUS = 0.0046525f;
 
@@ -19,6 +19,9 @@ struct EnvironmentSettings
 struct ShadowSettings
 {
     bool player_shadow = true;
+    bool cascade0_shadow = true;
+    bool cascade1_shadow = true;
+    bool heightfield_shadow = true;
 
     bool operator==(const ShadowSettings&) const = default;
 };

@@ -197,6 +197,15 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Player Shadow");
             ImGui::Checkbox("##player_shadow", &world.shadows.player_shadow);
             _live("%s", live ? (live->shadows.player_shadow ? "On" : "Off") : "-");
+            _name("Cascade 0 (8m)");
+            ImGui::Checkbox("##cascade0_shadow", &world.shadows.cascade0_shadow);
+            _live("%s", live ? (live->shadows.cascade0_shadow ? "On" : "Off") : "-");
+            _name("Cascade 1 (80m)");
+            ImGui::Checkbox("##cascade1_shadow", &world.shadows.cascade1_shadow);
+            _live("%s", live ? (live->shadows.cascade1_shadow ? "On" : "Off") : "-");
+            _name("Heightfield (1.5km)");
+            ImGui::Checkbox("##heightfield_shadow", &world.shadows.heightfield_shadow);
+            _live("%s", live ? (live->shadows.heightfield_shadow ? "On" : "Off") : "-");
         }
         ImGui::EndTable();
         ImGui::PopStyleVar(2);

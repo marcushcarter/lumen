@@ -26,7 +26,7 @@ struct InstanceBvh
 
     void clear();
     void build(const std::vector<vec3>& p_min, const std::vector<vec3>& p_max);
-    void cull(const vec4* p_planes, std::vector<uint32_t>& r_out) const;
+    void cull(const vec4* p_planes, std::vector<uint32_t>& r_out, uint32_t p_count = 6) const;
 
     uint32_t _build(const std::vector<vec3>& p_min, const std::vector<vec3>& p_max, uint32_t p_first, uint32_t p_count);
 };

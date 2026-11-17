@@ -1,0 +1,29 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "lighting/sun_receiver_common.glsl"
+
+layout(local_size_x = 256) in;
+
+layout(push_constant, scalar) uniform Push {
+    SunReceiverBuffer receivers;
+} pc;
+
+void main() {
+    const uint base = gl_WorkGroupID.x * SUN_RECEIVER_CELLS;
+    for (uint level = 1u; level < SUN_RECEIVER_LEVELS; level++) {
+        const uint size = SUN_RECEIVER_SIZE >> level;
+        const uint src = base + sun_receiver_level_offset(level - 1u);
+        const uint dst = base + sun_receiver_level_offset(level);
+        const uint src_size = size * 2u;
+        for (uint i = gl_LocalInvocationID.x; i < size * size; i += 256u) {
+            const uint x = i % size;
+            const uint y = i / size;
+            const uint s = src + (2u * y) * src_size + 2u * x;
+            pc.receivers.data[dst + i] = max(max(pc.receivers.data[s], pc.receivers.data[s + 1u]), max(pc.receivers.data[s + src_size], pc.receivers.data[s + src_size + 1u]));
+        }
+        memoryBarrierBuffer();
+        barrier();
+    }
+}

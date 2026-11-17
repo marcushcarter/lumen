@@ -1,5 +1,6 @@
 #version 460
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
@@ -14,6 +15,17 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
 layout(set = 0, binding = 2) uniform samplerShadow u_shadow_samplers[];
+layout(set = 0, binding = 0) uniform utexture2D u_utextures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
+
+layout(buffer_reference, scalar) readonly buffer HeightfieldInfo {
+    uint textures[4];
+    vec4 area[4];
+    vec4 axis[4];
+    vec4 params;
+    vec4 fade;
+    vec4 blend;
+};
 
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
@@ -26,7 +38,23 @@ layout(push_constant, scalar) uniform Push {
     uint height;
     uint player_shadow_index;
     uint shadow_sampler_index;
+    uint cascade_index[2];
+    uint point_sampler_index;
+    HeightfieldInfo heightfield;
 } pc;
+
+const uint CASCADE_COUNT = 2u;
+const uint CASCADE_LAST = 1u;
+const float CASCADE_MARGIN = 0.01;
+const float CASCADE_BLEND = 0.1;
+const float WIDE_BIAS_SCALE = 1.5;
+
+const uint HEIGHTFIELD_SIZE = 1024u;
+const uint HEIGHTFIELD_LEVELS = 2u;
+const float HEIGHTFIELD_PENUMBRA_MIN = 0.2;
+const float HEIGHTFIELD_PENUMBRA_SCALE = 0.01;
+const float HEIGHTFIELD_FADE_START = 0.9;
+const float HEIGHTFIELD_FADE_END = 0.98;
 
 const uint SHADOW_MAP_NONE = 0xFFFFFFFFu;
 
@@ -73,6 +101,108 @@ float player_shadow(vec2 p_ndc, float p_depth, vec3 p_n) {
     return lit * 0.25;
 }
 
+float shadow_pcf(uint p_index, vec2 p_uv, float p_ref) {
+    const vec2 texel = 0.5 / vec2(textureSize(u_textures[nonuniformEXT(p_index)], 0));
+    float lit = 0.0;
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(p_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(p_uv + vec2(-texel.x, -texel.y), p_ref));
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(p_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(p_uv + vec2(texel.x, -texel.y), p_ref));
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(p_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(p_uv + vec2(-texel.x, texel.y), p_ref));
+    lit += texture(sampler2DShadow(u_textures[nonuniformEXT(p_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(p_uv + vec2(texel.x, texel.y), p_ref));
+    return lit * 0.25;
+}
+
+float shadow_pcf_wide(uint p_index, vec2 p_uv, float p_ref) {
+    const vec2 texel = 1.0 / vec2(textureSize(u_textures[nonuniformEXT(p_index)], 0));
+    const float weights[3] = float[3](1.0, 2.0, 1.0);
+    float lit = 0.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            const vec2 uv = p_uv + vec2(float(x), float(y)) * texel;
+            lit += weights[x + 1] * weights[y + 1] * texture(sampler2DShadow(u_textures[nonuniformEXT(p_index)], u_shadow_samplers[nonuniformEXT(pc.shadow_sampler_index)]), vec3(uv, p_ref));
+        }
+    }
+    return lit * (1.0 / 16.0);
+}
+
+bool cascade_shadow(uint p_cascade, vec3 p_world, vec3 p_n, out float r_lit, out float r_edge) {
+    r_lit = 1.0;
+    r_edge = 1.0;
+    const uint index = pc.cascade_index[p_cascade];
+    const vec4 params = pc.direct_light.cascade_params[p_cascade];
+    if (index == SHADOW_MAP_NONE || params.z == 0.0) return false;
+    const vec3 s = (pc.direct_light.cascade_view_proj[p_cascade] * vec4(p_world + p_n * params.x, 1.0)).xyz;
+    r_edge = max(max(abs(s.x), abs(s.y)), s.z);
+    if (r_edge >= 1.0 - CASCADE_MARGIN || s.z >= 1.0) return false;
+    r_lit = p_cascade == 0u ? shadow_pcf(index, s.xy * 0.5 + 0.5, max(s.z, 0.0) - params.y) : shadow_pcf_wide(index, s.xy * 0.5 + 0.5, max(s.z, 0.0) - params.y * WIDE_BIAS_SCALE);
+    return true;
+}
+
+float sun_shadow(vec3 p_world, vec3 p_n) {
+    for (uint c = 0u; c < CASCADE_COUNT; c++) {
+        float lit;
+        float edge;
+        if (!cascade_shadow(c, p_world, p_n, lit, edge)) continue;
+        const float fade = smoothstep(1.0 - CASCADE_BLEND, 1.0 - CASCADE_MARGIN, edge);
+        if (fade <= 0.0) return lit;
+        float next = 1.0;
+        float next_edge;
+        if (c < CASCADE_LAST) cascade_shadow(c + 1u, p_world, p_n, next, next_edge);
+        return mix(lit, next, fade);
+    }
+    return 1.0;
+}
+
+float heightfield_lit(uint p_value, float p_texel, float p_y, float p_bias) {
+    const vec4 params = pc.heightfield.params;
+    const float shadow_height = params.x + float(p_value & 0xFFFFu) * (1.0 / 65535.0) * params.y;
+    const float distance = float(p_value >> 16u) * p_texel;
+    const float penumbra = HEIGHTFIELD_PENUMBRA_MIN + distance * HEIGHTFIELD_PENUMBRA_SCALE;
+    return smoothstep(-penumbra, penumbra, p_y + p_bias - shadow_height);
+}
+
+float heightfield_map(uint p_map, vec3 p_world, vec3 p_n) {
+    const vec4 area = pc.heightfield.area[p_map];
+    if (area.w == 0.0) return 1.0;
+    const vec4 axis = pc.heightfield.axis[p_map];
+    const float texel = area.z;
+    const vec3 w = p_world + p_n * axis.w;
+    const vec2 rel = w.xz - area.xy;
+    const vec2 side = vec2(-axis.y, axis.x);
+    const float half_extent = 0.5 * float(HEIGHTFIELD_SIZE) * texel;
+    const vec2 g = vec2(dot(rel, side) + half_extent, half_extent - dot(rel, axis.xy)) / texel - 0.5;
+    const float last = float(HEIGHTFIELD_SIZE - 1u);
+    if (any(lessThan(g, vec2(0.0))) || any(greaterThanEqual(g, vec2(last)))) return 1.0;
+    const vec2 i = floor(g);
+    const vec2 f = g - i;
+    const uvec4 v = textureGather(usampler2D(u_utextures[nonuniformEXT(pc.heightfield.textures[p_map])], u_samplers[nonuniformEXT(pc.point_sampler_index)]), (i + 1.0) / float(HEIGHTFIELD_SIZE));
+    const float l00 = heightfield_lit(v.w, texel, w.y, axis.z);
+    const float l10 = heightfield_lit(v.z, texel, w.y, axis.z);
+    const float l01 = heightfield_lit(v.x, texel, w.y, axis.z);
+    const float l11 = heightfield_lit(v.y, texel, w.y, axis.z);
+    const float lit = mix(mix(l00, l10, f.x), mix(l01, l11, f.x), f.y);
+    const vec2 e = abs(g / last * 2.0 - 1.0);
+    return mix(lit, 1.0, smoothstep(HEIGHTFIELD_FADE_START, HEIGHTFIELD_FADE_END, max(e.x, e.y)));
+}
+
+float heightfield_level(uint p_level, vec3 p_world, vec3 p_n) {
+    const float lit = heightfield_map(2u * p_level, p_world, p_n);
+    const float old_weight = pc.heightfield.blend[p_level];
+    if (old_weight <= 0.0) return lit;
+    return mix(lit, heightfield_map(2u * p_level + 1u, p_world, p_n), old_weight);
+}
+
+float heightfield_shadow(vec3 p_world, vec3 p_n) {
+    if (all(equal(uvec2(pc.heightfield), uvec2(0u)))) return 1.0;
+    const vec4 fade = pc.heightfield.fade;
+    const float d = distance(p_world.xz, pc.camera.position.xz);
+    const float far_weight = 1.0 - smoothstep(fade.z, fade.w, d);
+    if (far_weight <= 0.0) return 1.0;
+    const float far_lit = mix(1.0, heightfield_level(1u, p_world, p_n), far_weight);
+    const float near_weight = 1.0 - smoothstep(fade.x, fade.y, d);
+    if (near_weight <= 0.0 || far_lit <= 0.0) return far_lit;
+    return mix(far_lit, min(far_lit, heightfield_level(0u, p_world, p_n)), near_weight);
+}
+
 void main() {
     const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (group >= pc.tiles.args[TILE_TYPE].w) return;
@@ -93,7 +223,14 @@ void main() {
 
     const float n_dot_l = clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
     float shadow = 1.0;
-    if (n_dot_l > 0.0 && player_shadow_covers(p)) shadow = player_shadow((vec2(p) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0, depth, n);
+    if (n_dot_l > 0.0) {
+        const vec2 ndc = (vec2(p) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0;
+        if (player_shadow_covers(p)) shadow = player_shadow(ndc, depth, n);
+        const vec4 h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
+        const vec3 world = h.xyz / h.w;
+        shadow = min(shadow, sun_shadow(world, n));
+        if (shadow > 0.0) shadow = min(shadow, heightfield_shadow(world, n));
+    }
     vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * n_dot_l * shadow;
     vec3 ambient = ALBEDO * sky_ambient(n);
 

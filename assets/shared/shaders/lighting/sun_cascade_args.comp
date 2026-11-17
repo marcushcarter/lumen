@@ -1,0 +1,30 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "lighting/sun_cascade_common.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(push_constant, scalar) uniform Push {
+    SunCascadeListBuffer list;
+    uint mode;
+    uint spill_vertices;
+    uvec4 capacity;
+    uvec4 base;
+} pc;
+
+const uint DISPATCH_MAX = 65535u;
+
+void main() {
+    if (pc.mode == 0u) {
+        const uint n = min(pc.list.cluster_count, pc.list.capacity);
+        pc.list.compact_dispatch = uvec3(min(n, DISPATCH_MAX), (n + DISPATCH_MAX - 1u) / DISPATCH_MAX, 1u);
+        return;
+    }
+    for (uint k = 0u; k < SUN_CASCADE_KINDS; k++) {
+        const uint count = min(pc.list.tri_count[k], pc.capacity[k]);
+        pc.list.draws[k] = SunCascadeDraw(count * 3u, 1u, pc.base[k] * 3u, 0, 0u);
+        pc.list.spill_draws[k] = SunCascadeSpillDraw(pc.spill_vertices, min(pc.list.spill_count[k], SUN_CASCADE_SPILL_STRIDE), 0u, k * SUN_CASCADE_SPILL_STRIDE);
+    }
+}

@@ -39,20 +39,65 @@ struct LSkeletonPayloadHeader
 static_assert(sizeof(LSkeletonPayloadHeader) == 16, "LSkeletonPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LSkeletonPayloadHeader>, "must be blittable");
 
+struct SkeletonChain
+{
+    int32_t root = SKELETON_NO_JOINT;
+    float stiffness = 0.05f;
+    float damping = 0.1f;
+    float inertia = 0.6f;
+    float radius = 0.03f;
+    float angle_limit = 70.0f;
+
+    bool operator==(const SkeletonChain&) const = default;
+};
+
+struct SkeletonCloth
+{
+    int32_t root = SKELETON_NO_JOINT;
+    uint32_t resolution = 64;
+    float stretch = 1.0f;
+    float bend = 0.3f;
+    float damping = 0.05f;
+    float inertia = 0.6f;
+    float thickness = 0.01f;
+    float max_distance = 0.5f;
+
+    bool operator==(const SkeletonCloth&) const = default;
+};
+
+static_assert(std::is_trivially_copyable_v<SkeletonChain> && std::is_trivially_copyable_v<SkeletonCloth>, "must be blittable");
+
+inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC = 0x324E5944u;
+
+struct LSkeletonDynamicsHeader
+{
+    uint32_t magic;
+    uint32_t chain_count;
+    uint32_t cloth_count;
+    uint32_t _pad;
+};
+
+static_assert(sizeof(LSkeletonDynamicsHeader) == 16, "LSkeletonDynamicsHeader layout changed");
+
 struct LSkeleton
 {
     Guid guid;
     std::vector<std::string> names;
     std::vector<int32_t> parents;
     std::vector<JointTransform> rest;
+    std::vector<SkeletonChain> chains;
+    std::vector<SkeletonCloth> cloths;
 
     uint32_t joint_count() const { return (uint32_t)names.size(); }
     int32_t find(std::string_view p_name) const;
     uint64_t fingerprint() const;
     void globals(const JointTransform* p_local, mat4* r_global) const;
+    void branch(int32_t p_root, std::vector<uint8_t>& r_in_branch) const;
 
     Error load_cooked(const std::filesystem::path& p_path);
     Error save_cooked(const std::filesystem::path& p_path) const;
+    Error encode(std::vector<uint8_t>& r_payload) const;
+    Error decode(const std::vector<uint8_t>& p_payload);
 };
 
 }

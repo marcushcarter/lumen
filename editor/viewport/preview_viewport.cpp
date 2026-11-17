@@ -7,6 +7,7 @@
 #include <core/rendering/features/editor/debug_view.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 
 namespace lumen {
@@ -15,6 +16,7 @@ void PreviewViewport::release()
 {
     cursor_lock.end();
     looking = false;
+    panning = false;
     shape_gizmo.reset();
 }
 
@@ -26,6 +28,28 @@ bool PreviewViewport::edit_shape(EditorContext& ctx, const ShapeEdit& p_shape, b
     const bool input_ok = hovered && !looking && ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
     const TransformGizmo::Frame frame = ShapeGizmo::frame(ctx.renderer->main_view.camera, view_min, view_size);
     return shape_gizmo.update(frame, mat4(1.0f), false, input_ok, p_shape, r_changed);
+}
+
+int32_t PreviewViewport::pick_point(EditorContext& ctx, const glm::vec3* p_points, size_t p_count, float p_radius_px) const
+{
+    if (!ctx.renderer || view_size.x < 2.0f || view_size.y < 2.0f) return -1;
+    const Camera& camera = ctx.renderer->main_view.camera;
+    const mat4 view_proj = camera.view_proj(view_size.x / view_size.y);
+    int32_t best = -1;
+    float best_d2 = p_radius_px * p_radius_px;
+    float best_w = FLT_MAX;
+    for (size_t i = 0; i < p_count; i++) {
+        const vec4 clip = view_proj * vec4(p_points[i], 1.0f);
+        if (clip.w <= camera.near_z) continue;
+        const float x = view_min.x + (clip.x / clip.w * 0.5f + 0.5f) * view_size.x;
+        const float y = view_min.y + (0.5f - clip.y / clip.w * 0.5f) * view_size.y;
+        const float d2 = (x - pick_pos.x) * (x - pick_pos.x) + (y - pick_pos.y) * (y - pick_pos.y);
+        if (d2 > best_d2 || (d2 == best_d2 && clip.w >= best_w)) continue;
+        best_d2 = d2;
+        best_w = clip.w;
+        best = (int32_t)i;
+    }
+    return best;
 }
 
 void PreviewViewport::_update_look(bool p_start, ImVec2 p_center)
@@ -83,13 +107,18 @@ void PreviewViewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
 
     ImGui::SetCursorScreenPos(p_min);
     ImGui::SetNextItemAllowOverlap();
-    ImGui::InvisibleButton("##preview", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    ImGui::InvisibleButton("##preview", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
     hovered = ImGui::IsItemHovered();
     view_min = p_min;
     view_size = size;
     const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Right) && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE;
+    picked = ImGui::IsItemClicked(ImGuiMouseButton_Left) && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE;
+    pick_pos = ImGui::GetMousePos();
 
     look_zoom = hovered ? ImGui::GetIO().MouseWheel : 0.0f;
+    if (hovered && !looking && ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) panning = true;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle)) panning = false;
+    pan_delta = panning ? ImGui::GetIO().MouseDelta : ImVec2(0.0f, 0.0f);
     _update_look(clicked, ImVec2(ImFloor(p_min.x + size.x * 0.5f), ImFloor(p_min.y + size.y * 0.5f)));
 }
 

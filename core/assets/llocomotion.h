@@ -47,7 +47,6 @@ struct LLocomotion
     CharacterStance crouching{ 1.5f, 3.0f, 3.0f, 8.0f, 12.0f, 8.0f, {}, {}, {}, {}, {} };
     float jump_speed = 4.5f;
     float air_control = 0.2f;
-    float gravity = 9.81f;
     Guid jump_standing;
     Guid jump_walk_left;
     Guid jump_walk_right;

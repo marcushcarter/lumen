@@ -43,7 +43,7 @@ struct ModelCooker
     };
 
     static Error _import(const Job& p_job);
-    static Guid _import_skeleton(const Job& p_job, const aiScene* p_scene);
+    static bool _import_skeleton(const Job& p_job, const aiScene* p_scene, LSkeleton& r_skeleton);
     static uint32_t _import_animations(const Job& p_job, const aiScene* p_scene, const std::filesystem::path& p_dir, Guid p_skeleton, bool p_notify);
 
     static Error _launch(EditorContext& ctx, Job& r_job, const std::filesystem::path& p_session_dst);

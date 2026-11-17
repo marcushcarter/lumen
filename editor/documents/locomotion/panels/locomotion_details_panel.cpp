@@ -132,7 +132,6 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::DragFloat("Heavy Land Speed", &c.heavy_land_speed, 0.05f, 0.0f, 50.0f, "%.2f m/s");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Landing faster than this while moving plays the heavy land. ALS rolls here (7 m/s).");
         ImGui::DragFloat("Jump Speed", &c.jump_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
-        ImGui::DragFloat("Gravity", &c.gravity, 0.05f, 0.0f, 50.0f, "%.2f m/s2");
         ImGui::SliderFloat("Air Control", &c.air_control, 0.0f, 1.0f, "%.2f");
     }
 

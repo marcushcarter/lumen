@@ -445,7 +445,7 @@ static Error _write_record(const CollisionReimport& p_job, const std::filesystem
     try { tbl = toml::parse_file(p_job.lmesh.string()); }
     catch (const toml::parse_error&) { return Error::FAILED; }
     if (toml::table* rec = tbl["import"].as_table()) {
-        rec->insert_or_assign("generate_collision", true);
+        rec->erase("generate_collision");
         collision_settings_write(*rec, p_job.settings.collision);
     }
     if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->insert_or_assign("collision", true);
@@ -492,38 +492,23 @@ Error CollisionCooker::write_shapes(EditorContext& ctx, const std::filesystem::p
     MeshCooker::load_settings(p_lmesh, job.settings, source);
     job.settings.collision = p_settings;
     job.settings.collision.type = CollisionType::SHAPES;
-    job.settings.generate_collision = true;
     job.lmesh = p_lmesh;
     job.mesh = info.guid;
     job.mesh_bin = ctx.project->content_path(info.guid);
     if (!lmesh_has_collision_slot(job.mesh_bin)) return reimport(ctx, p_lmesh, job.settings.collision);
 
     LCollision collision;
-    if (!_build_shapes(job.settings.collision, collision)) return remove(ctx, p_lmesh);
+    if (!_build_shapes(job.settings.collision, collision)) {
+        CollisionSettings fallback;
+        fallback.type = CollisionType::MESH;
+        log_write("'%s' has no collision shapes left, it falls back to triangle collision.", p_lmesh.filename().string().c_str());
+        return reimport(ctx, p_lmesh, fallback);
+    }
     if (lmesh_write_collision(job.mesh_bin, job.mesh_bin, collision.to_payload()) != LMeshCollisionWrite::OK) {
         log_write("CollisionCooker: couldn't write collision into '%s'.", job.mesh_bin.string().c_str());
         return FAILED;
     }
     return _write_record(job, p_lmesh);
-}
-
-Error CollisionCooker::remove(EditorContext& ctx, const std::filesystem::path& p_lmesh)
-{
-    using enum Error;
-    const AssetInfo info = read_asset_info(p_lmesh);
-    if (!info.valid() || info.type != AssetType::MESH || !ctx.project) return FAILED;
-    toml::table tbl;
-    try { tbl = toml::parse_file(p_lmesh.string()); }
-    catch (const toml::parse_error&) { return FAILED; }
-    if (toml::table* rec = tbl["import"].as_table()) rec->insert_or_assign("generate_collision", false);
-    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->erase("collision");
-    std::ostringstream ss;
-    ss << tbl;
-    if (!write_file_atomic(p_lmesh, ss.str())) return FAILED;
-    const std::filesystem::path bin = ctx.project->content_path(info.guid);
-    if (lmesh_write_collision(bin, bin, {}) == LMeshCollisionWrite::FAILED) log_write("CollisionCooker: couldn't clear the collision inside '%s'.", bin.string().c_str());
-    log_write("Removed the collision of '%s'.", p_lmesh.filename().string().c_str());
-    return OK;
 }
 
 Error CollisionCooker::reimport(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings)
@@ -543,7 +528,6 @@ Error CollisionCooker::reimport(EditorContext& ctx, const std::filesystem::path&
         return FAILED;
     }
     job.settings.collision = p_settings;
-    job.settings.generate_collision = true;
     job.lmesh = p_lmesh;
     job.mesh = info.guid;
     job.mesh_bin = ctx.project->content_path(info.guid);

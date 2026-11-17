@@ -171,8 +171,6 @@ void GpuProfilerPanel::_draw_toolbar(EditorContext& ctx)
         ui_property_row("Pan", "%s", "ALT + Mouse / Middle Mouse");
         ui_property_row("Pan Horizontal", "%s", "SHIFT + Mouse Scroll");
         ui_property_row("Scroll Lanes", "%s", "CTRL + Mouse Scroll");
-        ui_property_row("Freeze", "%s", "Space");
-        ui_property_row("Resume", "%s", "ESC");
         ImGui::EndTooltip();
     }
 }
@@ -347,10 +345,6 @@ void GpuProfilerPanel::draw_contents(EditorContext& ctx)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::BeginChild("Graph", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
-    if (!ImGui::GetIO().WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) frozen = true;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) frozen = false;
-    }
     _draw_timeline(ctx);
     ImGui::EndChild();
     ImGui::PopStyleColor(2);

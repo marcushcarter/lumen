@@ -1,4 +1,5 @@
 #include <editor/documents/model/model_document.h>
+#include <core/game/entity_debug.h>
 #include <core/rendering/debug_draw.h>
 #include <core/base/error.h>
 #include <core/project/project.h>
@@ -21,7 +22,6 @@ Error ModelDocument::create(EditorContext& ctx)
     _refresh_title();
 
     _create_layout();
-    viewport.debug_lines = [this](DebugDraw& r_draw) { rig_preview.draw_bones(r_draw); };
     layout.add_panel<ModelDetailsPanel>()->tab = this;
 
     _create_preview();
@@ -52,7 +52,7 @@ void ModelDocument::on_update(EditorContext& ctx, float p_dt)
     (void)p_dt;
     _draw_layout(ctx);
     _update_orbit();
-    rig_preview.refresh(ctx, model.mesh, false);
+    rig_preview.refresh(ctx, model.mesh);
     if (rig_preview.version != _applied_version) {
         rig_preview.apply(preview, _preview_entity);
         _applied_version = rig_preview.version;

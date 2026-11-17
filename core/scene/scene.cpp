@@ -60,6 +60,7 @@ void Scene::unload()
     environment = {};
     terrain = {};
     shadows = {};
+    physics = {};
     if (track_changes) changed_all = true;
     static_version++;
     structure_version++;

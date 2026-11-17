@@ -21,6 +21,7 @@ struct EditorPlay
     EnvironmentSettings _environment;
     TerrainSettings _terrain;
     ShadowSettings _shadows;
+    PhysicsSettings _physics;
     bool step_pending = false;
     float simulated_dt = 0.0f;
 

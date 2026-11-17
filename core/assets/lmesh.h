@@ -160,7 +160,87 @@ struct LMeshNode
 
 static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
-enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6 };
+enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, DYNAMICS = 7, SKELETON = 8 };
+
+struct LMeshCollider
+{
+    uint32_t joint;
+    float radius;
+    vec3 a;
+    vec3 b;
+};
+
+static_assert(sizeof(LMeshCollider) == 32, "LMeshCollider layout changed");
+
+struct LMeshClothParticle
+{
+    vec3 rest;
+    float max_distance;
+    u8vec4 joints;
+    u8vec4 weights;
+};
+
+static_assert(sizeof(LMeshClothParticle) == 24, "LMeshClothParticle layout changed");
+
+struct LMeshClothLink
+{
+    uint16_t a;
+    uint16_t b;
+    float rest;
+};
+
+static_assert(sizeof(LMeshClothLink) == 8, "LMeshClothLink layout changed");
+
+struct LMeshClothRestore
+{
+    uint32_t vertex;
+    SkinVertex skin;
+};
+
+static_assert(sizeof(LMeshClothRestore) == 12, "LMeshClothRestore layout changed");
+
+struct LMeshCloth
+{
+    uint32_t root_joint;
+    uint32_t joint_first;
+    uint32_t particle_first;
+    uint32_t particle_count;
+    uint32_t link_first;
+    uint32_t stretch_count;
+    uint32_t bend_count;
+    uint32_t triangle_first;
+    uint32_t triangle_count;
+    uint32_t restore_first;
+    uint32_t restore_count;
+    uint32_t _pad;
+};
+
+static_assert(sizeof(LMeshCloth) == 48, "LMeshCloth layout changed");
+
+struct LMeshDynamicsHeader
+{
+    uint32_t collider_count;
+    uint32_t cloth_count;
+    uint32_t particle_count;
+    uint32_t link_count;
+    uint32_t triangle_count;
+    uint32_t restore_count;
+    uint32_t _pad[2];
+};
+
+static_assert(sizeof(LMeshDynamicsHeader) == 32, "LMeshDynamicsHeader layout changed");
+
+struct LMeshDynamics
+{
+    std::vector<LMeshCollider> colliders;
+    std::vector<LMeshCloth> cloths;
+    std::vector<LMeshClothParticle> particles;
+    std::vector<LMeshClothLink> links;
+    std::vector<u16vec4> triangles;
+    std::vector<LMeshClothRestore> restore;
+
+    bool empty() const { return colliders.empty() && cloths.empty(); }
+};
 
 struct LMeshJointBox
 {
@@ -196,6 +276,7 @@ struct LMeshRig
     Guid skeleton;
     std::vector<std::string> joints;
     std::vector<mat4> inverse_binds;
+    LMeshDynamics dynamics;
 };
 
 struct LMeshSource
@@ -229,6 +310,7 @@ struct LMeshData
     std::vector<ClusterVertex> vertices;
     std::vector<SkinVertex> skin;
     std::vector<uint32_t> tri_slots;
+    std::vector<uint8_t> skeleton;
     std::vector<uint8_t> collision;
     std::vector<LMeshJointBox> joint_boxes;
 
@@ -303,11 +385,12 @@ bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats);
 size_t lmesh_rig_bytes(const LMeshRigHeader& p_header);
 bool lmesh_parse_rig(const uint8_t* p_data, size_t p_size, LMeshRig& r_rig);
 bool lmesh_read_rig(const std::filesystem::path& p_bin, LMeshRig& r_rig);
-bool lmesh_set_skeleton(const std::filesystem::path& p_bin, Guid p_skeleton);
 
 enum class LMeshCollisionWrite : uint8_t { OK, NO_SLOT, FAILED };
 bool lmesh_read_collision(const std::filesystem::path& p_bin, std::vector<uint8_t>& r_collision);
 bool lmesh_has_collision_slot(const std::filesystem::path& p_bin);
 LMeshCollisionWrite lmesh_write_collision(const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const std::vector<uint8_t>& p_collision);
+bool lmesh_read_section(const std::filesystem::path& p_bin, LMeshSectionType p_type, std::vector<uint8_t>& r_bytes, Guid* r_guid = nullptr);
+bool lmesh_replace_section(const std::filesystem::path& p_bin, LMeshSectionType p_type, const std::vector<uint8_t>& p_bytes);
 
 }

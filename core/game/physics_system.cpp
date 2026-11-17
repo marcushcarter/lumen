@@ -237,6 +237,8 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || !physics.initialized()) return;
     Scene& world = *r_session.world;
+    const vec3 gravity(0.0f, -world.physics.gravity, 0.0f);
+    if (physics.gravity() != gravity) physics.set_gravity(gravity);
     _sync(world, p_dt);
     _sync_terrain(r_session);
     _update_floor();

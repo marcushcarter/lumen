@@ -104,7 +104,6 @@ const char* ContentBrowserPanel::icon_for(const std::filesystem::path& p_path, b
     if (ext == ".lmesh") return MeshDocument::ICON;
     if (ext == ".lmodel") return ModelDocument::ICON;
     if (ext == ".lmaterial") return MaterialDocument::ICON;
-    if (ext == ".lskeleton") return ICON_FA_BONE;
     if (ext == ".lanim") return AnimationDocument::ICON;
     if (ext == ".lblendspace") return BlendSpaceDocument::ICON;
     if (ext == ".llocomotion" || ext == ".lcharacter") return LocomotionDocument::ICON;
@@ -122,7 +121,6 @@ std::string ContentBrowserPanel::type_name(std::string p_ext)
     if (p_ext == ".ltexture") return "Texture";
     if (p_ext == ".lmodel") return "Model";
     if (p_ext == ".lmaterial") return "Material";
-    if (p_ext == ".lskeleton") return "Skeleton";
     if (p_ext == ".lanim") return "Animation";
     if (p_ext == ".lblendspace") return "Blend Space";
     if (p_ext == ".llocomotion" || p_ext == ".lcharacter") return "Locomotion";
@@ -681,10 +679,9 @@ void ContentBrowserPanel::_delete_content(EditorContext& ctx, const std::filesys
     if (ctx.renderer) {
         switch (info.type) {
             case AssetType::TEXTURE: ctx.renderer->textures.unload(info.guid); break;
-            case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); break;
+            case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); ctx.renderer->skeletons.unload(info.guid); break;
             case AssetType::MODEL: ctx.renderer->models.unload(info.guid); break;
             case AssetType::MATERIAL: ctx.renderer->materials.unload(info.guid); break;
-            case AssetType::SKELETON: ctx.renderer->skeletons.unload(info.guid); break;
             default: break;
         }
     }
@@ -704,7 +701,7 @@ void ContentBrowserPanel::_delete_folder(EditorContext& ctx, const std::filesyst
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lskeleton" || ext == ".lanim") _delete_content(ctx, it->path());
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lanim") _delete_content(ctx, it->path());
     }
     Paths::remove_to_recycle(p_folder);
 }

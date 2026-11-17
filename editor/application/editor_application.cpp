@@ -197,7 +197,8 @@ void EditorApplication::on_simulate(float p_dt)
     Viewport& viewport = workspace.scene.viewport;
     play.session.input.read(viewport.game_captured, vec2(viewport.game_look.x, viewport.game_look.y), p_dt);
     viewport.game_look = ImVec2(0.0f, 0.0f);
-    play.character_system.debug_all = view_overlay_lines(viewport_view().overlay);
+    play.character_system.debug_all = false;
+    play.character_system.debug_lines = view_overlay_lines(viewport_view().overlay);
     play.character_system.debug_entities = viewport.debug_entities;
     play.update(p_dt);
 }
@@ -301,9 +302,7 @@ void EditorApplication::_tick_imports()
             case AssetType::MESH:
                 renderer.geometry.unload(c.guid);
                 renderer.geometry.load(c.guid, c.content_bin);
-                break;
-            case AssetType::SKELETON:
-                renderer.skeletons.load(c.guid, c.content_bin);
+                renderer.skeletons.load_mesh(c.guid, c.content_bin);
                 break;
             case AssetType::TERRAIN:
                 renderer.terrain.reload(c.guid, c.content_bin);

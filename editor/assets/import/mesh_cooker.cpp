@@ -1,6 +1,8 @@
 #include <editor/assets/import/mesh_cooker.h>
 #include <editor/application/editor_context.h>
 #include <editor/assets/import/asset_import_tracker.h>
+#include <editor/assets/import/dynamics_baker.h>
+#include <editor/assets/import/skeleton_cooker.h>
 #include <core/io/file_io.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmesh.h>
@@ -44,9 +46,18 @@ struct MeshSource
     vec3 pos_min, pos_extent;
     vec2 uv_min, uv_extent;
     vec4 bounds_sphere;
+    LMeshDynamics dynamics;
 };
 
 struct SrcVert { vec3 p; vec3 n; vec2 uv; };
+
+static void _fit_body(const std::vector<SrcVert>& p_verts, const std::vector<SkinVertex>& p_skin, MeshSource& r_src)
+{
+    if (p_skin.empty()) return;
+    std::vector<vec3> positions(p_verts.size());
+    for (size_t i = 0; i < p_verts.size(); i++) positions[i] = p_verts[i].p;
+    dynamics_fit_colliders(positions, p_skin, (uint32_t)r_src.joints.size(), r_src.dynamics.colliders);
+}
 
 static i16vec2 _oct_encode(vec3 n)
 {
@@ -315,6 +326,7 @@ bool _load_single_cluster(const aiScene* p_scene, const MeshCooker::CookSettings
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     _apply_import_transform(p_settings, verts, skin, r_src);
+    _fit_body(verts, skin, r_src);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -334,6 +346,7 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     _apply_import_transform(p_settings, verts, skin, r_src);
+    _fit_body(verts, skin, r_src);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -363,6 +376,7 @@ bool _load_clustered_dag(const aiScene* p_scene, const MeshCooker::CookSettings&
     if (!_gather_scene(p_scene, verts, indices, skin, r_src)) return false;
 
     _apply_import_transform(p_settings, verts, skin, r_src);
+    _fit_body(verts, skin, r_src);
 
     _pack_vertices(verts, r_src);
     p_step.report(MeshCooker::GATHER_SHARE);
@@ -516,7 +530,6 @@ bool MeshCooker::load_settings(const std::filesystem::path& p_lmesh, CookSetting
     r_settings.rotation = _read_vec3(rec["rotation"], r_settings.rotation);
     r_settings.scale = (float)rec["scale"].value_or((double)r_settings.scale);
     r_settings.load_skeleton = rec["load_skeleton"].value_or(r_settings.load_skeleton);
-    r_settings.generate_collision = rec["generate_collision"].value_or(r_settings.generate_collision);
     if (const toml::table* import = rec.as_table()) collision_settings_read(*import, r_settings.collision);
     r_settings.dag_level = mesh_dag_level_from_name(rec["dag_level"].value_or(std::string()), r_settings.dag_level);
     r_settings.max_verts = (uint32_t)rec["max_verts"].value_or((int64_t)r_settings.max_verts);
@@ -570,9 +583,10 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     out.uv_extent = src.uv_extent;
     out.bounds_sphere = src.bounds_sphere;
     if (skinned) {
-        out.rig.skeleton = p_job.skeleton;
+        out.rig.skeleton = p_job.guid;
         out.rig.joints = src.joints;
         out.rig.inverse_binds = src.inverse_binds;
+        out.rig.dynamics = std::move(src.dynamics);
     }
 
     LMeshData data;
@@ -581,6 +595,15 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
         return FAILED;
     }
     data.collision = p_job.collision;
+    if (skinned && p_job.skeleton_data) {
+        dynamics_bake_cloths(data, *p_job.skeleton_data);
+        LSkeleton skeleton = *p_job.skeleton_data;
+        skeleton.guid = p_job.guid;
+        if (skeleton.encode(data.skeleton) != OK) {
+            log_write("MeshCooker: %s: skeleton too large", p_job.source.string().c_str());
+            return FAILED;
+        }
+    }
     if (!lmesh_write(p_job.content_bin, p_job.guid, data)) {
         log_write("MeshCooker: couldn't write '%s'", p_job.content_bin.string().c_str());
         return FAILED;
@@ -597,7 +620,6 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "rotation", toml::array{ p_job.settings.rotation.x, p_job.settings.rotation.y, p_job.settings.rotation.z } },
             { "scale", static_cast<double>(p_job.settings.scale) },
             { "load_skeleton", p_job.settings.load_skeleton },
-            { "generate_collision", p_job.settings.generate_collision },
             { "dag_level", mesh_dag_level_name(p_job.settings.dag_level) },
             { "max_verts", static_cast<int64_t>(p_job.settings.max_verts) },
             { "max_tris", static_cast<int64_t>(p_job.settings.max_tris) },
@@ -607,7 +629,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "skinned", skinned } }},
     };
     collision_settings_write(*tbl["import"].as_table(), p_job.settings.collision);
-    if (skinned) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("skeleton", p_job.skeleton.to_string());
+    if (skinned && p_job.skeleton_data && (!p_job.skeleton_data->chains.empty() || !p_job.skeleton_data->cloths.empty())) tbl.insert_or_assign("dynamics", SkeletonCooker::dynamics_table(*p_job.skeleton_data));
     if (!p_job.collision.empty()) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", true);
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;

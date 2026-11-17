@@ -17,7 +17,7 @@
 
 namespace lumen {
 
-void RigPreview::refresh(EditorContext& ctx, Guid p_mesh, bool p_keep_skeleton)
+void RigPreview::refresh(EditorContext& ctx, Guid p_mesh)
 {
     if (!ctx.project) return;
     const bool new_mesh = p_mesh != _mesh;
@@ -31,7 +31,7 @@ void RigPreview::refresh(EditorContext& ctx, Guid p_mesh, bool p_keep_skeleton)
             _mesh = p_mesh;
             _mesh_time = ec ? std::filesystem::file_time_type{} : t;
             skinned = p_mesh.valid() && lmesh_read_rig(bin, rig);
-            if (new_mesh || !p_keep_skeleton) skeleton = rig.skeleton;
+            skeleton = rig.skeleton;
             _stale = true;
         }
     }
@@ -59,22 +59,16 @@ void RigPreview::_load_skeleton(EditorContext& ctx)
     _skeleton.globals(_skeleton.rest.data(), _global.data());
     rig_joint_map(_skeleton, rig, _map);
     rig_skin(_global, rig, _map, _skin);
-    for (int32_t s : _map) {
-        if (s == SKELETON_NO_JOINT) missing_joints++;
+    for (size_t j = 0; j < _map.size() && j < rig.joints.size(); j++) {
+        if (_map[j] == SKELETON_NO_JOINT && !rig.joints[j].starts_with("__cloth")) missing_joints++;
     }
 }
 
 Guid RigPreview::find_mesh(EditorContext& ctx, Guid p_skeleton)
 {
     if (!p_skeleton.valid() || !ctx.assets) return {};
-    for (const auto& [mesh, e] : ctx.assets->entries) {
-        if (e.type != AssetType::MESH) continue;
-        toml::table tbl;
-        try { tbl = toml::parse_file(e.path.string()); }
-        catch (const toml::parse_error&) { continue; }
-        if (Guid::from_string(tbl[asset_type_section(AssetType::MESH)]["skeleton"].value_or(std::string())) == p_skeleton) return mesh;
-    }
-    return {};
+    const auto it = ctx.assets->entries.find(p_skeleton);
+    return it != ctx.assets->entries.end() && it->second.type == AssetType::MESH ? p_skeleton : Guid{};
 }
 
 void RigPreview::pose(const JointTransform* p_local)

@@ -1,6 +1,8 @@
 #pragma once
 #include <core/assets/guid.h>
 #include <core/animation/anim_library.h>
+#include <core/animation/dynamics.h>
+#include <core/scene/scene_settings.h>
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <cstdint>
@@ -13,6 +15,7 @@ using namespace glm;
 
 struct Scene;
 struct Renderer;
+struct PoseComponent;
 
 struct PoseSystem
 {
@@ -34,6 +37,7 @@ struct PoseSystem
     void clear();
 
     const Binding* _binding(const Renderer& p_renderer, uint32_t p_mesh_index);
+    void _simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, PoseComponent& r_pose);
 };
 
 }

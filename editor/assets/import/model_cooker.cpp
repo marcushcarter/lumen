@@ -270,33 +270,13 @@ static ModelLocation _model_location(const std::filesystem::path& p_dst_dir, con
     }
 }
 
-Guid ModelCooker::_import_skeleton(const Job& p_job, const aiScene* p_scene)
+bool ModelCooker::_import_skeleton(const Job& p_job, const aiScene* p_scene, LSkeleton& r_skeleton)
 {
-    LSkeleton skeleton;
-    if (!p_job.settings.mesh_settings.load_skeleton || !SkeletonCooker::build(p_scene, p_job.settings.mesh_settings, skeleton)) return {};
-
-    std::filesystem::path dst = p_job.dst_dir / std::filesystem::path(p_job.dst_lmesh.stem().wstring() + L".lskeleton");
-    const SkeletonCooker::Match match = SkeletonCooker::find_matching(*p_job.project, skeleton.fingerprint());
-    if (match.guid.valid()) {
-        if (match.source != p_job.source.generic_string()) return match.guid;
-        dst = match.path;
-    }
-
-    std::filesystem::path content_bin;
-    if (AssetImportTracker::resolve_import(*p_job.project, AssetType::SKELETON, dst, skeleton.guid, content_bin) != Error::OK) {
-        log_write("ModelCooker: '%s' exists and is not a skeleton.", dst.string().c_str());
-        return {};
-    }
-    const ImportSession::Staged staged = p_job.session->stage(*p_job.project, dst, skeleton.guid, true, false);
-    SkeletonCooker::Job job;
-    job.source = p_job.source;
-    job.dst_lskeleton = staged.asset;
-    job.content_bin = staged.content_bin;
-    if (SkeletonCooker::cook(job, skeleton) != Error::OK) {
-        p_job.session->unstage(dst);
-        return {};
-    }
-    return skeleton.guid;
+    r_skeleton = {};
+    if (!p_job.settings.mesh_settings.load_skeleton || !SkeletonCooker::build(p_scene, p_job.settings.mesh_settings, r_skeleton)) return false;
+    r_skeleton.guid = p_job.mesh_guid;
+    SkeletonCooker::load_dynamics(p_job.dst_lmesh, r_skeleton);
+    return true;
 }
 
 uint32_t ModelCooker::_import_animations(const Job& p_job, const aiScene* p_scene, const std::filesystem::path& p_dir, Guid p_skeleton, bool p_notify)
@@ -363,7 +343,10 @@ struct CollisionPlan
 static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScene* p_scene)
 {
     CollisionPlan plan;
-    if (p_job.settings.mesh_settings.generate_collision) plan.cook = CollisionCooker::build(p_scene, p_job.settings.mesh_settings.collision, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data);
+    bool skinned = false;
+    for (uint32_t m = 0; m < p_scene->mNumMeshes && !skinned; m++) skinned = p_scene->mMeshes[m]->mNumBones > 0;
+    if (skinned && p_job.settings.mesh_settings.load_skeleton) return plan;
+    plan.cook = CollisionCooker::build(p_scene, p_job.settings.mesh_settings.collision, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data);
     return plan;
 }
 
@@ -393,7 +376,8 @@ Error ModelCooker::_import(const Job& p_job)
         CollisionPlan collision = _plan_collision(p_job, scene);
         MeshCooker::Job mesh;
         mesh.source = p_job.source;
-        mesh.skeleton = _import_skeleton(p_job, scene);
+        LSkeleton skeleton_data;
+        if (_import_skeleton(p_job, scene, skeleton_data)) mesh.skeleton_data = &skeleton_data;
         if (collision.cook) mesh.collision = collision.data.to_payload();
         mesh.guid = p_job.mesh_guid;
         mesh.settings = p_job.settings.mesh_settings;
@@ -440,7 +424,8 @@ Error ModelCooker::_import(const Job& p_job)
     CollisionPlan collision = _plan_collision(p_job, scene);
     MeshCooker::Job mesh;
     mesh.source = p_job.source;
-    mesh.skeleton = _import_skeleton(p_job, scene);
+    LSkeleton skeleton_data;
+    if (_import_skeleton(p_job, scene, skeleton_data)) mesh.skeleton_data = &skeleton_data;
     if (collision.cook) mesh.collision = collision.data.to_payload();
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
@@ -449,7 +434,7 @@ Error ModelCooker::_import(const Job& p_job)
     mesh.content_bin = mesh_staged.content_bin;
     mesh.step = next_step(mesh_cost);
     if (const Error err = MeshCooker::cook_scene(mesh, scene); err != OK) return err;
-    _import_animations(p_job, scene, p_job.dst_dir, mesh.skeleton, false);
+    _import_animations(p_job, scene, p_job.dst_dir, mesh.skeleton_data ? p_job.mesh_guid : Guid{}, false);
 
     for (size_t i = 0; i < textures.size(); i++) {
         TextureCooker::Job& tex = textures[i];

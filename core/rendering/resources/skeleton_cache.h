@@ -17,7 +17,7 @@ struct SkeletonCache
     std::unordered_map<Guid, Entry> entries;
     uint64_t version = 0;
 
-    bool load(Guid p_guid, const std::filesystem::path& p_path);
+    void load_mesh(Guid p_guid, const std::filesystem::path& p_path);
     void unload(Guid p_guid);
     void clear();
 

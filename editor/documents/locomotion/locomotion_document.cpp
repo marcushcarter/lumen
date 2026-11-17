@@ -1,4 +1,5 @@
 #include <editor/documents/locomotion/locomotion_document.h>
+#include <core/game/entity_debug.h>
 #include <core/rendering/debug_draw.h>
 #include <core/rendering/renderer.h>
 #include <core/scene/components.h>
@@ -21,7 +22,6 @@ Error LocomotionDocument::create(EditorContext& ctx)
 
     _create_layout();
     layout.add_panel<LocomotionDetailsPanel>()->tab = this;
-    viewport.debug_lines = [this](DebugDraw& r_draw) { rig_preview.draw_bones(r_draw); };
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -83,7 +83,7 @@ void LocomotionDocument::_sync_preview(EditorContext& ctx)
         ctx.renderer->models.set(_preview_model, mesh, {});
         _framed = false;
     }
-    rig_preview.refresh(ctx, _shown_mesh, false);
+    rig_preview.refresh(ctx, _shown_mesh);
 }
 
 void LocomotionDocument::_pose_preview(EditorContext& ctx, float p_dt)

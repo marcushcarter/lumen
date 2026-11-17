@@ -20,10 +20,14 @@ struct PreviewViewport
     ImVec2 view_min = ImVec2(0.0f, 0.0f);
     ImVec2 view_size = ImVec2(0.0f, 0.0f);
     bool hovered = false;
+    bool picked = false;
+    ImVec2 pick_pos = ImVec2(0.0f, 0.0f);
 
     bool looking = false;
     ImVec2 look_delta = ImVec2(0.0f, 0.0f);
     float look_zoom = 0.0f;
+    bool panning = false;
+    ImVec2 pan_delta = ImVec2(0.0f, 0.0f);
     ImVec2 _look_press = ImVec2(0.0f, 0.0f);
     float _look_travel = 0.0f;
 
@@ -31,6 +35,7 @@ struct PreviewViewport
     void draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max);
     void release();
     bool edit_shape(EditorContext& ctx, const ShapeEdit& p_shape, bool& r_changed);
+    int32_t pick_point(EditorContext& ctx, const glm::vec3* p_points, size_t p_count, float p_radius_px) const;
 };
 
 }

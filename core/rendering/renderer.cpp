@@ -180,9 +180,7 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
                 break;
             case AssetType::MESH:
                 geometry.load(ah.guid, path);
-                break;
-            case AssetType::SKELETON:
-                skeletons.load(ah.guid, path);
+                skeletons.load_mesh(ah.guid, path);
                 break;
             case AssetType::TERRAIN:
                 terrain.register_path(ah.guid, path);

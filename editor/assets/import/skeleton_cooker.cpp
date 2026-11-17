@@ -58,13 +58,6 @@ static void _order_joints(const aiNode* p_node, int32_t p_parent, const std::uno
     for (uint32_t c = 0; c < p_node->mNumChildren; c++) _order_joints(p_node->mChildren[c], self, p_marked, r_nodes, r_parents);
 }
 
-static std::string _fingerprint_text(uint64_t p_fingerprint)
-{
-    char buf[17];
-    std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)p_fingerprint);
-    return buf;
-}
-
 bool SkeletonCooker::build(const aiScene* p_scene, const MeshCooker::CookSettings& p_settings, LSkeleton& r_skeleton)
 {
     r_skeleton = {};
@@ -118,44 +111,116 @@ bool SkeletonCooker::build(const aiScene* p_scene, const MeshCooker::CookSetting
     return true;
 }
 
-SkeletonCooker::Match SkeletonCooker::find_matching(const Project& p_project, uint64_t p_fingerprint)
+toml::table SkeletonCooker::dynamics_table(const LSkeleton& p_skeleton)
 {
-    const std::string want = _fingerprint_text(p_fingerprint);
-    std::error_code ec;
-    for (auto it = std::filesystem::recursive_directory_iterator(p_project.assets_dir, std::filesystem::directory_options::skip_permission_denied, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-        if (it->path().extension() != ".lskeleton") continue;
-        toml::table tbl;
-        try { tbl = toml::parse_file(it->path().string()); }
-        catch (const toml::parse_error&) { continue; }
-        if (tbl[asset_type_section(AssetType::SKELETON)]["fingerprint"].value_or(std::string()) != want) continue;
-        const AssetInfo info = read_asset_info(it->path());
-        if (info.valid() && info.type == AssetType::SKELETON) return { info.guid, it->path(), tbl["import"]["source"].value_or(std::string()) };
+    toml::array chains;
+    for (const SkeletonChain& c : p_skeleton.chains) {
+        chains.push_back(toml::table{
+            { "root", p_skeleton.names[c.root] },
+            { "stiffness", (double)c.stiffness },
+            { "damping", (double)c.damping },
+            { "inertia", (double)c.inertia },
+            { "radius", (double)c.radius },
+            { "angle_limit", (double)c.angle_limit } });
     }
-    return {};
+    toml::array cloths;
+    for (const SkeletonCloth& c : p_skeleton.cloths) {
+        cloths.push_back(toml::table{
+            { "root", p_skeleton.names[c.root] },
+            { "resolution", (int64_t)c.resolution },
+            { "stretch", (double)c.stretch },
+            { "bend", (double)c.bend },
+            { "damping", (double)c.damping },
+            { "inertia", (double)c.inertia },
+            { "thickness", (double)c.thickness },
+            { "max_distance", (double)c.max_distance } });
+    }
+    return toml::table{ { "chains", chains }, { "cloths", cloths } };
 }
 
-Error SkeletonCooker::cook(const Job& p_job, const LSkeleton& p_skeleton)
+static float _float(const toml::table& p_t, const char* p_key, float p_fallback)
+{
+    return (float)p_t[p_key].value_or((double)p_fallback);
+}
+
+static uint32_t _read_dynamics(const toml::table& p_tbl, const std::filesystem::path& p_path, LSkeleton& r_skeleton)
+{
+    r_skeleton.chains.clear();
+    r_skeleton.cloths.clear();
+    const toml::table* dyn = p_tbl["dynamics"].as_table();
+    if (!dyn) return 0;
+    uint32_t dropped = 0;
+    auto resolve = [&](const toml::table& p_entry) {
+        const std::string root = p_entry["root"].value_or(std::string());
+        const int32_t joint = r_skeleton.find(root);
+        if (joint == SKELETON_NO_JOINT) {
+            log_write("Skeleton: '%s' has no bone '%s' anymore, its dynamics entry was dropped.", p_path.filename().string().c_str(), root.c_str());
+            dropped++;
+        }
+        return joint;
+    };
+    if (const toml::array* chains = (*dyn)["chains"].as_array()) {
+        for (const toml::node& n : *chains) {
+            const toml::table* t = n.as_table();
+            if (!t) continue;
+            SkeletonChain c;
+            c.root = resolve(*t);
+            if (c.root == SKELETON_NO_JOINT) continue;
+            c.stiffness = _float(*t, "stiffness", c.stiffness);
+            c.damping = _float(*t, "damping", c.damping);
+            c.inertia = _float(*t, "inertia", c.inertia);
+            c.radius = _float(*t, "radius", c.radius);
+            c.angle_limit = _float(*t, "angle_limit", c.angle_limit);
+            r_skeleton.chains.push_back(c);
+        }
+    }
+    if (const toml::array* cloths = (*dyn)["cloths"].as_array()) {
+        for (const toml::node& n : *cloths) {
+            const toml::table* t = n.as_table();
+            if (!t) continue;
+            SkeletonCloth c;
+            c.root = resolve(*t);
+            if (c.root == SKELETON_NO_JOINT) continue;
+            c.resolution = (uint32_t)std::clamp<int64_t>((*t)["resolution"].value_or((int64_t)c.resolution), 4, 256);
+            c.stretch = _float(*t, "stretch", c.stretch);
+            c.bend = _float(*t, "bend", c.bend);
+            c.damping = _float(*t, "damping", c.damping);
+            c.inertia = _float(*t, "inertia", c.inertia);
+            c.thickness = _float(*t, "thickness", c.thickness);
+            c.max_distance = _float(*t, "max_distance", c.max_distance);
+            r_skeleton.cloths.push_back(c);
+        }
+    }
+    return dropped;
+}
+
+uint32_t SkeletonCooker::load_dynamics(const std::filesystem::path& p_lmesh, LSkeleton& r_skeleton)
+{
+    r_skeleton.chains.clear();
+    r_skeleton.cloths.clear();
+    std::error_code ec;
+    if (!std::filesystem::exists(p_lmesh, ec)) return 0;
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lmesh.string()); }
+    catch (const toml::parse_error&) { return 0; }
+    return _read_dynamics(tbl, p_lmesh, r_skeleton);
+}
+
+Error SkeletonCooker::save_dynamics(const std::filesystem::path& p_lmesh, const std::filesystem::path& p_content_bin, const LSkeleton& p_skeleton)
 {
     using enum Error;
-    if (p_skeleton.save_cooked(p_job.content_bin) != OK) {
-        log_write("SkeletonCooker: failed to write '%s'.", p_job.content_bin.string().c_str());
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lmesh.string()); }
+    catch (const toml::parse_error&) { return FAILED; }
+    if (p_skeleton.chains.empty() && p_skeleton.cloths.empty()) tbl.erase("dynamics");
+    else tbl.insert_or_assign("dynamics", dynamics_table(p_skeleton));
+    if (p_skeleton.save_cooked(p_content_bin) != OK) {
+        log_write("SkeletonCooker: failed to write '%s'.", p_content_bin.string().c_str());
         return FAILED;
     }
-
-    toml::table tbl {
-        { "asset", toml::table{
-            { "version", static_cast<int64_t>(LASSET_VERSION) },
-            { "guid", p_skeleton.guid.to_string() },
-            { "type", static_cast<int64_t>(AssetType::SKELETON) } }},
-        { "import", toml::table{
-            { "source", p_job.source.generic_string() } }},
-        { std::string(asset_type_section(AssetType::SKELETON)), toml::table{
-            { "joints", static_cast<int64_t>(p_skeleton.joint_count()) },
-            { "fingerprint", _fingerprint_text(p_skeleton.fingerprint()) } }},
-    };
     std::ostringstream ss;
     ss << tbl;
-    return write_file_atomic(p_job.dst_lskeleton, ss.str()) ? OK : FAILED;
+    return write_file_atomic(p_lmesh, ss.str()) ? OK : FAILED;
 }
 
 }

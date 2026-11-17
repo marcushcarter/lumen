@@ -297,7 +297,7 @@ void ScenePanel::_draw_table(EditorContext& ctx, float p_footer_h)
 uint32_t ScenePanel::_world_row_count(const EditorContext& ctx) const
 {
     if (ctx.template_doc) return 0;
-    return world_open ? 3u : 1u;
+    return world_open ? 4u : 1u;
 }
 
 void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
@@ -344,6 +344,7 @@ void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
     };
     if (row("##terrain", ICON_FA_MOUNTAIN, "Terrain", selection.terrain)) selection.select_terrain();
     if (row("##shadows", ICON_FA_CIRCLE_HALF_STROKE, "Shadows", selection.shadows)) selection.select_shadows();
+    if (row("##physics", ICON_FA_ATOM, "Physics", selection.physics)) selection.select_physics();
 }
 
 void ScenePanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)

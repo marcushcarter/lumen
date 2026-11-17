@@ -502,12 +502,6 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             r_job.model = r_job.pieces.front().model;
             r_job.mesh = r_job.pieces.front().mesh;
         } break;
-        case AssetType::SKELETON: {
-            const uint64_t stamp = _stamp(_content_file(ctx, p_guid));
-            if (stamp == STAMP_MISSING) return false;
-            r_job.model = preview_mesh;
-            key = _mix(key, stamp);
-        } break;
         case AssetType::ANIMATION: {
             uint64_t stamp = STAMP_MISSING;
             const ParsedAnimation* a = _parsed_animation(ctx, p_guid, stamp);
@@ -537,84 +531,11 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
     return true;
 }
 
-bool ThumbnailCache::_skeleton_bones(EditorContext& ctx, Job& r_job, vec3& r_center, float& r_radius)
-{
-    LSkeleton skeleton;
-    if (skeleton.load_cooked(_content_file(ctx, r_job.guid)) != Error::OK || skeleton.joint_count() == 0) return false;
-    std::vector<mat4> global(skeleton.joint_count());
-    skeleton.globals(skeleton.rest.data(), global.data());
-
-    r_job.bones.resize(global.size());
-    for (size_t i = 0; i < global.size(); ++i) r_job.bones[i] = vec3(global[i][3]);
-    r_job.bone_parents = skeleton.parents;
-
-    vec3 lo(FLT_MAX), hi(-FLT_MAX);
-    for (const vec3& p : r_job.bones) {
-        lo = glm::min(lo, p);
-        hi = glm::max(hi, p);
-    }
-    r_center = (lo + hi) * 0.5f;
-    r_radius = std::max(length(hi - lo) * 0.5f, 0.01f);
-    return true;
-}
-
-static void _plot(std::vector<uint8_t>& r_pixels, int p_x, int p_y, ImU32 p_color, float p_coverage)
-{
-    const int size = (int)ThumbnailCache::OUTPUT_SIZE;
-    if (p_x < 0 || p_y < 0 || p_x >= size || p_y >= size || p_coverage <= 0.0f) return;
-    uint8_t* px = r_pixels.data() + ((size_t)p_y * size + p_x) * 4;
-    const float a = std::min(p_coverage, 1.0f);
-    for (int c = 0; c < 3; c++) {
-        const float src = (float)((p_color >> (8 * c)) & 0xFF);
-        px[c] = (uint8_t)(px[c] + (src - px[c]) * a + 0.5f);
-    }
-}
-
-static void _disk(std::vector<uint8_t>& r_pixels, vec2 p_center, float p_radius, ImU32 p_color)
-{
-    const int x0 = (int)std::floor(p_center.x - p_radius - 1.0f);
-    const int y0 = (int)std::floor(p_center.y - p_radius - 1.0f);
-    const int x1 = (int)std::ceil(p_center.x + p_radius + 1.0f);
-    const int y1 = (int)std::ceil(p_center.y + p_radius + 1.0f);
-    for (int y = y0; y <= y1; y++) {
-        for (int x = x0; x <= x1; x++) _plot(r_pixels, x, y, p_color, p_radius + 0.5f - length(vec2(x + 0.5f, y + 0.5f) - p_center));
-    }
-}
-
-void ThumbnailCache::_draw_bones(const Job& p_job)
-{
-    const UiStyle& ui = ui_style();
-    const float size = (float)OUTPUT_SIZE;
-    const mat4 view_proj = p_job.camera.proj(1.0f) * p_job.camera.view();
-    std::vector<vec2> screen(p_job.bones.size());
-    std::vector<uint8_t> visible(p_job.bones.size(), 0);
-    for (size_t i = 0; i < p_job.bones.size(); ++i) {
-        const vec4 clip = view_proj * vec4(p_job.bones[i], 1.0f);
-        if (clip.w <= p_job.camera.near_z) continue;
-        screen[i] = vec2((clip.x / clip.w * 0.5f + 0.5f) * size, (0.5f - clip.y / clip.w * 0.5f) * size);
-        visible[i] = 1;
-    }
-
-    const float line_radius = ui.bones.bone_thickness;
-    for (size_t i = 0; i < screen.size(); ++i) {
-        const int32_t parent = p_job.bone_parents[i];
-        if (!visible[i] || parent == SKELETON_NO_JOINT || !visible[parent]) continue;
-        const vec2 a = screen[parent];
-        const vec2 b = screen[i];
-        const int steps = std::max(1, (int)std::ceil(length(b - a) * 2.0f));
-        for (int s = 0; s <= steps; s++) _disk(pixels, mix(a, b, (float)s / (float)steps), line_radius, ui.color.asset_skeleton);
-    }
-    for (size_t i = 0; i < screen.size(); ++i) {
-        if (visible[i]) _disk(pixels, screen[i], ui.bones.joint_radius, ui.color.asset_skeleton);
-    }
-}
-
 ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& p_job)
 {
     using enum Readiness;
     Renderer& r = *ctx.renderer;
 
-    if (p_job.type == AssetType::SKELETON) return READY;
     std::vector<Guid> meshes{ p_job.mesh };
     std::vector<Guid> model_list;
     if (p_job.type == AssetType::MODEL) model_list.push_back(p_job.model);
@@ -683,7 +604,6 @@ bool ThumbnailCache::supports(AssetType p_type)
         case AssetType::MESH:
         case AssetType::MATERIAL:
         case AssetType::MODEL:
-        case AssetType::SKELETON:
         case AssetType::ANIMATION:
         case AssetType::OVERLAY:
         case AssetType::TEMPLATE:
@@ -774,18 +694,14 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
 
         const bool tmpl = next.type == AssetType::TEMPLATE;
         rig.invalidate();
-        rig.refresh(ctx, tmpl ? Guid{} : next.mesh, false);
+        rig.refresh(ctx, tmpl ? Guid{} : next.mesh);
         if (next.type == AssetType::ANIMATION) _pose_animation(next.guid);
         if (next.type == AssetType::OVERLAY) _pose_overlay(ctx, next.guid);
         rig.apply(world, entity);
         vec3 center(0.0f);
         float bounds_radius = 0.0f;
         const bool has_mesh = tmpl ? _template_bounds(ctx, next, center, bounds_radius) : rig.bounds(r.geometry, next.mesh, center, bounds_radius);
-        if (next.type == AssetType::SKELETON) {
-            if (!_skeleton_bones(ctx, next, center, bounds_radius)) continue;
-        } else if (!has_mesh) {
-            continue;
-        }
+        if (!has_mesh) continue;
         const float fov = glm::radians(CAMERA_FOV_DEG);
         const float radius = std::max(bounds_radius, 0.001f);
         const float distance = radius / std::sin(fov * 0.5f) * FRAME_MARGIN;
@@ -873,7 +789,6 @@ void ThumbnailCache::_finish(EditorContext& ctx)
     auto it = entries.find(done.guid);
     if (it == entries.end()) return;
     Entry& e = it->second;
-    if (!done.bones.empty()) _draw_bones(done);
 
     _swap_image(ctx, e, dd->image_create_texture(pixels.data(), OUTPUT_SIZE, OUTPUT_SIZE, "thumbnail"), done.key);
     if (dir.empty()) return;

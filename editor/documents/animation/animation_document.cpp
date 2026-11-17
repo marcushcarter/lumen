@@ -1,4 +1,5 @@
 #include <editor/documents/animation/animation_document.h>
+#include <core/game/entity_debug.h>
 #include <core/rendering/debug_draw.h>
 #include <core/assets/asset_common.h>
 #include <core/io/file_io.h>
@@ -38,7 +39,6 @@ Error AnimationDocument::create(EditorContext& ctx)
     _create_layout();
     layout.add_panel<AnimationDetailsPanel>()->tab = this;
     layout.add_panel<AnimationTimelinePanel>()->tab = this;
-    viewport.debug_lines = [this](DebugDraw& r_draw) { rig_preview.draw_bones(r_draw); };
 
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
@@ -123,7 +123,7 @@ void AnimationDocument::_sync_preview(EditorContext& ctx)
         ctx.renderer->models.set(_preview_model, preview_mesh, {});
         _framed = false;
     }
-    rig_preview.refresh(ctx, preview_mesh, false);
+    rig_preview.refresh(ctx, preview_mesh);
     if (rig_preview.version == _mapped_version) return;
     _mapped_version = rig_preview.version;
     clip_track_map(rig_preview.skeleton_data(), clip, _track_map);

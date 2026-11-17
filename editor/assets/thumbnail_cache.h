@@ -69,8 +69,6 @@ struct ThumbnailCache
         Guid mesh;
         std::vector<Guid> materials;
         std::vector<Guid> textures;
-        std::vector<vec3> bones;
-        std::vector<int32_t> bone_parents;
         std::vector<Piece> pieces;
         JobState state = JobState::NONE;
         uint64_t frame = 0;
@@ -141,10 +139,8 @@ struct ThumbnailCache
 
     static bool supports(AssetType p_type);
     bool _resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job);
-    bool _skeleton_bones(EditorContext& ctx, Job& r_job, vec3& r_center, float& r_radius);
     bool _template_bounds(EditorContext& ctx, const Job& p_job, vec3& r_center, float& r_radius) const;
     void _place_template(const Job& p_job);
-    void _draw_bones(const Job& p_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     const LModel* _parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);

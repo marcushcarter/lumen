@@ -115,6 +115,10 @@ void EditorPlay::_sync_environment()
         _shadows = authored->shadows;
         runtime.shadows = authored->shadows;
     }
+    if (authored->physics != _physics) {
+        _physics = authored->physics;
+        runtime.physics = authored->physics;
+    }
     if (std::memcmp(&authored->environment, &_environment, sizeof(EnvironmentSettings)) == 0) return;
     _environment = authored->environment;
     runtime.environment = authored->environment;
@@ -130,6 +134,8 @@ void EditorPlay::_clone()
     runtime.terrain = authored->terrain;
     _shadows = authored->shadows;
     runtime.shadows = authored->shadows;
+    _physics = authored->physics;
+    runtime.physics = authored->physics;
     std::vector<Entity> entities;
     authored->view<EntityIdComponent>([&](Entity p_entity, const EntityIdComponent&) { entities.push_back(p_entity); });
     for (const Entity e : entities) _sync_entity(e);

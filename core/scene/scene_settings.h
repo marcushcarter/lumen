@@ -23,6 +23,15 @@ struct ShadowSettings
     bool operator==(const ShadowSettings&) const = default;
 };
 
+struct PhysicsSettings
+{
+    float gravity = 9.81f;
+    bool cloth = true;
+    bool chains = true;
+
+    bool operator==(const PhysicsSettings&) const = default;
+};
+
 struct TerrainSettings
 {
     Guid terrain;

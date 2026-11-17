@@ -15,7 +15,7 @@ namespace lumen {
 
 struct EditorPlay;
 
-enum class ViewOverlay : uint8_t { NONE, SHAPE_COLLISIONS, ALL_COLLISIONS, DEBUG_LINES, BONES, EVERYTHING, COUNT };
+enum class ViewOverlay : uint8_t { NONE, COLLISION, BONES, CLOTH, DEBUG_LINES, EVERYTHING, COUNT };
 
 struct ViewportView
 {
@@ -27,7 +27,6 @@ struct ViewportView
 
 const char* view_overlay_name(ViewOverlay p_overlay);
 uint32_t view_overlay_kinds(ViewOverlay p_overlay);
-uint32_t view_selection_kinds(ViewOverlay p_overlay);
 bool view_overlay_lines(ViewOverlay p_overlay);
 
 ViewportView& viewport_view();
@@ -69,7 +68,7 @@ struct Viewport
     void _submit_debug_draw(EditorContext& ctx, bool p_live);
     void _draw_cull_frustum(EditorContext& ctx);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
-    static void draw_bar(ImVec2 p_min, ImVec2 p_max);
+    static void draw_bar(ImVec2 p_min, ImVec2 p_max, bool p_overlay = true);
     static void draw_stats(EditorContext& ctx, ImVec2 p_pos);
     void _draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     void _update_fly(bool p_start);

@@ -64,6 +64,7 @@ struct Scene
     EnvironmentSettings environment;
     TerrainSettings terrain;
     ShadowSettings shadows;
+    PhysicsSettings physics;
 
     uint64_t static_version = 0;
     uint64_t structure_version = 0;

@@ -13,6 +13,7 @@ struct EditorSelection
     bool environment = false;
     bool terrain = false;
     bool shadows = false;
+    bool physics = false;
     int32_t _shape = -1;
     uint64_t _shape_version = 0;
 
@@ -31,6 +32,7 @@ struct EditorSelection
     void select_environment();
     void select_terrain();
     void select_shadows();
+    void select_physics();
     void add(Entity p_entity);
     void remove(Entity p_entity);
     void toggle(Entity p_entity);

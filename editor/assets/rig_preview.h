@@ -33,7 +33,7 @@ struct RigPreview
     double _poll = -1.0e9;
     bool _stale = true;
 
-    void refresh(EditorContext& ctx, Guid p_mesh, bool p_keep_skeleton);
+    void refresh(EditorContext& ctx, Guid p_mesh);
     void invalidate() { _mesh = Guid{}; }
     const LSkeleton& skeleton_data() const { return _skeleton; }
     void pose(const JointTransform* p_local);

@@ -145,7 +145,7 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
         ImGui::EndDisabled();
     }
     _draw_transform(mesh);
-    _draw_collision(mesh.collision, &mesh.generate_collision);
+    _draw_collision(mesh.collision);
     if (p_materials && ui_category("Materials")) {
         bool generate = r_settings.mode == ModelImportMode::FULL;
         if (ImGui::Checkbox("Generate Materials", &generate)) r_settings.mode = generate ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
@@ -230,17 +230,11 @@ void collision_settings_fields(CollisionSettings& r_settings)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Leaves out alpha-masked and transparent materials, like leaves and grass cards");
 }
 
-void ImportDialog::_draw_collision(CollisionSettings& r_settings, bool* r_generate)
+void ImportDialog::_draw_collision(CollisionSettings& r_settings)
 {
     if (!ui_category("Collision")) return;
-    if (r_generate) {
-        ImGui::Checkbox("Generate Collision", r_generate);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Builds a collision asset next to the mesh from the source geometry");
-    }
-    const bool enabled = !r_generate || *r_generate;
-    if (!enabled) ImGui::BeginDisabled();
+    ImGui::TextDisabled("Static meshes always get collision. Skinned meshes get body capsules instead.");
     collision_settings_fields(r_settings);
-    if (!enabled) ImGui::EndDisabled();
 }
 
 void ImportDialog::_start(EditorContext& ctx, Pending& r_pending)

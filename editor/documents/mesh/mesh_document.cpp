@@ -5,10 +5,15 @@
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <core/scene/components.h>
+#include <core/scene/scene.h>
 #include <editor/documents/mesh/panels/mesh_details_panel.h>
 #include <editor/viewport/viewport.h>
 #include <core/physics/collision_preview.h>
 #include <editor/assets/import/mesh_cooker.h>
+#include <editor/assets/import/dynamics_baker.h>
+#include <editor/assets/import/skeleton_cooker.h>
+#include <core/animation/skinning.h>
+#include <core/base/hash.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include <toml++/toml.hpp>
@@ -26,8 +31,12 @@ Error MeshDocument::create(EditorContext& ctx)
     _create_layout();
     layout.add_panel<MeshDetailsPanel>()->tab = this;
     viewport.debug_lines = [this](DebugDraw& r_draw) {
-        rig_preview.draw_bones(r_draw);
-        _draw_collision(r_draw);
+        if (!rig_preview.skinned) {
+            _draw_collision(r_draw);
+            return;
+        }
+        _draw_bones(r_draw);
+        if (_simulating) _sim.draw(r_draw);
     };
 
     _create_preview();
@@ -46,36 +55,39 @@ Error MeshDocument::save(EditorContext& ctx)
     if (shapes_dirty()) {
         if (CollisionCooker::write_shapes(ctx, path, collision.edit) != OK) return FAILED;
         collision.settings = collision.edit;
-        collision.generate = true;
         collision.has = !collision.edit.shapes.empty();
         _collision_poll = -1.0e9;
     }
-    if (!skeleton_dirty()) {
-        _refresh_title();
-        return OK;
+    if (dynamics_dirty()) {
+        const bool rebake = cloth_rebake();
+        LSkeleton skeleton = rig_preview.skeleton_data();
+        skeleton.chains = chains;
+        skeleton.cloths = cloths;
+        const std::filesystem::path bin = ctx.project->content_path(guid);
+        if (SkeletonCooker::save_dynamics(path, bin, skeleton) != OK) return FAILED;
+        if (rebake && dynamics_rebake_cloths(bin, skeleton) != OK) return FAILED;
+        if (ctx.renderer) {
+            if (rebake) {
+                ctx.renderer->geometry.unload(guid);
+                ctx.renderer->geometry.load(guid, bin);
+            }
+            ctx.renderer->skeletons.load_mesh(guid, bin);
+        }
+        rig_preview.invalidate();
+        _sim = {};
     }
-    if (!lmesh_set_skeleton(ctx.project->content_path(guid), rig_preview.skeleton)) {
-        log_write("Mesh: failed to set the skeleton of '%s'.", path.string().c_str());
-        return FAILED;
-    }
-
-    toml::table tbl;
-    try { tbl = toml::parse_file(path.string()); }
-    catch (const toml::parse_error&) { return FAILED; }
-    if (toml::table* section = tbl[asset_type_section(AssetType::MESH)].as_table()) section->insert_or_assign("skeleton", rig_preview.skeleton.to_string());
-    std::ostringstream ss;
-    ss << tbl;
-    if (!write_file_atomic(path, ss.str())) return FAILED;
-
-    rig_preview.rig.skeleton = rig_preview.skeleton;
-    if (ctx.renderer) ctx.renderer->geometry.set_skeleton(guid, rig_preview.skeleton);
     _refresh_title();
     return OK;
 }
 
+void MeshDocument::destroy(EditorContext& ctx)
+{
+    if (dynamics_dirty() && ctx.renderer && ctx.project) ctx.renderer->skeletons.load_mesh(guid, ctx.project->content_path(guid));
+    AssetDocument::destroy(ctx);
+}
+
 void MeshDocument::on_update(EditorContext& ctx, float p_dt)
 {
-    (void)p_dt;
     _draw_layout(ctx);
     _edit_selected_shape(ctx);
     _update_orbit();
@@ -84,7 +96,10 @@ void MeshDocument::on_update(EditorContext& ctx, float p_dt)
         _collision_poll = ImGui::GetTime();
         _refresh_collision(ctx);
     }
-    rig_preview.refresh(ctx, guid, dirty());
+    rig_preview.refresh(ctx, guid);
+    _sync_dynamics();
+    _pick_bone(ctx);
+    _simulate_preview(p_dt, ctx.scene ? ctx.scene->physics : PhysicsSettings{});
     if (rig_preview.version != _applied_version) {
         rig_preview.apply(preview, _preview_entity);
         _applied_version = rig_preview.version;
@@ -125,7 +140,6 @@ void MeshDocument::_refresh_collision(EditorContext& ctx)
     MeshCooker::CookSettings saved;
     std::filesystem::path saved_source;
     MeshCooker::load_settings(path, saved, saved_source);
-    collision.generate = saved.generate_collision;
     collision.has = CollisionCooker::has_collision(path);
 
     if (!collision.has) {
@@ -223,8 +237,99 @@ void MeshDocument::_draw_collision(DebugDraw& r_draw) const
         return;
     }
     if (!collision.loaded) return;
-    const bool meshes = (view_overlay_kinds(viewport_view().overlay) & ENTITY_DEBUG_MESH_COLLISION) != 0 || collision.data.type == CollisionType::MESH;
-    debug_draw_lcollision(r_draw, mat4(1.0f), collision.data, collision.edges, style, meshes);
+    debug_draw_lcollision(r_draw, mat4(1.0f), collision.data, collision.edges, style, true);
+}
+
+void MeshDocument::_sync_dynamics()
+{
+    if (_dynamics_version == rig_preview.version) return;
+    _dynamics_version = rig_preview.version;
+    chains = rig_preview.skeleton_data().chains;
+    cloths = rig_preview.skeleton_data().cloths;
+    if (selected_bone >= (int32_t)rig_preview.skeleton_data().joint_count()) selected_bone = -1;
+}
+
+bool MeshDocument::cloth_rebake() const
+{
+    const std::vector<SkeletonCloth>& saved = rig_preview.skeleton_data().cloths;
+    if (saved.size() != cloths.size()) return true;
+    for (size_t i = 0; i < cloths.size(); i++) {
+        if (saved[i].root != cloths[i].root || saved[i].resolution != cloths[i].resolution) return true;
+    }
+    return false;
+}
+
+void MeshDocument::push_dynamics(EditorContext& ctx)
+{
+    if (!ctx.renderer || !rig_preview.skinned) return;
+    auto it = ctx.renderer->skeletons.entries.find(rig_preview.rig.skeleton);
+    if (it == ctx.renderer->skeletons.entries.end()) return;
+    LSkeleton& live = it->second.skeleton;
+    bool topology = live.chains.size() != chains.size() || live.cloths.size() != cloths.size();
+    for (size_t i = 0; !topology && i < chains.size(); i++) topology = live.chains[i].root != chains[i].root;
+    for (size_t i = 0; !topology && i < cloths.size(); i++) topology = live.cloths[i].root != cloths[i].root;
+    live.chains = chains;
+    live.cloths = cloths;
+    if (topology) ctx.renderer->skeletons.version++;
+}
+
+void MeshDocument::_pick_bone(EditorContext& ctx)
+{
+    if (!viewport.picked || !rig_preview.skinned || rig_preview._global.empty() || locked(ctx)) return;
+    std::vector<vec3> joints(rig_preview._global.size());
+    for (size_t i = 0; i < joints.size(); i++) joints[i] = vec3(rig_preview._global[i][3]);
+    selected_bone = viewport.pick_point(ctx, joints.data(), joints.size(), BONE_PICK_PX);
+}
+
+void MeshDocument::_draw_bones(DebugDraw& r_draw) const
+{
+    const LSkeleton& skeleton = rig_preview.skeleton_data();
+    if (skeleton.joint_count() == 0) return;
+    std::vector<float> weights(skeleton.joint_count(), 0.0f);
+    std::vector<uint8_t> branch;
+    auto mark = [&](int32_t p_root) {
+        skeleton.branch(p_root, branch);
+        for (size_t j = 0; j < branch.size() && j < weights.size(); j++) {
+            if (branch[j]) weights[j] = std::max(weights[j], 0.45f);
+        }
+    };
+    for (const SkeletonChain& c : chains) mark(c.root);
+    for (const SkeletonCloth& c : cloths) mark(c.root);
+    if (selected_bone >= 0 && selected_bone < (int32_t)weights.size()) weights[selected_bone] = 1.0f;
+    rig_preview.draw_bones(r_draw, weights.data());
+}
+
+void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physics)
+{
+    const bool active = rig_preview.skinned && !rig_preview._global.empty() && (!chains.empty() || !cloths.empty());
+    if (!active) {
+        if (_simulating) {
+            _simulating = false;
+            _sim = {};
+            _applied_version = 0;
+            rig_preview.pose(rig_preview.skeleton_data().rest.data());
+        }
+        return;
+    }
+    LSkeleton skeleton = rig_preview.skeleton_data();
+    skeleton.chains = chains;
+    skeleton.cloths = cloths;
+    uint64_t key = rig_preview.version;
+    for (const SkeletonChain& c : chains) key = hash_combine(key, (uint64_t)c.root);
+    for (const SkeletonCloth& c : cloths) key = hash_combine(key, (uint64_t)c.root ^ 0x9e3779b97f4a7c15ull);
+    const mat4 model(1.0f);
+    std::vector<JointTransform> local = skeleton.rest;
+    std::vector<mat4>& global = rig_preview._global;
+    skeleton.globals(local.data(), global.data());
+    _sim.bind(key, skeleton, rig_preview.rig, rig_preview._map);
+    _sim.update_colliders(rig_preview.rig, rig_preview._map, global, model);
+    if (p_physics.chains) _sim.simulate_chains(skeleton, model, p_dt, p_physics.gravity, local.data(), global);
+    else for (DynamicsChain& c : _sim.chains) c.pos.clear();
+    rig_skin(global, rig_preview.rig, rig_preview._map, rig_preview._skin);
+    _sim.simulate_cloth(skeleton, rig_preview.rig, model, p_dt, p_physics.gravity, p_physics.cloth, rig_preview._skin);
+    _sim.finish(model);
+    _simulating = true;
+    rig_preview.apply(preview, _preview_entity);
 }
 
 }

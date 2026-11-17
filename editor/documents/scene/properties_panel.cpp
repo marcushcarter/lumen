@@ -139,7 +139,7 @@ static const char* _mesh_collision_status(EditorContext& ctx, const Scene& p_wor
     MeshCooker::CookSettings settings;
     std::filesystem::path source;
     MeshCooker::load_settings(entry->path, settings, source);
-    c.status = settings.generate_collision && CollisionCooker::has_collision(entry->path) ? collision_type_label(settings.collision.type) : nullptr;
+    c.status = CollisionCooker::has_collision(entry->path) ? collision_type_label(settings.collision.type) : nullptr;
     return c.status;
 }
 
@@ -154,7 +154,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const Scene* live = live_on ? &ctx.play->runtime : nullptr;
 
     const Entity selected = ctx.selection->primary();
-    const bool has_target = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || world.valid(selected);
+    const bool has_target = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || ctx.selection->physics || world.valid(selected);
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x;
@@ -179,7 +179,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (!has_target) return;
 
     const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX;
-    const float footer_h = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows ? 0.0f : ui.row;
+    const float footer_h = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || ctx.selection->physics ? 0.0f : ui.row;
     ui_field_push_style();
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ui.space.sm, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.0f));
@@ -197,6 +197,24 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Player Shadow");
             ImGui::Checkbox("##player_shadow", &world.shadows.player_shadow);
             _live("%s", live ? (live->shadows.player_shadow ? "On" : "Off") : "-");
+        }
+        ImGui::EndTable();
+        ImGui::PopStyleVar(2);
+        ui_field_pop_style();
+        return;
+    }
+
+    if (ctx.selection->physics) {
+        if (_section("Physics")) {
+            _name("Gravity");
+            ImGui::DragFloat("##gravity", &world.physics.gravity, 0.05f, 0.0f, 100.0f, "%.2f m/s2");
+            _live("%.2f m/s2", live ? live->physics.gravity : 0.0f);
+            _name("Cloth Simulation Enabled");
+            ImGui::Checkbox("##cloth_enabled", &world.physics.cloth);
+            _live("%s", live ? (live->physics.cloth ? "On" : "Off") : "-");
+            _name("Chain Simulation Enabled");
+            ImGui::Checkbox("##chains_enabled", &world.physics.chains);
+            _live("%s", live ? (live->physics.chains ? "On" : "Off") : "-");
         }
         ImGui::EndTable();
         ImGui::PopStyleVar(2);

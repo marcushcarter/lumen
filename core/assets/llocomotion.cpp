@@ -102,7 +102,6 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
     _load_stance(section["crouching"], crouching);
     jump_speed = _float(section["jump_speed"], jump_speed);
     air_control = _float(section["air_control"], air_control);
-    gravity = _float(section["gravity"], gravity);
     jump_standing = _guid(section["jump_standing"]);
     if (!jump_standing.valid()) jump_standing = _guid(section["jump"]);
     jump_walk_left = _guid(section["jump_walk_left"]);
@@ -170,7 +169,6 @@ Error LLocomotion::save(const std::filesystem::path& p_path) const
             { "crouching", _save_stance(crouching) },
             { "jump_speed", (double)jump_speed },
             { "air_control", (double)air_control },
-            { "gravity", (double)gravity },
             { "jump_standing", _guid_text(jump_standing) },
             { "jump_walk_left", _guid_text(jump_walk_left) },
             { "jump_walk_right", _guid_text(jump_walk_right) },

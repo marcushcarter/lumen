@@ -161,16 +161,12 @@ std::vector<std::string> replace_reference_warnings(EditorContext& ctx, Guid p_f
             if (_record_guid(a, AssetType::ANIMATION, "skeleton") != _record_guid(b, AssetType::ANIMATION, "skeleton")) warnings.push_back("The replacement animation uses a different skeleton.");
             break;
         case AssetType::MESH: {
-            if (_record_guid(a, AssetType::MESH, "skeleton") != _record_guid(b, AssetType::MESH, "skeleton")) warnings.push_back("The replacement mesh uses a different skeleton.");
             LMeshStats sa, sb;
             if (ctx.project && lmesh_read_stats(ctx.project->content_path(p_from), sa) && lmesh_read_stats(ctx.project->content_path(p_to), sb) && sa.slots != sb.slots) {
                 warnings.push_back("The replacement mesh has " + std::to_string(sb.slots) + " material slots instead of " + std::to_string(sa.slots) + ".");
             }
             break;
         }
-        case AssetType::SKELETON:
-            if (a[asset_type_section(AssetType::SKELETON)]["fingerprint"].value_or(std::string()) != b[asset_type_section(AssetType::SKELETON)]["fingerprint"].value_or(std::string())) warnings.push_back("The replacement skeleton's bones don't match.");
-            break;
         default:
             break;
     }
@@ -199,10 +195,6 @@ static void _update_binary(EditorContext& ctx, const AssetReference& p_ref, cons
 {
     if (!ctx.project) return;
     const std::filesystem::path bin = ctx.project->content_path(p_ref.guid);
-    if (p_ref.type == AssetType::MESH && _record_guid(p_table, AssetType::MESH, "skeleton") == p_to) {
-        if (!lmesh_set_skeleton(bin, p_to)) log_write("References: couldn't update the skeleton inside '%s'.", p_ref.path.filename().string().c_str());
-        if (ctx.renderer) ctx.renderer->geometry.set_skeleton(p_ref.guid, p_to);
-    }
     if (p_ref.type == AssetType::ANIMATION && _record_guid(p_table, AssetType::ANIMATION, "skeleton") == p_to) {
         LAnimation clip;
         if (clip.load_cooked(bin) == Error::OK) {
@@ -291,10 +283,9 @@ bool delete_replaced_asset(EditorContext& ctx, Guid p_guid)
     if (ctx.renderer) {
         switch (type) {
             case AssetType::TEXTURE: ctx.renderer->textures.unload(p_guid); break;
-            case AssetType::MESH: ctx.renderer->geometry.unload(p_guid); break;
+            case AssetType::MESH: ctx.renderer->geometry.unload(p_guid); ctx.renderer->skeletons.unload(p_guid); break;
             case AssetType::MODEL: ctx.renderer->models.unload(p_guid); break;
             case AssetType::MATERIAL: ctx.renderer->materials.unload(p_guid); break;
-            case AssetType::SKELETON: ctx.renderer->skeletons.unload(p_guid); break;
             default: break;
         }
     }

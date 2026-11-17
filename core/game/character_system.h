@@ -92,8 +92,10 @@ struct CharacterSystem : GameSystem
     AnimLibrary* anims = nullptr;
 
     bool debug_all = false;
+    bool debug_lines = true;
     std::vector<Entity> debug_entities;
     bool _debug = false;
+    float _gravity = 9.81f;
     Entity player = ENTITY_NULL;
     bool camera_ready = false;
     float camera_yaw = 0.0f;

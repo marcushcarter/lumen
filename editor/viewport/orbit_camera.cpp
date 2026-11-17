@@ -7,7 +7,7 @@ namespace lumen {
 
 static constexpr float MAX_PITCH = 1.55f;
 static constexpr float FRAME_MARGIN = 1.1f;
-static constexpr float MIN_RADIUS_SCALE = 0.25f;
+static constexpr float MIN_RADIUS_SCALE = 0.02f;
 static constexpr float MAX_FIT_SCALE = 10.0f;
 
 void OrbitCamera::rotate(float p_dx, float p_dy)
@@ -20,6 +20,15 @@ void OrbitCamera::rotate(float p_dx, float p_dy)
 void OrbitCamera::zoom(float p_wheel)
 {
     distance = glm::clamp(distance * std::pow(1.0f - zoom_step, p_wheel), min_distance, max_distance);
+}
+
+void OrbitCamera::pan(float p_dx, float p_dy, float p_view_height)
+{
+    if (p_view_height < 1.0f) return;
+    const float units = 2.0f * distance * std::tan(camera.fov_y * 0.5f) / p_view_height;
+    const glm::vec3 right = camera.rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+    const glm::vec3 up = camera.rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+    target += (-right * p_dx + up * p_dy) * units;
 }
 
 void OrbitCamera::frame(glm::vec3 p_center, float p_radius)

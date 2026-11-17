@@ -95,6 +95,13 @@ void serialize(Archive& a, ShadowSettings& r_c)
     a.field("player_shadow", r_c.player_shadow);
 }
 
+void serialize(Archive& a, PhysicsSettings& r_c)
+{
+    a.field("gravity", r_c.gravity);
+    a.field("cloth", r_c.cloth);
+    a.field("chains", r_c.chains);
+}
+
 void serialize(Archive& a, TerrainSettings& r_c)
 {
     a.field("terrain", r_c.terrain);

@@ -15,5 +15,6 @@ void serialize(Archive& a, TemplateInstanceComponent& r_c);
 void serialize(Archive& a, EnvironmentSettings& r_c);
 void serialize(Archive& a, TerrainSettings& r_c);
 void serialize(Archive& a, ShadowSettings& r_c);
+void serialize(Archive& a, PhysicsSettings& r_c);
 
 }

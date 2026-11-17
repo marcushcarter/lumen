@@ -1,5 +1,6 @@
 #include <core/assets/lskeleton.h>
 #include <core/assets/asset_common.h>
+#include <core/assets/lmesh.h>
 #include <core/base/hash.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstring>
@@ -37,22 +38,46 @@ void LSkeleton::globals(const JointTransform* p_local, mat4* r_global) const
     }
 }
 
+void LSkeleton::branch(int32_t p_root, std::vector<uint8_t>& r_in_branch) const
+{
+    r_in_branch.assign(names.size(), 0u);
+    if (p_root < 0 || p_root >= (int32_t)names.size()) return;
+    r_in_branch[p_root] = 1u;
+    for (size_t i = (size_t)p_root + 1; i < names.size(); ++i) {
+        if (parents[i] >= 0 && r_in_branch[parents[i]]) r_in_branch[i] = 1u;
+    }
+}
+
 Error LSkeleton::load_cooked(const std::filesystem::path& p_path)
 {
-    using enum Error;
-    LAssetHeader header{};
     std::vector<uint8_t> payload;
-    if (!read_cooked_asset(p_path, AssetType::SKELETON, header, payload) || payload.size() < sizeof(LSkeletonPayloadHeader)) return FAILED;
+    Guid owner;
+    if (!lmesh_read_section(p_path, LMeshSectionType::SKELETON, payload, &owner) || decode(payload) != Error::OK) return Error::FAILED;
+    guid = owner;
+    return Error::OK;
+}
+
+Error LSkeleton::save_cooked(const std::filesystem::path& p_path) const
+{
+    std::vector<uint8_t> payload;
+    if (encode(payload) != Error::OK) return Error::FAILED;
+    return lmesh_replace_section(p_path, LMeshSectionType::SKELETON, payload) ? Error::OK : Error::FAILED;
+}
+
+Error LSkeleton::decode(const std::vector<uint8_t>& payload)
+{
+    using enum Error;
+    if (payload.size() < sizeof(LSkeletonPayloadHeader)) return FAILED;
 
     LSkeletonPayloadHeader ph;
     std::memcpy(&ph, payload.data(), sizeof(ph));
     const size_t parent_bytes = (size_t)ph.joint_count * sizeof(int32_t);
     const size_t rest_bytes = (size_t)ph.joint_count * sizeof(JointTransform);
-    if (ph.joint_count > SKELETON_MAX_JOINTS || payload.size() != sizeof(ph) + parent_bytes + rest_bytes + ph.name_bytes) return FAILED;
+    const size_t base_bytes = sizeof(ph) + parent_bytes + rest_bytes + ph.name_bytes;
+    if (ph.joint_count > SKELETON_MAX_JOINTS || payload.size() < base_bytes) return FAILED;
 
     const uint8_t* p = payload.data() + sizeof(ph);
     *this = LSkeleton{};
-    guid = header.guid;
     parents.resize(ph.joint_count);
     rest.resize(ph.joint_count);
     if (ph.joint_count) {
@@ -70,10 +95,35 @@ Error LSkeleton::load_cooked(const std::filesystem::path& p_path)
         at += len + 1;
         if (parents[i] >= (int32_t)i) return FAILED;
     }
+
+    if (payload.size() >= base_bytes + sizeof(LSkeletonDynamicsHeader)) {
+        LSkeletonDynamicsHeader dh;
+        std::memcpy(&dh, payload.data() + base_bytes, sizeof(dh));
+        if (dh.magic != SKELETON_DYNAMICS_MAGIC) {
+            log_write("Skeleton: chains and cloth were saved in an older format and were dropped. Reimport the mesh to bring them back.");
+            return OK;
+        }
+        const size_t chain_bytes = (size_t)dh.chain_count * sizeof(SkeletonChain);
+        const size_t cloth_bytes = (size_t)dh.cloth_count * sizeof(SkeletonCloth);
+        if (dh.magic != SKELETON_DYNAMICS_MAGIC || payload.size() != base_bytes + sizeof(dh) + chain_bytes + cloth_bytes) return FAILED;
+        const uint8_t* d = payload.data() + base_bytes + sizeof(dh);
+        chains.resize(dh.chain_count);
+        cloths.resize(dh.cloth_count);
+        if (chain_bytes) std::memcpy(chains.data(), d, chain_bytes);
+        if (cloth_bytes) std::memcpy(cloths.data(), d + chain_bytes, cloth_bytes);
+        for (const SkeletonChain& c : chains) {
+            if (c.root < 0 || c.root >= (int32_t)ph.joint_count) return FAILED;
+        }
+        for (const SkeletonCloth& c : cloths) {
+            if (c.root < 0 || c.root >= (int32_t)ph.joint_count) return FAILED;
+        }
+    } else if (payload.size() != base_bytes) {
+        return FAILED;
+    }
     return OK;
 }
 
-Error LSkeleton::save_cooked(const std::filesystem::path& p_path) const
+Error LSkeleton::encode(std::vector<uint8_t>& r_payload) const
 {
     using enum Error;
     const uint32_t count = joint_count();
@@ -88,7 +138,12 @@ Error LSkeleton::save_cooked(const std::filesystem::path& p_path) const
     const LSkeletonPayloadHeader ph{ fingerprint(), count, (uint32_t)text.size() };
     const size_t parent_bytes = (size_t)count * sizeof(int32_t);
     const size_t rest_bytes = (size_t)count * sizeof(JointTransform);
-    std::vector<uint8_t> payload(sizeof(ph) + parent_bytes + rest_bytes + text.size());
+    const size_t base_bytes = sizeof(ph) + parent_bytes + rest_bytes + text.size();
+    const bool dynamic = !chains.empty() || !cloths.empty();
+    const size_t chain_bytes = chains.size() * sizeof(SkeletonChain);
+    const size_t cloth_bytes = cloths.size() * sizeof(SkeletonCloth);
+    std::vector<uint8_t>& payload = r_payload;
+    payload.assign(base_bytes + (dynamic ? sizeof(LSkeletonDynamicsHeader) + chain_bytes + cloth_bytes : 0), 0);
     uint8_t* p = payload.data();
     std::memcpy(p, &ph, sizeof(ph));
     if (count) {
@@ -96,7 +151,13 @@ Error LSkeleton::save_cooked(const std::filesystem::path& p_path) const
         std::memcpy(p + sizeof(ph) + parent_bytes, rest.data(), rest_bytes);
     }
     if (!text.empty()) std::memcpy(p + sizeof(ph) + parent_bytes + rest_bytes, text.data(), text.size());
-    return write_cooked_asset(p_path, AssetType::SKELETON, guid, payload.data(), payload.size()) ? OK : FAILED;
+    if (dynamic) {
+        const LSkeletonDynamicsHeader dh{ SKELETON_DYNAMICS_MAGIC, (uint32_t)chains.size(), (uint32_t)cloths.size(), 0u };
+        std::memcpy(p + base_bytes, &dh, sizeof(dh));
+        if (chain_bytes) std::memcpy(p + base_bytes + sizeof(dh), chains.data(), chain_bytes);
+        if (cloth_bytes) std::memcpy(p + base_bytes + sizeof(dh) + chain_bytes, cloths.data(), cloth_bytes);
+    }
+    return OK;
 }
 
 }

@@ -2,6 +2,7 @@
 #include <editor/assets/import/asset_import_tracker.h>
 #include <editor/assets/import/collision_cooker.h>
 #include <core/assets/lmesh.h>
+#include <core/assets/lskeleton.h>
 #include <assimp/ProgressHandler.hpp>
 #include <filesystem>
 #include <vector>
@@ -38,7 +39,6 @@ struct MeshCooker
         vec3 rotation = vec3(0.0f);
         float scale = 1.0f;
         bool load_skeleton = true;
-        bool generate_collision = true;
         CollisionSettings collision;
         uint32_t max_verts = 64;
         uint32_t max_tris = 64;
@@ -52,7 +52,7 @@ struct MeshCooker
         std::filesystem::path content_bin;
         Guid guid;
         CookSettings settings;
-        Guid skeleton;
+        const LSkeleton* skeleton_data = nullptr;
         std::vector<uint8_t> collision;
         ImportStep step;
     };

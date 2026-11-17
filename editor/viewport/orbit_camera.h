@@ -23,6 +23,7 @@ struct OrbitCamera
 
     void rotate(float p_dx, float p_dy);
     void zoom(float p_wheel);
+    void pan(float p_dx, float p_dy, float p_view_height);
     void frame(glm::vec3 p_center, float p_radius);
     void update();
 };

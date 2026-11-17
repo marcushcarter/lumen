@@ -67,7 +67,28 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt)
         r_pose.skin = binding->rest_skin;
     });
 
-    r_world.view<ModelComponent, PoseComponent, CharacterStateComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity, const ModelComponent& p_model, PoseComponent& r_pose, CharacterStateComponent& r_state) {
+    std::vector<Entity> dynamic;
+    r_world.view<ModelComponent, PoseComponent>(Exclude<StaticTag, DisabledTag, DynamicsComponent>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent&) {
+        const LMeshRig* rig = p_renderer.geometry.rig(p_renderer.models.mesh_index(p_model.model));
+        const SkeletonCache::Entry* skeleton = rig ? p_renderer.skeletons.get(rig->skeleton) : nullptr;
+        if (skeleton && (!skeleton->skeleton.chains.empty() || !skeleton->skeleton.cloths.empty())) dynamic.push_back(p_entity);
+    });
+    for (Entity e : dynamic) r_world.add<DynamicsComponent>(e);
+
+    r_world.view<ModelComponent, PoseComponent, DynamicsComponent>(Exclude<StaticTag, DisabledTag, CharacterStateComponent>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent& r_pose, DynamicsComponent& r_dynamics) {
+        if (r_pose.skin.empty()) return;
+        uint32_t mesh_index, slot_base;
+        p_renderer.models.lookup(p_model.model, mesh_index, slot_base);
+        const LMeshRig* rig = p_renderer.geometry.rig(mesh_index);
+        const Binding* binding = _binding(p_renderer, mesh_index);
+        const SkeletonCache::Entry* skeleton = rig ? p_renderer.skeletons.get(rig->skeleton) : nullptr;
+        if (!binding || !skeleton) return;
+        _local = skeleton->skeleton.rest;
+        _global = skeleton->rest_global;
+        _simulate(r_dynamics.dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], r_world.world_matrix(p_entity), p_dt, r_world.physics, r_pose);
+    });
+
+    r_world.view<ModelComponent, PoseComponent, CharacterStateComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent& r_pose, CharacterStateComponent& r_state) {
         if (r_pose.skin.empty()) return;
         const LLocomotion* locomotion = anims.locomotion(r_state.character.asset);
         if (!locomotion) return;
@@ -100,8 +121,22 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt)
             skeleton->skeleton.globals(_local.data(), _global.data());
             ragdoll.record(_local.data(), _global, p_dt);
         }
-        rig_skin(_global, *rig, binding->map, r_pose.skin);
+
+        if (DynamicsComponent* dynamics = r_world.try_get<DynamicsComponent>(p_entity)) _simulate(dynamics->dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], r_world.world_matrix(p_entity), p_dt, r_world.physics, r_pose);
+        else rig_skin(_global, *rig, binding->map, r_pose.skin);
     });
+}
+
+void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, PoseComponent& r_pose)
+{
+    const uint64_t key = hash_combine(hash_combine(p_mesh.value, p_rig.skeleton.value), skeleton_version ^ (geometry_version << 1));
+    r_dynamics.bind(key, p_skeleton, p_rig, p_map);
+    if (p_settings.chains || p_settings.cloth) r_dynamics.update_colliders(p_rig, p_map, _global, p_model);
+    if (p_settings.chains) r_dynamics.simulate_chains(p_skeleton, p_model, p_dt, p_settings.gravity, _local.data(), _global);
+    else for (DynamicsChain& c : r_dynamics.chains) c.pos.clear();
+    rig_skin(_global, p_rig, p_map, r_pose.skin);
+    r_dynamics.simulate_cloth(p_skeleton, p_rig, p_model, p_dt, p_settings.gravity, p_settings.cloth, r_pose.skin);
+    r_dynamics.finish(p_model);
 }
 
 }

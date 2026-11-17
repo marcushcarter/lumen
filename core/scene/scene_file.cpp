@@ -177,6 +177,10 @@ std::string SceneFile::write_text(Scene& r_world, const SceneFile& p_file)
         TomlWriter shadow_writer(shadows);
         serialize(shadow_writer, r_world.shadows);
         section.insert_or_assign(KEY_SHADOWS, std::move(shadows));
+        toml::table physics;
+        TomlWriter physics_writer(physics);
+        serialize(physics_writer, r_world.physics);
+        section.insert_or_assign(KEY_PHYSICS, std::move(physics));
         if (r_world.terrain.terrain.valid()) {
             toml::table terrain;
             TomlWriter terrain_writer(terrain);
@@ -238,6 +242,10 @@ Error SceneFile::read_text(std::string_view p_text, Scene& r_world, bool p_edito
         TomlReader reader(*shadows);
         serialize(reader, r_world.shadows);
     }
+    if (const toml::table* physics = section->get_as<toml::table>(KEY_PHYSICS)) {
+        TomlReader reader(*physics);
+        serialize(reader, r_world.physics);
+    }
     if (const toml::table* terrain = section->get_as<toml::table>(KEY_TERRAIN)) {
         TomlReader reader(*terrain);
         serialize(reader, r_world.terrain);
@@ -293,6 +301,7 @@ uint64_t SceneFile::hash(Scene& r_world)
     serialize(writer, r_world.environment);
     serialize(writer, r_world.terrain);
     serialize(writer, r_world.shadows);
+    serialize(writer, r_world.physics);
 
     std::vector<Entity> entities;
     _sorted_entities(r_world, entities);

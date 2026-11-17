@@ -28,7 +28,6 @@ struct ProjectManager
         { "Meshes", ".lmesh", nullptr },
         { "Materials", ".lmaterial", nullptr },
         { "Textures", ".ltexture", nullptr },
-        { "Skeletons", ".lskeleton", nullptr },
         { "Animations", ".lanim", nullptr },
         { "Blend Spaces", ".lblendspace", nullptr },
         { "Locomotion", ".llocomotion", ".lcharacter" },

@@ -145,17 +145,19 @@ Guid AnimationCooker::find_skeleton(const Project& p_project, const aiAnimation*
     for (uint32_t c = 0; c < p_anim->mNumChannels; c++) channels.insert(p_anim->mChannels[c]->mNodeName.C_Str());
 
     uint32_t best = 0;
+    uint32_t best_joints = UINT32_MAX;
     std::error_code ec;
     for (auto it = std::filesystem::recursive_directory_iterator(p_project.assets_dir, std::filesystem::directory_options::skip_permission_denied, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-        if (it->path().extension() != ".lskeleton") continue;
+        if (it->path().extension() != ".lmesh") continue;
         const AssetInfo info = read_asset_info(it->path());
-        if (!info.valid() || info.type != AssetType::SKELETON) continue;
+        if (!info.valid() || info.type != AssetType::MESH) continue;
         LSkeleton skeleton;
         if (skeleton.load_cooked(p_project.content_path(info.guid)) != Error::OK) continue;
         uint32_t overlap = 0;
         for (const std::string& n : skeleton.names) overlap += channels.contains(n) ? 1u : 0u;
-        if (overlap <= best || overlap * 2 < (uint32_t)channels.size()) continue;
+        if (overlap < best || (overlap == best && skeleton.joint_count() >= best_joints) || overlap * 2 < (uint32_t)channels.size()) continue;
         best = overlap;
+        best_joints = skeleton.joint_count();
         r_skeleton = std::move(skeleton);
     }
     return best ? r_skeleton.guid : Guid{};

@@ -46,31 +46,16 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
     }
 
     RigPreview& rig = tab->rig_preview;
-    if (rig.skinned && ui_category("Skeleton")) {
-        asset_field(ctx, "Skeleton", "###mesh_skeleton", rig.skeleton, AssetType::SKELETON);
-    }
-
-    if (ui_category("Collision")) {
+    if (!rig.skinned && ui_category("Collision")) {
         MeshDocument::CollisionView& c = tab->collision;
         const bool locked = tab->locked(ctx);
         if (locked) ImGui::BeginDisabled();
 
         static constexpr CollisionType MODES[] = { CollisionType::MESH, CollisionType::HULL, CollisionType::SHAPES };
-        const bool none = !tab->shapes_mode() && (!c.generate || !c.has) && c.edit == c.settings;
-        const char* current = none ? "None" : collision_type_label(c.edit.type);
+        const char* current = collision_type_label(c.edit.type);
         if (ImGui::BeginCombo("Mode", current)) {
-            if (ImGui::Selectable("None", none) && !none) {
-                if (!c.has) {
-                    c.edit = c.settings;
-                    if (c.edit.type == CollisionType::SHAPES) c.edit.type = CollisionType::HULL;
-                } else if (drivers::Win32Dialogs::ask(L"Lumen Editor", L"Delete this mesh's collision?", L"Reimports won't bring it back. You can build it again from here.", L"Delete", L"Cancel")) {
-                    CollisionCooker::remove(ctx, tab->path);
-                    c.edit = c.settings;
-                    if (c.edit.type == CollisionType::SHAPES) c.edit.type = CollisionType::HULL;
-                }
-            }
             for (CollisionType t : MODES) {
-                if (!ImGui::Selectable(collision_type_label(t), !none && c.edit.type == t) || (!none && c.edit.type == t)) continue;
+                if (!ImGui::Selectable(collision_type_label(t), c.edit.type == t) || (c.edit.type == t)) continue;
                 c.edit.type = t;
                 if (t == CollisionType::SHAPES && c.edit.shapes.empty()) tab->add_shape(CollisionType::BOX);
             }
@@ -78,7 +63,7 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Triangle Mesh is exact but static only. Convex Hull and Shapes work on moving objects.");
 
-        if (!none && tab->shapes_mode()) {
+        if (tab->shapes_mode()) {
             std::vector<CollisionShapeSettings>& shapes = c.edit.shapes;
             if (ImGui::BeginCombo("##add_shape", ICON_FA_PLUS "  Add Shape", ImGuiComboFlags_NoArrowButton)) {
                 for (int i = 0; i < (int)CollisionShapeType::COUNT; i++) if (ImGui::Selectable(SHAPE_NAMES[i])) tab->add_shape(shape_collision_type((CollisionShapeType)i));
@@ -120,7 +105,7 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
                 if (ImGui::Button(ICON_FA_EXPAND "  Fit to Mesh")) tab->fit_shape(s);
             }
             if (tab->shapes_dirty()) ImGui::TextDisabled("Save (Ctrl+S) to cook these shapes into the mesh.");
-        } else if (!none) {
+        } else {
             collision_settings_fields(c.edit);
             if (c.loaded && c.edit.type == c.data.type) {
                 const LCollision& d = c.data;
@@ -129,7 +114,7 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
                 ImGui::Text("Vertices: %s", fmt_count((uint32_t)d.vertices.size()));
                 ImGui::Text("Size: %.2fm x %.2fm x %.2fm", size.x, size.y, size.z);
             }
-            const bool changed = !(c.edit == c.settings) || !c.has || !c.generate;
+            const bool changed = !(c.edit == c.settings) || !c.has;
             if (!changed) ImGui::BeginDisabled();
             if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Generate")) CollisionCooker::reimport(ctx, tab->path, c.edit);
             ImGui::SameLine();
@@ -137,6 +122,95 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
             if (!changed) ImGui::EndDisabled();
         }
 
+        if (locked) ImGui::EndDisabled();
+    }
+
+    if (rig.skinned && ui_category("Dynamics")) {
+        const LSkeleton& skeleton = rig.skeleton_data();
+        const bool locked = tab->locked(ctx);
+        if (locked) ImGui::BeginDisabled();
+        bool changed = false;
+        int32_t& bone = tab->selected_bone;
+        const bool valid = bone >= 0 && bone < (int32_t)skeleton.joint_count();
+        ui_property_row("Bone", "%s", valid ? skeleton.names[bone].c_str() : "Click a bone in the viewport");
+
+        int32_t chain_at = -1, cloth_at = -1;
+        for (size_t i = 0; valid && i < tab->chains.size(); i++) if (tab->chains[i].root == bone) chain_at = (int32_t)i;
+        for (size_t i = 0; valid && i < tab->cloths.size(); i++) if (tab->cloths[i].root == bone) cloth_at = (int32_t)i;
+
+        ImGui::BeginDisabled(!valid || chain_at >= 0 || cloth_at >= 0);
+        if (ImGui::Button(ICON_FA_LINK "  Add Chain")) {
+            SkeletonChain c;
+            c.root = bone;
+            tab->chains.push_back(c);
+            chain_at = (int32_t)tab->chains.size() - 1;
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_SHIRT "  Add Cloth")) {
+            SkeletonCloth c;
+            c.root = bone;
+            tab->cloths.push_back(c);
+            cloth_at = (int32_t)tab->cloths.size() - 1;
+            changed = true;
+        }
+        ImGui::EndDisabled();
+
+        int32_t remove_chain = -1, remove_cloth = -1;
+        for (int32_t i = 0; i < (int32_t)tab->chains.size(); i++) {
+            ImGui::PushID(i);
+            char label[160];
+            std::snprintf(label, sizeof(label), ICON_FA_LINK "  %s", skeleton.names[tab->chains[i].root].c_str());
+            if (ImGui::Selectable(label, i == chain_at, 0, ImVec2(ImMax(1.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x), 0.0f))) bone = tab->chains[i].root;
+            ImGui::SameLine();
+            if (ImGui::SmallButton(ICON_FA_XMARK)) remove_chain = i;
+            ImGui::PopID();
+        }
+        for (int32_t i = 0; i < (int32_t)tab->cloths.size(); i++) {
+            ImGui::PushID(1000 + i);
+            char label[160];
+            std::snprintf(label, sizeof(label), ICON_FA_SHIRT "  %s", skeleton.names[tab->cloths[i].root].c_str());
+            if (ImGui::Selectable(label, i == cloth_at, 0, ImVec2(ImMax(1.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x), 0.0f))) bone = tab->cloths[i].root;
+            ImGui::SameLine();
+            if (ImGui::SmallButton(ICON_FA_XMARK)) remove_cloth = i;
+            ImGui::PopID();
+        }
+
+        if (chain_at >= 0 && chain_at != remove_chain) {
+            SkeletonChain& c = tab->chains[chain_at];
+            ImGui::Spacing();
+            changed |= ImGui::SliderFloat("Stiffness", &c.stiffness, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::SliderFloat("Damping", &c.damping, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::SliderFloat("Inertia", &c.inertia, 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::DragFloat("Radius", &c.radius, 0.001f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::SliderFloat("Angle Limit", &c.angle_limit, 0.0f, 180.0f, "%.0f deg");
+        }
+        if (cloth_at >= 0 && cloth_at != remove_cloth) {
+            SkeletonCloth& c = tab->cloths[cloth_at];
+            ImGui::Spacing();
+            int resolution = (int)c.resolution;
+            if (ImGui::SliderInt("Resolution", &resolution, 4, 256)) {
+                c.resolution = (uint32_t)resolution;
+                changed = true;
+            }
+            changed |= ImGui::DragFloat("Max Distance", &c.max_distance, 0.01f, 0.0f, 5.0f, "%.2f");
+            changed |= ImGui::SliderFloat("Stretch", &c.stretch, 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::SliderFloat("Bend", &c.bend, 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::SliderFloat("Damping", &c.damping, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::SliderFloat("Inertia", &c.inertia, 0.0f, 1.0f, "%.2f");
+            changed |= ImGui::DragFloat("Thickness", &c.thickness, 0.001f, 0.0f, 0.2f, "%.3f");
+        }
+        if (remove_chain >= 0) {
+            tab->chains.erase(tab->chains.begin() + remove_chain);
+            changed = true;
+        }
+        if (remove_cloth >= 0) {
+            tab->cloths.erase(tab->cloths.begin() + remove_cloth);
+            changed = true;
+        }
+        if (changed) tab->push_dynamics(ctx);
+        if (tab->cloth_rebake()) ImGui::TextDisabled("Save (Ctrl+S) to rebuild the cloth.");
+        else if (tab->dynamics_dirty()) ImGui::TextDisabled("Save (Ctrl+S) to keep these settings.");
         if (locked) ImGui::EndDisabled();
     }
 

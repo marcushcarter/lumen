@@ -1,0 +1,483 @@
+#include <editor/assets/import/dynamics_baker.h>
+#include <core/base/error.h>
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <meshoptimizer.h>
+#include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <unordered_map>
+
+namespace lumen {
+
+static constexpr float COLLIDER_DOMINANT_WEIGHT = 0.5f;
+static constexpr uint32_t COLLIDER_MIN_VERTS = 24;
+static constexpr float COLLIDER_RADIUS_PERCENTILE = 0.75f;
+static constexpr float COLLIDER_END_PERCENTILE = 0.05f;
+static constexpr float COLLIDER_MIN_RADIUS_SHARE = 0.01f;
+static constexpr uint32_t COLLIDER_MAX = 64;
+static constexpr int AXIS_ITERATIONS = 24;
+
+static constexpr float CLOTH_REGION_WEIGHT = 0.5f;
+static constexpr float CLOTH_PIN_WEIGHT = 0.75f;
+static constexpr float CLOTH_FREE_DEPTH_START = 0.5f;
+static constexpr float CLOTH_FREE_DEPTH_END = 2.0f;
+static constexpr float CLOTH_WELD_STEP = 1e-5f;
+static constexpr uint32_t CLOTH_MIN_PARTICLES = 6;
+static constexpr int CLOTH_SIMPLIFY_ATTEMPTS = 10;
+static constexpr float CLOTH_SIMPLIFY_SHRINK = 0.7f;
+static constexpr float CLOTH_PIN_FALLBACK_SHARE = 0.1f;
+static constexpr float CLOTH_PINNED = 0.05f;
+
+static float _percentile(std::vector<float>& r_values, float p_share)
+{
+    if (r_values.empty()) return 0.0f;
+    const size_t k = std::min(r_values.size() - 1, (size_t)(p_share * (float)(r_values.size() - 1) + 0.5f));
+    std::nth_element(r_values.begin(), r_values.begin() + (ptrdiff_t)k, r_values.end());
+    return r_values[k];
+}
+
+static float _segment_distance(const vec3& p_p, const vec3& p_a, const vec3& p_b)
+{
+    const vec3 ab = p_b - p_a;
+    const float len2 = dot(ab, ab);
+    const float t = len2 > 0.0f ? std::clamp(dot(p_p - p_a, ab) / len2, 0.0f, 1.0f) : 0.0f;
+    return length(p_p - (p_a + ab * t));
+}
+
+static vec3 _principal_axis(const std::vector<vec3>& p_points, const vec3& p_mean)
+{
+    mat3 c(0.0f);
+    for (const vec3& p : p_points) {
+        const vec3 d = p - p_mean;
+        c += outerProduct(d, d);
+    }
+    vec3 axis(0.0f);
+    const int largest = c[0][0] >= c[1][1] && c[0][0] >= c[2][2] ? 0 : (c[1][1] >= c[2][2] ? 1 : 2);
+    axis[largest] = 1.0f;
+    for (int i = 0; i < AXIS_ITERATIONS; i++) {
+        const vec3 n = c * axis;
+        const float l = length(n);
+        if (l < 1e-12f) break;
+        axis = n / l;
+    }
+    return axis;
+}
+
+static void _fit_colliders(const std::vector<vec3>& p_positions, const std::vector<SkinVertex>& p_skin, uint32_t p_joint_count, std::vector<LMeshCollider>& r_out)
+{
+    if (p_positions.empty()) return;
+    vec3 lo(FLT_MAX), hi(-FLT_MAX);
+    for (const vec3& p : p_positions) {
+        lo = glm::min(lo, p);
+        hi = glm::max(hi, p);
+    }
+    const vec3 ext = hi - lo;
+    const float min_radius = std::max(ext.x, std::max(ext.y, ext.z)) * COLLIDER_MIN_RADIUS_SHARE;
+
+    std::vector<std::vector<vec3>> per_joint(p_joint_count);
+    const uint32_t dominant = (uint32_t)std::ceil(COLLIDER_DOMINANT_WEIGHT * 255.0f);
+    for (size_t v = 0; v < p_skin.size() && v < p_positions.size(); v++) {
+        for (int k = 0; k < 4; k++) {
+            if (p_skin[v].weights[k] >= dominant && p_skin[v].joints[k] < p_joint_count) per_joint[p_skin[v].joints[k]].push_back(p_positions[v]);
+        }
+    }
+
+    struct Candidate {
+        LMeshCollider collider;
+        float volume;
+    };
+    std::vector<Candidate> found;
+    std::vector<float> scratch;
+    for (uint32_t j = 0; j < p_joint_count; j++) {
+        const std::vector<vec3>& pts = per_joint[j];
+        if (pts.size() < COLLIDER_MIN_VERTS) continue;
+        vec3 mean(0.0f);
+        for (const vec3& p : pts) mean += p;
+        mean /= (float)pts.size();
+        const vec3 axis = _principal_axis(pts, mean);
+
+        scratch.clear();
+        for (const vec3& p : pts) scratch.push_back(dot(p - mean, axis));
+        const float t0 = _percentile(scratch, COLLIDER_END_PERCENTILE);
+        const float t1 = _percentile(scratch, 1.0f - COLLIDER_END_PERCENTILE);
+        const vec3 a = mean + axis * t0;
+        const vec3 b = mean + axis * t1;
+
+        scratch.clear();
+        for (const vec3& p : pts) scratch.push_back(_segment_distance(p, a, b));
+        const float r = _percentile(scratch, COLLIDER_RADIUS_PERCENTILE);
+        if (r < min_radius) continue;
+
+        float s0 = t0 + r;
+        float s1 = t1 - r;
+        if (s0 > s1) s0 = s1 = 0.5f * (t0 + t1);
+        const float len = s1 - s0;
+        found.push_back({ LMeshCollider{ j, r, mean + axis * s0, mean + axis * s1 }, glm::pi<float>() * r * r * (len + r * 4.0f / 3.0f) });
+    }
+    std::sort(found.begin(), found.end(), [](const Candidate& p_a, const Candidate& p_b) { return p_a.volume > p_b.volume; });
+    if (found.size() > COLLIDER_MAX) found.resize(COLLIDER_MAX);
+    std::sort(found.begin(), found.end(), [](const Candidate& p_a, const Candidate& p_b) { return p_a.collider.joint < p_b.collider.joint; });
+    for (const Candidate& c : found) r_out.push_back(c.collider);
+}
+
+static vec3 _closest_on_triangle(const vec3& p_p, const vec3& p_a, const vec3& p_b, const vec3& p_c, vec3& r_bary)
+{
+    const vec3 ab = p_b - p_a, ac = p_c - p_a, ap = p_p - p_a;
+    const float d1 = dot(ab, ap), d2 = dot(ac, ap);
+    if (d1 <= 0.0f && d2 <= 0.0f) { r_bary = vec3(1.0f, 0.0f, 0.0f); return p_a; }
+    const vec3 bp = p_p - p_b;
+    const float d3 = dot(ab, bp), d4 = dot(ac, bp);
+    if (d3 >= 0.0f && d4 <= d3) { r_bary = vec3(0.0f, 1.0f, 0.0f); return p_b; }
+    const float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+        const float v = d1 / (d1 - d3);
+        r_bary = vec3(1.0f - v, v, 0.0f);
+        return p_a + ab * v;
+    }
+    const vec3 cp = p_p - p_c;
+    const float d5 = dot(ab, cp), d6 = dot(ac, cp);
+    if (d6 >= 0.0f && d5 <= d6) { r_bary = vec3(0.0f, 0.0f, 1.0f); return p_c; }
+    const float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+        const float w = d2 / (d2 - d6);
+        r_bary = vec3(1.0f - w, 0.0f, w);
+        return p_a + ac * w;
+    }
+    const float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+        const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        r_bary = vec3(0.0f, 1.0f - w, w);
+        return p_b + (p_c - p_b) * w;
+    }
+    const float denom = va + vb + vc;
+    if (std::abs(denom) < 1e-20f) { r_bary = vec3(1.0f, 0.0f, 0.0f); return p_a; }
+    const float v = vb / denom;
+    const float w = vc / denom;
+    r_bary = vec3(1.0f - v - w, v, w);
+    return p_a + ab * v + ac * w;
+}
+
+static u8vec4 _quantize_weights(vec3 p_w)
+{
+    p_w = glm::max(p_w, vec3(0.0f));
+    const float sum = p_w.x + p_w.y + p_w.z;
+    p_w = sum > 0.0f ? p_w / sum : vec3(1.0f, 0.0f, 0.0f);
+    int q[3], total = 0, top = 0;
+    for (int k = 0; k < 3; k++) {
+        q[k] = (int)std::round(p_w[k] * 255.0f);
+        total += q[k];
+        if (q[k] > q[top]) top = k;
+    }
+    q[top] += 255 - total;
+    return u8vec4((uint8_t)q[0], (uint8_t)q[1], (uint8_t)q[2], 0u);
+}
+
+static uint64_t _weld_key(const vec3& p_p)
+{
+    const int64_t x = (int64_t)std::llround(p_p.x / CLOTH_WELD_STEP);
+    const int64_t y = (int64_t)std::llround(p_p.y / CLOTH_WELD_STEP);
+    const int64_t z = (int64_t)std::llround(p_p.z / CLOTH_WELD_STEP);
+    uint64_t h = 1469598103934665603ull;
+    for (int64_t c : { x, y, z }) h = (h ^ (uint64_t)c) * 1099511628211ull;
+    return h;
+}
+
+static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSkeleton& p_skeleton, const std::vector<int32_t>& p_skel_of_rig, const std::vector<vec3>& p_positions, const std::vector<uint32_t>& p_indices, const std::vector<SkinVertex>& p_original, std::vector<SkinVertex>& r_skin, std::vector<std::string>& r_joints, std::vector<mat4>& r_inverse_binds, LMeshDynamics& r_out)
+{
+    const std::string& root_name = p_skeleton.names[p_def.root];
+    std::vector<uint8_t> in_branch;
+    p_skeleton.branch(p_def.root, in_branch);
+    std::vector<float> depth(p_skeleton.joint_count(), 0.0f);
+    for (size_t i = (size_t)p_def.root + 1; i < depth.size(); i++) {
+        if (in_branch[i]) depth[i] = depth[p_skeleton.parents[i]] + 1.0f;
+    }
+
+    const size_t vertex_count = std::min(p_positions.size(), p_original.size());
+    std::vector<float> branch_weight(vertex_count, 0.0f);
+    std::vector<float> branch_depth(vertex_count, 0.0f);
+    for (size_t v = 0; v < vertex_count; v++) {
+        float bw = 0.0f, dw = 0.0f;
+        for (int k = 0; k < 4; k++) {
+            const uint32_t j = p_original[v].joints[k];
+            const float w = (float)p_original[v].weights[k] / 255.0f;
+            if (w <= 0.0f || j >= p_skel_of_rig.size()) continue;
+            const int32_t s = p_skel_of_rig[j];
+            if (s < 0 || !in_branch[s]) continue;
+            bw += w;
+            dw += w * depth[s];
+        }
+        branch_weight[v] = bw;
+        branch_depth[v] = bw > 0.0f ? dw / bw : 0.0f;
+    }
+
+    std::unordered_map<uint64_t, uint32_t> weld;
+    std::vector<uint32_t> weld_of(vertex_count, UINT32_MAX);
+    std::vector<vec3> wpos;
+    std::vector<uint32_t> wsrc;
+    for (size_t v = 0; v < vertex_count; v++) {
+        if (branch_weight[v] < CLOTH_REGION_WEIGHT) continue;
+        auto [it, added] = weld.try_emplace(_weld_key(p_positions[v]), (uint32_t)wpos.size());
+        if (added) {
+            wpos.push_back(p_positions[v]);
+            wsrc.push_back((uint32_t)v);
+        }
+        weld_of[v] = it->second;
+    }
+
+    std::vector<uint32_t> wtris;
+    for (size_t t = 0; t + 2 < p_indices.size(); t += 3) {
+        const uint32_t a = p_indices[t], b = p_indices[t + 1], c = p_indices[t + 2];
+        if (a >= vertex_count || b >= vertex_count || c >= vertex_count) continue;
+        const uint32_t wa = weld_of[a], wb = weld_of[b], wc = weld_of[c];
+        if (wa == UINT32_MAX || wb == UINT32_MAX || wc == UINT32_MAX || wa == wb || wb == wc || wa == wc) continue;
+        wtris.insert(wtris.end(), { wa, wb, wc });
+    }
+    if (wtris.empty()) {
+        log_write("MeshCooker: cloth on '%s' has no triangles weighted to that branch, skipped.", root_name.c_str());
+        return false;
+    }
+
+    const uint32_t budget = r_joints.size() < MESH_MAX_JOINTS ? MESH_MAX_JOINTS - (uint32_t)r_joints.size() : 0u;
+    const uint32_t want = std::min(p_def.resolution, budget);
+    if (want < CLOTH_MIN_PARTICLES) {
+        log_write("MeshCooker: cloth on '%s' skipped, the mesh already uses %zu of %u joints.", root_name.c_str(), r_joints.size(), MESH_MAX_JOINTS);
+        return false;
+    }
+
+    std::vector<uint32_t> sim = wtris;
+    auto unique_count = [](const std::vector<uint32_t>& p_idx) {
+        std::vector<uint32_t> u = p_idx;
+        std::sort(u.begin(), u.end());
+        return (uint32_t)(std::unique(u.begin(), u.end()) - u.begin());
+    };
+    size_t target = std::min(wtris.size(), (size_t)want * 6u);
+    for (int attempt = 0; attempt < CLOTH_SIMPLIFY_ATTEMPTS && unique_count(sim) > want; attempt++) {
+        std::vector<uint32_t> out(wtris.size());
+        float err = 0.0f;
+        const size_t n = meshopt_simplify(out.data(), wtris.data(), wtris.size(), &wpos[0].x, wpos.size(), sizeof(vec3), std::max<size_t>(target / 3 * 3, 3), FLT_MAX, 0, &err);
+        if (n >= 3) {
+            out.resize(n);
+            sim = std::move(out);
+        }
+        target = (size_t)((float)target * CLOTH_SIMPLIFY_SHRINK);
+    }
+    const uint32_t particle_count = unique_count(sim);
+    if (particle_count > want || particle_count < 3) {
+        log_write("MeshCooker: cloth on '%s' could not be reduced to %u particles, skipped.", root_name.c_str(), want);
+        return false;
+    }
+
+    std::unordered_map<uint32_t, uint16_t> local_of;
+    std::vector<uint32_t> particle_weld;
+    for (uint32_t w : sim) {
+        if (local_of.try_emplace(w, (uint16_t)particle_weld.size()).second) particle_weld.push_back(w);
+    }
+
+    LMeshCloth cloth{};
+    cloth.joint_first = (uint32_t)r_joints.size();
+    cloth.particle_first = (uint32_t)r_out.particles.size();
+    cloth.particle_count = (uint32_t)particle_weld.size();
+    cloth.root_joint = 0;
+    bool root_found = false;
+    for (size_t j = 0; j < r_joints.size() && !root_found; j++) {
+        if (r_joints[j] == root_name) {
+            cloth.root_joint = (uint32_t)j;
+            root_found = true;
+        }
+    }
+    for (size_t j = 0; j < p_skel_of_rig.size() && !root_found; j++) {
+        if (p_skel_of_rig[j] >= 0 && in_branch[p_skel_of_rig[j]]) {
+            cloth.root_joint = (uint32_t)j;
+            root_found = true;
+        }
+    }
+
+    std::vector<float> free_share(particle_weld.size());
+    bool any_pinned = false;
+    for (size_t i = 0; i < particle_weld.size(); i++) {
+        const uint32_t src = wsrc[particle_weld[i]];
+        const float d = branch_depth[src];
+        const float t = std::clamp((d - CLOTH_FREE_DEPTH_START) / (CLOTH_FREE_DEPTH_END - CLOTH_FREE_DEPTH_START), 0.0f, 1.0f);
+        const float depth_free = t * t * (3.0f - 2.0f * t);
+        const float weight_free = std::clamp((branch_weight[src] - CLOTH_PIN_WEIGHT) / (1.0f - CLOTH_PIN_WEIGHT), 0.0f, 1.0f);
+        free_share[i] = depth_free * weight_free;
+        any_pinned = any_pinned || free_share[i] < CLOTH_PINNED;
+    }
+    if (!any_pinned) {
+        std::vector<size_t> order(particle_weld.size());
+        for (size_t i = 0; i < order.size(); i++) order[i] = i;
+        std::sort(order.begin(), order.end(), [&](size_t p_a, size_t p_b) { return branch_depth[wsrc[particle_weld[p_a]]] < branch_depth[wsrc[particle_weld[p_b]]]; });
+        const size_t pins = std::max<size_t>(1, (size_t)((float)order.size() * CLOTH_PIN_FALLBACK_SHARE));
+        for (size_t k = 0; k < pins; k++) free_share[order[k]] = 0.0f;
+    }
+
+    for (size_t i = 0; i < particle_weld.size(); i++) {
+        const uint32_t src = wsrc[particle_weld[i]];
+        LMeshClothParticle p{};
+        p.rest = wpos[particle_weld[i]];
+        p.max_distance = free_share[i] < CLOTH_PINNED ? 0.0f : free_share[i];
+        p.joints = p_original[src].joints;
+        p.weights = p_original[src].weights;
+        r_out.particles.push_back(p);
+        r_joints.push_back("__cloth" + std::to_string(p_index) + "_" + std::to_string(i));
+        r_inverse_binds.push_back(translate(mat4(1.0f), -p.rest));
+    }
+
+    std::unordered_map<uint32_t, std::vector<uint16_t>> edges;
+    cloth.triangle_first = (uint32_t)r_out.triangles.size();
+    for (size_t t = 0; t + 2 < sim.size(); t += 3) {
+        const uint16_t a = local_of[sim[t]], b = local_of[sim[t + 1]], c = local_of[sim[t + 2]];
+        r_out.triangles.push_back(u16vec4(a, b, c, 0u));
+        const uint16_t tri[3] = { a, b, c };
+        for (int e = 0; e < 3; e++) {
+            const uint16_t u = tri[e], v = tri[(e + 1) % 3], o = tri[(e + 2) % 3];
+            const uint32_t key = ((uint32_t)std::min(u, v) << 16) | std::max(u, v);
+            edges[key].push_back(o);
+        }
+    }
+    cloth.triangle_count = (uint32_t)r_out.triangles.size() - cloth.triangle_first;
+
+    const LMeshClothParticle* parts = r_out.particles.data() + cloth.particle_first;
+    cloth.link_first = (uint32_t)r_out.links.size();
+    for (const auto& [key, opposite] : edges) {
+        const uint16_t a = (uint16_t)(key >> 16), b = (uint16_t)(key & 0xFFFFu);
+        r_out.links.push_back({ a, b, length(parts[a].rest - parts[b].rest) });
+    }
+    cloth.stretch_count = (uint32_t)r_out.links.size() - cloth.link_first;
+    for (const auto& [key, opposite] : edges) {
+        if (opposite.size() < 2 || opposite[0] == opposite[1]) continue;
+        const uint16_t a = opposite[0], b = opposite[1];
+        const uint32_t pair = ((uint32_t)std::min(a, b) << 16) | std::max(a, b);
+        if (edges.contains(pair)) continue;
+        r_out.links.push_back({ a, b, length(parts[a].rest - parts[b].rest) });
+    }
+    cloth.bend_count = (uint32_t)r_out.links.size() - cloth.link_first - cloth.stretch_count;
+
+    cloth.restore_first = (uint32_t)r_out.restore.size();
+    size_t bound = 0;
+    const u16vec4* tris = r_out.triangles.data() + cloth.triangle_first;
+    for (size_t v = 0; v < vertex_count; v++) {
+        if (branch_weight[v] < CLOTH_REGION_WEIGHT) continue;
+        float best = FLT_MAX;
+        uint32_t best_tri = 0;
+        vec3 best_bary(1.0f, 0.0f, 0.0f);
+        for (uint32_t t = 0; t < cloth.triangle_count; t++) {
+            vec3 bary;
+            const vec3 q = _closest_on_triangle(p_positions[v], parts[tris[t].x].rest, parts[tris[t].y].rest, parts[tris[t].z].rest, bary);
+            const vec3 d = q - p_positions[v];
+            const float d2 = dot(d, d);
+            if (d2 < best) {
+                best = d2;
+                best_tri = t;
+                best_bary = bary;
+            }
+        }
+        const u16vec4 tri = tris[best_tri];
+        SkinVertex sv{};
+        sv.joints = u8vec4((uint8_t)(cloth.joint_first + tri.x), (uint8_t)(cloth.joint_first + tri.y), (uint8_t)(cloth.joint_first + tri.z), (uint8_t)(cloth.joint_first + tri.x));
+        sv.weights = _quantize_weights(best_bary);
+        r_out.restore.push_back({ (uint32_t)v, p_original[v] });
+        r_skin[v] = sv;
+        bound++;
+    }
+    cloth.restore_count = (uint32_t)r_out.restore.size() - cloth.restore_first;
+
+    r_out.cloths.push_back(cloth);
+    log_write("MeshCooker: cloth on '%s': %u particles, %u stretch and %u bend links, %zu vertices bound.", root_name.c_str(), cloth.particle_count, cloth.stretch_count, cloth.bend_count, bound);
+    return true;
+}
+
+void dynamics_fit_colliders(const std::vector<vec3>& p_positions, const std::vector<SkinVertex>& p_skin, uint32_t p_joint_count, std::vector<LMeshCollider>& r_out)
+{
+    r_out.clear();
+    if (p_skin.empty()) return;
+    _fit_colliders(p_positions, p_skin, p_joint_count, r_out);
+    log_write("MeshCooker: fitted %zu body colliders.", r_out.size());
+}
+
+bool dynamics_strip_cloths(LMeshData& r_data)
+{
+    LMeshDynamics& dyn = r_data.rig.dynamics;
+    if (dyn.cloths.empty()) return true;
+    for (const LMeshCloth& c : dyn.cloths) {
+        if (c.particle_count && !c.restore_count) return false;
+    }
+    for (const LMeshClothRestore& r : dyn.restore) {
+        if (r.vertex < r_data.skin.size()) r_data.skin[r.vertex] = r.skin;
+    }
+    uint32_t base = (uint32_t)r_data.rig.joints.size();
+    for (const LMeshCloth& c : dyn.cloths) base = std::min(base, c.joint_first);
+    r_data.rig.joints.resize(base);
+    r_data.rig.inverse_binds.resize(std::min<size_t>(base, r_data.rig.inverse_binds.size()));
+    dyn.cloths.clear();
+    dyn.particles.clear();
+    dyn.links.clear();
+    dyn.triangles.clear();
+    dyn.restore.clear();
+    return true;
+}
+
+uint32_t dynamics_bake_cloths(LMeshData& r_data, const LSkeleton& p_skeleton)
+{
+    if (!r_data.skinned() || p_skeleton.cloths.empty() || r_data.skin.size() != r_data.vertices.size()) return 0;
+    const LMeshPayloadHeader& h = r_data.header;
+    std::vector<vec3> positions(r_data.vertices.size());
+    for (size_t v = 0; v < positions.size(); v++) positions[v] = h.pos_min + vec3(r_data.vertices[v].position.position) / 65535.0f * h.pos_extent;
+
+    std::vector<uint32_t> indices;
+    for (const LMeshPage& page : r_data.pages) {
+        for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count && ci < r_data.clusters.size(); ci++) {
+            const LMeshCluster& c = r_data.clusters[ci];
+            if (c.self_group < r_data.groups.size() && r_data.groups[c.self_group].level != 0) continue;
+            const uint32_t base = page.vertex_first + c.vertex_offset;
+            for (uint32_t t = 0; t < c.tri_count; t++) {
+                const size_t at = (size_t)page.tri_first + c.tri_offset + t;
+                if (at >= r_data.local_tris.size()) break;
+                const uint32_t lt = r_data.local_tris[at];
+                indices.insert(indices.end(), { base + (lt & 0xFFu), base + ((lt >> 8) & 0xFFu), base + ((lt >> 16) & 0xFFu) });
+            }
+        }
+    }
+
+    LMeshRig& rig = r_data.rig;
+    std::vector<int32_t> skel_of_rig(rig.joints.size());
+    for (size_t j = 0; j < rig.joints.size(); j++) skel_of_rig[j] = p_skeleton.find(rig.joints[j]);
+    const std::vector<SkinVertex> original = r_data.skin;
+    uint32_t baked = 0;
+    for (size_t i = 0; i < p_skeleton.cloths.size(); i++) {
+        const SkeletonCloth& def = p_skeleton.cloths[i];
+        if (def.root < 0 || def.root >= (int32_t)p_skeleton.joint_count()) continue;
+        if (_bake_cloth((uint32_t)i, def, p_skeleton, skel_of_rig, positions, indices, original, r_data.skin, rig.joints, rig.inverse_binds, rig.dynamics)) baked++;
+    }
+    return baked;
+}
+
+Error dynamics_rebake_cloths(const std::filesystem::path& p_bin, const LSkeleton& p_skeleton)
+{
+    using enum Error;
+    LMeshData data;
+    std::string why;
+    if (!lmesh_load(p_bin, data, why)) {
+        log_write("Cloth: couldn't load '%s' (%s).", p_bin.string().c_str(), why.c_str());
+        return FAILED;
+    }
+    Guid guid;
+    if (!data.skinned() || !lmesh_read_section(p_bin, LMeshSectionType::SKELETON, data.skeleton, &guid)) {
+        log_write("Cloth: '%s' has no skeleton. Reimport it once.", p_bin.string().c_str());
+        return FAILED;
+    }
+    lmesh_read_section(p_bin, LMeshSectionType::COLLISION, data.collision);
+    if (!dynamics_strip_cloths(data)) {
+        log_write("Cloth: '%s' was baked before cloth could be rebuilt in place. Reimport it once.", p_bin.string().c_str());
+        return FAILED;
+    }
+    dynamics_bake_cloths(data, p_skeleton);
+    if (!lmesh_write(p_bin, guid, data)) {
+        log_write("Cloth: couldn't write '%s'.", p_bin.string().c_str());
+        return FAILED;
+    }
+    return OK;
+}
+
+}

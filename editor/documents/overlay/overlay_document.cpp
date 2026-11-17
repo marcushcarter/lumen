@@ -1,4 +1,5 @@
 #include <editor/documents/overlay/overlay_document.h>
+#include <core/game/entity_debug.h>
 #include <core/rendering/debug_draw.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
@@ -90,7 +91,7 @@ void OverlayDocument::_sync_preview(EditorContext& ctx)
         ctx.renderer->models.set(_preview_model, mesh, {});
         _framed = false;
     }
-    rig_preview.refresh(ctx, _shown_mesh, false);
+    rig_preview.refresh(ctx, _shown_mesh);
 }
 
 void OverlayDocument::_pose_preview(EditorContext& ctx, float p_dt)

@@ -312,7 +312,7 @@ void Workspace::_draw_center(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     const ImVec2 bar_max(p_max.x, body.y + ui.row);
     if (bar_max.y + 2.0f > p_max.y) return;
     ImGui::GetWindowDrawList()->AddRectFilled(body, bar_max, ui.color.view_bar);
-    Viewport::draw_bar(body, bar_max);
+    Viewport::draw_bar(body, bar_max, false);
     const ImVec2 view_min(body.x, bar_max.y);
     ImGui::GetWindowDrawList()->AddRectFilled(view_min, p_max, ui.color.panel);
     ImGui::SetCursorScreenPos(view_min);

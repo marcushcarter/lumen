@@ -303,7 +303,7 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
             c.in_air_yaw = c.speed > 1.0f ? c.velocity_yaw : c.yaw;
         }
     }
-    if (!c.grounded) c.velocity.y -= p_asset.gravity * p_dt;
+    if (!c.grounded) c.velocity.y -= _gravity * p_dt;
     if (c.grounded && !c.jumped) c.in_air_yaw = c.yaw;
 
     _sync_shape(c, p_body);
@@ -852,6 +852,7 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || p_dt <= 0.0f || !anims) return;
     Scene& world = *r_session.world;
+    _gravity = world.physics.gravity;
 
     _entities.clear();
     world.view<LocomotionComponent, TransformComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const LocomotionComponent&, const TransformComponent&) { _entities.push_back(p_entity); });
@@ -884,7 +885,8 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
         const LocomotionComponent* body = world.try_get<LocomotionComponent>(e);
         if (!state || !body) continue;
         Character& c = state->character;
-        _debug = debug_all || std::find(debug_entities.begin(), debug_entities.end(), e) != debug_entities.end();
+        const bool listed = debug_all || std::find(debug_entities.begin(), debug_entities.end(), e) != debug_entities.end();
+        _debug = listed && debug_lines;
         c.asset = body->locomotion;
         c.model_yaw = body->model_yaw;
         const LLocomotion* asset = anims->locomotion(c.asset);

@@ -30,7 +30,7 @@
 
 namespace lumen {
 
-static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Shape Collisions", "All Collisions", "Debug Lines", "Bones", "Everything" };
+static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Cloth & Chains", "Debug Lines", "Everything" };
 static_assert(std::size(VIEW_OVERLAY_NAMES) == (size_t)ViewOverlay::COUNT);
 static constexpr uint32_t EDITOR_LINE_MASK = (uint32_t)DebugCategory::GENERAL | (uint32_t)DebugCategory::COLLISION | (uint32_t)DebugCategory::BONES;
 
@@ -139,17 +139,12 @@ const char* view_overlay_name(ViewOverlay p_overlay)
 uint32_t view_overlay_kinds(ViewOverlay p_overlay)
 {
     switch (p_overlay) {
-        case ViewOverlay::SHAPE_COLLISIONS: return ENTITY_DEBUG_COLLISION;
-        case ViewOverlay::ALL_COLLISIONS: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_MESH_COLLISION;
+        case ViewOverlay::COLLISION: return ENTITY_DEBUG_COLLISION;
         case ViewOverlay::BONES: return ENTITY_DEBUG_BONES;
-        case ViewOverlay::EVERYTHING: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_MESH_COLLISION | ENTITY_DEBUG_BONES;
+        case ViewOverlay::CLOTH: return ENTITY_DEBUG_DYNAMICS;
+        case ViewOverlay::EVERYTHING: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_BONES | ENTITY_DEBUG_DYNAMICS;
         default: return 0;
     }
-}
-
-uint32_t view_selection_kinds(ViewOverlay p_overlay)
-{
-    return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_BONES | (view_overlay_kinds(p_overlay) & ENTITY_DEBUG_MESH_COLLISION);
 }
 
 bool view_overlay_lines(ViewOverlay p_overlay)
@@ -175,9 +170,8 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
         }
     }
     const EntityDebugSource source{ .renderer = *ctx.renderer, .project = ctx.project, .meshes = &collision_meshes };
-    const uint32_t all = view_overlay_kinds(view.overlay);
-    debug_draw_scene(debug_draw(), *scene, source, all);
-    debug_draw_entities(debug_draw(), *scene, debug_entities, source, view_selection_kinds(view.overlay) & ~all);
+    const uint32_t kinds = view_overlay_kinds(view.overlay);
+    if (kinds) debug_draw_entities(debug_draw(), *scene, debug_entities, source, kinds);
 }
 
 void Viewport::_draw_cull_frustum(EditorContext& ctx)
@@ -270,7 +264,7 @@ struct ViewBar
     }
 };
 
-void Viewport::draw_bar(ImVec2 p_min, ImVec2 p_max)
+void Viewport::draw_bar(ImVec2 p_min, ImVec2 p_max, bool p_overlay)
 {
     ViewportView& view = viewport_view();
     ImGui::SetCursorScreenPos(p_min);
@@ -310,13 +304,13 @@ void Viewport::draw_bar(ImVec2 p_min, ImVec2 p_max)
 
     char overlay_label[64];
     std::snprintf(overlay_label, sizeof(overlay_label), "Overlay: %s", view_overlay_name(view.overlay));
-    if (bar.combo("##overlay", overlay_label, combo_w * 1.8f)) {
+    if (p_overlay && bar.combo("##overlay", overlay_label, combo_w * 1.8f)) {
         for (int i = 0; i < (int)ViewOverlay::COUNT; i++) {
             if (ImGui::MenuItem(VIEW_OVERLAY_NAMES[i], nullptr, (int)view.overlay == i)) view.overlay = (ViewOverlay)i;
         }
         bar.end_combo();
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Debug drawn for every entity. The selection always shows its own.");
+    if (p_overlay && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Debug drawn for the selected entity.");
 
     if (bar.toggle("##freeze_culling", ICON_FA_SNOWFLAKE "  Freeze Culling", view.culling_paused ? "Culling is frozen where you paused it" : "Freeze culling", view.culling_paused)) view.culling_paused = !view.culling_paused;
     if (bar.toggle("##stats", "IM", "Frame stats", view.stats)) view.stats = !view.stats;

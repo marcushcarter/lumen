@@ -85,7 +85,7 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt)
         if (!binding || !skeleton) return;
         _local = skeleton->skeleton.rest;
         _global = skeleton->rest_global;
-        _simulate(r_dynamics.dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], r_world.world_matrix(p_entity), p_dt, r_world.physics, r_pose);
+        _simulate(r_dynamics.dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], r_world.world_matrix(p_entity), p_dt, r_world.physics, _body_of(r_world, p_entity), r_pose);
     });
 
     r_world.view<ModelComponent, PoseComponent, CharacterStateComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent& r_pose, CharacterStateComponent& r_state) {
@@ -122,21 +122,29 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt)
             ragdoll.record(_local.data(), _global, p_dt);
         }
 
-        if (DynamicsComponent* dynamics = r_world.try_get<DynamicsComponent>(p_entity)) _simulate(dynamics->dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], r_world.world_matrix(p_entity), p_dt, r_world.physics, r_pose);
+        if (DynamicsComponent* dynamics = r_world.try_get<DynamicsComponent>(p_entity)) _simulate(dynamics->dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], r_world.world_matrix(p_entity), p_dt, r_world.physics, Body{ locomotion, r_state.character.asset, r_state.character.model_yaw }, r_pose);
         else rig_skin(_global, *rig, binding->map, r_pose.skin);
     });
 }
 
-void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, PoseComponent& r_pose)
+void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, const Body& p_body, PoseComponent& r_pose)
 {
-    const uint64_t key = hash_combine(hash_combine(p_mesh.value, p_rig.skeleton.value), skeleton_version ^ (geometry_version << 1));
-    r_dynamics.bind(key, p_skeleton, p_rig, p_map);
-    if (p_settings.chains || p_settings.cloth) r_dynamics.update_colliders(p_rig, p_map, _global, p_model);
+    static const LLocomotion DEFAULT_BODY;
+    const uint64_t key = hash_combine(hash_combine(hash_combine(p_mesh.value, p_rig.skeleton.value), skeleton_version ^ (geometry_version << 1)), p_body.asset.value);
+    r_dynamics.bind(key, p_skeleton, p_rig, p_map, p_body.names ? *p_body.names : DEFAULT_BODY);
+    if (p_settings.chains || p_settings.cloth) r_dynamics.update_colliders(_global, p_model, p_body.model_yaw);
     if (p_settings.chains) r_dynamics.simulate_chains(p_skeleton, p_model, p_dt, p_settings.gravity, _local.data(), _global);
-    else for (DynamicsChain& c : r_dynamics.chains) c.pos.clear();
+    else r_dynamics.follow_chains(p_model, _global);
     rig_skin(_global, p_rig, p_map, r_pose.skin);
     r_dynamics.simulate_cloth(p_skeleton, p_rig, p_model, p_dt, p_settings.gravity, p_settings.cloth, r_pose.skin);
     r_dynamics.finish(p_model);
+}
+
+PoseSystem::Body PoseSystem::_body_of(const Scene& p_world, Entity p_entity)
+{
+    const LocomotionComponent* body = p_world.try_get<LocomotionComponent>(p_entity);
+    if (!body) return {};
+    return Body{ anims.locomotion(body->locomotion), body->locomotion, body->model_yaw };
 }
 
 }

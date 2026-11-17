@@ -161,23 +161,71 @@ static vec3 _axis(uint32_t p_part, const RagdollFrame& p_frame, const vec3 p_foo
     }
 }
 
+static bool _find_joints(const LLocomotion& p_names, const LSkeleton& p_skeleton, int32_t r_joints[RAGDOLL_JOINT_COUNT])
+{
+    const std::string* names[RAGDOLL_JOINT_COUNT] = {
+        &p_names.pelvis_bone, &p_names.lean_bones[0], &p_names.lean_bones[2], &p_names.neck_bone, &p_names.head_bone,
+        &p_names.upperarm_bones[0], &p_names.lowerarm_bones[0], &p_names.hand_bones[0],
+        &p_names.upperarm_bones[1], &p_names.lowerarm_bones[1], &p_names.hand_bones[1],
+        &p_names.thigh_bones[0], &p_names.calf_bones[0], &p_names.foot_bones[0],
+        &p_names.thigh_bones[1], &p_names.calf_bones[1], &p_names.foot_bones[1],
+    };
+    bool found = true;
+    for (uint32_t j = 0; j < RAGDOLL_JOINT_COUNT; j++) {
+        r_joints[j] = p_skeleton.find(*names[j]);
+        if (r_joints[j] < 0) found = false;
+    }
+    return found;
+}
+
+bool RagdollBody::bind(const LLocomotion& p_names, const LSkeleton& p_skeleton)
+{
+    valid = _find_joints(p_names, p_skeleton, joints);
+    if (!valid) return false;
+    std::vector<mat4> globals(p_skeleton.joint_count());
+    p_skeleton.globals(p_skeleton.rest.data(), globals.data());
+    for (uint32_t j = 0; j < RAGDOLL_JOINT_COUNT; j++) rest_rotation[j] = _rotation(globals[joints[j]]);
+    return true;
+}
+
+int32_t RagdollBody::part_joint(uint32_t p_part) const
+{
+    return p_part < RAGDOLL_PART_COUNT ? joints[(uint32_t)PARTS[p_part].joint] : SKELETON_NO_JOINT;
+}
+
+void RagdollBody::capsules(const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw, vec3* r_a, vec3* r_b, float* r_radius) const
+{
+    RagdollFrame frame;
+    for (uint32_t j = 0; j < RAGDOLL_JOINT_COUNT; j++) {
+        const mat4 w = p_model * p_global[joints[j]];
+        frame.position[j] = vec3(w[3]);
+        frame.rotation[j] = _rotation(w);
+    }
+    const vec3 foot_rest = _model_forward(p_model_yaw) * FOOT_FORWARD - UP * FOOT_DOWN;
+    vec3 foot[2];
+    for (int s = 0; s < 2; s++) {
+        const uint32_t j = (uint32_t)(s == 0 ? FOOT_L : FOOT_R);
+        foot[s] = normalize(frame.rotation[j] * (inverse(rest_rotation[j]) * foot_rest)) * length(foot_rest);
+    }
+    for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) {
+        vec3 a, b;
+        _segment(i, frame, foot, a, b);
+        const float radius = PARTS[i].radius;
+        const float half = std::max(length(b - a) * 0.5f - radius * 0.5f, 0.01f);
+        const vec3 dir = _dir(a, b, UP);
+        const vec3 mid = (a + b) * 0.5f;
+        r_a[i] = mid - dir * half;
+        r_b[i] = mid + dir * half;
+        r_radius[i] = radius;
+    }
+}
+
 void CharacterRagdoll::bind(const LLocomotion& p_asset, const LSkeleton& p_skeleton)
 {
     if (skeleton == p_skeleton.guid && part_of.size() == p_skeleton.joint_count()) return;
     skeleton = p_skeleton.guid;
     has_current = has_previous = false;
-    const std::string* names[RAGDOLL_JOINT_COUNT] = {
-        &p_asset.pelvis_bone, &p_asset.lean_bones[0], &p_asset.lean_bones[2], &p_asset.neck_bone, &p_asset.head_bone,
-        &p_asset.upperarm_bones[0], &p_asset.lowerarm_bones[0], &p_asset.hand_bones[0],
-        &p_asset.upperarm_bones[1], &p_asset.lowerarm_bones[1], &p_asset.hand_bones[1],
-        &p_asset.thigh_bones[0], &p_asset.calf_bones[0], &p_asset.foot_bones[0],
-        &p_asset.thigh_bones[1], &p_asset.calf_bones[1], &p_asset.foot_bones[1],
-    };
-    valid = true;
-    for (uint32_t j = 0; j < RAGDOLL_JOINT_COUNT; j++) {
-        joints[j] = p_skeleton.find(*names[j]);
-        if (joints[j] < 0) valid = false;
-    }
+    valid = _find_joints(p_asset, p_skeleton, joints);
     part_of.assign(p_skeleton.joint_count(), -1);
     if (!valid) return;
     for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) part_of[joints[(uint32_t)PARTS[i].joint]] = (int8_t)i;

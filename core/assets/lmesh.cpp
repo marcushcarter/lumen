@@ -858,9 +858,8 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     std::vector<uint8_t> dynamics;
     const LMeshDynamics& dyn = p_data.rig.dynamics;
     if (skinned && !dyn.empty()) {
-        const LMeshDynamicsHeader dh{ (uint32_t)dyn.colliders.size(), (uint32_t)dyn.cloths.size(), (uint32_t)dyn.particles.size(), (uint32_t)dyn.links.size(), (uint32_t)dyn.triangles.size(), (uint32_t)dyn.restore.size(), {} };
+        const LMeshDynamicsHeader dh{ (uint32_t)dyn.cloths.size(), (uint32_t)dyn.particles.size(), (uint32_t)dyn.links.size(), (uint32_t)dyn.triangles.size(), (uint32_t)dyn.restore.size(), {} };
         _append(dynamics, &dh, 1);
-        _append(dynamics, dyn.colliders.data(), dyn.colliders.size());
         _append(dynamics, dyn.cloths.data(), dyn.cloths.size());
         _append(dynamics, dyn.particles.data(), dyn.particles.size());
         _append(dynamics, dyn.links.data(), dyn.links.size());
@@ -1087,23 +1086,18 @@ static const char* _parse_dynamics(const std::vector<uint8_t>& p_bytes, uint32_t
     size_t at = 0;
     LMeshDynamicsHeader dh{};
     if (!_read(p_bytes, at, &dh, 1)) return "truncated dynamics";
-    if (dh.collider_count > MESH_MAX_JOINTS * 4 || dh.cloth_count > MESH_MAX_JOINTS || dh.particle_count > MESH_MAX_JOINTS || dh.link_count > (1u << 20) || dh.triangle_count > (1u << 20) || dh.restore_count > (1u << 26)) return "dynamics counts out of range";
-    r_dyn.colliders.resize(dh.collider_count);
+    if (dh.cloth_count > MESH_MAX_JOINTS || dh.particle_count > MESH_MAX_JOINTS || dh.link_count > (1u << 20) || dh.triangle_count > (1u << 20) || dh.restore_count > (1u << 26)) return "dynamics counts out of range";
     r_dyn.cloths.resize(dh.cloth_count);
     r_dyn.particles.resize(dh.particle_count);
     r_dyn.links.resize(dh.link_count);
     r_dyn.triangles.resize(dh.triangle_count);
     r_dyn.restore.resize(dh.restore_count);
-    const bool ok = _read(p_bytes, at, r_dyn.colliders.data(), r_dyn.colliders.size())
-        && _read(p_bytes, at, r_dyn.cloths.data(), r_dyn.cloths.size())
+    const bool ok = _read(p_bytes, at, r_dyn.cloths.data(), r_dyn.cloths.size())
         && _read(p_bytes, at, r_dyn.particles.data(), r_dyn.particles.size())
         && _read(p_bytes, at, r_dyn.links.data(), r_dyn.links.size())
         && _read(p_bytes, at, r_dyn.triangles.data(), r_dyn.triangles.size())
         && _read(p_bytes, at, r_dyn.restore.data(), r_dyn.restore.size());
     if (!ok || at != p_bytes.size()) return "truncated dynamics";
-    for (const LMeshCollider& c : r_dyn.colliders) {
-        if (c.joint >= p_joint_count) return "collider joint out of range";
-    }
     for (const LMeshClothRestore& r : r_dyn.restore) {
         if (r.vertex >= p_vertex_count) return "cloth restore vertex out of range";
     }
@@ -1171,7 +1165,10 @@ static const char* _open_streamed(std::ifstream& r_file, uint64_t p_file_size, L
     if (dynamics && dynamics->size && r_data.skinned()) {
         const std::vector<uint8_t> bytes = _read_range(r_file, dynamics->offset, dynamics->size);
         if (bytes.size() != dynamics->size) return "truncated dynamics";
-        if (const char* why = _parse_dynamics(bytes, (uint32_t)r_data.rig.joints.size(), r_data.header.vertex_count, r_data.rig.dynamics)) return why;
+        if (const char* why = _parse_dynamics(bytes, (uint32_t)r_data.rig.joints.size(), r_data.header.vertex_count, r_data.rig.dynamics)) {
+            log_write("lmesh: cloth data is unreadable (%s) and was skipped. Reimport the mesh.", why);
+            r_data.rig.dynamics = {};
+        }
     }
     if (joint_boxes && joint_boxes->size) {
         if (joint_boxes->size % sizeof(LMeshJointBox) || joint_boxes->size / sizeof(LMeshJointBox) > MESH_MAX_JOINTS) return "bad joint boxes";

@@ -25,9 +25,11 @@ struct FrameStats
 
     float frame_samples[HISTORY] = {};
     float wait_samples[HISTORY] = {};
+    float gpu_samples[HISTORY] = {};
     float frame_avg = 0.0f;
     float frame_peak = 0.0f;
     float wait_avg = 0.0f;
+    float gpu_avg = 0.0f;
 
     uint32_t sample_head = 0;
     uint32_t sample_count = 0;
@@ -37,7 +39,7 @@ struct FrameStats
     bool visible = true;
 
     void initialize(HWND p_hwnd);
-    void update(const CpuProfiler& p_profiler);
+    void update(const CpuProfiler& p_profiler, float p_gpu_ms);
 
     uint32_t _row(const char* p_name, bool p_wait);
     void _resolve();

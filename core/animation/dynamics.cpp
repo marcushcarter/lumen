@@ -1,5 +1,6 @@
 #include <core/animation/dynamics.h>
 #include <core/rendering/debug_draw.h>
+#include <core/base/jobs.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -100,14 +101,24 @@ static uint32_t _substeps(float p_dt, float& r_step)
     return steps;
 }
 
-void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map)
+void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, const LLocomotion& p_body)
 {
     if (key == p_key) return;
     key = p_key;
+    body.bind(p_body, p_skeleton);
     initialized = false;
     colliders.clear();
     chains.clear();
     cloths.clear();
+    moving.assign(p_skeleton.joint_count(), 0);
+    std::vector<uint8_t> branch;
+    auto mark = [&](int32_t p_root) {
+        if (p_root < 0 || p_root >= (int32_t)p_skeleton.joint_count()) return;
+        p_skeleton.branch(p_root, branch);
+        for (size_t j = 0; j < branch.size() && j < moving.size(); j++) moving[j] |= branch[j];
+    };
+    for (const SkeletonChain& c : p_skeleton.chains) mark(c.root);
+    for (const SkeletonCloth& c : p_skeleton.cloths) mark(c.root);
 
     for (uint32_t c = 0; c < (uint32_t)p_skeleton.chains.size(); c++) {
         DynamicsChain chain;
@@ -136,7 +147,6 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
         for (uint32_t s = 0; s < (uint32_t)p_skeleton.cloths.size() && cloth.settings < 0; s++) {
             if (p_skeleton.cloths[s].root == root) cloth.settings = (int32_t)s;
         }
-        p_skeleton.branch(root, cloth.in_branch);
 
         const uint32_t n = src.particle_count;
         const LMeshClothParticle* parts = dyn.particles.data() + src.particle_first;
@@ -177,29 +187,18 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
     }
 }
 
-void CharacterDynamics::update_colliders(const LMeshRig& p_rig, const std::vector<int32_t>& p_map, const std::vector<mat4>& p_global, const mat4& p_model)
+void CharacterDynamics::update_colliders(const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw)
 {
-    const std::vector<LMeshCollider>& src = p_rig.dynamics.colliders;
-    if (chains.empty() && cloths.empty()) {
+    if ((chains.empty() && cloths.empty()) || !body.valid) {
         colliders.clear();
         return;
     }
-    colliders.resize(src.size());
+    vec3 a[RAGDOLL_PART_COUNT], b[RAGDOLL_PART_COUNT];
+    float radius[RAGDOLL_PART_COUNT];
+    body.capsules(p_global, p_model, p_model_yaw, a, b, radius);
     const float scale = _model_scale(p_model);
-    for (size_t i = 0; i < src.size(); i++) {
-        const LMeshCollider& c = src[i];
-        const int32_t s = c.joint < p_map.size() ? p_map[c.joint] : SKELETON_NO_JOINT;
-        DynamicsCollider& out = colliders[i];
-        out.joint = s;
-        if (s < 0 || s >= (int32_t)p_global.size() || c.joint >= p_rig.inverse_binds.size()) {
-            out.radius = 0.0f;
-            continue;
-        }
-        const mat4 m = p_model * p_global[s] * p_rig.inverse_binds[c.joint];
-        out.a = vec3(m * vec4(c.a, 1.0f));
-        out.b = vec3(m * vec4(c.b, 1.0f));
-        out.radius = c.radius * scale;
-    }
+    colliders.resize(RAGDOLL_PART_COUNT);
+    for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) colliders[i] = DynamicsCollider{ a[i], b[i], radius[i] * scale, body.part_joint(i) };
 }
 
 void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4& p_model, float p_dt, float p_gravity, JointTransform* r_local, std::vector<mat4>& r_global)
@@ -237,7 +236,7 @@ void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4&
         for (size_t k = 1; k < n; k++) {
             if (chain.parent[k] >= 0) extent += length(chain.anim[k] - chain.anim[chain.parent[k]]);
         }
-        _gather(chain.anim[0], extent, colliders, chain.in_branch, chain.nearby);
+        _gather(chain.anim[0], extent, colliders, moving, chain.nearby);
         for (uint32_t s = 0; s < steps; s++) {
             chain.pos[0] = chain.prev[0] = chain.anim[0];
             for (size_t k = 1; k < n; k++) {
@@ -304,13 +303,15 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
     float step = 0.0f;
     const uint32_t steps = _substeps(p_dt, step);
 
+    const auto usable = [&](const DynamicsCloth& p_cloth) {
+        return p_cloth.cloth < dyn.cloths.size() && dyn.cloths[p_cloth.cloth].joint_first + dyn.cloths[p_cloth.cloth].particle_count <= r_skin.size();
+    };
+
     for (DynamicsCloth& cloth : cloths) {
-        if (cloth.cloth >= dyn.cloths.size()) continue;
+        if (!usable(cloth)) continue;
         const LMeshCloth& src = dyn.cloths[cloth.cloth];
         const uint32_t n = src.particle_count;
         const LMeshClothParticle* parts = dyn.particles.data() + src.particle_first;
-        if (src.joint_first + n > r_skin.size()) continue;
-
         cloth.anchor.resize(n);
         for (uint32_t p = 0; p < n; p++) {
             vec4 sum(0.0f);
@@ -325,6 +326,14 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
             cloth.pos = cloth.anchor;
             cloth.prev = cloth.anchor;
         }
+    }
+
+    const auto solve = [&](uint32_t p_index) {
+        DynamicsCloth& cloth = cloths[p_index];
+        if (!usable(cloth)) return;
+        const LMeshCloth& src = dyn.cloths[cloth.cloth];
+        const uint32_t n = src.particle_count;
+        const LMeshClothParticle* parts = dyn.particles.data() + src.particle_first;
 
         if (p_solve && cloth.settings >= 0 && cloth.settings < (int32_t)p_skeleton.cloths.size()) {
             const SkeletonCloth& def = p_skeleton.cloths[cloth.settings];
@@ -338,7 +347,7 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
                 lo = glm::min(lo, cloth.anchor[p]);
                 hi = glm::max(hi, cloth.anchor[p]);
             }
-            _gather((lo + hi) * 0.5f, length(hi - lo) * 0.5f + std::max(def.max_distance, 0.0f) + def.thickness, colliders, cloth.in_branch, cloth.nearby);
+            _gather((lo + hi) * 0.5f, length(hi - lo) * 0.5f + std::max(def.max_distance, 0.0f) + def.thickness, colliders, moving, cloth.nearby);
             for (uint32_t p = 0; p < n; p++) {
                 if (parts[p].max_distance <= 0.0f) continue;
                 cloth.pos[p] += carry;
@@ -395,7 +404,10 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
             const mat3 rotation = _frame(normal, toward) * transpose(cloth.rest_frame[p]);
             r_skin[src.joint_first + p] = translate(mat4(1.0f), local[p]) * mat4(rotation) * translate(mat4(1.0f), -parts[p].rest);
         }
-    }
+    };
+
+    if (cloths.size() == 1) solve(0);
+    else job_system().parallel_for((uint32_t)cloths.size(), 1, solve, JobPriority::HIGH, "Cloth");
 }
 
 void CharacterDynamics::finish(const mat4& p_model)
@@ -404,15 +416,27 @@ void CharacterDynamics::finish(const mat4& p_model)
     initialized = true;
 }
 
-void CharacterDynamics::draw(DebugDraw& draw) const
+void CharacterDynamics::follow_chains(const mat4& p_model, const std::vector<mat4>& p_global)
+{
+    for (DynamicsChain& chain : chains) {
+        chain.anim.resize(chain.joints.size());
+        for (size_t k = 0; k < chain.joints.size(); k++) chain.anim[k] = vec3(p_model * p_global[chain.joints[k]][3]);
+        chain.pos = chain.anim;
+        chain.prev = chain.anim;
+    }
+}
+
+void CharacterDynamics::draw(DebugDraw& draw, bool p_chains, bool p_cloth) const
 {
     for (const DynamicsChain& chain : chains) {
+        if (!p_chains) break;
         for (size_t k = 0; k < chain.pos.size(); k++) {
             draw.sphere(chain.pos[k], 0.01f, DebugDraw::Style{ .color = k == 0 ? DebugDraw::RED : DebugDraw::YELLOW });
             if (chain.parent[k] >= 0) draw.line(chain.pos[chain.parent[k]], chain.pos[k], DebugDraw::Style{ .color = DebugDraw::YELLOW });
         }
     }
     for (const DynamicsCloth& cloth : cloths) {
+        if (!p_cloth) break;
         for (size_t p = 0; p < cloth.pos.size(); p++) draw.sphere(cloth.pos[p], 0.006f, DebugDraw::Style{ .color = DebugDraw::ORANGE });
     }
 }

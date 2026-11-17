@@ -27,6 +27,7 @@ configure_file(
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 include(CompilerOptions)
+string(REPLACE "/Ob0" "/Ob1" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 include(Platform)
 include(Dependencies)
 include(EmbedAssets)

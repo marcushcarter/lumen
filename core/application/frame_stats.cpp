@@ -26,7 +26,7 @@ uint32_t FrameStats::_row(const char* p_name, bool p_wait)
     return row_count++;
 }
 
-void FrameStats::update(const CpuProfiler& p_profiler)
+void FrameStats::update(const CpuProfiler& p_profiler, float p_gpu_ms)
 {
     const CpuProfiler::Frame* f = p_profiler.last_complete_frame();
     if (!f || f->number == last_frame) return;
@@ -70,6 +70,7 @@ void FrameStats::update(const CpuProfiler& p_profiler)
     const float frame_ms = (float)((double)(f->end - f->begin) * p_profiler.ticks_to_ms);
     frame_samples[sample_head] = frame_ms;
     wait_samples[sample_head] = (float)((double)wait_ticks * p_profiler.ticks_to_ms);
+    gpu_samples[sample_head] = p_gpu_ms;
     for (uint32_t i = 0; i < row_count; i++) rows[i].samples[sample_head] = row_ms[i];
     sample_head = (sample_head + 1) % HISTORY;
     if (sample_count < HISTORY) sample_count++;
@@ -86,14 +87,16 @@ void FrameStats::_resolve()
     if (!sample_count) return;
     const float inv = 1.0f / (float)sample_count;
 
-    frame_avg = frame_peak = wait_avg = 0.0f;
+    frame_avg = frame_peak = wait_avg = gpu_avg = 0.0f;
     for (uint32_t s = 0; s < sample_count; s++) {
         frame_avg += frame_samples[s];
         wait_avg += wait_samples[s];
+        gpu_avg += gpu_samples[s];
         frame_peak = std::max(frame_peak, frame_samples[s]);
     }
     frame_avg *= inv;
     wait_avg *= inv;
+    gpu_avg *= inv;
 
     for (uint32_t i = 0; i < row_count; i++) {
         Row& r = rows[i];

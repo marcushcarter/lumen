@@ -144,7 +144,7 @@ Error Application::_frame()
 
     CpuProfiler& cpu = cpu_profiler();
     cpu.begin_frame(renderer.frame_number);
-    frame_stats.update(cpu);
+    frame_stats.update(cpu, renderer.gpu_frame_ms);
 
     cpu.zone_begin("Swapchain");
     Error err = _apply_pending_render_path();

@@ -125,6 +125,7 @@ void PhysicsSystem::stop(GameSession& r_session)
 void PhysicsSystem::_clear()
 {
     floor_dirty = true;
+    _static_synced = false;
     static_floor = FLT_MAX;
     world_floor = FLT_MAX;
     terrain.clear(physics);
@@ -135,19 +136,20 @@ void PhysicsSystem::_clear()
 
 void PhysicsSystem::_sync(Scene& r_world, float p_dt)
 {
-    for (auto& [k, b] : bodies) b.seen = false;
+    const uint64_t static_key = hash_combine(hash_combine(r_world.static_version, renderer ? renderer->geometry.version : 0), renderer ? renderer->models.version : 0);
+    const bool full = !_static_synced || static_key != _static_key;
+    for (auto& [k, b] : bodies) b.seen = !full && b.tagged_static;
 
-    struct Item {
-        Entity entity;
-        CollisionComponent collision;
-    };
-    std::vector<Item> items;
-    r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) {
-        items.push_back({ p_entity, p_collision });
-    });
+    std::vector<SyncItem>& items = _items;
+    items.clear();
+    const auto gather = [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) { items.push_back({ p_entity, p_collision }); };
+    if (full) r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag>{}, gather);
+    else r_world.view<TransformComponent, CollisionComponent>(Exclude<StaticTag, DisabledTag>{}, gather);
 
-    for (const Item& item : items) {
+    bool static_failed = false;
+    for (const SyncItem& item : items) {
         const uint64_t k = key(item.entity);
+        const bool tagged = full && r_world.has<StaticTag>(item.entity);
         const mat4 matrix = r_world.world_matrix(item.entity);
         const uint64_t hash = settings_hash(item.collision, _model_mesh(r_world, item.entity));
         auto it = bodies.find(k);
@@ -159,8 +161,12 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
         if (it == bodies.end()) {
             Body body;
             body.hash = hash;
-            if (!_build(r_world, item.entity, item.collision, matrix, body)) continue;
+            if (!_build(r_world, item.entity, item.collision, matrix, body)) {
+                static_failed |= tagged;
+                continue;
+            }
             body.seen = true;
+            body.tagged_static = tagged;
             bodies.emplace(k, body);
             optimize_pending = true;
             floor_dirty = true;
@@ -168,6 +174,7 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
         }
         Body& body = it->second;
         body.seen = true;
+        if (full) body.tagged_static = tagged;
         if (body.motion == PhysicsMotion::DYNAMIC || matrix == body.source) continue;
         body.source = matrix;
         vec3 position, scale;
@@ -185,6 +192,11 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
         physics.destroy_body(it->second.id);
         it = bodies.erase(it);
         floor_dirty = true;
+    }
+
+    if (full) {
+        _static_key = static_key;
+        _static_synced = !static_failed;
     }
 }
 

@@ -14,11 +14,18 @@ namespace lumen {
 using namespace glm;
 
 struct Scene;
+struct Entity;
 struct Renderer;
 struct PoseComponent;
 
 struct PoseSystem
 {
+    struct Body {
+        const LLocomotion* names = nullptr;
+        Guid asset;
+        float model_yaw = 0.0f;
+    };
+
     struct Binding {
         std::vector<int32_t> map;
         std::vector<mat4> rest_skin;
@@ -37,7 +44,8 @@ struct PoseSystem
     void clear();
 
     const Binding* _binding(const Renderer& p_renderer, uint32_t p_mesh_index);
-    void _simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, PoseComponent& r_pose);
+    void _simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, const Body& p_body, PoseComponent& r_pose);
+    Body _body_of(const Scene& p_world, Entity p_entity);
 };
 
 }

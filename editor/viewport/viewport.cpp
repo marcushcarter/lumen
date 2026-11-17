@@ -336,7 +336,9 @@ void Viewport::draw_stats(EditorContext& ctx, ImVec2 p_pos)
     }
     char line0[256];
     const float cpu_ms = ctx.frame_stats ? std::max(ctx.frame_stats->frame_avg - ctx.frame_stats->wait_avg, 0.0f) : 0.0f;
-    std::snprintf(line0, sizeof(line0), "FPS Main: %.1f Render: %.1f (ms: %.2f, %.2f) - Instances: %u - Triangles: %llu - Clusters: %u - Patches: %u", ms > 0.0f ? 1000.0f / ms : 0.0f, cpu_ms > 0.0f ? 1000.0f / cpu_ms : 0.0f, ms, cpu_ms, v.frame.instance_count + patches, (unsigned long long)(mesh_tris + terrain_tris), clusters, patches);
+    const float gpu_ms = ctx.frame_stats ? ctx.frame_stats->gpu_avg : 0.0f;
+    const auto fps = [](float p_ms) { return p_ms > 0.0f ? 1000.0f / p_ms : 0.0f; };
+    std::snprintf(line0, sizeof(line0), "FPS Main: %.1f CPU: %.1f GPU: %.1f (ms: %.2f, %.2f, %.2f) - Instances: %u - Triangles: %llu - Clusters: %u - Patches: %u", fps(ms), fps(cpu_ms), fps(gpu_ms), ms, cpu_ms, gpu_ms, v.frame.instance_count + patches, (unsigned long long)(mesh_tris + terrain_tris), clusters, patches);
 
     drivers::DeviceDriverVulkan& dd = *ctx.renderer->dd;
     VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};

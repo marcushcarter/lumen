@@ -27,6 +27,12 @@ struct PhysicsSystem : GameSystem
         quat prev_rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
         quat curr_rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
         bool seen = false;
+        bool tagged_static = false;
+    };
+
+    struct SyncItem {
+        Entity entity;
+        CollisionComponent collision;
     };
 
     const Renderer* renderer = nullptr;
@@ -35,9 +41,12 @@ struct PhysicsSystem : GameSystem
     CollisionCache collision;
     TerrainCollision terrain;
     std::vector<vec3> _anchors;
+    std::vector<SyncItem> _items;
     std::unordered_map<uint64_t, Body> bodies;
     bool optimize_pending = false;
     bool floor_dirty = true;
+    bool _static_synced = false;
+    uint64_t _static_key = 0;
     float static_floor = FLT_MAX;
     float world_floor = FLT_MAX;
 

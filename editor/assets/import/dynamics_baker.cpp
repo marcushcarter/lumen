@@ -10,14 +10,6 @@
 
 namespace lumen {
 
-static constexpr float COLLIDER_DOMINANT_WEIGHT = 0.5f;
-static constexpr uint32_t COLLIDER_MIN_VERTS = 24;
-static constexpr float COLLIDER_RADIUS_PERCENTILE = 0.75f;
-static constexpr float COLLIDER_END_PERCENTILE = 0.05f;
-static constexpr float COLLIDER_MIN_RADIUS_SHARE = 0.01f;
-static constexpr uint32_t COLLIDER_MAX = 64;
-static constexpr int AXIS_ITERATIONS = 24;
-
 static constexpr float CLOTH_REGION_WEIGHT = 0.5f;
 static constexpr float CLOTH_PIN_WEIGHT = 0.75f;
 static constexpr float CLOTH_FREE_DEPTH_START = 0.5f;
@@ -28,98 +20,6 @@ static constexpr int CLOTH_SIMPLIFY_ATTEMPTS = 10;
 static constexpr float CLOTH_SIMPLIFY_SHRINK = 0.7f;
 static constexpr float CLOTH_PIN_FALLBACK_SHARE = 0.1f;
 static constexpr float CLOTH_PINNED = 0.05f;
-
-static float _percentile(std::vector<float>& r_values, float p_share)
-{
-    if (r_values.empty()) return 0.0f;
-    const size_t k = std::min(r_values.size() - 1, (size_t)(p_share * (float)(r_values.size() - 1) + 0.5f));
-    std::nth_element(r_values.begin(), r_values.begin() + (ptrdiff_t)k, r_values.end());
-    return r_values[k];
-}
-
-static float _segment_distance(const vec3& p_p, const vec3& p_a, const vec3& p_b)
-{
-    const vec3 ab = p_b - p_a;
-    const float len2 = dot(ab, ab);
-    const float t = len2 > 0.0f ? std::clamp(dot(p_p - p_a, ab) / len2, 0.0f, 1.0f) : 0.0f;
-    return length(p_p - (p_a + ab * t));
-}
-
-static vec3 _principal_axis(const std::vector<vec3>& p_points, const vec3& p_mean)
-{
-    mat3 c(0.0f);
-    for (const vec3& p : p_points) {
-        const vec3 d = p - p_mean;
-        c += outerProduct(d, d);
-    }
-    vec3 axis(0.0f);
-    const int largest = c[0][0] >= c[1][1] && c[0][0] >= c[2][2] ? 0 : (c[1][1] >= c[2][2] ? 1 : 2);
-    axis[largest] = 1.0f;
-    for (int i = 0; i < AXIS_ITERATIONS; i++) {
-        const vec3 n = c * axis;
-        const float l = length(n);
-        if (l < 1e-12f) break;
-        axis = n / l;
-    }
-    return axis;
-}
-
-static void _fit_colliders(const std::vector<vec3>& p_positions, const std::vector<SkinVertex>& p_skin, uint32_t p_joint_count, std::vector<LMeshCollider>& r_out)
-{
-    if (p_positions.empty()) return;
-    vec3 lo(FLT_MAX), hi(-FLT_MAX);
-    for (const vec3& p : p_positions) {
-        lo = glm::min(lo, p);
-        hi = glm::max(hi, p);
-    }
-    const vec3 ext = hi - lo;
-    const float min_radius = std::max(ext.x, std::max(ext.y, ext.z)) * COLLIDER_MIN_RADIUS_SHARE;
-
-    std::vector<std::vector<vec3>> per_joint(p_joint_count);
-    const uint32_t dominant = (uint32_t)std::ceil(COLLIDER_DOMINANT_WEIGHT * 255.0f);
-    for (size_t v = 0; v < p_skin.size() && v < p_positions.size(); v++) {
-        for (int k = 0; k < 4; k++) {
-            if (p_skin[v].weights[k] >= dominant && p_skin[v].joints[k] < p_joint_count) per_joint[p_skin[v].joints[k]].push_back(p_positions[v]);
-        }
-    }
-
-    struct Candidate {
-        LMeshCollider collider;
-        float volume;
-    };
-    std::vector<Candidate> found;
-    std::vector<float> scratch;
-    for (uint32_t j = 0; j < p_joint_count; j++) {
-        const std::vector<vec3>& pts = per_joint[j];
-        if (pts.size() < COLLIDER_MIN_VERTS) continue;
-        vec3 mean(0.0f);
-        for (const vec3& p : pts) mean += p;
-        mean /= (float)pts.size();
-        const vec3 axis = _principal_axis(pts, mean);
-
-        scratch.clear();
-        for (const vec3& p : pts) scratch.push_back(dot(p - mean, axis));
-        const float t0 = _percentile(scratch, COLLIDER_END_PERCENTILE);
-        const float t1 = _percentile(scratch, 1.0f - COLLIDER_END_PERCENTILE);
-        const vec3 a = mean + axis * t0;
-        const vec3 b = mean + axis * t1;
-
-        scratch.clear();
-        for (const vec3& p : pts) scratch.push_back(_segment_distance(p, a, b));
-        const float r = _percentile(scratch, COLLIDER_RADIUS_PERCENTILE);
-        if (r < min_radius) continue;
-
-        float s0 = t0 + r;
-        float s1 = t1 - r;
-        if (s0 > s1) s0 = s1 = 0.5f * (t0 + t1);
-        const float len = s1 - s0;
-        found.push_back({ LMeshCollider{ j, r, mean + axis * s0, mean + axis * s1 }, glm::pi<float>() * r * r * (len + r * 4.0f / 3.0f) });
-    }
-    std::sort(found.begin(), found.end(), [](const Candidate& p_a, const Candidate& p_b) { return p_a.volume > p_b.volume; });
-    if (found.size() > COLLIDER_MAX) found.resize(COLLIDER_MAX);
-    std::sort(found.begin(), found.end(), [](const Candidate& p_a, const Candidate& p_b) { return p_a.collider.joint < p_b.collider.joint; });
-    for (const Candidate& c : found) r_out.push_back(c.collider);
-}
 
 static vec3 _closest_on_triangle(const vec3& p_p, const vec3& p_a, const vec3& p_b, const vec3& p_c, vec3& r_bary)
 {
@@ -386,14 +286,6 @@ static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSke
     r_out.cloths.push_back(cloth);
     log_write("MeshCooker: cloth on '%s': %u particles, %u stretch and %u bend links, %zu vertices bound.", root_name.c_str(), cloth.particle_count, cloth.stretch_count, cloth.bend_count, bound);
     return true;
-}
-
-void dynamics_fit_colliders(const std::vector<vec3>& p_positions, const std::vector<SkinVertex>& p_skin, uint32_t p_joint_count, std::vector<LMeshCollider>& r_out)
-{
-    r_out.clear();
-    if (p_skin.empty()) return;
-    _fit_colliders(p_positions, p_skin, p_joint_count, r_out);
-    log_write("MeshCooker: fitted %zu body colliders.", r_out.size());
 }
 
 bool dynamics_strip_cloths(LMeshData& r_data)

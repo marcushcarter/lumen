@@ -22,6 +22,17 @@ enum class RagdollPose : uint8_t { HIT, BRACE, BRACE_BACK, PROTECT, RELAX, COUNT
 
 inline constexpr uint32_t RAGDOLL_POSE_COUNT = (uint32_t)RagdollPose::COUNT;
 
+struct RagdollBody
+{
+    bool valid = false;
+    int32_t joints[RAGDOLL_JOINT_COUNT] = {};
+    quat rest_rotation[RAGDOLL_JOINT_COUNT] = {};
+
+    bool bind(const LLocomotion& p_names, const LSkeleton& p_skeleton);
+    int32_t part_joint(uint32_t p_part) const;
+    void capsules(const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw, vec3* r_a, vec3* r_b, float* r_radius) const;
+};
+
 struct CharacterRagdoll
 {
     static constexpr float SETTLE_SPEED = 0.5f;

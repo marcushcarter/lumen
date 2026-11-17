@@ -93,6 +93,15 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     }
     images_in_flight.assign(dd->swapchain.images.size(), VK_NULL_HANDLE);
 
+    const uint32_t valid_bits = dd->timestamp_valid_bits(graphics_family);
+    gpu_time_period_ns = dd->physical_device_properties.limits.timestampPeriod;
+    gpu_time_pending.assign(frame_count, 0);
+    if (valid_bits != 0 && gpu_time_period_ns > 0.0) {
+        gpu_time_mask = valid_bits >= 64 ? ~0ull : ((1ull << valid_bits) - 1);
+        gpu_time_pools.resize(frame_count);
+        for (uint32_t i = 0; i < frame_count; i++) gpu_time_pools[i] = dd->query_pool_create_timestamp(2);
+    }
+
     Error err = textures.initialize(r_dd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = geometry.initialize(r_dd, frame_count);
@@ -140,6 +149,8 @@ void Renderer::shutdown()
         dd->semaphore_free(image_available_semaphores[i]);
         dd->command_pool_free(command_pools[i]);
     }
+    for (drivers::DeviceDriverVulkan::QueryPool& pool : gpu_time_pools) dd->query_pool_free(pool);
+    gpu_time_pools.clear();
 }
 
 /*****************/
@@ -703,6 +714,16 @@ void Renderer::_frame_upload(RenderView& r_view)
     dd->buffer_flush(lb, 0, sizeof(DirectLight));
 }
 
+void Renderer::_gpu_time_read()
+{
+    if (current_frame >= gpu_time_pools.size() || !gpu_time_pending[current_frame]) return;
+    gpu_time_pending[current_frame] = 0;
+    uint64_t ticks[2] = {};
+    if (dd->query_pool_get_results(gpu_time_pools[current_frame], 0, 2, ticks) != Error::OK) return;
+    const uint64_t delta = ((ticks[1] & gpu_time_mask) - (ticks[0] & gpu_time_mask)) & gpu_time_mask;
+    gpu_frame_ms = (float)((double)delta * gpu_time_period_ns * 1e-6);
+}
+
 Error Renderer::acquire_frame()
 {
     using enum Error;
@@ -721,6 +742,7 @@ Error Renderer::acquire_frame()
     cpu.zone_end();
     if (err != OK) main_view.graph.breadcrumb_report();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    _gpu_time_read();
 
     cpu.zone_begin("Swapchain Acquire", CpuProfiler::FLAG_WAIT);
     err = dd->swapchain_acquire_next_image(image_available_semaphores[current_frame]);
@@ -883,6 +905,12 @@ Error Renderer::record()
 
     VkCommandBuffer cmd = command_buffers[current_frame];
 
+    const bool gpu_time = current_frame < gpu_time_pools.size();
+    if (gpu_time) {
+        dd->command_reset_query_pool(cmd, gpu_time_pools[current_frame], 0, 2);
+        dd->command_write_timestamp(cmd, gpu_time_pools[current_frame], VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0);
+    }
+
     dd->command_bind_graphics_uniform_sets(cmd, { dd->bindless_heap.set });
     dd->command_bind_compute_uniform_sets(cmd, { dd->bindless_heap.set });
     geometry.record_begin(cmd);
@@ -894,6 +922,11 @@ Error Renderer::record()
     _queued_views.clear();
     cpu_profiler().zone_end();
     geometry.record_end(cmd);
+
+    if (gpu_time) {
+        dd->command_write_timestamp(cmd, gpu_time_pools[current_frame], VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 1);
+        gpu_time_pending[current_frame] = 1;
+    }
 
     err = dd->command_buffer_end(command_buffers[current_frame]);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);

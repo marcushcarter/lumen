@@ -18,20 +18,13 @@ static const CollisionMeshCache::Entry* _model_collision(const Scene& p_scene, E
     return p_source.meshes->get(mesh, p_source.project->content_path(mesh));
 }
 
-static void _draw_body(DebugDraw& r_draw, const Scene& p_scene, Entity p_entity, const EntityDebugSource& p_source)
+static void _draw_body(DebugDraw& r_draw, const Scene& p_scene, Entity p_entity)
 {
-    const ModelComponent* m = p_scene.try_get<ModelComponent>(p_entity);
-    const PoseComponent* pose = p_scene.try_get<PoseComponent>(p_entity);
-    if (!m || !pose) return;
-    const LMeshRig* rig = p_source.renderer.geometry.rig(p_source.renderer.models.mesh_index(m->model));
-    if (!rig) return;
-    const mat4 world = p_scene.world_matrix(p_entity);
-    const float scale = length(vec3(world[0]));
+    const DynamicsComponent* d = p_scene.try_get<DynamicsComponent>(p_entity);
+    if (!d) return;
     const DebugDraw::Style style{ .color = DebugDraw::CYAN, .category = DebugCategory::COLLISION };
-    for (const LMeshCollider& c : rig->dynamics.colliders) {
-        if (c.joint >= pose->skin.size()) continue;
-        const mat4 s = world * pose->skin[c.joint];
-        r_draw.capsule(vec3(s * vec4(c.a, 1.0f)), vec3(s * vec4(c.b, 1.0f)), c.radius * scale, style);
+    for (const DynamicsCollider& c : d->dynamics.colliders) {
+        if (c.radius > 0.0f) r_draw.capsule(c.a, c.b, c.radius, style);
     }
 }
 
@@ -62,11 +55,11 @@ void debug_draw_entity(DebugDraw& r_draw, const Scene& p_scene, Entity p_entity,
     if (!p_scene.valid(p_entity) || p_scene.has<DisabledTag>(p_entity)) return;
     if (p_kinds & ENTITY_DEBUG_COLLISION) {
         _draw_collision(r_draw, p_scene, p_entity, p_source);
-        _draw_body(r_draw, p_scene, p_entity, p_source);
+        _draw_body(r_draw, p_scene, p_entity);
     }
     if (p_kinds & ENTITY_DEBUG_BONES) debug_draw_entity_bones(r_draw, p_scene, p_source.renderer, p_entity);
     if (p_kinds & ENTITY_DEBUG_DYNAMICS) {
-        if (const DynamicsComponent* d = p_scene.try_get<DynamicsComponent>(p_entity)) d->dynamics.draw(r_draw);
+        if (const DynamicsComponent* d = p_scene.try_get<DynamicsComponent>(p_entity)) d->dynamics.draw(r_draw, p_scene.physics.chains, p_scene.physics.cloth);
     }
 }
 

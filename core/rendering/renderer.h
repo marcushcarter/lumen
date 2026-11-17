@@ -93,6 +93,13 @@ struct Renderer
 
     bool frame_acquired = false;
 
+    std::vector<drivers::DeviceDriverVulkan::QueryPool> gpu_time_pools;
+    std::vector<uint8_t> gpu_time_pending;
+    double gpu_time_period_ns = 0.0;
+    uint64_t gpu_time_mask = 0;
+    float gpu_frame_ms = 0.0f;
+
+    void _gpu_time_read();
     void _frame_build(RenderView& r_view, const Scene& p_world);
     void _frame_upload(RenderView& r_view);
     void set_camera(const Camera& p_camera) { main_view.camera = p_camera; }

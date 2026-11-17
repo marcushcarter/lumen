@@ -36,7 +36,7 @@ Error MeshDocument::create(EditorContext& ctx)
             return;
         }
         _draw_bones(r_draw);
-        if (_simulating) _sim.draw(r_draw);
+        if (_simulating) _sim.draw(r_draw, true, true);
     };
 
     _create_preview();
@@ -321,10 +321,11 @@ void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physic
     std::vector<JointTransform> local = skeleton.rest;
     std::vector<mat4>& global = rig_preview._global;
     skeleton.globals(local.data(), global.data());
-    _sim.bind(key, skeleton, rig_preview.rig, rig_preview._map);
-    _sim.update_colliders(rig_preview.rig, rig_preview._map, global, model);
+    static const LLocomotion DEFAULT_BODY;
+    _sim.bind(key, skeleton, rig_preview.rig, rig_preview._map, DEFAULT_BODY);
+    _sim.update_colliders(global, model, 0.0f);
     if (p_physics.chains) _sim.simulate_chains(skeleton, model, p_dt, p_physics.gravity, local.data(), global);
-    else for (DynamicsChain& c : _sim.chains) c.pos.clear();
+    else _sim.follow_chains(model, global);
     rig_skin(global, rig_preview.rig, rig_preview._map, rig_preview._skin);
     _sim.simulate_cloth(skeleton, rig_preview.rig, model, p_dt, p_physics.gravity, p_physics.cloth, rig_preview._skin);
     _sim.finish(model);

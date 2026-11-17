@@ -162,16 +162,6 @@ static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
 enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, DYNAMICS = 7, SKELETON = 8 };
 
-struct LMeshCollider
-{
-    uint32_t joint;
-    float radius;
-    vec3 a;
-    vec3 b;
-};
-
-static_assert(sizeof(LMeshCollider) == 32, "LMeshCollider layout changed");
-
 struct LMeshClothParticle
 {
     vec3 rest;
@@ -219,27 +209,25 @@ static_assert(sizeof(LMeshCloth) == 48, "LMeshCloth layout changed");
 
 struct LMeshDynamicsHeader
 {
-    uint32_t collider_count;
     uint32_t cloth_count;
     uint32_t particle_count;
     uint32_t link_count;
     uint32_t triangle_count;
     uint32_t restore_count;
-    uint32_t _pad[2];
+    uint32_t _pad[3];
 };
 
 static_assert(sizeof(LMeshDynamicsHeader) == 32, "LMeshDynamicsHeader layout changed");
 
 struct LMeshDynamics
 {
-    std::vector<LMeshCollider> colliders;
     std::vector<LMeshCloth> cloths;
     std::vector<LMeshClothParticle> particles;
     std::vector<LMeshClothLink> links;
     std::vector<u16vec4> triangles;
     std::vector<LMeshClothRestore> restore;
 
-    bool empty() const { return colliders.empty() && cloths.empty(); }
+    bool empty() const { return cloths.empty(); }
 };
 
 struct LMeshJointBox

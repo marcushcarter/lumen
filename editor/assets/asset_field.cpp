@@ -159,7 +159,7 @@ bool asset_picker(EditorContext& ctx, const char* p_popup_id, Guid& r_guid, Asse
     return picked;
 }
 
-bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid& r_guid, AssetType p_type)
+bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid& r_guid, AssetType p_type, const char* p_empty)
 {
     bool changed = false;
     const std::string_view type = asset_type_section(p_type);
@@ -175,12 +175,17 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
     char label[160];
     if (asset) {
         snprintf(label, sizeof(label), "%s##field", asset->name.c_str());
+    } else if (!r_guid.valid() && p_empty) {
+        snprintf(label, sizeof(label), "%s##field", p_empty);
     } else if (!r_guid.valid()) {
         snprintf(label, sizeof(label), "No %.*s selected##field", (int)type.size(), type.data());
     } else {
         snprintf(label, sizeof(label), "Missing %.*s##field", (int)type.size(), type.data());
     }
+    const bool placeholder = !r_guid.valid() && p_empty;
+    if (placeholder) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
     bool open_picker = ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
+    if (placeholder) ImGui::PopStyleColor();
     const ImVec2 field_min = ImGui::GetItemRectMin();
     const ImVec2 field_max = ImGui::GetItemRectMax();
     if (ImGui::IsItemHovered(asset ? ImGuiHoveredFlags_DelayNormal : ImGuiHoveredFlags_None) && !ImGui::GetDragDropPayload() && !ImGui::IsPopupOpen("##asset_menu")) {

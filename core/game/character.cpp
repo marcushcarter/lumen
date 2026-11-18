@@ -149,6 +149,12 @@ static void _mix(JointTransform* r_pose, const JointTransform* p_other, float p_
     pose_blend(inputs, 2, p_joints, r_pose);
 }
 
+static void _sample(const BoundClip& p_clip, float p_time, bool p_mirror, CharacterAnim& r_anim, const LSkeleton& p_skeleton, JointTransform* r_pose)
+{
+    clip_sample(p_clip, p_time, r_pose);
+    if (p_mirror) r_anim.mirror.apply(p_skeleton, r_pose);
+}
+
 static float _mapped_speed(const CharacterStance& p_stance, float p_speed)
 {
     if (p_speed <= p_stance.walk_speed) return p_stance.walk_speed > 0.0f ? p_speed / p_stance.walk_speed : 1.0f;
@@ -193,7 +199,16 @@ static bool _stance_pose(const CharacterStance& p_stance, CharacterAnim& r_anim,
     const float h = r_anim.hips_forward;
     float weights[CYCLE_DIRECTION_COUNT] = { vb[0], vb[1], vb[2] * h, vb[2] * (1.0f - h), vb[3] * h, vb[3] * (1.0f - h) };
     const LBlendSpace* spaces[CYCLE_DIRECTION_COUNT];
-    for (uint32_t d = 0; d < CYCLE_DIRECTION_COUNT; d++) spaces[d] = r_assets.blend_space(p_stance.cycles[d]);
+    bool mirrored[CYCLE_DIRECTION_COUNT];
+    for (uint32_t d = 0; d < CYCLE_DIRECTION_COUNT; d++) {
+        const uint32_t opposite = (uint32_t)cycle_direction_opposite((CycleDirection)d);
+        spaces[d] = r_assets.blend_space(p_stance.cycles[d]);
+        mirrored[d] = false;
+        if (!spaces[d] && opposite != d) {
+            spaces[d] = r_assets.blend_space(p_stance.cycles[opposite]);
+            mirrored[d] = spaces[d] != nullptr;
+        }
+    }
     const uint32_t pairs[2][2] = { { (uint32_t)CycleDirection::LEFT_FORWARD, (uint32_t)CycleDirection::LEFT_BACKWARD }, { (uint32_t)CycleDirection::RIGHT_FORWARD, (uint32_t)CycleDirection::RIGHT_BACKWARD } };
     for (const auto& pair : pairs) {
         if (!spaces[pair[1]]) { weights[pair[0]] += weights[pair[1]]; weights[pair[1]] = 0.0f; }
@@ -237,7 +252,10 @@ static bool _stance_pose(const CharacterStance& p_stance, CharacterAnim& r_anim,
         if (w <= BLEND_MIN_WEIGHT) continue;
         std::vector<JointTransform>& pose = r_anim._cycle_poses[d];
         pose = p_skeleton.rest;
-        if (r_evaluator.blend_sample(r_assets, p_skeleton, *spaces[d], value, r_phase, pose.data())) inputs.push_back({ pose.data(), w });
+        const float phase = mirrored[d] ? r_phase + 0.5f - std::floor(r_phase + 0.5f) : r_phase;
+        if (!r_evaluator.blend_sample(r_assets, p_skeleton, *spaces[d], value, phase, pose.data())) continue;
+        if (mirrored[d]) r_anim.mirror.apply(p_skeleton, pose.data());
+        inputs.push_back({ pose.data(), w });
     }
     if (inputs.empty()) return false;
     pose_blend(inputs.data(), (uint32_t)inputs.size(), joints, r_pose);
@@ -258,7 +276,7 @@ static float _flat_yaw(const vec3& p_axis)
     return glm::degrees(std::atan2(p_axis.x, p_axis.z));
 }
 
-static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_clip, CharacterAnim& r_anim, std::vector<float>& r_curve, float& r_offset)
+static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_clip, bool p_mirror, CharacterAnim& r_anim, std::vector<float>& r_curve, float& r_offset)
 {
     const uint32_t joints = p_skeleton.joint_count();
     std::vector<uint32_t> depth(joints, 0);
@@ -279,7 +297,7 @@ static bool _build_yaw_curve(const LSkeleton& p_skeleton, const BoundClip& p_cli
     p_skeleton.globals(p_skeleton.rest.data(), rest.data());
     for (uint32_t s = 0; s < samples; s++) {
         r_anim._scratch_pose = p_skeleton.rest;
-        clip_sample(p_clip, p_clip.clip->duration * (float)s / (float)(samples - 1), r_anim._scratch_pose.data());
+        _sample(p_clip, p_clip.clip->duration * (float)s / (float)(samples - 1), p_mirror, r_anim, p_skeleton, r_anim._scratch_pose.data());
         p_skeleton.globals(r_anim._scratch_pose.data(), r_anim._turn_globals.data());
         for (size_t c = 0; c < candidates.size(); c++) {
             const mat4& m = r_anim._turn_globals[candidates[c]];
@@ -329,10 +347,10 @@ static bool _still(const Character& p_character)
     return p_character.movement == MovementState::GROUNDED && !p_character.has_input && p_character.speed < 0.01f;
 }
 
-static void _layer(const LSkeleton& p_skeleton, const BoundClip& p_clip, float p_time, float p_counter_yaw, float p_weight, CharacterAnim& r_anim, JointTransform* r_pose, bool p_posed)
+static void _layer(const LSkeleton& p_skeleton, const BoundClip& p_clip, float p_time, bool p_mirror, float p_counter_yaw, float p_weight, CharacterAnim& r_anim, JointTransform* r_pose, bool p_posed)
 {
     r_anim._scratch_pose = p_skeleton.rest;
-    clip_sample(p_clip, p_time, r_anim._scratch_pose.data());
+    _sample(p_clip, p_time, p_mirror, r_anim, p_skeleton, r_anim._scratch_pose.data());
     if (p_counter_yaw != 0.0f) _rotate_roots(p_skeleton, angleAxis(glm::radians(-p_counter_yaw), vec3(0.0f, 1.0f, 0.0f)), r_anim._scratch_pose.data());
     if (p_posed) _mix(r_pose, r_anim._scratch_pose.data(), p_weight, p_skeleton.joint_count());
     else std::copy(r_anim._scratch_pose.begin(), r_anim._scratch_pose.end(), r_pose);
@@ -378,7 +396,7 @@ static bool _stance_transition(const LLocomotion& p_asset, Character& r_characte
             f.weight = 0.0f;
             continue;
         }
-        _layer(p_skeleton, faded, f.time, 0.0f, f.weight, a, r_pose, p_posed);
+        _layer(p_skeleton, faded, f.time, false, 0.0f, f.weight, a, r_pose, p_posed);
         p_posed = true;
         fading = true;
     }
@@ -396,7 +414,7 @@ static bool _stance_transition(const LLocomotion& p_asset, Character& r_characte
     const float time = a.transition_time;
     if (a.transition_time >= a.transition_duration || (!_still(r_character) && a.transition_weight <= 0.0f)) a.transition_time = -1.0f;
     if (a.transition_weight <= BLEND_MIN_WEIGHT) return fading || a.transition_time >= 0.0f;
-    _layer(p_skeleton, clip, time, 0.0f, a.transition_weight, a, r_pose, p_posed);
+    _layer(p_skeleton, clip, time, false, 0.0f, a.transition_weight, a, r_pose, p_posed);
     return true;
 }
 
@@ -442,10 +460,11 @@ static void _stop_and_step(const LLocomotion& p_asset, Character& r_character, C
         const FootIK& ik = r_character.ik;
         bool left = a.stand_phase < 0.5f;
         if (ik.planted[0] != ik.planted[1]) left = ik.planted[0];
-        const Guid guid = left ? p_asset.stop_left : p_asset.stop_right;
-        const BoundClip clip = r_assets.clip(guid);
+        const SideClip side = left ? side_clip(p_asset.stop_left, p_asset.stop_right) : side_clip(p_asset.stop_right, p_asset.stop_left);
+        const BoundClip clip = r_assets.clip(side.clip);
         if (clip.valid() && clip.clip->duration > 0.0f) {
-            a.stop_clip = guid;
+            a.stop_clip = side.clip;
+            a.stop_mirror = side.mirror;
             a.stop_time = 0.0f;
             a.stop_duration = clip.clip->duration;
             a.stop_weight = 0.0f;
@@ -454,10 +473,11 @@ static void _stop_and_step(const LLocomotion& p_asset, Character& r_character, C
         }
     }
     if (r_character.dynamic_foot >= 0) {
-        const Guid guid = r_character.dynamic_foot == 0 ? p_asset.transition_right : p_asset.transition_left;
-        const BoundClip clip = r_assets.clip(guid);
+        const SideClip side = r_character.dynamic_foot == 0 ? side_clip(p_asset.transition_right, p_asset.transition_left) : side_clip(p_asset.transition_left, p_asset.transition_right);
+        const BoundClip clip = r_assets.clip(side.clip);
         if (clip.valid() && clip.clip->duration > CharacterAnim::DYNAMIC_START) {
-            a.dynamic_clip = guid;
+            a.dynamic_clip = side.clip;
+            a.dynamic_mirror = side.mirror;
             a.dynamic_time = CharacterAnim::DYNAMIC_START;
             a.dynamic_duration = clip.clip->duration;
             a.dynamic_weight = 0.0f;
@@ -468,13 +488,13 @@ static void _stop_and_step(const LLocomotion& p_asset, Character& r_character, C
     const BoundClip stop = r_assets.clip(a.stop_clip);
     const bool stop_cancel = r_character.has_input || r_character.movement == MovementState::IN_AIR;
     if (_one_shot(stop, a.stop_time, a.stop_duration, a.stop_weight, 1.0f, CharacterAnim::STOP_BLEND_IN, CharacterAnim::STOP_BLEND_OUT, stop_cancel, p_dt, sample)) {
-        _layer(p_skeleton, stop, sample, 0.0f, a.stop_weight, a, r_pose, r_posed);
+        _layer(p_skeleton, stop, sample, a.stop_mirror, 0.0f, a.stop_weight, a, r_pose, r_posed);
         r_posed = true;
     }
     const BoundClip step = r_assets.clip(a.dynamic_clip);
     const bool step_cancel = r_character.has_input || r_character.movement == MovementState::IN_AIR;
     if (_one_shot(step, a.dynamic_time, a.dynamic_duration, a.dynamic_weight, CharacterAnim::DYNAMIC_RATE, CharacterAnim::DYNAMIC_BLEND, CharacterAnim::DYNAMIC_BLEND, step_cancel, p_dt, sample)) {
-        _layer(p_skeleton, step, sample, 0.0f, a.dynamic_weight, a, r_pose, r_posed);
+        _layer(p_skeleton, step, sample, a.dynamic_mirror, 0.0f, a.dynamic_weight, a, r_pose, r_posed);
         r_posed = true;
     }
 }
@@ -497,17 +517,18 @@ static void _turn_in_place(const LLocomotion& p_asset, Character& r_character, C
 
         const bool big = std::fabs(angle) >= CharacterAnim::TURN_180_THRESHOLD;
         const TurnClip which = angle > 0.0f ? (big ? TurnClip::LEFT_180 : TurnClip::LEFT_90) : (big ? TurnClip::RIGHT_180 : TurnClip::RIGHT_90);
-        const Guid guid = stance.turn(which);
-        const BoundClip clip = r_assets.clip(guid);
+        const SideClip side = side_clip(stance.turn(which), stance.turn(turn_clip_opposite(which)));
+        const BoundClip clip = r_assets.clip(side.clip);
         a.turn_delay = 0.0f;
-        if (!clip.valid() || clip.clip->duration <= 0.0f || !_build_yaw_curve(p_skeleton, clip, a, a.turn_curve, a.turn_offset)) return;
+        if (!clip.valid() || clip.clip->duration <= 0.0f || !_build_yaw_curve(p_skeleton, clip, side.mirror, a, a.turn_curve, a.turn_offset)) return;
         float total = a.turn_curve.back();
         a.turn_measured = std::fabs(total) >= 5.0f;
         if (!a.turn_measured) {
             total = std::copysign(big ? 180.0f : 90.0f, angle);
             for (uint32_t s = 0; s < a.turn_curve.size(); s++) a.turn_curve[s] = total * (float)s / (float)(a.turn_curve.size() - 1);
         }
-        a.turn_clip = guid;
+        a.turn_clip = side.clip;
+        a.turn_mirror = side.mirror;
         a.turn_time = 0.0f;
         a.turn_duration = clip.clip->duration;
         a.turn_scale = angle / total;
@@ -534,7 +555,7 @@ static void _turn_in_place(const LLocomotion& p_asset, Character& r_character, C
     }
     if (a.turn_time >= a.turn_duration || (a.turn_stopping && a.turn_weight <= 0.0f)) a.turn_time = -1.0f;
     if (a.turn_weight <= BLEND_MIN_WEIGHT) return;
-    _layer(p_skeleton, clip, time, (a.turn_measured ? yaw : 0.0f) + a.turn_offset, a.turn_weight, a, r_pose, p_posed);
+    _layer(p_skeleton, clip, time, a.turn_mirror, (a.turn_measured ? yaw : 0.0f) + a.turn_offset, a.turn_weight, a, r_pose, p_posed);
 }
 
 static void _rotate_in_place(const LLocomotion& p_asset, Character& r_character, ClipProvider& r_assets, const LSkeleton& p_skeleton, float p_dt, JointTransform* r_pose, bool p_posed, bool p_blocked)
@@ -545,11 +566,12 @@ static void _rotate_in_place(const LLocomotion& p_asset, Character& r_character,
     const CharacterStance& stance = r_character.stance == Stance::CROUCHING ? p_asset.crouching : p_asset.standing;
 
     if (want) {
-        const Guid guid = angle > 0.0f ? stance.rotate_left : stance.rotate_right;
-        if (guid != a.rotate_clip) {
-            const BoundClip clip = r_assets.clip(guid);
-            if (clip.valid() && clip.clip->duration > 0.0f && _build_yaw_curve(p_skeleton, clip, a, a.rotate_curve, a.rotate_offset)) {
-                a.rotate_clip = guid;
+        const SideClip side = angle > 0.0f ? side_clip(stance.rotate_left, stance.rotate_right) : side_clip(stance.rotate_right, stance.rotate_left);
+        if (side.clip != a.rotate_clip || side.mirror != a.rotate_mirror) {
+            const BoundClip clip = r_assets.clip(side.clip);
+            if (clip.valid() && clip.clip->duration > 0.0f && _build_yaw_curve(p_skeleton, clip, side.mirror, a, a.rotate_curve, a.rotate_offset)) {
+                a.rotate_clip = side.clip;
+                a.rotate_mirror = side.mirror;
                 a.rotate_duration = clip.clip->duration;
                 a.rotate_time = 0.0f;
                 const float total = a.rotate_curve.back();
@@ -579,7 +601,7 @@ static void _rotate_in_place(const LLocomotion& p_asset, Character& r_character,
     float delta = curved ? (after - before + (wrapped ? a.rotate_curve.back() : 0.0f)) * a.rotate_sign : std::copysign(a.rotate_speed * step, angle);
     if (active && std::fabs(delta) > std::fabs(angle)) delta = std::copysign(std::fabs(angle), delta);
     r_character.turn_delta += delta * a.rotate_weight;
-    _layer(p_skeleton, clip, a.rotate_time, after + a.rotate_offset, a.rotate_weight, a, r_pose, p_posed);
+    _layer(p_skeleton, clip, a.rotate_time, a.rotate_mirror, after + a.rotate_offset, a.rotate_weight, a, r_pose, p_posed);
 }
 
 static quat _between(vec3 p_from, vec3 p_to)
@@ -775,14 +797,14 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
     }
 }
 
-static void _air_start(CharacterAnim& r_anim, Guid p_clip, bool p_loop, float p_rate, float p_fade)
+static void _air_start(CharacterAnim& r_anim, SideClip p_clip, bool p_loop, float p_rate, float p_fade)
 {
-    if (p_clip == r_anim.air_current.clip && r_anim.air_current.clip.valid()) {
+    if (p_clip.clip == r_anim.air_current.clip && p_clip.mirror == r_anim.air_current.mirror && r_anim.air_current.clip.valid()) {
         r_anim.air_current.loop = p_loop;
         return;
     }
     r_anim.air_previous = r_anim.air_current;
-    r_anim.air_current = AirClip{ p_clip, 0.0f, p_rate, p_loop };
+    r_anim.air_current = AirClip{ p_clip.clip, p_clip.mirror, 0.0f, p_rate, p_loop };
     r_anim.air_fade = r_anim.air_previous.clip.valid() ? 0.0f : 1.0f;
     r_anim.air_fade_time = p_fade;
 }
@@ -796,10 +818,10 @@ static void _air_advance(AirClip& r_clip, ClipProvider& r_assets, float p_dt)
     else r_clip.time = std::min(r_clip.time, clip.clip->duration);
 }
 
-static Guid _fall_clip(const LLocomotion& p_asset, const Character& p_character)
+static SideClip _fall_clip(const LLocomotion& p_asset, const Character& p_character)
 {
-    if (p_asset.fall_fast.valid() && -p_character.velocity.y > p_asset.fast_fall_speed) return p_asset.fall_fast;
-    return p_asset.fall.valid() ? p_asset.fall : p_asset.fall_fast;
+    if (p_asset.fall_fast.valid() && -p_character.velocity.y > p_asset.fast_fall_speed) return SideClip{ p_asset.fall_fast };
+    return SideClip{ p_asset.fall.valid() ? p_asset.fall : p_asset.fall_fast };
 }
 
 static void _update_air(const LLocomotion& p_asset, Character& r_character, ClipProvider& r_assets, float p_dt)
@@ -812,14 +834,13 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
         const bool left = (a.stand_phase < 0.5f) != p_asset.flip_feet;
         const CharacterStance& stance = p_asset.standing;
         const bool walking = speed <= stance.walk_speed + CharacterAnim::JUMP_WALK_MARGIN;
-        const Guid walk = left ? p_asset.jump_walk_left : p_asset.jump_walk_right;
-        const Guid walk_other = left ? p_asset.jump_walk_right : p_asset.jump_walk_left;
-        const Guid run = left ? p_asset.jump_left : p_asset.jump_right;
-        const Guid run_other = left ? p_asset.jump_right : p_asset.jump_left;
-        Guid clip;
-        if (speed < CharacterAnim::JUMP_MOVING_SPEED && p_asset.jump_standing.valid()) clip = p_asset.jump_standing;
-        for (Guid g : { walking ? walk : run, walking ? walk_other : run_other, walking ? run : walk, walking ? run_other : walk_other, p_asset.jump_standing }) {
-            if (!clip.valid()) clip = g;
+        const SideClip walk = left ? side_clip(p_asset.jump_walk_left, p_asset.jump_walk_right) : side_clip(p_asset.jump_walk_right, p_asset.jump_walk_left);
+        const SideClip run = left ? side_clip(p_asset.jump_left, p_asset.jump_right) : side_clip(p_asset.jump_right, p_asset.jump_left);
+        const SideClip standing{ p_asset.jump_standing };
+        SideClip clip;
+        if (speed < CharacterAnim::JUMP_MOVING_SPEED) clip = standing;
+        for (const SideClip& c : { walking ? walk : run, walking ? run : walk, standing }) {
+            if (!clip.valid()) clip = c;
         }
         const float rate = CharacterAnim::JUMP_RATE_MIN + (CharacterAnim::JUMP_RATE_MAX - CharacterAnim::JUMP_RATE_MIN) * std::clamp(speed / CharacterAnim::JUMP_RATE_SPEED, 0.0f, 1.0f);
         a.land_time = -1.0f;
@@ -846,7 +867,7 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
             if (done) {
                 if (r_character.velocity.y > 0.0f && p_asset.jump_loop.valid()) {
                     a.air_state = AirState::RISE;
-                    _air_start(a, p_asset.jump_loop, true, 1.0f, CharacterAnim::AIR_RISE_FADE);
+                    _air_start(a, SideClip{ p_asset.jump_loop }, true, 1.0f, CharacterAnim::AIR_RISE_FADE);
                 } else if (_fall_clip(p_asset, r_character).valid()) {
                     a.air_state = AirState::FALL;
                     _air_start(a, _fall_clip(p_asset, r_character), true, 1.0f, CharacterAnim::AIR_FALL_FADE);
@@ -858,8 +879,8 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
             _air_start(a, _fall_clip(p_asset, r_character), true, 1.0f, CharacterAnim::AIR_FALL_FADE);
         }
         if (a.air_state == AirState::FALL) {
-            const Guid fall = _fall_clip(p_asset, r_character);
-            if (fall != a.air_current.clip) _air_start(a, fall, true, 1.0f, CharacterAnim::AIR_FAST_FADE);
+            const SideClip fall = _fall_clip(p_asset, r_character);
+            if (fall.clip != a.air_current.clip || a.air_current.mirror) _air_start(a, fall, true, 1.0f, CharacterAnim::AIR_FAST_FADE);
         }
     }
 
@@ -892,6 +913,7 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
     const uint32_t joints = p_skeleton.joint_count();
     if (joints == 0) return false;
     CharacterAnim& a = r_character.anim;
+    a.mirror.bind(p_skeleton);
     const float speed = r_character.speed;
     const float direction = r_character.direction();
 
@@ -940,11 +962,11 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
         const BoundClip current = r_assets.clip(a.air_current.clip);
         if (current.valid() && current.clip->duration > 0.0f) {
             a._air_pose = p_skeleton.rest;
-            clip_sample(current, a.air_current.time, a._air_pose.data());
+            _sample(current, a.air_current.time, a.air_current.mirror, a, p_skeleton, a._air_pose.data());
             const BoundClip previous = r_assets.clip(a.air_previous.clip);
             if (a.air_fade < 1.0f && previous.valid() && previous.clip->duration > 0.0f) {
                 a._air_previous_pose = p_skeleton.rest;
-                clip_sample(previous, a.air_previous.time, a._air_previous_pose.data());
+                _sample(previous, a.air_previous.time, a.air_previous.mirror, a, p_skeleton, a._air_previous_pose.data());
                 const PoseInput inputs[2] = { { a._air_previous_pose.data(), 1.0f - a.air_fade }, { a._air_pose.data(), a.air_fade } };
                 pose_blend(inputs, 2, joints, a._air_pose.data());
             }

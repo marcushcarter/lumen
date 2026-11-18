@@ -1,5 +1,6 @@
 #pragma once
 #include <core/animation/anim_eval.h>
+#include <core/animation/pose_mirror.h>
 #include <core/game/character_ragdoll.h>
 #include <core/assets/llocomotion.h>
 #include <core/assets/lskeleton.h>
@@ -24,6 +25,7 @@ enum class AirState : uint8_t { GROUNDED, TAKEOFF, RISE, FALL };
 struct AirClip
 {
     Guid clip;
+    bool mirror = false;
     float time = 0.0f;
     float rate = 1.0f;
     bool loop = false;
@@ -104,6 +106,7 @@ struct CharacterAnim
     float play_rate = 0.0f;
     float turn_delay = 0.0f;
     Guid turn_clip;
+    bool turn_mirror = false;
     float turn_time = -1.0f;
     float turn_duration = 0.0f;
     float turn_scale = 1.0f;
@@ -114,6 +117,7 @@ struct CharacterAnim
     float turn_offset = 0.0f;
     bool turn_measured = false;
     Guid rotate_clip;
+    bool rotate_mirror = false;
     float rotate_time = 0.0f;
     float rotate_duration = 0.0f;
     float rotate_speed = 0.0f;
@@ -132,12 +136,14 @@ struct CharacterAnim
     FadingClip transition_fading[TRANSITION_FADE_SLOTS];
     float pivot_time = 0.0f;
     Guid stop_clip;
+    bool stop_mirror = false;
     float stop_time = -1.0f;
     float stop_duration = 0.0f;
     float stop_weight = 0.0f;
     float stop_speed = 0.0f;
     float stop_settle = 0.0f;
     Guid dynamic_clip;
+    bool dynamic_mirror = false;
     float dynamic_time = -1.0f;
     float dynamic_duration = 0.0f;
     float dynamic_weight = 0.0f;
@@ -154,6 +160,7 @@ struct CharacterAnim
     float land_strength = 1.0f;
     bool started = false;
 
+    PoseMirror mirror;
     std::vector<JointTransform> _stand_pose;
     std::vector<JointTransform> _crouch_pose;
     std::vector<JointTransform> _air_pose;

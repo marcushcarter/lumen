@@ -8,32 +8,28 @@ namespace lumen {
 
 static const char* CYCLE_KEYS[CYCLE_DIRECTION_COUNT] = { "forward", "backward", "left_forward", "left_backward", "right_forward", "right_backward" };
 
-const char* cycle_direction_name(CycleDirection p_direction)
+CycleDirection cycle_direction_opposite(CycleDirection p_direction)
 {
     switch (p_direction) {
-        case CycleDirection::FORWARD: return "Forward";
-        case CycleDirection::BACKWARD: return "Backward";
-        case CycleDirection::LEFT_FORWARD: return "Left (Hips Forward)";
-        case CycleDirection::LEFT_BACKWARD: return "Left (Hips Backward)";
-        case CycleDirection::RIGHT_FORWARD: return "Right (Hips Forward)";
-        case CycleDirection::RIGHT_BACKWARD: return "Right (Hips Backward)";
-        case CycleDirection::COUNT: break;
+        case CycleDirection::LEFT_FORWARD: return CycleDirection::RIGHT_FORWARD;
+        case CycleDirection::LEFT_BACKWARD: return CycleDirection::RIGHT_BACKWARD;
+        case CycleDirection::RIGHT_FORWARD: return CycleDirection::LEFT_FORWARD;
+        case CycleDirection::RIGHT_BACKWARD: return CycleDirection::LEFT_BACKWARD;
+        default: return p_direction;
     }
-    return "Forward";
 }
 
 static const char* TURN_KEYS[TURN_CLIP_COUNT] = { "turn_left_90", "turn_right_90", "turn_left_180", "turn_right_180" };
 
-const char* turn_clip_name(TurnClip p_turn)
+TurnClip turn_clip_opposite(TurnClip p_turn)
 {
     switch (p_turn) {
-        case TurnClip::LEFT_90: return "Turn Left 90";
-        case TurnClip::RIGHT_90: return "Turn Right 90";
-        case TurnClip::LEFT_180: return "Turn Left 180";
-        case TurnClip::RIGHT_180: return "Turn Right 180";
-        case TurnClip::COUNT: break;
+        case TurnClip::LEFT_90: return TurnClip::RIGHT_90;
+        case TurnClip::RIGHT_90: return TurnClip::LEFT_90;
+        case TurnClip::LEFT_180: return TurnClip::RIGHT_180;
+        case TurnClip::RIGHT_180: return TurnClip::LEFT_180;
+        default: return p_turn;
     }
-    return "Turn Left 90";
 }
 
 static std::string _guid_text(Guid p_guid)

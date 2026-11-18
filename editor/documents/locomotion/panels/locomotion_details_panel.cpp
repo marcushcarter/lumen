@@ -6,15 +6,126 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
+#include <cstdarg>
 #include <cstdio>
 
 namespace lumen {
 
-static void _edit_bone(const char* p_label, std::string& r_name)
+static int g_columns = 0;
+static bool g_table = false;
+static int g_table_index = 0;
+static bool g_section = false;
+
+static void _grid(int p_columns)
+{
+    if (g_columns == p_columns) return;
+    if (g_table) ImGui::EndTable();
+    g_table = false;
+    g_columns = p_columns;
+    if (p_columns == 0) return;
+    char id[24];
+    std::snprintf(id, sizeof(id), "##grid_%d", g_table_index++);
+    g_table = ImGui::BeginTable(id, p_columns, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersInnerH);
+    if (!g_table) return;
+    const ImGuiTableColumnFlags flags = ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize;
+    ImGui::TableSetupColumn(nullptr, flags, 1.0f);
+    ImGui::TableSetupColumn(nullptr, flags, p_columns == 2 ? 2.0f : 1.0f);
+    if (p_columns == 3) ImGui::TableSetupColumn(nullptr, flags, 1.0f);
+}
+
+static void _section_end()
+{
+    _grid(0);
+    if (!g_section) return;
+    ui_list_body_end();
+    g_section = false;
+}
+
+static bool _category(const char* p_label)
+{
+    _section_end();
+    bool* open = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID(p_label), false);
+    if (ui_list_item(p_label, nullptr, p_label, nullptr, *open, nullptr)) *open = !*open;
+    if (!*open) return false;
+    ui_list_body_begin();
+    g_section = true;
+    return true;
+}
+
+static bool _row(const char* p_label)
+{
+    _grid(2);
+    if (!g_table) return false;
+    ui_property(p_label);
+    return true;
+}
+
+static void _info(const char* p_label, _Printf_format_string_ const char* p_fmt, ...)
+{
+    if (!_row(p_label)) return;
+    ImGui::AlignTextToFramePadding();
+    va_list args;
+    va_start(args, p_fmt);
+    ImGui::TextV(p_fmt, args);
+    va_end(args);
+}
+
+static void _note(const char* p_text)
+{
+    _grid(0);
+    ImGui::TextDisabled("%s", p_text);
+}
+
+static void _asset(EditorContext& ctx, const char* p_label, Guid& r_guid, AssetType p_type)
+{
+    if (!_row(p_label)) return;
+    asset_field(ctx, nullptr, p_label, r_guid, p_type);
+}
+
+static void _pair(EditorContext& ctx, const char* p_label, Guid& r_left, Guid& r_right, AssetType p_type)
+{
+    _grid(3);
+    if (!g_table) return;
+    ui_property(p_label);
+    ImGui::PushID(p_label);
+    asset_field(ctx, nullptr, "###left", r_left, p_type, r_right.valid() ? "Mirrored from right" : nullptr);
+    ImGui::TableSetColumnIndex(2);
+    asset_field(ctx, nullptr, "###right", r_right, p_type, r_left.valid() ? "Mirrored from left" : nullptr);
+    ImGui::PopID();
+}
+
+static void _bone_input(const char* p_id, std::string& r_name)
 {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%s", r_name.c_str());
-    if (ImGui::InputText(p_label, buf, sizeof(buf))) r_name = buf;
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::InputText(p_id, buf, sizeof(buf))) r_name = buf;
+}
+
+static void _bone(const char* p_label, std::string& r_name)
+{
+    if (!_row(p_label)) return;
+    ImGui::PushID(p_label);
+    _bone_input("##bone", r_name);
+    ImGui::PopID();
+}
+
+static void _bone_pair(const char* p_label, std::string& r_left, std::string& r_right)
+{
+    _grid(3);
+    if (!g_table) return;
+    ui_property(p_label);
+    ImGui::PushID(p_label);
+    _bone_input("##left", r_left);
+    ImGui::TableSetColumnIndex(2);
+    _bone_input("##right", r_right);
+    ImGui::PopID();
+}
+
+static void _tooltip(const char* p_text)
+{
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", p_text);
 }
 
 void LocomotionDetailsPanel::_draw_pad()
@@ -53,185 +164,230 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
 {
     if (!tab) return;
     LLocomotion& c = tab->character;
-    ui_field_push_style();
+    g_columns = 0;
+    g_table = false;
+    g_table_index = 0;
+    g_section = false;
+    const UiStyle& ui = ui_style();
+    const float inset = ui_category_inset();
+    {
+        const ImVec2 o = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float row = ui.row;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(o, ImVec2(o.x + w, o.y + row), ui.color.header);
+        const float grid_x = o.x + inset + ui.space.xl;
+        const float col_w = std::max(1.0f, w - inset * 2.0f - ui.space.xl) / 3.0f;
+        const float ty = std::floor(o.y + (row - ImGui::GetFontSize()) * 0.5f);
+        static constexpr const char* HEADERS[3] = { "Name", "Left", "Right" };
+        for (int i = 0; i < 3; i++) dl->AddText(ImVec2(std::floor(grid_x + col_w * (float)i + ImGui::GetStyle().CellPadding.x), ty), ui.color.text, HEADERS[i]);
+        ImGui::SetCursorScreenPos(ImVec2(o.x, o.y + row));
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    }
 
-    if (ui_category("Preview")) {
+    ui_field_push_style();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(inset, ui.panel_box.gap));
+    const bool shown = ImGui::BeginChild("##locomotion_scroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar();
+    if (!shown) {
+        ImGui::EndChild();
+        ui_field_pop_style();
+        return;
+    }
+
+    if (_category("Preview")) {
         Character& st = tab->state;
-        ImGui::Checkbox("Play", &tab->playing);
         const float limit = std::max({ c.standing.sprint_speed, c.crouching.sprint_speed, 0.1f }) * (1.0f + PAD_MARGIN);
-        ImGui::SliderFloat("Speed", &tab->preview_speed, 0.0f, limit, "%.2f m/s");
-        ImGui::SliderFloat("Direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
+        if (_row("Play")) ImGui::Checkbox("##play", &tab->playing);
+        if (_row("Speed")) ImGui::SliderFloat("##speed", &tab->preview_speed, 0.0f, limit, "%.2f m/s");
+        if (_row("Direction")) ImGui::SliderFloat("##direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
+        _grid(0);
         _draw_pad();
-        ImGui::SliderFloat("Look", &tab->preview_look, -180.0f, 180.0f, "%.0f deg");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where the camera faces. Standing still, past 45 degrees turns in place, or past 50 rotates in place when aiming.");
-        ImGui::Checkbox("Aim", &tab->preview_aim);
-        ImGui::SameLine();
-        bool crouch = st.stance == Stance::CROUCHING;
-        if (ImGui::Checkbox("Crouch", &crouch)) st.stance = crouch ? Stance::CROUCHING : Stance::STANDING;
-        ImGui::SameLine();
-        bool air = st.movement == MovementState::IN_AIR;
-        if (ImGui::Checkbox("In Air", &air)) {
-            st.movement = air ? MovementState::IN_AIR : MovementState::GROUNDED;
-            st.jumped = air;
-            st.landed = !air;
-            st.land_speed = tab->preview_fall_speed;
-            st.has_input = tab->preview_speed > 0.01f;
+        if (_row("Look")) {
+            ImGui::SliderFloat("##look", &tab->preview_look, -180.0f, 180.0f, "%.0f deg");
+            _tooltip("Where the camera faces. Standing still, past 45 degrees turns in place, or past 50 rotates in place when aiming.");
         }
-        ImGui::SliderFloat("Land Speed", &tab->preview_fall_speed, 0.0f, 20.0f, "%.1f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How hard the preview lands when In Air is turned off");
+        if (_row("Aim")) ImGui::Checkbox("##aim", &tab->preview_aim);
+        if (_row("Crouch")) {
+            bool crouch = st.stance == Stance::CROUCHING;
+            if (ImGui::Checkbox("##crouch", &crouch)) st.stance = crouch ? Stance::CROUCHING : Stance::STANDING;
+        }
+        if (_row("In Air")) {
+            bool air = st.movement == MovementState::IN_AIR;
+            if (ImGui::Checkbox("##in_air", &air)) {
+                st.movement = air ? MovementState::IN_AIR : MovementState::GROUNDED;
+                st.jumped = air;
+                st.landed = !air;
+                st.land_speed = tab->preview_fall_speed;
+                st.has_input = tab->preview_speed > 0.01f;
+            }
+        }
+        if (_row("Land Speed")) {
+            ImGui::SliderFloat("##land_speed", &tab->preview_fall_speed, 0.0f, 20.0f, "%.1f m/s");
+            _tooltip("How hard the preview lands when In Air is turned off");
+        }
         const CharacterAnim& an = st.anim;
-        ui_property_row("F / B / L / R", "%.2f / %.2f / %.2f / %.2f", an.velocity_blend[0], an.velocity_blend[1], an.velocity_blend[2], an.velocity_blend[3]);
-        ui_property_row("Hips", "%s (%.2f)", an.hips_forward_target ? "Forward" : "Backward", an.hips_forward);
-        ui_property_row("Play Rate", "%.2fx", an.play_rate);
-        ui_property_row("Facing", "%.0f deg", st.yaw);
-        if (an.turn_time >= 0.0f) ui_property_row("Turning", "%.0f deg clip, %.2fx", an.turn_curve.empty() ? 0.0f : an.turn_curve.back(), an.turn_scale);
-        if (an.rotate_weight > 0.0f) ui_property_row("Rotating", "%.0f deg/s, %.2fx", an.rotate_speed, an.rotate_rate);
-        if (an.transition_time >= 0.0f) ui_property_row("Transition", "%.2f / %.2f s", an.transition_time, an.transition_duration);
+        _info("F / B / L / R", "%.2f / %.2f / %.2f / %.2f", an.velocity_blend[0], an.velocity_blend[1], an.velocity_blend[2], an.velocity_blend[3]);
+        _info("Hips", "%s (%.2f)", an.hips_forward_target ? "Forward" : "Backward", an.hips_forward);
+        _info("Play Rate", "%.2fx", an.play_rate);
+        _info("Facing", "%.0f deg", st.yaw);
+        if (an.turn_time >= 0.0f) _info("Turning", "%.0f deg clip, %.2fx", an.turn_curve.empty() ? 0.0f : an.turn_curve.back(), an.turn_scale);
+        if (an.rotate_weight > 0.0f) _info("Rotating", "%.0f deg/s, %.2fx", an.rotate_speed, an.rotate_rate);
+        if (an.transition_time >= 0.0f) _info("Transition", "%.2f / %.2f s", an.transition_time, an.transition_duration);
     }
 
     for (int s = 0; s < 2; s++) {
         CharacterStance& st = s == 0 ? c.standing : c.crouching;
+        _section_end();
         ImGui::PushID(s);
-        if (ui_category(s == 0 ? "Standing" : "Crouching")) {
-            asset_field(ctx, "Idle", "###stance_idle", st.idle, AssetType::ANIMATION);
-            for (uint32_t d = 0; d < CYCLE_DIRECTION_COUNT; d++) {
-                char id[32];
-                std::snprintf(id, sizeof(id), "###stance_cycle_%u", d);
-                asset_field(ctx, cycle_direction_name((CycleDirection)d), id, st.cycles[d], AssetType::BLEND_SPACE);
+        if (_category(s == 0 ? "Standing" : "Crouching")) {
+            _asset(ctx, "Idle", st.idle, AssetType::ANIMATION);
+            _asset(ctx, "Forward", st.cycles[(uint32_t)CycleDirection::FORWARD], AssetType::BLEND_SPACE);
+            _tooltip("1D blend spaces with walk at 1, run at 2, sprint at 3");
+            _asset(ctx, "Backward", st.cycles[(uint32_t)CycleDirection::BACKWARD], AssetType::BLEND_SPACE);
+            _pair(ctx, "Side (Hips Forward)", st.cycles[(uint32_t)CycleDirection::LEFT_FORWARD], st.cycles[(uint32_t)CycleDirection::RIGHT_FORWARD], AssetType::BLEND_SPACE);
+            _pair(ctx, "Side (Hips Backward)", st.cycles[(uint32_t)CycleDirection::LEFT_BACKWARD], st.cycles[(uint32_t)CycleDirection::RIGHT_BACKWARD], AssetType::BLEND_SPACE);
+            _tooltip("Optional. Empty on both sides uses the hips forward clips.");
+            _pair(ctx, "Turn 90", st.turns[(uint32_t)TurnClip::LEFT_90], st.turns[(uint32_t)TurnClip::RIGHT_90], AssetType::ANIMATION);
+            _tooltip("The rotation is read from each clip");
+            _pair(ctx, "Turn 180", st.turns[(uint32_t)TurnClip::LEFT_180], st.turns[(uint32_t)TurnClip::RIGHT_180], AssetType::ANIMATION);
+            _pair(ctx, "Rotate", st.rotate_left, st.rotate_right, AssetType::ANIMATION);
+            _tooltip("Looping clip played while aiming and the camera is more than 50 degrees to the side");
+            if (_row("Walk Speed")) ImGui::DragFloat("##walk_speed", &st.walk_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+            if (_row("Run Speed")) ImGui::DragFloat("##run_speed", &st.run_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+            if (_row("Sprint Speed")) ImGui::DragFloat("##sprint_speed", &st.sprint_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+            if (_row("Acceleration")) ImGui::DragFloat("##acceleration", &st.acceleration, 0.1f, 0.1f, 200.0f, "%.1f m/s2");
+            if (_row("Braking")) ImGui::DragFloat("##braking", &st.braking, 0.1f, 0.1f, 200.0f, "%.1f m/s2");
+            if (_row("Rotation Rate")) {
+                ImGui::DragFloat("##rotation_rate", &st.rotation_rate, 0.1f, 0.1f, 50.0f, "%.1f");
+                _tooltip("How quickly the character turns toward where it moves. Faster when the camera turns fast.");
             }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("1D blend spaces with walk at 1, run at 2, sprint at 3. A missing hips variant uses the other one.");
-            ImGui::DragFloat("Walk Speed", &st.walk_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
-            ImGui::DragFloat("Run Speed", &st.run_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
-            ImGui::DragFloat("Sprint Speed", &st.sprint_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
-            ImGui::DragFloat("Acceleration", &st.acceleration, 0.1f, 0.1f, 200.0f, "%.1f m/s2");
-            ImGui::DragFloat("Braking", &st.braking, 0.1f, 0.1f, 200.0f, "%.1f m/s2");
-            ImGui::DragFloat("Rotation Rate", &st.rotation_rate, 0.1f, 0.1f, 50.0f, "%.1f");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How quickly the character turns toward where it moves. Faster when the camera turns fast.");
         }
+        _grid(0);
         ImGui::PopID();
     }
 
-    if (ui_category("In Air")) {
-        asset_field(ctx, "Jump Standing", "###jump_standing", c.jump_standing, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Optional. Empty uses the walk or run jumps.");
-        asset_field(ctx, "Jump Walk Left Foot", "###jump_walk_left", c.jump_walk_left, AssetType::ANIMATION);
-        asset_field(ctx, "Jump Walk Right Foot", "###jump_walk_right", c.jump_walk_right, AssetType::ANIMATION);
-        asset_field(ctx, "Jump Run Left Foot", "###jump_left", c.jump_left, AssetType::ANIMATION);
-        asset_field(ctx, "Jump Run Right Foot", "###jump_right", c.jump_right, AssetType::ANIMATION);
-        asset_field(ctx, "Jump Loop", "###jump_loop", c.jump_loop, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Optional loop while still rising after the take-off");
-        ImGui::Checkbox("Flip Feet", &c.flip_feet);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turn on if moving jumps start on the wrong foot");
-        asset_field(ctx, "Fall", "###character_fall", c.fall, AssetType::ANIMATION);
-        asset_field(ctx, "Fall Fast", "###fall_fast", c.fall_fast, AssetType::ANIMATION);
-        ImGui::DragFloat("Fast Fall Speed", &c.fast_fall_speed, 0.1f, 0.0f, 60.0f, "%.1f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Falling faster than this switches to Fall Fast");
-        asset_field(ctx, "Land Light", "###land_light", c.land_light, AssetType::ANIMATION);
-        asset_field(ctx, "Land Heavy", "###land_heavy", c.land_heavy, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Stand-in for ALS's breakfall roll until actions exist");
-        ImGui::DragFloat("Heavy Land Speed", &c.heavy_land_speed, 0.05f, 0.0f, 50.0f, "%.2f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Landing faster than this while moving plays the heavy land. ALS rolls here (7 m/s).");
-        ImGui::DragFloat("Jump Speed", &c.jump_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
-        ImGui::SliderFloat("Air Control", &c.air_control, 0.0f, 1.0f, "%.2f");
-    }
-
-    if (ui_category("Turns")) {
-        for (int s = 0; s < 2; s++) {
-            CharacterStance& st = s == 0 ? c.standing : c.crouching;
-            ImGui::PushID(s);
-            ui_section_label(s == 0 ? "STANDING" : "CROUCHING");
-            for (uint32_t t = 0; t < TURN_CLIP_COUNT; t++) {
-                char id[32];
-                std::snprintf(id, sizeof(id), "###turn_%u", t);
-                asset_field(ctx, turn_clip_name((TurnClip)t), id, st.turns[t], AssetType::ANIMATION);
-            }
-            asset_field(ctx, "Rotate Left", "###rotate_left", st.rotate_left, AssetType::ANIMATION);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Looping clip played while aiming and the camera is more than 50 degrees to the left");
-            asset_field(ctx, "Rotate Right", "###rotate_right", st.rotate_right, AssetType::ANIMATION);
-            ImGui::PopID();
+    if (_category("In Air")) {
+        _asset(ctx, "Jump Standing", c.jump_standing, AssetType::ANIMATION);
+        _tooltip("Optional. Empty uses the walk or run jumps.");
+        _pair(ctx, "Jump Walk", c.jump_walk_left, c.jump_walk_right, AssetType::ANIMATION);
+        _tooltip("Take-off from the left or right foot");
+        _pair(ctx, "Jump Run", c.jump_left, c.jump_right, AssetType::ANIMATION);
+        _asset(ctx, "Jump Loop", c.jump_loop, AssetType::ANIMATION);
+        _tooltip("Optional loop while still rising after the take-off");
+        if (_row("Flip Feet")) {
+            ImGui::Checkbox("##flip_feet", &c.flip_feet);
+            _tooltip("Turn on if moving jumps start on the wrong foot");
         }
-        ImGui::TextDisabled("The rotation is read from each clip.");
+        _asset(ctx, "Fall", c.fall, AssetType::ANIMATION);
+        _asset(ctx, "Fall Fast", c.fall_fast, AssetType::ANIMATION);
+        if (_row("Fast Fall Speed")) {
+            ImGui::DragFloat("##fast_fall_speed", &c.fast_fall_speed, 0.1f, 0.0f, 60.0f, "%.1f m/s");
+            _tooltip("Falling faster than this switches to Fall Fast");
+        }
+        _asset(ctx, "Land Light", c.land_light, AssetType::ANIMATION);
+        _asset(ctx, "Land Heavy", c.land_heavy, AssetType::ANIMATION);
+        _tooltip("Stand-in for ALS's breakfall roll until actions exist");
+        if (_row("Heavy Land Speed")) {
+            ImGui::DragFloat("##heavy_land_speed", &c.heavy_land_speed, 0.05f, 0.0f, 50.0f, "%.2f m/s");
+            _tooltip("Landing faster than this while moving plays the heavy land. ALS rolls here (7 m/s).");
+        }
+        if (_row("Jump Speed")) ImGui::DragFloat("##jump_speed", &c.jump_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+        if (_row("Air Control")) ImGui::SliderFloat("##air_control", &c.air_control, 0.0f, 1.0f, "%.2f");
     }
 
-    if (ui_category("Transitions")) {
-        asset_field(ctx, "Stand to Crouch", "###stand_to_crouch", c.stand_to_crouch, AssetType::ANIMATION);
-        asset_field(ctx, "Crouch to Stand", "###crouch_to_stand", c.crouch_to_stand, AssetType::ANIMATION);
-        asset_field(ctx, "Stop Left Foot", "###stop_left", c.stop_left, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("ALS_N_Stop_L_Down. Played when letting go of the stick while moving, with the left foot planted.");
-        asset_field(ctx, "Stop Right Foot", "###stop_right", c.stop_right, AssetType::ANIMATION);
-        asset_field(ctx, "Transition L", "###transition_left", c.transition_left, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("ALS_N_Transition_L. Small re-plant step when standing with a foot out of place.");
-        asset_field(ctx, "Transition R", "###transition_right", c.transition_right, AssetType::ANIMATION);
-        ImGui::TextDisabled("Stance clips play when the stance changes while still. Transitions only run in game.");
+    if (_category("Transitions")) {
+        _asset(ctx, "Stand to Crouch", c.stand_to_crouch, AssetType::ANIMATION);
+        _asset(ctx, "Crouch to Stand", c.crouch_to_stand, AssetType::ANIMATION);
+        _pair(ctx, "Stop", c.stop_left, c.stop_right, AssetType::ANIMATION);
+        _tooltip("ALS_N_Stop_L_Down. Played when letting go of the stick while moving, with that foot planted.");
+        _pair(ctx, "Step", c.transition_left, c.transition_right, AssetType::ANIMATION);
+        _tooltip("ALS_N_Transition_L. Small re-plant step when standing with a foot out of place.");
+        _note("Stance clips play when the stance changes while still. Steps only run in game.");
     }
 
-    if (ui_category("Actions")) {
-        asset_field(ctx, "Roll", "###roll", c.roll, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Press Alt (B on a controller) to roll. The clip's root motion moves the character.");
-        ImGui::DragFloat("Roll Land Speed", &c.roll_land_speed, 0.05f, 0.0f, 60.0f, "%.2f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Landing at least this fast while moving rolls instead of a heavy landing. It also saves you from ragdolling up to 3 m/s past Ragdoll Land Speed.");
-        ImGui::TextDisabled("Only runs in game.");
+    if (_category("Actions")) {
+        _asset(ctx, "Roll", c.roll, AssetType::ANIMATION);
+        _tooltip("Press Alt (B on a controller) to roll. The clip's root motion moves the character.");
+        if (_row("Roll Land Speed")) {
+            ImGui::DragFloat("##roll_land_speed", &c.roll_land_speed, 0.05f, 0.0f, 60.0f, "%.2f m/s");
+            _tooltip("Landing at least this fast while moving rolls instead of a heavy landing. It also saves you from ragdolling up to 3 m/s past Ragdoll Land Speed.");
+        }
+        _note("Only runs in game.");
     }
 
-    if (ui_category("Lean")) {
-        ImGui::DragFloat("Lean Angle", &c.lean_angle, 0.1f, 0.0f, 45.0f, "%.1f deg");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the spine leans into turns, speeding up and braking");
-        ImGui::DragFloat("In-Air Lean Angle", &c.air_lean_angle, 0.1f, 0.0f, 45.0f, "%.1f deg");
-        _edit_bone("Spine 1", c.lean_bones[0]);
-        _edit_bone("Spine 2", c.lean_bones[1]);
-        _edit_bone("Spine 3", c.lean_bones[2]);
-        ImGui::TextDisabled("The lean is spread over these bones. Only runs in game.");
+    if (_category("Lean")) {
+        if (_row("Lean Angle")) {
+            ImGui::DragFloat("##lean_angle", &c.lean_angle, 0.1f, 0.0f, 45.0f, "%.1f deg");
+            _tooltip("How far the spine leans into turns, speeding up and braking");
+        }
+        if (_row("In-Air Lean Angle")) ImGui::DragFloat("##air_lean_angle", &c.air_lean_angle, 0.1f, 0.0f, 45.0f, "%.1f deg");
+        _bone("Spine 1", c.lean_bones[0]);
+        _bone("Spine 2", c.lean_bones[1]);
+        _bone("Spine 3", c.lean_bones[2]);
+        _note("The lean is spread over these bones. Only runs in game.");
     }
 
-    if (ui_category("Look")) {
-        ImGui::Checkbox("Look At Camera", &c.look_at);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The head follows where the camera looks. While aiming the spine turns too.");
-        ImGui::DragFloat("Yaw Limit", &c.look_yaw_limit, 0.5f, 0.0f, 120.0f, "%.0f deg");
-        ImGui::DragFloat("Pitch Limit", &c.look_pitch_limit, 0.5f, 0.0f, 90.0f, "%.0f deg");
-        _edit_bone("Neck", c.neck_bone);
-        _edit_bone("Head", c.head_bone);
+    if (_category("Look")) {
+        if (_row("Look At Camera")) {
+            ImGui::Checkbox("##look_at", &c.look_at);
+            _tooltip("The head follows where the camera looks. While aiming the spine turns too.");
+        }
+        if (_row("Yaw Limit")) ImGui::DragFloat("##look_yaw_limit", &c.look_yaw_limit, 0.5f, 0.0f, 120.0f, "%.0f deg");
+        if (_row("Pitch Limit")) ImGui::DragFloat("##look_pitch_limit", &c.look_pitch_limit, 0.5f, 0.0f, 90.0f, "%.0f deg");
+        _bone("Neck", c.neck_bone);
+        _bone("Head", c.head_bone);
     }
 
-    if (ui_category("Foot IK")) {
-        ImGui::Checkbox("Enabled", &c.foot_ik);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Plants the feet on slopes and stairs and lowers the pelvis to the lower foot. Only runs in game.");
-        _edit_bone("Pelvis", c.pelvis_bone);
-        _edit_bone("Thigh Left", c.thigh_bones[0]);
-        _edit_bone("Calf Left", c.calf_bones[0]);
-        _edit_bone("Foot Left", c.foot_bones[0]);
-        _edit_bone("Thigh Right", c.thigh_bones[1]);
-        _edit_bone("Calf Right", c.calf_bones[1]);
-        _edit_bone("Foot Right", c.foot_bones[1]);
+    if (_category("Foot IK")) {
+        if (_row("Enabled")) {
+            ImGui::Checkbox("##foot_ik", &c.foot_ik);
+            _tooltip("Plants the feet on slopes and stairs and lowers the pelvis to the lower foot. Only runs in game.");
+        }
+        _bone("Pelvis", c.pelvis_bone);
+        _bone_pair("Thigh", c.thigh_bones[0], c.thigh_bones[1]);
+        _bone_pair("Calf", c.calf_bones[0], c.calf_bones[1]);
+        _bone_pair("Foot", c.foot_bones[0], c.foot_bones[1]);
     }
 
-    if (ui_category("Ragdoll")) {
-        ImGui::Checkbox("Enabled", &c.ragdoll);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Builds a physics ragdoll from the skeleton. Press X in game to test it.");
-        ImGui::DragFloat("Mass", &c.ragdoll_mass, 0.5f, 10.0f, 500.0f, "%.1f kg");
-        ImGui::DragFloat("Muscle Strength", &c.muscle_strength, 0.01f, 0.0f, 5.0f, "%.2f");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How hard the body fights while falling: braces in the air, curls up on the ground, then relaxes before getting up");
-        ImGui::DragFloat("Balance", &c.balance, 0.05f, 0.0f, 30.0f, "%.2f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Only attacks on the ground can knock you down, and only if they are at least this strong. Running into things on the ground never does, it makes you stumble back instead. Press H (light chest hit), J (heavy chest hit) or K (light shin hit) in game to test.");
-        ImGui::DragFloat("Head Hit Speed", &c.head_hit_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Running into something at head height faster than this makes your head snap back and you stumble back. 0 turns it off.");
-        ImGui::DragFloat("Air Ragdoll Speed", &c.air_ragdoll_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("In the air, hitting your head, a wall or an attack at least this hard ragdolls you. Softer air hits only stumble you. Legs clipping something never ragdolls.");
-        ImGui::DragFloat("Ragdoll Land Speed", &c.ragdoll_land_speed, 0.05f, 0.0f, 60.0f, "%.2f m/s");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Landing faster than this goes straight to ragdoll. 0 turns it off.");
-        asset_field(ctx, "Get Up Front", "###get_up_front", c.get_up_front, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Played when the ragdoll settles face down");
-        asset_field(ctx, "Get Up Back", "###get_up_back", c.get_up_back, AssetType::ANIMATION);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Played when the ragdoll settles face up");
-        _edit_bone("Upper Arm Left", c.upperarm_bones[0]);
-        _edit_bone("Lower Arm Left", c.lowerarm_bones[0]);
-        _edit_bone("Hand Left", c.hand_bones[0]);
-        _edit_bone("Upper Arm Right", c.upperarm_bones[1]);
-        _edit_bone("Lower Arm Right", c.lowerarm_bones[1]);
-        _edit_bone("Hand Right", c.hand_bones[1]);
-        ImGui::TextDisabled("Also uses the pelvis, spine, neck, head and leg bones above. Only runs in game.");
+    if (_category("Ragdoll")) {
+        if (_row("Enabled")) {
+            ImGui::Checkbox("##ragdoll", &c.ragdoll);
+            _tooltip("Builds a physics ragdoll from the skeleton. Press X in game to test it.");
+        }
+        if (_row("Mass")) ImGui::DragFloat("##ragdoll_mass", &c.ragdoll_mass, 0.5f, 10.0f, 500.0f, "%.1f kg");
+        if (_row("Muscle Strength")) {
+            ImGui::DragFloat("##muscle_strength", &c.muscle_strength, 0.01f, 0.0f, 5.0f, "%.2f");
+            _tooltip("How hard the body fights while falling: braces in the air, curls up on the ground, then relaxes before getting up");
+        }
+        if (_row("Balance")) {
+            ImGui::DragFloat("##balance", &c.balance, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+            _tooltip("Only attacks on the ground can knock you down, and only if they are at least this strong. Running into things on the ground never does, it makes you stumble back instead. Press H (light chest hit), J (heavy chest hit) or K (light shin hit) in game to test.");
+        }
+        if (_row("Head Hit Speed")) {
+            ImGui::DragFloat("##head_hit_speed", &c.head_hit_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+            _tooltip("Running into something at head height faster than this makes your head snap back and you stumble back. 0 turns it off.");
+        }
+        if (_row("Air Ragdoll Speed")) {
+            ImGui::DragFloat("##air_ragdoll_speed", &c.air_ragdoll_speed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+            _tooltip("In the air, hitting your head, a wall or an attack at least this hard ragdolls you. Softer air hits only stumble you. Legs clipping something never ragdolls.");
+        }
+        if (_row("Ragdoll Land Speed")) {
+            ImGui::DragFloat("##ragdoll_land_speed", &c.ragdoll_land_speed, 0.05f, 0.0f, 60.0f, "%.2f m/s");
+            _tooltip("Landing faster than this goes straight to ragdoll. 0 turns it off.");
+        }
+        _asset(ctx, "Get Up Front", c.get_up_front, AssetType::ANIMATION);
+        _tooltip("Played when the ragdoll settles face down");
+        _asset(ctx, "Get Up Back", c.get_up_back, AssetType::ANIMATION);
+        _tooltip("Played when the ragdoll settles face up");
+        _bone_pair("Upper Arm", c.upperarm_bones[0], c.upperarm_bones[1]);
+        _bone_pair("Lower Arm", c.lowerarm_bones[0], c.lowerarm_bones[1]);
+        _bone_pair("Hand", c.hand_bones[0], c.hand_bones[1]);
+        _note("Also uses the pelvis, spine, neck, head and leg bones above. Only runs in game.");
     }
 
-    ui_category_flush();
+    _section_end();
+    ImGui::EndChild();
     ui_field_pop_style();
 }
 

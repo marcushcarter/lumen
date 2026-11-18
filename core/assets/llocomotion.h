@@ -15,8 +15,23 @@ enum class TurnClip : uint8_t { LEFT_90, RIGHT_90, LEFT_180, RIGHT_180, COUNT };
 
 inline constexpr uint32_t TURN_CLIP_COUNT = (uint32_t)TurnClip::COUNT;
 
-const char* cycle_direction_name(CycleDirection p_direction);
-const char* turn_clip_name(TurnClip p_turn);
+CycleDirection cycle_direction_opposite(CycleDirection p_direction);
+TurnClip turn_clip_opposite(TurnClip p_turn);
+
+struct SideClip
+{
+    Guid clip;
+    bool mirror = false;
+
+    bool valid() const { return clip.valid(); }
+    bool operator==(const SideClip&) const = default;
+};
+
+inline SideClip side_clip(Guid p_own, Guid p_other)
+{
+    if (p_own.valid()) return SideClip{ p_own, false };
+    return SideClip{ p_other, p_other.valid() };
+}
 
 struct CharacterStance
 {

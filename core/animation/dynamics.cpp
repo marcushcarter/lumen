@@ -58,29 +58,138 @@ static vec3 _closest_on_segment(const vec3& p_p, const vec3& p_a, const vec3& p_
     return p_a + ab * t;
 }
 
-static void _gather(const vec3& p_center, float p_radius, const std::vector<DynamicsCollider>& p_colliders, const std::vector<uint8_t>& p_skip, std::vector<uint16_t>& r_near)
+static void _gather(const vec3& p_center, float p_radius, float p_particle, const std::vector<DynamicsCollider>& p_colliders, const std::vector<uint8_t>& p_skip, const std::vector<DynamicsBox>& p_boxes, DynamicsContacts& r_contacts)
 {
-    r_near.clear();
-    for (size_t i = 0; i < p_colliders.size(); i++) {
-        const DynamicsCollider& c = p_colliders[i];
+    r_contacts.capsules.clear();
+    r_contacts.boxes.clear();
+    for (const DynamicsCollider& c : p_colliders) {
         if (c.radius <= 0.0f || (c.joint >= 0 && c.joint < (int32_t)p_skip.size() && p_skip[c.joint])) continue;
         const vec3 d = p_center - _closest_on_segment(p_center, c.a, c.b);
-        const float reach = p_radius + c.radius;
-        if (dot(d, d) <= reach * reach) r_near.push_back((uint16_t)i);
+        const float reach = c.radius + p_particle;
+        const float gate = p_radius + reach;
+        if (dot(d, d) > gate * gate) continue;
+        const vec3 ab = c.b - c.a;
+        const float len2 = dot(ab, ab);
+        const float bound = std::sqrt(len2) * 0.5f + reach;
+        r_contacts.capsules.push_back(DynamicsContacts::Capsule{ c.a, ab, (c.a + c.b) * 0.5f, len2 > DYNAMICS_EPSILON ? 1.0f / len2 : 0.0f, reach, reach * reach, bound * bound });
+    }
+    for (const DynamicsBox& box : p_boxes) {
+        const vec3 d = p_center - box.center;
+        bool hit = true;
+        for (int k = 0; k < 3 && hit; k++) hit = std::abs(dot(d, box.axis[k])) <= box.half[k] + p_particle + p_radius;
+        if (!hit) continue;
+        const float bound = length(box.half) + p_particle;
+        r_contacts.boxes.push_back(DynamicsContacts::Box{ box.center, { box.axis[0], box.axis[1], box.axis[2] }, box.half + vec3(p_particle), bound * bound });
     }
 }
 
-static void _push_out(vec3& r_p, float p_radius, const std::vector<DynamicsCollider>& p_colliders, const std::vector<uint16_t>& p_near)
+static void _collide(vec3& r_p, const DynamicsContacts& p_contacts)
 {
-    for (const uint16_t i : p_near) {
-        const DynamicsCollider& c = p_colliders[i];
-        const vec3 closest = _closest_on_segment(r_p, c.a, c.b);
-        const vec3 d = r_p - closest;
-        const float reach = c.radius + p_radius;
-        const float dist2 = dot(d, d);
-        if (dist2 >= reach * reach) continue;
-        r_p = closest + _safe_normalize(d, vec3(0.0f, 1.0f, 0.0f)) * reach;
+    float px = r_p.x, py = r_p.y, pz = r_p.z;
+    for (const DynamicsContacts::Capsule& c : p_contacts.capsules) {
+        const float mx = px - c.mid.x, my = py - c.mid.y, mz = pz - c.mid.z;
+        if (mx * mx + my * my + mz * mz > c.bound2) continue;
+        const float rx = px - c.a.x, ry = py - c.a.y, rz = pz - c.a.z;
+        float t = (rx * c.ab.x + ry * c.ab.y + rz * c.ab.z) * c.inv_len2;
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        const float cx = c.a.x + c.ab.x * t, cy = c.a.y + c.ab.y * t, cz = c.a.z + c.ab.z * t;
+        const float dx = px - cx, dy = py - cy, dz = pz - cz;
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 >= c.reach2) continue;
+        if (d2 > 1e-12f) {
+            const float k = c.reach / std::sqrt(d2);
+            px = cx + dx * k;
+            py = cy + dy * k;
+            pz = cz + dz * k;
+        } else {
+            py = cy + c.reach;
+        }
     }
+    for (const DynamicsContacts::Box& b : p_contacts.boxes) {
+        const float dx = px - b.center.x, dy = py - b.center.y, dz = pz - b.center.z;
+        if (dx * dx + dy * dy + dz * dz > b.bound2) continue;
+        float best = FLT_MAX, push = 0.0f;
+        int axis = -1;
+        for (int k = 0; k < 3; k++) {
+            const vec3& n = b.axis[k];
+            const float x = dx * n.x + dy * n.y + dz * n.z;
+            const float depth = b.extent[k] - (x < 0.0f ? -x : x);
+            if (depth <= 0.0f) {
+                axis = -1;
+                break;
+            }
+            if (depth < best) {
+                best = depth;
+                axis = k;
+                push = x < 0.0f ? -depth : depth;
+            }
+        }
+        if (axis < 0) continue;
+        px += b.axis[axis].x * push;
+        py += b.axis[axis].y * push;
+        pz += b.axis[axis].z * push;
+    }
+    r_p.x = px;
+    r_p.y = py;
+    r_p.z = pz;
+}
+
+void DynamicsWorld::clear()
+{
+    sources.clear();
+    capsules.clear();
+    boxes.clear();
+}
+
+void DynamicsWorld::begin(uint32_t p_owner)
+{
+    DynamicsSource& src = sources.emplace_back();
+    src.owner = p_owner;
+    src.capsule_first = (uint32_t)capsules.size();
+    src.box_first = (uint32_t)boxes.size();
+}
+
+void DynamicsWorld::capsule(const vec3& p_a, const vec3& p_b, float p_radius)
+{
+    if (p_radius > 0.0f) capsules.push_back(DynamicsCollider{ p_a, p_b, p_radius, SKELETON_NO_JOINT });
+}
+
+void DynamicsWorld::box(const DynamicsBox& p_box)
+{
+    boxes.push_back(p_box);
+}
+
+void DynamicsWorld::end()
+{
+    DynamicsSource& src = sources.back();
+    src.capsule_count = (uint32_t)capsules.size() - src.capsule_first;
+    src.box_count = (uint32_t)boxes.size() - src.box_first;
+    if (src.capsule_count + src.box_count == 0) {
+        sources.pop_back();
+        return;
+    }
+    vec3 lo(FLT_MAX), hi(-FLT_MAX);
+    for (uint32_t i = 0; i < src.capsule_count; i++) {
+        const DynamicsCollider& c = capsules[src.capsule_first + i];
+        lo = glm::min(lo, glm::min(c.a, c.b) - vec3(c.radius));
+        hi = glm::max(hi, glm::max(c.a, c.b) + vec3(c.radius));
+    }
+    for (uint32_t i = 0; i < src.box_count; i++) {
+        const DynamicsBox& box = boxes[src.box_first + i];
+        const vec3 e = glm::abs(box.axis[0]) * box.half.x + glm::abs(box.axis[1]) * box.half.y + glm::abs(box.axis[2]) * box.half.z;
+        lo = glm::min(lo, box.center - e);
+        hi = glm::max(hi, box.center + e);
+    }
+    src.center = (lo + hi) * 0.5f;
+    src.radius = length(hi - lo) * 0.5f;
+}
+
+float dynamics_reach(const LSkeleton& p_skeleton)
+{
+    float reach = 0.0f;
+    for (const SkeletonCloth& c : p_skeleton.cloths) reach = std::max(reach, std::max(c.max_distance, 0.0f) + c.thickness);
+    for (const SkeletonChain& c : p_skeleton.chains) reach = std::max(reach, c.radius);
+    return reach;
 }
 
 static mat3 _frame(const vec3& p_normal, const vec3& p_toward)
@@ -91,10 +200,10 @@ static mat3 _frame(const vec3& p_normal, const vec3& p_toward)
     return mat3(t, cross(n, t), n);
 }
 
-static uint32_t _substeps(float p_dt, float& r_time, float& r_alpha)
+static uint32_t _substeps(float p_dt, uint32_t p_limit, float& r_time, float& r_alpha)
 {
     r_time += std::clamp(p_dt, 0.0f, DYNAMICS_MAX_DT);
-    const uint32_t steps = std::min((uint32_t)(r_time / DYNAMICS_STEP), DYNAMICS_MAX_STEPS);
+    const uint32_t steps = std::min((uint32_t)(r_time / DYNAMICS_STEP), std::clamp(p_limit, 1u, DYNAMICS_MAX_STEPS));
     r_time = std::clamp(r_time - (float)steps * DYNAMICS_STEP, 0.0f, DYNAMICS_STEP);
     r_alpha = r_time / DYNAMICS_STEP;
     return steps;
@@ -107,6 +216,7 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
     body.bind(p_body, p_skeleton);
     initialized = false;
     colliders.clear();
+    boxes.clear();
     chains.clear();
     cloths.clear();
     moving.assign(p_skeleton.joint_count(), 0);
@@ -202,6 +312,39 @@ void CharacterDynamics::update_colliders(const LSkeleton& p_skeleton, const std:
     }
 }
 
+void CharacterDynamics::gather_world(const DynamicsWorld& p_world, uint32_t p_owner, const vec3& p_center, float p_radius, float p_margin)
+{
+    boxes.clear();
+    if (chains.empty() && cloths.empty()) return;
+    vec3 center = p_center;
+    float radius = p_radius;
+    if (initialized) {
+        vec3 lo(FLT_MAX), hi(-FLT_MAX);
+        const auto grow = [&](const std::vector<vec3>& p_points) {
+            for (const vec3& p : p_points) {
+                lo = glm::min(lo, p);
+                hi = glm::max(hi, p);
+            }
+        };
+        for (const DynamicsChain& chain : chains) grow(chain.pos);
+        for (const DynamicsCloth& cloth : cloths) grow(cloth.pos);
+        if (lo.x <= hi.x) {
+            center = (lo + hi) * 0.5f;
+            radius = length(hi - lo) * 0.5f + p_margin;
+        }
+    }
+    for (const DynamicsSource& src : p_world.sources) {
+        if (src.owner == p_owner) continue;
+        const vec3 d = src.center - center;
+        const float reach = src.radius + radius;
+        if (dot(d, d) > reach * reach) continue;
+        const uint32_t capsules = std::min(src.capsule_count, (uint32_t)UINT16_MAX - std::min((uint32_t)colliders.size(), (uint32_t)UINT16_MAX));
+        colliders.insert(colliders.end(), p_world.capsules.begin() + src.capsule_first, p_world.capsules.begin() + src.capsule_first + capsules);
+        const uint32_t count = std::min(src.box_count, (uint32_t)UINT16_MAX - std::min((uint32_t)boxes.size(), (uint32_t)UINT16_MAX));
+        boxes.insert(boxes.end(), p_world.boxes.begin() + src.box_first, p_world.boxes.begin() + src.box_first + count);
+    }
+}
+
 void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4& p_model, float p_dt, float p_gravity, JointTransform* r_local, std::vector<mat4>& r_global)
 {
     if (chains.empty()) return;
@@ -210,7 +353,7 @@ void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4&
     const vec3 moved = reset ? vec3(0.0f) : now - origin;
     const float step = DYNAMICS_STEP;
     float alpha = 0.0f;
-    const uint32_t steps = _substeps(p_dt, chain_time, alpha);
+    const uint32_t steps = _substeps(p_dt, step_limit, chain_time, alpha);
     const mat4 inv_model = inverse(p_model);
 
     for (DynamicsChain& chain : chains) {
@@ -238,7 +381,7 @@ void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4&
         for (size_t k = 1; k < n; k++) {
             if (chain.parent[k] >= 0) extent += length(chain.anim[k] - chain.anim[chain.parent[k]]);
         }
-        _gather(chain.anim[0], extent, colliders, moving, chain.nearby);
+        _gather(chain.anim[0], extent, def.radius, colliders, moving, boxes, chain.contacts);
         for (uint32_t s = 0; s < steps; s++) {
             chain.pos[0] = chain.prev[0] = chain.anim[0];
             for (size_t k = 1; k < n; k++) {
@@ -261,7 +404,7 @@ void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4&
                         if (dot(axis, axis) > 0.5f) dir = angleAxis(limit, axis) * anim_dir;
                     }
                     chain.pos[k] = chain.pos[p] + dir * len;
-                    _push_out(chain.pos[k], def.radius, colliders, chain.nearby);
+                    if (!chain.contacts.empty()) _collide(chain.pos[k], chain.contacts);
                 }
             }
             for (size_t k = 1; k < n; k++) {
@@ -304,7 +447,7 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
     const mat4 inv_model = inverse(p_model);
     const float step = DYNAMICS_STEP;
     float alpha = 0.0f;
-    const uint32_t steps = _substeps(p_dt, cloth_time, alpha);
+    const uint32_t steps = _substeps(p_dt, step_limit, cloth_time, alpha);
 
     const auto usable = [&](const DynamicsCloth& p_cloth) {
         return p_cloth.cloth < dyn.cloths.size() && dyn.cloths[p_cloth.cloth].joint_first + dyn.cloths[p_cloth.cloth].particle_count <= r_skin.size();
@@ -350,7 +493,9 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
                 lo = glm::min(lo, cloth.anchor[p]);
                 hi = glm::max(hi, cloth.anchor[p]);
             }
-            _gather((lo + hi) * 0.5f, length(hi - lo) * 0.5f + std::max(def.max_distance, 0.0f) + def.thickness, colliders, moving, cloth.nearby);
+            _gather((lo + hi) * 0.5f, length(hi - lo) * 0.5f + std::max(def.max_distance, 0.0f), def.thickness, colliders, moving, boxes, cloth.contacts);
+            cloth.reach.resize(n);
+            for (uint32_t p = 0; p < n; p++) cloth.reach[p] = parts[p].max_distance * std::max(def.max_distance, 0.0f);
             for (uint32_t p = 0; p < n; p++) {
                 if (parts[p].max_distance <= 0.0f) continue;
                 cloth.pos[p] += carry;
@@ -366,26 +511,46 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
                     cloth.prev[p] = cloth.pos[p];
                     cloth.pos[p] += velocity + gravity;
                 }
+                vec3* pos = cloth.pos.data();
+                const vec3* anchor = cloth.anchor.data();
+                const float* reach = cloth.reach.data();
+                const LMeshClothLink* links = dyn.links.data() + src.link_first;
+                const uint32_t link_count = src.stretch_count + src.bend_count;
                 for (uint32_t it = 0; it < CLOTH_ITERATIONS; it++) {
-                    for (uint32_t l = 0; l < src.stretch_count + src.bend_count; l++) {
-                        const LMeshClothLink& link = dyn.links[src.link_first + l];
-                        const float wa = parts[link.a].max_distance > 0.0f ? 1.0f : 0.0f;
-                        const float wb = parts[link.b].max_distance > 0.0f ? 1.0f : 0.0f;
+                    for (uint32_t l = 0; l < link_count; l++) {
+                        const LMeshClothLink& link = links[l];
+                        const float wa = reach[link.a] > 0.0f ? 1.0f : 0.0f;
+                        const float wb = reach[link.b] > 0.0f ? 1.0f : 0.0f;
                         if (wa + wb <= 0.0f) continue;
-                        const vec3 d = cloth.pos[link.b] - cloth.pos[link.a];
-                        const float len = length(d);
+                        vec3& pa = pos[link.a];
+                        vec3& pb = pos[link.b];
+                        const float dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z;
+                        const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
                         if (len < DYNAMICS_EPSILON) continue;
-                        const float k = l < src.stretch_count ? stretch : bend;
-                        const vec3 corr = d * ((len - link.rest * scale) / (len * (wa + wb)) * k);
-                        cloth.pos[link.a] += corr * wa;
-                        cloth.pos[link.b] -= corr * wb;
+                        const float k = (len - link.rest * scale) / (len * (wa + wb)) * (l < src.stretch_count ? stretch : bend);
+                        const float cx = dx * k, cy = dy * k, cz = dz * k;
+                        pa.x += cx * wa;
+                        pa.y += cy * wa;
+                        pa.z += cz * wa;
+                        pb.x -= cx * wb;
+                        pb.y -= cy * wb;
+                        pb.z -= cz * wb;
                     }
                     for (uint32_t p = 0; p < n; p++) {
-                        if (parts[p].max_distance <= 0.0f) continue;
-                        const vec3 off = cloth.pos[p] - cloth.anchor[p];
-                        const float reach = parts[p].max_distance * std::max(def.max_distance, 0.0f);
-                        if (dot(off, off) > reach * reach) cloth.pos[p] = cloth.anchor[p] + normalize(off) * reach;
-                        _push_out(cloth.pos[p], def.thickness, colliders, cloth.nearby);
+                        if (reach[p] <= 0.0f) continue;
+                        vec3& q = pos[p];
+                        const float ox = q.x - anchor[p].x, oy = q.y - anchor[p].y, oz = q.z - anchor[p].z;
+                        const float d2 = ox * ox + oy * oy + oz * oz;
+                        if (d2 <= reach[p] * reach[p]) continue;
+                        const float k = reach[p] / std::sqrt(d2);
+                        q.x = anchor[p].x + ox * k;
+                        q.y = anchor[p].y + oy * k;
+                        q.z = anchor[p].z + oz * k;
+                    }
+                }
+                if (!cloth.contacts.empty()) {
+                    for (uint32_t p = 0; p < n; p++) {
+                        if (reach[p] > 0.0f) _collide(pos[p], cloth.contacts);
                     }
                 }
             }

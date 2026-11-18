@@ -54,70 +54,46 @@ void BlendSpaceDetailsPanel::_draw_axis(EditorContext& ctx)
 void BlendSpaceDetailsPanel::_draw_samples(EditorContext& ctx)
 {
     LBlendSpace& space = tab->space;
-    const UiStyle& ui = ui_style();
-    const float font = ImGui::GetFontSize();
-    const float row_h = font + ui.outliner.row_pad_y * 2.0f;
-    const float icon_w = font * ui.outliner.icon_width_scale;
 
     int32_t remove = -1;
     for (int32_t i = 0; i < (int32_t)space.samples.size(); i++) {
-        const BlendSample& s = space.samples[i];
+        BlendSample& s = space.samples[i];
         const AssetRegistry::Entry* clip = ctx.assets ? ctx.assets->find(s.clip) : nullptr;
+        const bool open = selected == i;
+        bool removed = false;
+        char summary[48];
+        std::snprintf(summary, sizeof(summary), "pos %.2f   %.2f m/s", s.position, s.speed);
         ImGui::PushID(i);
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        if (ImGui::Selectable("##sample", selected == i, ImGuiSelectableFlags_None, ImVec2(0.0f, row_h))) selected = i;
-        ui_context_menu_push_style();
-        if (ImGui::BeginPopupContextItem("##sample_menu")) {
-            if (ImGui::MenuItem(ICON_FA_TRASH_CAN "  Remove")) remove = i;
-            ImGui::EndPopup();
+        if (ui_list_item("##sample", ICON_FA_PERSON_RUNNING, clip ? clip->name.c_str() : "No clip", summary, open, &removed)) selected = open ? -1 : i;
+        if (removed) remove = i;
+        if (open && !removed) {
+            ui_list_body_begin();
+            if (ui_property_grid_begin("##sample_fields")) {
+                ui_property("Clip");
+                asset_field(ctx, "", "###sample_clip", s.clip, AssetType::ANIMATION);
+                ui_property("Position");
+                ImGui::DragFloat("##position", &s.position, 0.01f, -FLT_MAX, FLT_MAX, "%.2f");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Walk at 1, run at 2, sprint at 3");
+                ui_property("Speed");
+                ImGui::DragFloat("##speed", &s.speed, 0.01f, 0.0f, 30.0f, "%.2f m/s");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How fast the character moves in this clip. Playback is scaled to match the real speed.");
+                ui_property_grid_end();
+            }
+            ui_list_body_end();
         }
-        ui_context_menu_pop_style();
-
-        char value[48];
-        std::snprintf(value, sizeof(value), "%.2f   %.2f m/s", s.position, s.speed);
-        const float right = ImGui::GetItemRectMax().x - ui.outliner.cell_pad_x;
-        const float text_y = p0.y + ImFloor((row_h - font) * 0.5f);
-        const float value_w = ImGui::CalcTextSize(value).x;
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        float x = p0.x + ui.outliner.cell_pad_x;
-        const ImVec2 icon_size = ImGui::CalcTextSize(ICON_FA_PERSON_RUNNING);
-        dl->AddText(ImVec2(ImFloor(x + (icon_w - icon_size.x) * 0.5f), text_y), ui.color.asset_animation, ICON_FA_PERSON_RUNNING);
-        x += icon_w + ui.outliner.icon_gap;
-        const char* name = clip ? clip->name.c_str() : "No clip";
-        ImGui::RenderTextEllipsis(dl, ImVec2(x, text_y), ImVec2(right - value_w - ui.space.lg, text_y + font), right - value_w - ui.space.lg, name, nullptr, nullptr);
-        dl->AddText(ImVec2(right - value_w, text_y), ui.color.text_dim, value);
         ImGui::PopID();
     }
     if (remove >= 0) {
         space.samples.erase(space.samples.begin() + remove);
-        if (selected >= remove) selected--;
+        if (selected == remove) selected = -1;
+        else if (selected > remove) selected--;
     }
     if (selected >= (int32_t)space.samples.size()) selected = -1;
 
-    if (ImGui::Button(ICON_FA_PLUS " Add Sample", ImVec2(-FLT_MIN, 0.0f))) {
+    if (ImGui::Button(ICON_FA_PLUS "  Add Sample", ImVec2(-FLT_MIN, 0.0f))) {
         const float next = space.samples.empty() ? 1.0f : space.max_position() + 1.0f;
         space.samples.push_back({ Guid{}, next, 0.0f });
         selected = (int32_t)space.samples.size() - 1;
-    }
-
-    if (selected < 0 || selected >= (int32_t)space.samples.size()) return;
-    BlendSample& s = space.samples[selected];
-    char label[32];
-    std::snprintf(label, sizeof(label), "SAMPLE %d", selected + 1);
-    ui_section_label(label);
-    ImGui::PushID(selected);
-    asset_field(ctx, "Clip", "###sample_clip", s.clip, AssetType::ANIMATION);
-    ImGui::DragFloat("Position", &s.position, 0.01f, -FLT_MAX, FLT_MAX, "%.2f");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Walk at 1, run at 2, sprint at 3");
-    ImGui::DragFloat("Speed", &s.speed, 0.01f, 0.0f, 30.0f, "%.2f m/s");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How fast the character moves in this clip. Playback is scaled to match the real speed.");
-    ui_push_buttons(UiButton::DANGER);
-    const bool remove_selected = ImGui::Button(ICON_FA_TRASH_CAN "  Remove Sample");
-    ui_pop_buttons();
-    ImGui::PopID();
-    if (remove_selected) {
-        space.samples.erase(space.samples.begin() + selected);
-        selected = -1;
     }
 }
 

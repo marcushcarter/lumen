@@ -75,6 +75,19 @@ struct LocomotionComponent
 
 struct PlayerTag {};
 
+struct OrbitCameraComponent
+{
+    float distance = 3.0f;
+    float aim_distance = 1.6f;
+    float shoulder = 0.35f;
+    float aim_shoulder = 0.55f;
+    float pivot_height = 0.9f;
+    float radius = 0.2f;
+    float pitch_min = -70.0f;
+    float pitch_max = 60.0f;
+    float sprint_fov = 5.0f;
+};
+
 struct ParentComponent
 {
     Guid parent;

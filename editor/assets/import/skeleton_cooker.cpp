@@ -126,7 +126,7 @@ toml::table SkeletonCooker::dynamics_table(const LSkeleton& p_skeleton)
     toml::array cloths;
     for (const SkeletonCloth& c : p_skeleton.cloths) {
         cloths.push_back(toml::table{
-            { "root", p_skeleton.names[c.root] },
+            { "slot", (int64_t)c.slot },
             { "resolution", (int64_t)c.resolution },
             { "stretch", (double)c.stretch },
             { "bend", (double)c.bend },
@@ -179,8 +179,13 @@ static uint32_t _read_dynamics(const toml::table& p_tbl, const std::filesystem::
             const toml::table* t = n.as_table();
             if (!t) continue;
             SkeletonCloth c;
-            c.root = resolve(*t);
-            if (c.root == SKELETON_NO_JOINT) continue;
+            const std::optional<int64_t> slot = (*t)["slot"].value<int64_t>();
+            if (!slot || *slot < 0) {
+                log_write("Skeleton: '%s' has a bone cloth entry, which is no longer supported. It was dropped; add cloth by material slot instead.", p_path.filename().string().c_str());
+                dropped++;
+                continue;
+            }
+            c.slot = (uint32_t)*slot;
             c.resolution = (uint32_t)std::clamp<int64_t>((*t)["resolution"].value_or((int64_t)c.resolution), 4, 256);
             c.stretch = _float(*t, "stretch", c.stretch);
             c.bend = _float(*t, "bend", c.bend);

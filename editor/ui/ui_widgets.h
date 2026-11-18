@@ -56,7 +56,7 @@ ImU32 ui_percent_color(float p_percent);
 
 SplitterState ui_splitter(const char* p_id, SplitAxis p_axis, ImVec2 p_size, float p_grip_len = -1.0f);
 
-bool ui_property_grid_begin(const char* p_id, float p_label_ratio = -1.0f);
+bool ui_property_grid_begin(const char* p_id, int p_columns = 2);
 void ui_property(const char* p_label);
 void ui_property_grid_end();
 
@@ -66,5 +66,12 @@ void ui_chevron(ImDrawList* p_dl, ImVec2 p_center, float p_size, ImGuiDir p_dir,
 
 bool ui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p_count, float p_speed, const void* p_min = nullptr, const void* p_max = nullptr, const char* p_format = nullptr, ImGuiSliderFlags p_flags = 0);
 bool ui_drag_float3_axes(const char* p_label, float* r_values, float p_speed = 1.0f, const char* p_format = "%.3f");
+
+bool ui_list_item(const char* p_id, const char* p_icon, const char* p_label, const char* p_summary, bool p_open, bool* r_remove, bool* r_revert = nullptr);
+float ui_category_inset();
+void ui_list_body_begin();
+void ui_list_body_end();
+bool ui_list_add_begin(const char* p_id, const char* p_label);
+void ui_list_add_end();
 
 }

@@ -145,7 +145,6 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
         ImGui::EndDisabled();
     }
     _draw_transform(mesh);
-    _draw_collision(mesh.collision);
     if (p_materials && ui_category("Materials")) {
         bool generate = r_settings.mode == ModelImportMode::FULL;
         if (ImGui::Checkbox("Generate Materials", &generate)) r_settings.mode = generate ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
@@ -201,40 +200,6 @@ void ImportDialog::_draw_texture(TextureCooker::CookSettings& r_settings)
         ImGui::Checkbox("Generate Mips", &r_settings.generate_mips);
     }
     ui_category_flush();
-}
-
-static constexpr float CM_PER_M = 100.0f;
-
-void collision_settings_fields(CollisionSettings& r_settings)
-{
-    const char* current = collision_type_label(r_settings.type);
-    if (r_settings.type == CollisionType::SHAPES) return;
-    if (ImGui::BeginCombo("Collision Type", current)) {
-        static constexpr CollisionType IMPORT_TYPES[] = { CollisionType::MESH, CollisionType::HULL, CollisionType::BOX, CollisionType::SPHERE, CollisionType::CAPSULE };
-        for (const CollisionType t : IMPORT_TYPES) {
-            if (ImGui::Selectable(collision_type_label(t), t == r_settings.type)) r_settings.type = t;
-        }
-        ImGui::EndCombo();
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Triangle Mesh is for static objects only. Moving objects need a hull or a primitive.");
-
-    if (r_settings.type == CollisionType::MESH || r_settings.type == CollisionType::HULL) {
-        float error_cm = r_settings.error * CM_PER_M;
-        if (ImGui::DragFloat("Collision Error", &error_cm, 0.1f, 0.0f, 100.0f, "%.1f cm", ImGuiSliderFlags_AlwaysClamp)) r_settings.error = error_cm / CM_PER_M;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the collision may stray from the real surface. 0 keeps every triangle.");
-    }
-    float feature_cm = r_settings.min_feature * CM_PER_M;
-    if (ImGui::DragFloat("Min Feature Size", &feature_cm, 0.5f, 0.0f, 500.0f, "%.1f cm", ImGuiSliderFlags_AlwaysClamp)) r_settings.min_feature = feature_cm / CM_PER_M;
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Separate pieces smaller than this are left out. The largest piece is always kept.");
-    ImGui::Checkbox("Exclude Masked Materials", &r_settings.exclude_masked);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Leaves out alpha-masked and transparent materials, like leaves and grass cards");
-}
-
-void ImportDialog::_draw_collision(CollisionSettings& r_settings)
-{
-    if (!ui_category("Collision")) return;
-    ImGui::TextDisabled("Static meshes always get collision. Skinned meshes get body capsules instead.");
-    collision_settings_fields(r_settings);
 }
 
 void ImportDialog::_start(EditorContext& ctx, Pending& r_pending)

@@ -10,15 +10,10 @@
 
 namespace lumen {
 
-static constexpr float CLOTH_REGION_WEIGHT = 0.5f;
-static constexpr float CLOTH_PIN_WEIGHT = 0.75f;
-static constexpr float CLOTH_FREE_DEPTH_START = 0.5f;
-static constexpr float CLOTH_FREE_DEPTH_END = 2.0f;
 static constexpr float CLOTH_WELD_STEP = 1e-5f;
 static constexpr uint32_t CLOTH_MIN_PARTICLES = 6;
 static constexpr int CLOTH_SIMPLIFY_ATTEMPTS = 10;
 static constexpr float CLOTH_SIMPLIFY_SHRINK = 0.7f;
-static constexpr float CLOTH_PIN_FALLBACK_SHARE = 0.1f;
 static constexpr float CLOTH_PINNED = 0.05f;
 static constexpr float CLOTH_LOD_EDGE_ERROR = 0.5f;
 
@@ -84,40 +79,71 @@ static uint64_t _weld_key(const vec3& p_p)
     return h;
 }
 
-static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSkeleton& p_skeleton, const std::vector<int32_t>& p_skel_of_rig, const std::vector<vec3>& p_positions, const std::vector<uint32_t>& p_indices, const std::vector<SkinVertex>& p_original, std::vector<SkinVertex>& r_skin, std::vector<std::string>& r_joints, std::vector<mat4>& r_inverse_binds, LMeshDynamics& r_out)
+struct ClothRegion
 {
-    const std::string& root_name = p_skeleton.names[p_def.root];
-    std::vector<uint8_t> in_branch;
-    p_skeleton.branch(p_def.root, in_branch);
-    std::vector<float> depth(p_skeleton.joint_count(), 0.0f);
-    for (size_t i = (size_t)p_def.root + 1; i < depth.size(); i++) {
-        if (in_branch[i]) depth[i] = depth[p_skeleton.parents[i]] + 1.0f;
-    }
+    std::string label;
+    uint32_t slot = SKELETON_CLOTH_NO_SLOT;
+    std::vector<uint8_t> vertex;
+    std::vector<uint8_t> tri;
+    std::vector<float> free;
+};
 
-    const size_t vertex_count = std::min(p_positions.size(), p_original.size());
-    std::vector<float> branch_weight(vertex_count, 0.0f);
-    std::vector<float> branch_depth(vertex_count, 0.0f);
-    for (size_t v = 0; v < vertex_count; v++) {
-        float bw = 0.0f, dw = 0.0f;
-        for (int k = 0; k < 4; k++) {
-            const uint32_t j = p_original[v].joints[k];
-            const float w = (float)p_original[v].weights[k] / 255.0f;
-            if (w <= 0.0f || j >= p_skel_of_rig.size()) continue;
-            const int32_t s = p_skel_of_rig[j];
-            if (s < 0 || !in_branch[s]) continue;
-            bw += w;
-            dw += w * depth[s];
+static uint32_t _tri_slot(const LMeshData& p_data, size_t p_at)
+{
+    if (p_data.wide_slots() && p_at < p_data.tri_slots.size()) return p_data.tri_slots[p_at];
+    return p_data.local_tris[p_at] >> 24;
+}
+
+template <class F>
+static void _each_triangle(const LMeshData& p_data, bool p_finest_only, F&& p_fn)
+{
+    for (const LMeshPage& page : p_data.pages) {
+        for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count && ci < p_data.clusters.size(); ci++) {
+            const LMeshCluster& c = p_data.clusters[ci];
+            if (p_finest_only && c.self_group < p_data.groups.size() && p_data.groups[c.self_group].level != 0) continue;
+            const uint32_t base = page.vertex_first + c.vertex_offset;
+            for (uint32_t t = 0; t < c.tri_count; t++) {
+                const size_t at = (size_t)page.tri_first + c.tri_offset + t;
+                if (at >= p_data.local_tris.size()) break;
+                const uint32_t lt = p_data.local_tris[at];
+                p_fn(base + (lt & 0xFFu), base + ((lt >> 8) & 0xFFu), base + ((lt >> 16) & 0xFFu), _tri_slot(p_data, at));
+            }
         }
-        branch_weight[v] = bw;
-        branch_depth[v] = bw > 0.0f ? dw / bw : 0.0f;
     }
+}
+
+static bool _slot_region(const SkeletonCloth& p_def, const LMeshData& p_data, const std::vector<uint32_t>& p_tri_slots, ClothRegion& r_region)
+{
+    r_region.label = "material slot " + std::to_string(p_def.slot);
+    r_region.slot = p_def.slot;
+    const size_t vertex_count = p_data.vertices.size();
+    if (p_data.pins.size() != vertex_count) {
+        log_write("MeshCooker: cloth on %s skipped, the mesh has no vertex colours to read pinning from. Paint black (pinned) to white (free) in the first colour layer and reimport.", r_region.label.c_str());
+        return false;
+    }
+    r_region.vertex.assign(vertex_count, 0);
+    _each_triangle(p_data, false, [&](uint32_t p_a, uint32_t p_b, uint32_t p_c, uint32_t p_slot) {
+        if (p_slot != p_def.slot || p_a >= vertex_count || p_b >= vertex_count || p_c >= vertex_count) return;
+        r_region.vertex[p_a] = r_region.vertex[p_b] = r_region.vertex[p_c] = 1;
+    });
+    r_region.tri.resize(p_tri_slots.size());
+    for (size_t t = 0; t < p_tri_slots.size(); t++) r_region.tri[t] = p_tri_slots[t] == p_def.slot ? 1 : 0;
+    r_region.free.resize(vertex_count);
+    for (size_t v = 0; v < vertex_count; v++) r_region.free[v] = (float)p_data.pins[v] / 255.0f;
+    return true;
+}
+
+static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const ClothRegion& p_region, const std::vector<vec3>& p_positions, const std::vector<uint32_t>& p_indices, const std::vector<SkinVertex>& p_original, std::vector<SkinVertex>& r_skin, std::vector<std::string>& r_joints, std::vector<mat4>& r_inverse_binds, LMeshDynamics& r_out)
+{
+    const std::string& root_name = p_region.label;
+    const size_t vertex_count = std::min({ p_positions.size(), p_original.size(), p_region.vertex.size() });
 
     std::unordered_map<uint64_t, uint32_t> weld;
     std::vector<uint32_t> weld_of(vertex_count, UINT32_MAX);
     std::vector<vec3> wpos;
     std::vector<uint32_t> wsrc;
     for (size_t v = 0; v < vertex_count; v++) {
-        if (branch_weight[v] < CLOTH_REGION_WEIGHT) continue;
+        if (!p_region.vertex[v]) continue;
         auto [it, added] = weld.try_emplace(_weld_key(p_positions[v]), (uint32_t)wpos.size());
         if (added) {
             wpos.push_back(p_positions[v]);
@@ -128,6 +154,7 @@ static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSke
 
     std::vector<uint32_t> wtris;
     for (size_t t = 0; t + 2 < p_indices.size(); t += 3) {
+        if (t / 3 >= p_region.tri.size() || !p_region.tri[t / 3]) continue;
         const uint32_t a = p_indices[t], b = p_indices[t + 1], c = p_indices[t + 2];
         if (a >= vertex_count || b >= vertex_count || c >= vertex_count) continue;
         const uint32_t wa = weld_of[a], wb = weld_of[b], wc = weld_of[c];
@@ -135,7 +162,7 @@ static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSke
         wtris.insert(wtris.end(), { wa, wb, wc });
     }
     if (wtris.empty()) {
-        log_write("MeshCooker: cloth on '%s' has no triangles weighted to that branch, skipped.", root_name.c_str());
+        log_write("MeshCooker: cloth on '%s' has no triangles, skipped.", root_name.c_str());
         return false;
     }
 
@@ -179,39 +206,11 @@ static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSke
     cloth.joint_first = (uint32_t)r_joints.size();
     cloth.particle_first = (uint32_t)r_out.particles.size();
     cloth.particle_count = (uint32_t)particle_weld.size();
-    cloth.root_joint = 0;
-    bool root_found = false;
-    for (size_t j = 0; j < r_joints.size() && !root_found; j++) {
-        if (r_joints[j] == root_name) {
-            cloth.root_joint = (uint32_t)j;
-            root_found = true;
-        }
-    }
-    for (size_t j = 0; j < p_skel_of_rig.size() && !root_found; j++) {
-        if (p_skel_of_rig[j] >= 0 && in_branch[p_skel_of_rig[j]]) {
-            cloth.root_joint = (uint32_t)j;
-            root_found = true;
-        }
-    }
+    cloth.root_joint = LMESH_CLOTH_NO_ROOT;
+    cloth.slot = p_region.slot;
 
     std::vector<float> free_share(particle_weld.size());
-    bool any_pinned = false;
-    for (size_t i = 0; i < particle_weld.size(); i++) {
-        const uint32_t src = wsrc[particle_weld[i]];
-        const float d = branch_depth[src];
-        const float t = std::clamp((d - CLOTH_FREE_DEPTH_START) / (CLOTH_FREE_DEPTH_END - CLOTH_FREE_DEPTH_START), 0.0f, 1.0f);
-        const float depth_free = t * t * (3.0f - 2.0f * t);
-        const float weight_free = std::clamp((branch_weight[src] - CLOTH_PIN_WEIGHT) / (1.0f - CLOTH_PIN_WEIGHT), 0.0f, 1.0f);
-        free_share[i] = depth_free * weight_free;
-        any_pinned = any_pinned || free_share[i] < CLOTH_PINNED;
-    }
-    if (!any_pinned) {
-        std::vector<size_t> order(particle_weld.size());
-        for (size_t i = 0; i < order.size(); i++) order[i] = i;
-        std::sort(order.begin(), order.end(), [&](size_t p_a, size_t p_b) { return branch_depth[wsrc[particle_weld[p_a]]] < branch_depth[wsrc[particle_weld[p_b]]]; });
-        const size_t pins = std::max<size_t>(1, (size_t)((float)order.size() * CLOTH_PIN_FALLBACK_SHARE));
-        for (size_t k = 0; k < pins; k++) free_share[order[k]] = 0.0f;
-    }
+    for (size_t i = 0; i < particle_weld.size(); i++) free_share[i] = std::clamp(p_region.free[wsrc[particle_weld[i]]], 0.0f, 1.0f);
 
     for (size_t i = 0; i < particle_weld.size(); i++) {
         const uint32_t src = wsrc[particle_weld[i]];
@@ -259,7 +258,7 @@ static bool _bake_cloth(uint32_t p_index, const SkeletonCloth& p_def, const LSke
     size_t bound = 0;
     const u16vec4* tris = r_out.triangles.data() + cloth.triangle_first;
     for (size_t v = 0; v < vertex_count; v++) {
-        if (branch_weight[v] < CLOTH_REGION_WEIGHT) continue;
+        if (!p_region.vertex[v]) continue;
         float best = FLT_MAX;
         uint32_t best_tri = 0;
         vec3 best_bary(1.0f, 0.0f, 0.0f);
@@ -373,29 +372,20 @@ uint32_t dynamics_bake_cloths(LMeshData& r_data, const LSkeleton& p_skeleton)
     for (size_t v = 0; v < positions.size(); v++) positions[v] = h.pos_min + vec3(r_data.vertices[v].position.position) / 65535.0f * h.pos_extent;
 
     std::vector<uint32_t> indices;
-    for (const LMeshPage& page : r_data.pages) {
-        for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count && ci < r_data.clusters.size(); ci++) {
-            const LMeshCluster& c = r_data.clusters[ci];
-            if (c.self_group < r_data.groups.size() && r_data.groups[c.self_group].level != 0) continue;
-            const uint32_t base = page.vertex_first + c.vertex_offset;
-            for (uint32_t t = 0; t < c.tri_count; t++) {
-                const size_t at = (size_t)page.tri_first + c.tri_offset + t;
-                if (at >= r_data.local_tris.size()) break;
-                const uint32_t lt = r_data.local_tris[at];
-                indices.insert(indices.end(), { base + (lt & 0xFFu), base + ((lt >> 8) & 0xFFu), base + ((lt >> 16) & 0xFFu) });
-            }
-        }
-    }
+    std::vector<uint32_t> tri_slots;
+    _each_triangle(r_data, true, [&](uint32_t p_a, uint32_t p_b, uint32_t p_c, uint32_t p_slot) {
+        indices.insert(indices.end(), { p_a, p_b, p_c });
+        tri_slots.push_back(p_slot);
+    });
 
     LMeshRig& rig = r_data.rig;
-    std::vector<int32_t> skel_of_rig(rig.joints.size());
-    for (size_t j = 0; j < rig.joints.size(); j++) skel_of_rig[j] = p_skeleton.find(rig.joints[j]);
     const std::vector<SkinVertex> original = r_data.skin;
     uint32_t baked = 0;
     for (size_t i = 0; i < p_skeleton.cloths.size(); i++) {
         const SkeletonCloth& def = p_skeleton.cloths[i];
-        if (def.root < 0 || def.root >= (int32_t)p_skeleton.joint_count()) continue;
-        if (_bake_cloth((uint32_t)i, def, p_skeleton, skel_of_rig, positions, indices, original, r_data.skin, rig.joints, rig.inverse_binds, rig.dynamics)) baked++;
+        ClothRegion region;
+        if (!_slot_region(def, r_data, tri_slots, region)) continue;
+        if (_bake_cloth((uint32_t)i, def, region, positions, indices, original, r_data.skin, rig.joints, rig.inverse_binds, rig.dynamics)) baked++;
     }
     if (baked) _raise_cloth_lod_error(r_data, positions);
     return baked;

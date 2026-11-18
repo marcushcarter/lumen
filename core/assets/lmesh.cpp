@@ -238,6 +238,7 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
     const uint32_t vertex_count = (uint32_t)p_src.positions.size();
     if (vertex_count == 0 || p_src.attributes.size() != vertex_count) return "bad vertex streams";
     if (!p_src.skin.empty() && p_src.skin.size() != vertex_count) return "bad skin stream";
+    if (!p_src.pins.empty() && p_src.pins.size() != vertex_count) return "bad cloth pin stream";
     if (p_src.indices.empty() || p_src.indices.size() % 3 != 0) return "bad index count";
     const uint32_t src_tri_count = (uint32_t)p_src.indices.size() / 3;
     if (p_src.tri_slots.size() != src_tri_count) return "bad triangle slot count";
@@ -444,6 +445,7 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
                     const uint32_t g = local_vertices[l.vertex_first + v];
                     r_data.vertices.push_back(ClusterVertex{ p_src.positions[g], p_src.attributes[g] });
                     if (skinned) r_data.skin.push_back(p_src.skin[g]);
+                    if (!p_src.pins.empty()) r_data.pins.push_back(p_src.pins[g]);
                 }
             }
         }
@@ -867,8 +869,11 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
         _append(dynamics, dyn.restore.data(), dyn.restore.size());
     }
 
+    const std::vector<uint8_t> no_pins;
+    const std::vector<uint8_t>& pins = p_data.pins.size() == p_data.vertices.size() ? p_data.pins : no_pins;
+
     LMeshPayloadHeader header = p_data.header;
-    header.section_count = 6;
+    header.section_count = 7;
     header.group_child_page_count = (uint32_t)p_data.group_child_pages.size();
 
     const uint64_t sections_at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
@@ -877,7 +882,8 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     const uint64_t joint_boxes_at = blobs_at + blobs.size();
     const uint64_t dynamics_at = joint_boxes_at + joint_box_bytes;
     const uint64_t skeleton_at = dynamics_at + dynamics.size();
-    const uint64_t collision_at = skeleton_at + p_data.skeleton.size();
+    const uint64_t pins_at = skeleton_at + p_data.skeleton.size();
+    const uint64_t collision_at = pins_at + pins.size();
     const uint64_t total = collision_at + p_data.collision.size();
     if (total > UINT32_MAX) {
         log_write("lmesh: '%s' would be over 4 GB.", p_bin.string().c_str());
@@ -886,12 +892,13 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     for (LMeshPage& page : pages) page.offset += blobs_at;
     std::memcpy(resident.data() + pages_at, pages.data(), pages.size() * sizeof(LMeshPage));
 
-    const LMeshSection sections[6] = {
+    const LMeshSection sections[7] = {
         { LMeshSectionType::RASTER_RESIDENT, 0, resident_at, resident.size() },
         { LMeshSectionType::RASTER_PAGES, 0, blobs_at, blobs.size() },
         { LMeshSectionType::JOINT_BOXES, 0, joint_boxes_at, joint_box_bytes },
         { LMeshSectionType::DYNAMICS, 0, dynamics_at, dynamics.size() },
         { LMeshSectionType::SKELETON, 0, skeleton_at, p_data.skeleton.size() },
+        { LMeshSectionType::CLOTH_PINS, 0, pins_at, pins.size() },
         { LMeshSectionType::COLLISION, 0, collision_at, p_data.collision.size() },
     };
 
@@ -911,12 +918,13 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
         _append(out, p_data.rig.inverse_binds.data(), p_data.rig.inverse_binds.size());
         _append(out, rig_names.data(), rig_names.size());
     }
-    _append(out, sections, 6);
+    _append(out, sections, 7);
     _append(out, resident.data(), resident.size());
     _append(out, blobs.data(), blobs.size());
     _append(out, joint_boxes.data(), joint_boxes.size());
     _append(out, dynamics.data(), dynamics.size());
     _append(out, p_data.skeleton.data(), p_data.skeleton.size());
+    _append(out, pins.data(), pins.size());
     _append(out, p_data.collision.data(), p_data.collision.size());
     if (out.size() != total) return false;
 
@@ -1108,7 +1116,7 @@ static const char* _parse_dynamics(const std::vector<uint8_t>& p_bytes, uint32_t
     }
     for (const LMeshCloth& c : r_dyn.cloths) {
         const uint64_t links = (uint64_t)c.stretch_count + c.bend_count;
-        if (c.root_joint >= p_joint_count || (uint64_t)c.joint_first + c.particle_count > p_joint_count) return "cloth joints out of range";
+        if ((c.root_joint >= p_joint_count && c.root_joint != LMESH_CLOTH_NO_ROOT) || (uint64_t)c.joint_first + c.particle_count > p_joint_count) return "cloth joints out of range";
         if ((uint64_t)c.particle_first + c.particle_count > r_dyn.particles.size() || (uint64_t)c.link_first + links > r_dyn.links.size() || (uint64_t)c.triangle_first + c.triangle_count > r_dyn.triangles.size()) return "cloth ranges out of range";
         if ((uint64_t)c.restore_first + c.restore_count > r_dyn.restore.size()) return "cloth restore range out of range";
         for (uint64_t l = c.link_first; l < c.link_first + links; l++) {
@@ -1291,6 +1299,11 @@ bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::stri
                 std::copy(page.vertices.begin(), page.vertices.end(), r_data.vertices.begin() + info.vertex_first);
                 if (r_data.skinned()) std::copy(page.skin.begin(), page.skin.end(), r_data.skin.begin() + info.vertex_first);
                 if (r_data.wide_slots()) std::copy(page.tri_slots.begin(), page.tri_slots.end(), r_data.tri_slots.begin() + info.tri_first);
+            }
+            for (const LMeshSection& s : r_data.sections) {
+                if (why || s.type != LMeshSectionType::CLOTH_PINS || s.size != h.vertex_count) continue;
+                r_data.pins = _read_range(f, s.offset, s.size);
+                if (r_data.pins.size() != h.vertex_count) r_data.pins.clear();
             }
             if (!why) why = lmesh_validate(r_data);
         }

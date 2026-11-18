@@ -19,6 +19,7 @@ Error Scene::initialize()
     component_register_saved<CollisionComponent>("Collision", "collision");
     component_register_saved<LocomotionComponent>("Locomotion", "locomotion");
     component_register_saved<PlayerTag>("Player", "player");
+    component_register_saved<OrbitCameraComponent>("Orbit Camera", "orbit_camera");
     component_register_saved<TemplateInstanceComponent>("Template", "template", false);
     component_register<TemplatePartComponent>("Template Part", false);
     component_register_saved<StaticTag>("Static", "static", false);

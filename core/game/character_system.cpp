@@ -29,9 +29,8 @@ static float _map_clamped(float p_value, float p_in_min, float p_in_max, float p
 
 void CharacterSystem::start(GameSession& r_session)
 {
-    camera_base_fov = camera_fov = r_session.camera.fov_y;
+    (void)r_session;
     player = ENTITY_NULL;
-    camera_ready = false;
 }
 
 void CharacterSystem::stop(GameSession& r_session)
@@ -46,7 +45,6 @@ void CharacterSystem::stop(GameSession& r_session)
         });
     }
     player = ENTITY_NULL;
-    camera_ready = false;
 }
 
 void CharacterSystem::respawn(Character& r_character)
@@ -822,32 +820,6 @@ void CharacterSystem::_draw_ragdoll(const Character& p_character) const
     draw.line(rag.pelvis, p_character.position, DebugDraw::Style{ .color = DebugDraw::YELLOW });
 }
 
-void CharacterSystem::_update_camera(GameSession& r_session, const Character& p_character, const LocomotionComponent& p_body, float p_dt)
-{
-    const bool aiming = p_character.rotation_mode == RotationMode::AIMING;
-    camera_distance = _interp(camera_distance, aiming ? CAMERA_AIM_DISTANCE : CAMERA_DISTANCE, p_dt, CAMERA_ZOOM);
-    camera_shoulder = _interp(camera_shoulder, aiming ? CAMERA_AIM_SHOULDER : CAMERA_SHOULDER, p_dt, CAMERA_ZOOM);
-    const vec3 pivot_target = p_character.position + UP * (p_character.step_offset + _stance_height(p_character, p_body) * CAMERA_PIVOT_HEIGHT);
-    const vec3 horizontal = _interp(vec3(camera_pivot.x, 0.0f, camera_pivot.z), vec3(pivot_target.x, 0.0f, pivot_target.z), p_dt, CAMERA_FOLLOW);
-    camera_pivot = vec3(horizontal.x, _interp(camera_pivot.y, pivot_target.y, p_dt, CAMERA_FOLLOW_VERTICAL), horizontal.z);
-    camera_fov = _interp(camera_fov, camera_base_fov + (p_character.gait == Gait::SPRINTING ? glm::radians(CAMERA_SPRINT_FOV) : 0.0f), p_dt, CAMERA_FOV_INTERP);
-    r_session.camera.fov_y = camera_fov;
-
-    const float yaw = glm::radians(camera_yaw);
-    const float pitch = glm::radians(camera_pitch);
-    const vec3 look(std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch));
-    vec3 eye = camera_pivot - look * camera_distance + character_right(camera_yaw) * camera_shoulder;
-
-    if (const PhysicsWorld* pw = _physics()) {
-        const vec3 offset = eye - camera_pivot;
-        const float len = length(offset);
-        PhysicsHit hit;
-        if (len > 1.0e-3f && pw->sphere_cast(camera_pivot, CAMERA_RADIUS, offset / len, len, hit)) eye = camera_pivot + offset / len * std::max(hit.distance - 0.05f, 0.1f);
-    }
-    r_session.camera.position = eye;
-    r_session.camera.rotation = quatLookAt(look, UP);
-}
-
 void CharacterSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || p_dt <= 0.0f || !anims) return;
@@ -871,7 +843,6 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
 
     if (!world.valid(player) || !world.has<PlayerTag>(player) || !world.has<CharacterStateComponent>(player)) {
         player = ENTITY_NULL;
-        camera_ready = false;
         for (Entity e : _entities) {
             if (!world.has<PlayerTag>(e)) continue;
             player = e;
@@ -880,6 +851,9 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
     }
 
     const GameInput idle;
+    const vec3 view = r_session.camera.rotation * vec3(0.0f, 0.0f, -1.0f);
+    const float view_yaw = character_yaw_of(view);
+    const float view_pitch = glm::degrees(std::asin(std::clamp(view.y, -1.0f, 1.0f)));
     for (Entity e : _entities) {
         CharacterStateComponent* state = world.try_get<CharacterStateComponent>(e);
         const LocomotionComponent* body = world.try_get<LocomotionComponent>(e);
@@ -893,23 +867,11 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
         if (!asset) continue;
 
         const bool is_player = e == player;
-        if (is_player && !camera_ready) {
-            camera_ready = true;
-            camera_yaw = c.yaw;
-            camera_pitch = CAMERA_START_PITCH;
-            camera_pivot = c.position;
-            camera_distance = CAMERA_DISTANCE;
-            camera_shoulder = CAMERA_SHOULDER;
-        }
-        if (is_player) {
-            camera_yaw = character_wrap(camera_yaw - r_session.input.look.x);
-            camera_pitch = std::clamp(camera_pitch - r_session.input.look.y, CAMERA_PITCH_MIN, CAMERA_PITCH_MAX);
-        }
         CharacterRagdoll& rag = c.ragdoll;
         rag.obstacle_memory = std::max(rag.obstacle_memory - p_dt, 0.0f);
         const bool toggle = is_player && r_session.input.ragdoll_toggle;
         if (is_player && (r_session.input.hit_light || r_session.input.hit_heavy || r_session.input.hit_low)) {
-            const vec3 push = character_forward(camera_yaw);
+            const vec3 push = character_forward(view_yaw);
             const vec3 point = c.position + UP * (_height(c, *body) * (r_session.input.hit_low ? TEST_HIT_LOW_HEIGHT : TEST_HIT_HEIGHT)) - push * 0.1f;
             rag.hit(point, push, r_session.input.hit_heavy ? TEST_HIT_HEAVY : TEST_HIT_LIGHT);
         }
@@ -926,7 +888,7 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
             const bool wants_up = !is_player || length(in.move) > GameInput::STICK_DEADZONE || in.jump || in.roll || in.crouch_toggle || in.sprint || in.aim;
             _update_ragdoll(c, *asset, toggle, wants_up, p_dt);
         }
-        else if (is_player && controllable) _simulate(c, *asset, *body, r_session.input, camera_yaw, camera_pitch, p_dt);
+        else if (is_player && controllable) _simulate(c, *asset, *body, r_session.input, view_yaw, view_pitch, p_dt);
         else _simulate(c, *asset, *body, idle, c.yaw, 0.0f, p_dt);
         if (controllable && c.landed && !c.action.active() && asset->ragdoll_land_speed > 0.0f && c.land_speed >= asset->ragdoll_land_speed) {
             _start_ragdoll(c, *asset);
@@ -956,7 +918,6 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
             if (c.has_input) draw.arrow(base, base + character_forward(c.input_yaw) * c.input_amount, DebugDraw::Style{ .color = DebugDraw::YELLOW });
         }
         if (rag.state == RagdollState::OFF) _update_foot_ik(c, *asset, *body, p_dt);
-        if (is_player) _update_camera(r_session, c, *body, p_dt);
     }
 }
 

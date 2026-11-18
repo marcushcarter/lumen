@@ -765,7 +765,8 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         frame.camera.far_z = camera.far_z;
         frame.camera.tan_half_fov_y = std::tan(camera.fov_y * 0.5f);
         frame.camera.inv_view_proj = inverse(frame.camera.curr_view_proj);
-        frame.px_per_unit = 0.5f * (float)height / std::tan(camera.fov_y * 0.5f) * r_view.lod_bias;
+        frame.screen_px_per_unit = 0.5f * (float)height / std::tan(camera.fov_y * 0.5f);
+        frame.px_per_unit = frame.screen_px_per_unit * r_view.lod_bias;
         frame.hiz_history_valid = !r_view.camera_cut_pending && !r_view.hiz_reset_pending;
     }
 

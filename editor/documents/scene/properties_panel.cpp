@@ -27,75 +27,39 @@
 
 namespace lumen {
 
+static bool g_section_open = false;
+
+static void _section_end()
+{
+    if (!g_section_open) return;
+    ui_property_grid_end();
+    ui_list_body_end();
+    g_section_open = false;
+}
+
 static bool _section(const char* p_label, bool* r_remove = nullptr, bool* r_revert = nullptr)
 {
-    const UiStyle& ui = ui_style();
-    const float row = ui.row;
-    ImGui::TableNextRow(ImGuiTableRowFlags_None, row);
-    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ui.color.header);
-    ImGui::TableSetColumnIndex(0);
-    ImGuiStorage* storage = ImGui::GetStateStorage();
-    const ImGuiID id = ImGui::GetID(p_label);
-    bool* open = storage->GetBoolRef(id, true);
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Header, ui.color.transparent);
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ui.color.transparent);
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui.color.transparent);
-    ImGui::PushID(p_label);
-    if (ImGui::Selectable("##section", false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, row))) *open = !*open;
-    ImGui::PopID();
-    ImGui::PopStyleColor(3);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const char* icon = *open ? ICON_FA_SQUARE_MINUS : ICON_FA_SQUARE_PLUS;
-    const float ty = ImFloor(p.y + (row - ImGui::GetFontSize()) * 0.5f);
-    const float x = p.x + ui.space.sm;
-    const ImRect clip = ImGui::GetCurrentWindow()->InnerClipRect;
-    dl->PushClipRect(clip.Min, clip.Max, false);
-    dl->AddText(ImVec2(x, ty), ui.color.text, icon);
-    dl->AddText(ImVec2(x + ImGui::CalcTextSize(icon).x + ui.space.md, ty), ui.color.text, p_label);
-    dl->PopClipRect();
-    if (r_remove || r_revert) {
-        ImGui::TableSetColumnIndex(2);
-        const float bw = row;
-        const float count = (r_remove ? 1.0f : 0.0f) + (r_revert ? 1.0f : 0.0f);
-        const float x0 = ImGui::GetCursorScreenPos().x + ImMax(0.0f, ImGui::GetContentRegionAvail().x - bw * count);
-        ImGui::PushID(p_label);
-        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
-        if (r_revert) {
-            ImGui::SetCursorScreenPos(ImVec2(x0, p.y));
-            *r_revert = ImGui::Button(ICON_FA_ROTATE_LEFT "##revert", ImVec2(bw, row));
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Revert to the template's value");
-        }
-        if (r_remove) {
-            ImGui::SetCursorScreenPos(ImVec2(x0 + (r_revert ? bw : 0.0f), p.y));
-            *r_remove = ImGui::Button(ICON_FA_XMARK "##remove", ImVec2(bw, row));
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Remove component");
-        }
-        ImGui::PopStyleColor();
-        ImGui::PopID();
+    _section_end();
+    bool* open = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID(p_label), true);
+    if (ui_list_item(p_label, nullptr, p_label, nullptr, *open, r_remove, r_revert)) *open = !*open;
+    if (!*open) return false;
+    ui_list_body_begin();
+    if (!ui_property_grid_begin("##grid", 3)) {
+        ui_list_body_end();
+        return false;
     }
-    return *open;
+    g_section_open = true;
+    return true;
 }
 
 static void _name(const char* p_name)
 {
-    ImGui::TableNextRow(ImGuiTableRowFlags_None, ui_style().row);
-    ImGui::TableSetColumnIndex(0);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(p_name);
-    ImGui::TableSetColumnIndex(1);
-    ImGui::SetNextItemWidth(-FLT_MIN);
+    ui_property(p_name);
 }
 
 static bool _check(const char* p_id, bool* r_value)
 {
-    const float pad = ImFloor(ui_style().space.xxs);
-    const float box = ImGui::GetFontSize() + pad * 2.0f;
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImFloor((ui_style().row - box) * 0.5f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(pad, pad));
-    const bool changed = ImGui::Checkbox(p_id, r_value);
-    ImGui::PopStyleVar();
-    return changed;
+    return ImGui::Checkbox(p_id, r_value);
 }
 
 static void _live(_Printf_format_string_ const char* p_fmt, ...)
@@ -155,16 +119,18 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
 
     const Entity selected = ctx.selection->primary();
     const bool has_target = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || ctx.selection->physics || world.valid(selected);
+    const float inset = ui_category_inset();
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x;
         const float row = ui.row;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(o, ImVec2(o.x + w, o.y + row), ui.color.header);
-        const float col_w = (w - row) / 3.0f;
+        const float grid_x = o.x + inset + ui.space.xl;
+        const float col_w = ImMax(1.0f, w - inset * 2.0f - ui.space.xl) / 3.0f;
         const float ty = ImFloor(o.y + (row - ImGui::GetFontSize()) * 0.5f);
         static constexpr const char* HEADERS[3] = { "Name", "Value", "Live Value" };
-        for (int i = 0; i < 3; i++) dl->AddText(ImVec2(ImFloor(o.x + col_w * (float)i + ui.space.sm), ty), ui.color.text, HEADERS[i]);
+        for (int i = 0; i < 3; i++) dl->AddText(ImVec2(ImFloor(grid_x + col_w * (float)i + ImGui::GetStyle().CellPadding.x), ty), ui.color.text, HEADERS[i]);
         const ImVec2 cog(o.x + w - row, o.y);
         ImGui::SetCursorScreenPos(cog);
         if (ImGui::InvisibleButton("##properties_settings", ImVec2(row, row))) ImGui::OpenPopup("##properties_settings_menu");
@@ -178,19 +144,16 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     }
     if (!has_target) return;
 
-    const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX;
-    const float footer_h = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || ctx.selection->physics ? 0.0f : ui.row;
     ui_field_push_style();
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ui.space.sm, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.0f));
-    if (!ImGui::BeginTable("##properties", 3, flags, ImVec2(0.0f, -footer_h))) {
-        ImGui::PopStyleVar(2);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(inset, ui.panel_box.gap));
+    const bool shown = ImGui::BeginChild("##properties_scroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar();
+    g_section_open = false;
+    if (!shown) {
+        ImGui::EndChild();
         ui_field_pop_style();
         return;
     }
-    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
-    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
-    ImGui::TableSetupColumn("Live Value", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
 
     if (ctx.selection->shadows) {
         if (_section("Shadows")) {
@@ -207,8 +170,8 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::Checkbox("##heightfield_shadow", &world.shadows.heightfield_shadow);
             _live("%s", live ? (live->shadows.heightfield_shadow ? "On" : "Off") : "-");
         }
-        ImGui::EndTable();
-        ImGui::PopStyleVar(2);
+        _section_end();
+        ImGui::EndChild();
         ui_field_pop_style();
         return;
     }
@@ -225,8 +188,8 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::Checkbox("##chains_enabled", &world.physics.chains);
             _live("%s", live ? (live->physics.chains ? "On" : "Off") : "-");
         }
-        ImGui::EndTable();
-        ImGui::PopStyleVar(2);
+        _section_end();
+        ImGui::EndChild();
         ui_field_pop_style();
         return;
     }
@@ -237,8 +200,8 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             asset_field(ctx, "", "###terrain_asset", world.terrain.terrain, AssetType::TERRAIN);
             _live("%s", live && live->terrain.terrain.valid() ? "Set" : "-");
         }
-        ImGui::EndTable();
-        ImGui::PopStyleVar(2);
+        _section_end();
+        ImGui::EndChild();
         ui_field_pop_style();
         return;
     }
@@ -250,8 +213,8 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::DragFloat("##ev100", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
             _live_float(live != nullptr, live ? live->environment.manual_ev100 : 0.0f);
         }
-        ImGui::EndTable();
-        ImGui::PopStyleVar(2);
+        _section_end();
+        ImGui::EndChild();
         ui_field_pop_style();
         return;
     }
@@ -460,6 +423,50 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<PlayerTag>(e);
     }
 
+    const uint32_t orbit_index = component("orbit_camera");
+    bool revert_orbit = false;
+    if (OrbitCameraComponent* orbit = world.try_get<OrbitCameraComponent>(e)) {
+        bool remove = false;
+        const OrbitCameraComponent* lo = has_live ? live->try_get<OrbitCameraComponent>(le) : nullptr;
+        if (_section("Orbit Camera", &remove, overridden(orbit_index) ? &revert_orbit : nullptr)) {
+            bool changed = false;
+            _name("Distance");
+            changed |= ImGui::DragFloat("##orbit_distance", &orbit->distance, 0.01f, 0.1f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lo != nullptr, lo ? lo->distance : 0.0f, " m");
+            _name("Aim Distance");
+            changed |= ImGui::DragFloat("##orbit_aim_distance", &orbit->aim_distance, 0.01f, 0.1f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Distance while a character target is aiming");
+            _live_float(lo != nullptr, lo ? lo->aim_distance : 0.0f, " m");
+            _name("Shoulder Offset");
+            changed |= ImGui::DragFloat("##orbit_shoulder", &orbit->shoulder, 0.01f, -5.0f, 5.0f, "%.2f m");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Sideways offset of the camera. Negative puts it over the left shoulder.");
+            _live_float(lo != nullptr, lo ? lo->shoulder : 0.0f, " m");
+            _name("Aim Shoulder Offset");
+            changed |= ImGui::DragFloat("##orbit_aim_shoulder", &orbit->aim_shoulder, 0.01f, -5.0f, 5.0f, "%.2f m");
+            _live_float(lo != nullptr, lo ? lo->aim_shoulder : 0.0f, " m");
+            _name("Pivot Height");
+            changed |= ImGui::DragFloat("##orbit_pivot", &orbit->pivot_height, 0.01f, -10.0f, 10.0f, "%.2f");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where the camera looks. On a character it's a share of the current stance height (0.9 is near the head). On anything else it's metres above the entity.");
+            _live_float(lo != nullptr, lo ? lo->pivot_height : 0.0f);
+            _name("Collision Radius");
+            changed |= ImGui::DragFloat("##orbit_radius", &orbit->radius, 0.005f, 0.0f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Size of the sphere that pulls the camera in front of walls");
+            _live_float(lo != nullptr, lo ? lo->radius : 0.0f, " m");
+            _name("Pitch Min");
+            changed |= ImGui::DragFloat("##orbit_pitch_min", &orbit->pitch_min, 0.5f, -89.0f, orbit->pitch_max, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lo != nullptr, lo ? lo->pitch_min : 0.0f, " deg");
+            _name("Pitch Max");
+            changed |= ImGui::DragFloat("##orbit_pitch_max", &orbit->pitch_max, 0.5f, orbit->pitch_min, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lo != nullptr, lo ? lo->pitch_max : 0.0f, " deg");
+            _name("Sprint FOV Boost");
+            changed |= ImGui::DragFloat("##orbit_sprint_fov", &orbit->sprint_fov, 0.1f, 0.0f, 30.0f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Extra field of view while a character target sprints");
+            _live_float(lo != nullptr, lo ? lo->sprint_fov : 0.0f, " deg");
+            if (changed) world.touch(e);
+        }
+        if (remove) world.deferred_remove<OrbitCameraComponent>(e);
+    }
+
     if (CollisionComponent* col = world.try_get<CollisionComponent>(e)) {
         bool remove = false;
         const CollisionComponent* lc = has_live ? live->try_get<CollisionComponent>(le) : nullptr;
@@ -595,8 +602,22 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<CollisionComponent>(e);
     }
 
-    ImGui::EndTable();
-    ImGui::PopStyleVar(2);
+    _section_end();
+
+    bool addable = false;
+    for (uint32_t i = 0; i < (uint32_t)world.components.size() && !addable; i++) addable = world.components[i].addable && !world.components[i].has(world, e);
+    ImGui::BeginDisabled(!addable);
+    if (ui_list_add_begin("##add_component", "Add Component")) {
+        for (uint32_t i = 0; i < (uint32_t)world.components.size(); i++) {
+            const ComponentInfo& info = world.components[i];
+            if (!info.addable || info.has(world, e)) continue;
+            if (ImGui::Selectable(info.name)) world.deferred_add_component(e, i);
+        }
+        ui_list_add_end();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::EndChild();
     ui_field_pop_style();
 
     if (tmpl && revert_transform) {
@@ -608,26 +629,9 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_collision) template_revert_component(world, e, *tmpl, collision_index);
     if (tmpl && revert_locomotion) template_revert_component(world, e, *tmpl, locomotion_index);
     if (tmpl && revert_player) template_revert_component(world, e, *tmpl, player_index);
+    if (tmpl && revert_orbit) template_revert_component(world, e, *tmpl, orbit_index);
     if (revert_entity) editor_revert_template(ctx, e);
     if (unpack) editor_unpack_template(ctx, e);
-
-    ImGui::PushID("Add Component");
-    const bool add_pressed = ImGui::Button(ICON_FA_PLUS "  Add Component", ImVec2(-FLT_MIN, 0.0f));
-    if (add_pressed) ImGui::OpenPopup("##add_component");
-    ui_menu_push_style();
-    if (ImGui::BeginPopup("##add_component")) {
-        bool any = false;
-        for (uint32_t i = 0; i < (uint32_t)world.components.size(); i++) {
-            const ComponentInfo& info = world.components[i];
-            if (!info.addable || info.has(world, e)) continue;
-            any = true;
-            if (ImGui::MenuItem(info.name)) world.deferred_add_component(e, i);
-        }
-        if (!any) ImGui::TextDisabled("Nothing to add");
-        ImGui::EndPopup();
-    }
-    ui_menu_pop_style();
-    ImGui::PopID();
 }
 
 }

@@ -100,7 +100,7 @@ static uint32_t _substeps(float p_dt, float& r_time, float& r_alpha)
     return steps;
 }
 
-void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, const LLocomotion& p_body)
+void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const LLocomotion& p_body)
 {
     if (key == p_key) return;
     key = p_key;
@@ -117,7 +117,6 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
         for (size_t j = 0; j < branch.size() && j < moving.size(); j++) moving[j] |= branch[j];
     };
     for (const SkeletonChain& c : p_skeleton.chains) mark(c.root);
-    for (const SkeletonCloth& c : p_skeleton.cloths) mark(c.root);
 
     for (uint32_t c = 0; c < (uint32_t)p_skeleton.chains.size(); c++) {
         DynamicsChain chain;
@@ -142,9 +141,8 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
         const LMeshCloth& src = dyn.cloths[i];
         DynamicsCloth cloth;
         cloth.cloth = i;
-        const int32_t root = src.root_joint < p_map.size() ? p_map[src.root_joint] : SKELETON_NO_JOINT;
-        for (uint32_t s = 0; s < (uint32_t)p_skeleton.cloths.size() && cloth.settings < 0; s++) {
-            if (p_skeleton.cloths[s].root == root) cloth.settings = (int32_t)s;
+        for (uint32_t s = 0; src.root_joint == LMESH_CLOTH_NO_ROOT && s < (uint32_t)p_skeleton.cloths.size() && cloth.settings < 0; s++) {
+            if (p_skeleton.cloths[s].slot == src.slot) cloth.settings = (int32_t)s;
         }
 
         const uint32_t n = src.particle_count;

@@ -13,7 +13,7 @@ namespace lumen {
 
 using namespace glm;
 
-enum class CollisionType : uint8_t { MESH, HULL, BOX, SPHERE, CAPSULE, SHAPES, CYLINDER, TAPERED_CYLINDER, TAPERED_CAPSULE, WEDGE, COUNT };
+enum class CollisionType : uint8_t { MESH, HULL, BOX, SPHERE, CAPSULE, SHAPES, CYLINDER, TAPERED_CYLINDER, TAPERED_CAPSULE, WEDGE, NONE, COUNT };
 
 bool collision_type_shape(CollisionType p_type);
 
@@ -54,6 +54,20 @@ struct LCollisionShape
 static_assert(sizeof(LCollisionShape) == 64, "LCollisionShape layout changed");
 static_assert(std::is_trivially_copyable_v<LCollisionShape>, "must be blittable");
 
+struct LCollisionPart
+{
+    uint32_t type = (uint32_t)CollisionType::MESH;
+    uint32_t vertex_first = 0;
+    uint32_t vertex_count = 0;
+    uint32_t index_first = 0;
+    uint32_t index_count = 0;
+
+    CollisionType kind() const { return (CollisionType)type; }
+};
+
+static_assert(sizeof(LCollisionPart) == 20, "LCollisionPart layout changed");
+static_assert(std::is_trivially_copyable_v<LCollisionPart>, "must be blittable");
+
 struct LCollision
 {
     Guid guid;
@@ -69,8 +83,10 @@ struct LCollision
     float radius = 0.0f;
     float half_height = 0.0f;
     std::vector<LCollisionShape> shapes;
+    std::vector<LCollisionPart> parts;
 
     uint32_t triangle_count() const { return (uint32_t)(indices.size() / 3); }
+    bool has_triangle_mesh() const;
     bool primitive() const { return type == CollisionType::BOX || type == CollisionType::SPHERE || type == CollisionType::CAPSULE; }
 
     std::vector<uint8_t> to_payload() const;

@@ -5,6 +5,7 @@
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
 #include <core/game/character_system.h>
+#include <core/game/orbit_camera_system.h>
 #include <drivers/windows/cursor_lock_win32.h>
 #include <filesystem>
 #include <string>
@@ -27,6 +28,7 @@ struct GameApplication : Application
     GameSession session;
     PhysicsSystem physics_system;
     CharacterSystem character_system;
+    OrbitCameraSystem orbit_camera_system;
     drivers::CursorLockWin32 cursor_lock;
     bool mouse_captured = false;
     bool mouse_released = false;

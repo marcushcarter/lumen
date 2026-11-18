@@ -13,6 +13,10 @@ namespace lumen {
 
 struct EditorContext;
 
+inline constexpr float COLLISION_DEFAULT_ERROR = 0.02f;
+inline constexpr float COLLISION_DEFAULT_MIN_FEATURE = 0.15f;
+inline constexpr int32_t COLLISION_ALL_SLOTS = -1;
+
 struct CollisionShapeSettings
 {
     std::string name;
@@ -23,14 +27,19 @@ struct CollisionShapeSettings
     float radius = 0.5f;
     float half_height = 0.5f;
     float top_radius = 0.25f;
+    int32_t slot = COLLISION_ALL_SLOTS;
+    float error = COLLISION_DEFAULT_ERROR;
+    float min_feature = COLLISION_DEFAULT_MIN_FEATURE;
+    bool exclude_masked = true;
 
+    bool generated() const { return type == CollisionType::MESH || type == CollisionType::HULL; }
     bool operator==(const CollisionShapeSettings&) const = default;
 };
 
 struct CollisionSettings
 {
-    static constexpr float DEFAULT_ERROR = 0.02f;
-    static constexpr float DEFAULT_MIN_FEATURE = 0.15f;
+    static constexpr float DEFAULT_ERROR = COLLISION_DEFAULT_ERROR;
+    static constexpr float DEFAULT_MIN_FEATURE = COLLISION_DEFAULT_MIN_FEATURE;
 
     CollisionType type = CollisionType::MESH;
     float error = DEFAULT_ERROR;
@@ -41,6 +50,10 @@ struct CollisionSettings
     bool operator==(const CollisionSettings&) const = default;
 };
 
+CollisionSettings collision_settings_upgrade(const CollisionSettings& p_settings);
+bool collision_settings_empty(const CollisionSettings& p_settings);
+bool collision_settings_generated(const CollisionSettings& p_settings);
+CollisionShapeSettings collision_generated_shape(CollisionType p_type, int32_t p_slot);
 void collision_settings_read(const toml::table& p_import, CollisionSettings& r_settings);
 void collision_settings_write(toml::table& r_import, const CollisionSettings& p_settings);
 LCollisionShape collision_shape_cook(const CollisionShapeSettings& p_shape);
@@ -51,7 +64,8 @@ struct CollisionCooker
     static constexpr int MAX_HULL_VERTICES = 256;
     static constexpr float MIN_PRIMITIVE_SIZE = 0.001f;
 
-    static bool build(const aiScene* p_scene, const CollisionSettings& p_settings, const glm::mat4& p_import, LCollision& r_collision);
+    static bool build(const aiScene* p_scene, const CollisionSettings& p_settings, const glm::mat4& p_import, LCollision& r_collision, const std::vector<uint32_t>& p_skip_slots = {});
+    static std::vector<uint32_t> cloth_slots(const std::filesystem::path& p_lmesh);
     static bool has_collision(const std::filesystem::path& p_lmesh);
     static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings);
     static Error write_shapes(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings);

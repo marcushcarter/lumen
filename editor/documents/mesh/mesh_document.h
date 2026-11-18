@@ -38,6 +38,7 @@ struct MeshDocument : AssetDocument
     std::vector<SkeletonChain> chains;
     std::vector<SkeletonCloth> cloths;
     int32_t selected_bone = -1;
+    int32_t selected_slot = -1;
     uint64_t _dynamics_version = 0;
     CharacterDynamics _sim;
     bool _simulating = false;
@@ -56,9 +57,11 @@ struct MeshDocument : AssetDocument
     void _edit_selected_shape(EditorContext& ctx);
 
     bool shapes_mode() const { return collision.edit.type == CollisionType::SHAPES; }
-    bool shapes_dirty() const { return shapes_mode() && (!(collision.edit == collision.settings) || (!collision.edit.shapes.empty() && !collision.has)); }
+    bool shapes_dirty() const { return shapes_mode() && (!(collision.edit == collision.settings) || collision.has == collision.edit.shapes.empty()); }
     void fit_shape(CollisionShapeSettings& r_shape) const;
     void add_shape(CollisionType p_type);
+    bool source_used(CollisionType p_type, int32_t p_slot, int32_t p_except = -1) const;
+    int32_t free_source(CollisionType p_type) const;
     void _frame(EditorContext& ctx);
 
     bool dynamics_dirty() const { return rig_preview.skinned && (chains != rig_preview.skeleton_data().chains || cloths != rig_preview.skeleton_data().cloths); }

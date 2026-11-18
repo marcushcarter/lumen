@@ -16,6 +16,7 @@ const char* collision_type_name(CollisionType p_type)
         case CollisionType::TAPERED_CYLINDER: return "tapered_cylinder";
         case CollisionType::TAPERED_CAPSULE: return "tapered_capsule";
         case CollisionType::WEDGE: return "wedge";
+        case CollisionType::NONE: return "none";
         default: return "mesh";
     }
 }
@@ -33,6 +34,7 @@ const char* collision_type_label(CollisionType p_type)
         case CollisionType::TAPERED_CYLINDER: return "Tapered Cylinder";
         case CollisionType::TAPERED_CAPSULE: return "Tapered Capsule";
         case CollisionType::WEDGE: return "Wedge";
+        case CollisionType::NONE: return "None";
         default: return "Triangle Mesh";
     }
 }
@@ -61,6 +63,15 @@ CollisionType collision_type_from_name(const std::string& p_name, CollisionType 
     return p_fallback;
 }
 
+bool LCollision::has_triangle_mesh() const
+{
+    if (type == CollisionType::MESH) return true;
+    for (const LCollisionPart& part : parts) {
+        if (part.kind() == CollisionType::MESH) return true;
+    }
+    return false;
+}
+
 Error LCollision::from_payload(const uint8_t* p_data, size_t p_size)
 {
     using enum Error;
@@ -73,13 +84,21 @@ Error LCollision::from_payload(const uint8_t* p_data, size_t p_size)
     if (ph.type >= (uint32_t)CollisionType::COUNT) return FAILED;
     size_t shape_bytes = 0;
     uint32_t shape_count = 0;
+    size_t part_bytes = 0;
+    uint32_t part_count = 0;
     const size_t base = sizeof(ph) + vertex_bytes + index_bytes;
     if (ph.type == (uint32_t)CollisionType::SHAPES) {
         if (p_size < base + sizeof(uint32_t)) return FAILED;
         std::memcpy(&shape_count, p_data + base, sizeof(uint32_t));
+        if (shape_count > (1u << 16)) return FAILED;
         shape_bytes = sizeof(uint32_t) + (size_t)shape_count * sizeof(LCollisionShape);
+        if (p_size >= base + shape_bytes + sizeof(uint32_t)) {
+            std::memcpy(&part_count, p_data + base + shape_bytes, sizeof(uint32_t));
+            if (part_count > (1u << 16)) return FAILED;
+            part_bytes = sizeof(uint32_t) + (size_t)part_count * sizeof(LCollisionPart);
+        }
     }
-    if (p_size != base + shape_bytes) return FAILED;
+    if (p_size != base + shape_bytes + part_bytes) return FAILED;
 
     const Guid keep = guid;
     *this = LCollision{};
@@ -106,6 +125,15 @@ Error LCollision::from_payload(const uint8_t* p_data, size_t p_size)
     for (const LCollisionShape& shape : shapes) {
         if (!collision_type_shape(shape.kind())) return FAILED;
     }
+    parts.resize(part_count);
+    if (part_count) std::memcpy(parts.data(), p_data + base + shape_bytes + sizeof(uint32_t), (size_t)part_count * sizeof(LCollisionPart));
+    for (const LCollisionPart& part : parts) {
+        if (part.kind() != CollisionType::MESH && part.kind() != CollisionType::HULL) return FAILED;
+        if ((uint64_t)part.vertex_first + part.vertex_count > vertices.size() || (uint64_t)part.index_first + part.index_count > indices.size()) return FAILED;
+        for (uint32_t i = part.index_first; i < part.index_first + part.index_count; i++) {
+            if (indices[i] < part.vertex_first || indices[i] >= part.vertex_first + part.vertex_count) return FAILED;
+        }
+    }
     return OK;
 }
 
@@ -127,14 +155,21 @@ std::vector<uint8_t> LCollision::to_payload() const
     const size_t base = sizeof(ph) + vertex_bytes + index_bytes;
     const bool has_shapes = type == CollisionType::SHAPES;
     const uint32_t shape_count = has_shapes ? (uint32_t)shapes.size() : 0u;
+    const uint32_t part_count = has_shapes ? (uint32_t)parts.size() : 0u;
     const size_t shape_bytes = has_shapes ? sizeof(uint32_t) + (size_t)shape_count * sizeof(LCollisionShape) : 0;
-    std::vector<uint8_t> payload(base + shape_bytes);
+    const size_t part_bytes = part_count ? sizeof(uint32_t) + (size_t)part_count * sizeof(LCollisionPart) : 0;
+    std::vector<uint8_t> payload(base + shape_bytes + part_bytes);
     std::memcpy(payload.data(), &ph, sizeof(ph));
     if (vertex_bytes) std::memcpy(payload.data() + sizeof(ph), vertices.data(), vertex_bytes);
     if (index_bytes) std::memcpy(payload.data() + sizeof(ph) + vertex_bytes, indices.data(), index_bytes);
     if (has_shapes) {
         std::memcpy(payload.data() + base, &shape_count, sizeof(uint32_t));
         if (shape_count) std::memcpy(payload.data() + base + sizeof(uint32_t), shapes.data(), (size_t)shape_count * sizeof(LCollisionShape));
+    }
+    if (part_count) {
+        uint8_t* p = payload.data() + base + shape_bytes;
+        std::memcpy(p, &part_count, sizeof(uint32_t));
+        std::memcpy(p + sizeof(uint32_t), parts.data(), (size_t)part_count * sizeof(LCollisionPart));
     }
     return payload;
 }

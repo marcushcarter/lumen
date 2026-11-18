@@ -13,7 +13,6 @@ struct EditorContext;
 enum class ImportKind : uint8_t { NONE, TEXTURE, MODEL, MESH, ANIMATION };
 
 ImportKind import_kind(const std::filesystem::path& p_src);
-void collision_settings_fields(CollisionSettings& r_settings);
 
 struct ImportDialog
 {
@@ -46,7 +45,6 @@ struct ImportDialog
     void _draw_import_as(Pending& r_pending);
     void _draw_texture(TextureCooker::CookSettings& r_settings);
     void _apply_to_rest(const Pending& p_pending);
-    void _draw_collision(CollisionSettings& r_settings);
     void _draw_footer(EditorContext& ctx, Pending& r_pending);
     void _start(EditorContext& ctx, Pending& r_pending);
     void _next();

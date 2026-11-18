@@ -31,10 +31,8 @@ Error MeshDocument::create(EditorContext& ctx)
     _create_layout();
     layout.add_panel<MeshDetailsPanel>()->tab = this;
     viewport.debug_lines = [this](DebugDraw& r_draw) {
-        if (!rig_preview.skinned) {
-            _draw_collision(r_draw);
-            return;
-        }
+        _draw_collision(r_draw);
+        if (!rig_preview.skinned) return;
         _draw_bones(r_draw);
         if (_simulating) _sim.draw(r_draw, true, true);
     };
@@ -60,6 +58,9 @@ Error MeshDocument::save(EditorContext& ctx)
     }
     if (dynamics_dirty()) {
         const bool rebake = cloth_rebake();
+        const std::vector<SkeletonCloth>& saved = rig_preview.skeleton_data().cloths;
+        bool slots_changed = saved.size() != cloths.size();
+        for (size_t i = 0; !slots_changed && i < cloths.size(); i++) slots_changed = saved[i].slot != cloths[i].slot;
         LSkeleton skeleton = rig_preview.skeleton_data();
         skeleton.chains = chains;
         skeleton.cloths = cloths;
@@ -75,6 +76,10 @@ Error MeshDocument::save(EditorContext& ctx)
         }
         rig_preview.invalidate();
         _sim = {};
+        if (slots_changed && collision_settings_generated(collision.settings)) {
+            CollisionCooker::reimport(ctx, path, collision.settings);
+            _collision_poll = -1.0e9;
+        }
     }
     _refresh_title();
     return OK;
@@ -159,7 +164,9 @@ void MeshDocument::_refresh_collision(EditorContext& ctx)
         }
     }
 
-    CollisionSettings current = saved.collision;
+    CollisionSettings legacy = saved.collision;
+    if (!collision.has && legacy.type != CollisionType::SHAPES) legacy.type = CollisionType::NONE;
+    CollisionSettings current = collision_settings_upgrade(legacy);
     if (collision.loaded && collision.data.primitive() && current.type == collision.data.type) {
         current.type = CollisionType::SHAPES;
         current.shapes = { collision_shape_from(collision.data) };
@@ -206,19 +213,44 @@ void MeshDocument::fit_shape(CollisionShapeSettings& r_shape) const
     }
 }
 
+bool MeshDocument::source_used(CollisionType p_type, int32_t p_slot, int32_t p_except) const
+{
+    for (int32_t i = 0; i < (int32_t)collision.edit.shapes.size(); i++) {
+        const CollisionShapeSettings& s = collision.edit.shapes[i];
+        if (i != p_except && s.type == p_type && s.slot == p_slot) return true;
+    }
+    return false;
+}
+
+int32_t MeshDocument::free_source(CollisionType p_type) const
+{
+    if (!source_used(p_type, COLLISION_ALL_SLOTS)) return COLLISION_ALL_SLOTS;
+    for (int32_t s = 0; s < (int32_t)mesh_stats.slots; s++) {
+        if (!source_used(p_type, s)) return s;
+    }
+    return INT32_MIN;
+}
+
 void MeshDocument::add_shape(CollisionType p_type)
 {
     CollisionShapeSettings s;
-    s.type = p_type;
-    s.name = collision_type_label(p_type);
-    fit_shape(s);
+    if (p_type == CollisionType::MESH || p_type == CollisionType::HULL) {
+        const int32_t slot = free_source(p_type);
+        if (slot == INT32_MIN) return;
+        s = collision_generated_shape(p_type, slot);
+    } else {
+        s.type = p_type;
+        s.name = collision_type_label(p_type);
+        fit_shape(s);
+    }
+    collision.edit.type = CollisionType::SHAPES;
     collision.edit.shapes.push_back(std::move(s));
     selected_shape = (int32_t)collision.edit.shapes.size() - 1;
 }
 
 void MeshDocument::_edit_selected_shape(EditorContext& ctx)
 {
-    if (!shapes_mode() || selected_shape < 0 || selected_shape >= (int32_t)collision.edit.shapes.size() || locked(ctx)) {
+    if (!shapes_mode() || selected_shape < 0 || selected_shape >= (int32_t)collision.edit.shapes.size() || collision.edit.shapes[selected_shape].generated() || locked(ctx)) {
         viewport.shape_gizmo.reset();
         return;
     }
@@ -231,13 +263,27 @@ void MeshDocument::_edit_selected_shape(EditorContext& ctx)
 void MeshDocument::_draw_collision(DebugDraw& r_draw) const
 {
     const DebugDraw::Style style{ .color = DebugDraw::GREEN, .category = DebugCategory::COLLISION };
-    if (shapes_mode()) {
-        const DebugDraw::Style selected{ .color = DebugDraw::YELLOW, .category = DebugCategory::COLLISION };
-        for (size_t i = 0; i < collision.edit.shapes.size(); i++) debug_draw_lcollision_shape(r_draw, mat4(1.0f), collision_shape_cook(collision.edit.shapes[i]), (int32_t)i == selected_shape ? selected : style);
-        return;
+    const DebugDraw::Style selected{ .color = DebugDraw::YELLOW, .category = DebugCategory::COLLISION };
+    const std::vector<CollisionShapeSettings>& shapes = collision.edit.shapes;
+    if (collision.loaded) {
+        const LCollision& d = collision.data;
+        int32_t generated = 0, selected_part = -1;
+        for (int32_t i = 0; i < (int32_t)shapes.size(); i++) {
+            if (!shapes[i].generated()) continue;
+            if (i == selected_shape) selected_part = generated;
+            generated++;
+        }
+        const LCollisionPart* part = selected_part >= 0 && generated == (int32_t)d.parts.size() && !shapes_dirty() ? &d.parts[selected_part] : nullptr;
+        for (size_t i = 0; i + 1 < collision.edges.size(); i += 2) {
+            const uint32_t a = collision.edges[i], b = collision.edges[i + 1];
+            const bool hot = part && a >= part->vertex_first && a < part->vertex_first + part->vertex_count;
+            r_draw.line(d.vertices[a], d.vertices[b], hot ? selected : style);
+        }
     }
-    if (!collision.loaded) return;
-    debug_draw_lcollision(r_draw, mat4(1.0f), collision.data, collision.edges, style, true);
+    for (size_t i = 0; i < shapes.size(); i++) {
+        if (shapes[i].generated()) continue;
+        debug_draw_lcollision_shape(r_draw, mat4(1.0f), collision_shape_cook(shapes[i]), (int32_t)i == selected_shape ? selected : style);
+    }
 }
 
 void MeshDocument::_sync_dynamics()
@@ -254,7 +300,7 @@ bool MeshDocument::cloth_rebake() const
     const std::vector<SkeletonCloth>& saved = rig_preview.skeleton_data().cloths;
     if (saved.size() != cloths.size()) return true;
     for (size_t i = 0; i < cloths.size(); i++) {
-        if (saved[i].root != cloths[i].root || saved[i].resolution != cloths[i].resolution) return true;
+        if (saved[i].slot != cloths[i].slot || saved[i].resolution != cloths[i].resolution) return true;
     }
     return false;
 }
@@ -267,7 +313,7 @@ void MeshDocument::push_dynamics(EditorContext& ctx)
     LSkeleton& live = it->second.skeleton;
     bool topology = live.chains.size() != chains.size() || live.cloths.size() != cloths.size();
     for (size_t i = 0; !topology && i < chains.size(); i++) topology = live.chains[i].root != chains[i].root;
-    for (size_t i = 0; !topology && i < cloths.size(); i++) topology = live.cloths[i].root != cloths[i].root;
+    for (size_t i = 0; !topology && i < cloths.size(); i++) topology = live.cloths[i].slot != cloths[i].slot;
     live.chains = chains;
     live.cloths = cloths;
     if (topology) ctx.renderer->skeletons.version++;
@@ -278,8 +324,7 @@ void MeshDocument::_pick_bone(EditorContext& ctx)
     if (!viewport.picked || !rig_preview.skinned || rig_preview._global.empty() || locked(ctx)) return;
     std::vector<vec3> joints(rig_preview._global.size());
     for (size_t i = 0; i < joints.size(); i++) joints[i] = vec3(rig_preview._global[i][3]);
-    selected_bone = viewport.pick_point(ctx, joints.data(), joints.size(), BONE_PICK_PX);
-}
+    selected_bone = viewport.pick_point(ctx, joints.data(), joints.size(), BONE_PICK_PX);}
 
 void MeshDocument::_draw_bones(DebugDraw& r_draw) const
 {
@@ -294,7 +339,6 @@ void MeshDocument::_draw_bones(DebugDraw& r_draw) const
         }
     };
     for (const SkeletonChain& c : chains) mark(c.root);
-    for (const SkeletonCloth& c : cloths) mark(c.root);
     if (selected_bone >= 0 && selected_bone < (int32_t)weights.size()) weights[selected_bone] = 1.0f;
     rig_preview.draw_bones(r_draw, weights.data());
 }
@@ -316,13 +360,13 @@ void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physic
     skeleton.cloths = cloths;
     uint64_t key = rig_preview.version;
     for (const SkeletonChain& c : chains) key = hash_combine(key, (uint64_t)c.root);
-    for (const SkeletonCloth& c : cloths) key = hash_combine(key, (uint64_t)c.root ^ 0x9e3779b97f4a7c15ull);
+    for (const SkeletonCloth& c : cloths) key = hash_combine(key, (uint64_t)c.slot ^ 0x9e3779b97f4a7c15ull);
     const mat4 model(1.0f);
     std::vector<JointTransform> local = skeleton.rest;
     std::vector<mat4>& global = rig_preview._global;
     skeleton.globals(local.data(), global.data());
     static const LLocomotion DEFAULT_BODY;
-    _sim.bind(key, skeleton, rig_preview.rig, rig_preview._map, DEFAULT_BODY);
+    _sim.bind(key, skeleton, rig_preview.rig, DEFAULT_BODY);
     _sim.update_colliders(global, model, 0.0f);
     if (p_physics.chains) _sim.simulate_chains(skeleton, model, p_dt, p_physics.gravity, local.data(), global);
     else _sim.follow_chains(model, global);

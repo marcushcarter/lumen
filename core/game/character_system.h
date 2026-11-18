@@ -73,21 +73,6 @@ struct CharacterSystem : GameSystem
     static constexpr float TEST_HIT_HEIGHT = 0.7f;
     static constexpr float TEST_HIT_LOW_HEIGHT = 0.2f;
 
-    static constexpr float CAMERA_DISTANCE = 3.0f;
-    static constexpr float CAMERA_AIM_DISTANCE = 1.6f;
-    static constexpr float CAMERA_SHOULDER = 0.35f;
-    static constexpr float CAMERA_AIM_SHOULDER = 0.55f;
-    static constexpr float CAMERA_PIVOT_HEIGHT = 0.9f;
-    static constexpr float CAMERA_RADIUS = 0.2f;
-    static constexpr float CAMERA_FOLLOW = 15.0f;
-    static constexpr float CAMERA_FOLLOW_VERTICAL = 8.0f;
-    static constexpr float CAMERA_SPRINT_FOV = 5.0f;
-    static constexpr float CAMERA_FOV_INTERP = 4.0f;
-    static constexpr float CAMERA_ZOOM = 8.0f;
-    static constexpr float CAMERA_PITCH_MIN = -70.0f;
-    static constexpr float CAMERA_PITCH_MAX = 60.0f;
-    static constexpr float CAMERA_START_PITCH = -10.0f;
-
     PhysicsSystem* physics = nullptr;
     AnimLibrary* anims = nullptr;
 
@@ -97,14 +82,6 @@ struct CharacterSystem : GameSystem
     bool _debug = false;
     float _gravity = 9.81f;
     Entity player = ENTITY_NULL;
-    bool camera_ready = false;
-    float camera_yaw = 0.0f;
-    float camera_pitch = CAMERA_START_PITCH;
-    vec3 camera_pivot = vec3(0.0f);
-    float camera_distance = CAMERA_DISTANCE;
-    float camera_shoulder = CAMERA_SHOULDER;
-    float camera_base_fov = 0.0f;
-    float camera_fov = 0.0f;
 
     std::vector<Entity> _entities;
     mutable uint32_t _seed = 0x9E3779B9u;
@@ -139,7 +116,6 @@ struct CharacterSystem : GameSystem
     void _update_ragdoll(Character& r_character, const LLocomotion& p_asset, bool p_toggle, bool p_wants_up, float p_dt) const;
     void _end_ragdoll(Character& r_character, const LLocomotion& p_asset) const;
     void _draw_ragdoll(const Character& p_character) const;
-    void _update_camera(GameSession& r_session, const Character& p_character, const LocomotionComponent& p_body, float p_dt);
 };
 
 }

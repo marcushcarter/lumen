@@ -12,7 +12,8 @@ Error EditorPlay::initialize()
     Error err = runtime.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     character_system.physics = &physics_system;
-    session.systems = { &physics_system, &character_system };
+    orbit_camera_system.physics = &physics_system;
+    session.systems = { &physics_system, &orbit_camera_system, &character_system, &orbit_camera_system.late };
     return runtime.load();
 }
 

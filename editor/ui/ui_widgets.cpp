@@ -337,12 +337,11 @@ SplitterState ui_splitter(const char* p_id, SplitAxis p_axis, ImVec2 p_size, flo
     return s;
 }
 
-bool ui_property_grid_begin(const char* p_id, float p_label_ratio)
+bool ui_property_grid_begin(const char* p_id, int p_columns)
 {
-    if (p_label_ratio < 0.0f) p_label_ratio = ui_style().property.label_ratio;
-    if (!ImGui::BeginTable(p_id, 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings)) return false;
-    ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthStretch, p_label_ratio);
-    ImGui::TableSetupColumn("##value", ImGuiTableColumnFlags_WidthStretch, 1.0f - p_label_ratio);
+    p_columns = ImMax(p_columns, 2);
+    if (!ImGui::BeginTable(p_id, p_columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) return false;
+    for (int i = 0; i < p_columns; i++) ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
     return true;
 }
 
@@ -411,6 +410,11 @@ static void _panel_grip(ImDrawList* p_dl, ImVec2 p_right_center, ImU32 p_color)
             p_dl->AddRectFilled(c, ImVec2(c.x + pb.grip_dot, c.y + pb.grip_dot), p_color);
         }
     }
+}
+
+float ui_category_inset()
+{
+    return ui_style().panel_box.margin_x + ui_style().space.lg;
 }
 
 void ui_category_flush()
@@ -517,8 +521,8 @@ bool ui_category(const char* p_label, bool* r_remove, bool* r_revert)
     op.x0 = min_x;
     op.x1 = max_x;
     op.y0 = y1;
-    op.inset_left = pb.margin_x + ui.space.lg;
-    op.inset_right = pb.margin_x + ui.space.lg;
+    op.inset_left = ui_category_inset();
+    op.inset_right = ui_category_inset();
     op.active = true;
     op.splitter.Split(dl, 2);
     op.splitter.SetCurrentChannel(dl, 1);
@@ -602,6 +606,101 @@ bool ui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p
 bool ui_drag_float3_axes(const char* p_label, float* r_values, float p_speed, const char* p_format)
 {
     return ui_drag_axes(p_label, ImGuiDataType_Float, r_values, 3, p_speed, nullptr, nullptr, p_format);
+}
+
+bool ui_list_item(const char* p_id, const char* p_icon, const char* p_label, const char* p_summary, bool p_open, bool* r_remove, bool* r_revert)
+{
+    const UiStyle& ui = ui_style();
+    if (r_remove) *r_remove = false;
+    if (r_revert) *r_revert = false;
+    ImGui::PushID(p_id);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = ui.base.frame_rounding;
+    const float h = ImGui::GetFrameHeight();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1(p0.x + ImMax(1.0f, ImGui::GetContentRegionAvail().x), p0.y + h);
+    const float buttons = (r_remove ? h : 0.0f) + (r_revert ? h : 0.0f);
+    const float remove_x = p1.x - buttons;
+
+    const bool clicked = ImGui::InvisibleButton("##row", ImVec2(ImMax(1.0f, remove_x - p0.x), h));
+    const bool hovered = ImGui::IsItemHovered();
+    const ImU32 fill = p_open ? ui.color.list_selected : hovered ? ui.color.list_hover : ui.color.field;
+    dl->AddRectFilled(p0, p1, fill, rounding, p_open ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
+    if (p_open) dl->AddRectFilled(p0, ImVec2(p0.x + ui.space.xxs, p1.y), ui.color.accent, rounding, ImDrawFlags_RoundCornersTopLeft);
+
+    const float font = ImGui::GetFontSize();
+    const float chev = ImFloor(font * 0.45f);
+    const float cy = ImFloor(p0.y + h * 0.5f);
+    ui_chevron(dl, ImVec2(ImFloor(p0.x + ui.space.lg + chev * 0.5f) + 0.5f, cy + 0.5f), chev, p_open ? ImGuiDir_Down : ImGuiDir_Right, ui.color.text_dim, ui.stroke.thin);
+    const float text_y = ImFloor(p0.y + (h - font) * 0.5f);
+    float x = p0.x + ui.space.lg + chev + ui.space.lg;
+    if (p_icon) {
+        dl->AddText(ImVec2(x, text_y), p_open ? ui.color.accent : ui.color.text_dim, p_icon);
+        x += ImGui::CalcTextSize(p_icon).x + ui.space.md;
+    }
+    const float summary_w = p_summary ? ImGui::CalcTextSize(p_summary).x : 0.0f;
+    const float summary_x = remove_x - ui.space.md - summary_w;
+    const bool show_summary = summary_w > 0.0f && summary_x > x + font * 3.0f;
+    const float label_max = show_summary ? summary_x - ui.space.lg : remove_x - ui.space.md;
+    dl->PushClipRect(ImVec2(x, p0.y), ImVec2(ImMax(x, label_max), p1.y), true);
+    dl->AddText(ImVec2(x, text_y), ui.color.text, p_label);
+    dl->PopClipRect();
+    if (show_summary) dl->AddText(ImVec2(summary_x, text_y), ui.color.text_dim, p_summary);
+
+    if (r_revert) {
+        ImGui::SetCursorScreenPos(ImVec2(remove_x, p0.y));
+        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
+        ImGui::PushStyleColor(ImGuiCol_Border, ui.color.transparent);
+        *r_revert = ImGui::Button(ICON_FA_ROTATE_LEFT "##revert", ImVec2(h, h));
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Revert to the template's value");
+    }
+    if (r_remove) {
+        ImGui::SetCursorScreenPos(ImVec2(p1.x - h, p0.y));
+        ImGui::PushStyleColor(ImGuiCol_Button, ui.color.transparent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.danger_soft);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui.color.danger_soft_active);
+        ImGui::PushStyleColor(ImGuiCol_Border, ui.color.transparent);
+        *r_remove = ImGui::Button(ICON_FA_XMARK "##remove", ImVec2(h, h));
+        ImGui::PopStyleColor(4);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Remove");
+    }
+    ImGui::SetCursorScreenPos(ImVec2(p0.x, p1.y));
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    ImGui::PopID();
+    return clicked;
+}
+
+static ImVec2 g_list_body = ImVec2(0.0f, 0.0f);
+
+void ui_list_body_begin()
+{
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    g_list_body = ImVec2(at.x, at.y - ImGui::GetStyle().ItemSpacing.y);
+    ImGui::Dummy(ImVec2(0.0f, ui_style().space.xs));
+    ImGui::Indent(ui_style().space.xl);
+}
+
+void ui_list_body_end()
+{
+    const UiStyle& ui = ui_style();
+    ImGui::Unindent(ui.space.xl);
+    const float y1 = ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y + ui.space.sm;
+    ImGui::GetWindowDrawList()->AddRectFilled(g_list_body, ImVec2(g_list_body.x + ui.space.xxs, y1), ui.color.accent, ui.base.frame_rounding, ImDrawFlags_RoundCornersBottomLeft);
+    ImGui::Dummy(ImVec2(0.0f, ui.space.md));
+}
+
+bool ui_list_add_begin(const char* p_id, const char* p_label)
+{
+    char preview[128];
+    std::snprintf(preview, sizeof(preview), ICON_FA_PLUS "  %s", p_label);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    return ImGui::BeginCombo(p_id, preview, ImGuiComboFlags_NoArrowButton);
+}
+
+void ui_list_add_end()
+{
+    ImGui::EndCombo();
 }
 
 }

@@ -45,9 +45,34 @@ static JPH::RefConst<JPH::Shape> _place(JPH::RefConst<JPH::Shape> p_shape, const
     return _result(settings.Create(), "placed");
 }
 
+static JPH::RefConst<JPH::Shape> _build_part(const LCollision& p_collision, const LCollisionPart& p_part)
+{
+    if (p_part.kind() == CollisionType::HULL) {
+        JPH::Array<JPH::Vec3> points;
+        points.reserve(p_part.vertex_count);
+        for (uint32_t v = p_part.vertex_first; v < p_part.vertex_first + p_part.vertex_count; v++) points.push_back(jolt::to_jph(p_collision.vertices[v]));
+        JPH::ConvexHullShapeSettings settings(points);
+        return _result(settings.Create(), "hull part");
+    }
+    JPH::VertexList vertices;
+    vertices.reserve(p_part.vertex_count);
+    for (uint32_t v = p_part.vertex_first; v < p_part.vertex_first + p_part.vertex_count; v++) {
+        const vec3& p = p_collision.vertices[v];
+        vertices.push_back(JPH::Float3(p.x, p.y, p.z));
+    }
+    JPH::IndexedTriangleList triangles;
+    triangles.reserve(p_part.index_count / 3);
+    for (uint32_t i = p_part.index_first; i + 2 < p_part.index_first + p_part.index_count; i += 3) {
+        triangles.push_back(JPH::IndexedTriangle(p_collision.indices[i] - p_part.vertex_first, p_collision.indices[i + 1] - p_part.vertex_first, p_collision.indices[i + 2] - p_part.vertex_first));
+    }
+    JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+    return _result(settings.Create(), "mesh part");
+}
+
 static JPH::RefConst<JPH::Shape> _build_shapes(const LCollision& p_collision)
 {
     JPH::StaticCompoundShapeSettings compound;
+    JPH::RefConst<JPH::Shape> only;
     uint32_t added = 0;
     for (const LCollisionShape& s : p_collision.shapes) {
         JPH::RefConst<JPH::Shape> shape = jolt::primitive_shape(physics_shape(s));
@@ -55,7 +80,15 @@ static JPH::RefConst<JPH::Shape> _build_shapes(const LCollision& p_collision)
         compound.AddShape(jolt::to_jph(vec3(s.center)), jolt::to_jph(normalize(s.orientation())), shape);
         added++;
     }
+    for (const LCollisionPart& part : p_collision.parts) {
+        JPH::RefConst<JPH::Shape> shape = _build_part(p_collision, part);
+        if (!shape) continue;
+        compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), shape);
+        only = shape;
+        added++;
+    }
     if (added == 0) return nullptr;
+    if (added == 1 && only) return only;
     return _result(compound.Create(), "compound");
 }
 
@@ -115,7 +148,7 @@ bool CollisionCache::add(const LCollision& p_collision)
 {
     JPH::RefConst<JPH::Shape> shape = _build(p_collision);
     if (!shape) return false;
-    impl->entries[p_collision.guid] = { shape, p_collision.type };
+    impl->entries[p_collision.guid] = { shape, p_collision.has_triangle_mesh() ? CollisionType::MESH : p_collision.type };
     version++;
     return true;
 }

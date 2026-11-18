@@ -51,9 +51,11 @@ struct SkeletonChain
     bool operator==(const SkeletonChain&) const = default;
 };
 
+inline constexpr uint32_t SKELETON_CLOTH_NO_SLOT = 0xFFFFFFFFu;
+
 struct SkeletonCloth
 {
-    int32_t root = SKELETON_NO_JOINT;
+    uint32_t slot = SKELETON_CLOTH_NO_SLOT;
     uint32_t resolution = 64;
     float stretch = 1.0f;
     float bend = 0.3f;
@@ -67,7 +69,9 @@ struct SkeletonCloth
 
 static_assert(std::is_trivially_copyable_v<SkeletonChain> && std::is_trivially_copyable_v<SkeletonCloth>, "must be blittable");
 
-inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC = 0x324E5944u;
+inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC = 0x344E5944u;
+inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC_V3 = 0x334E5944u;
+inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC_V2 = 0x324E5944u;
 
 struct LSkeletonDynamicsHeader
 {

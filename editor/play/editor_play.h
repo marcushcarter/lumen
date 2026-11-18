@@ -2,6 +2,7 @@
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
 #include <core/game/character_system.h>
+#include <core/game/orbit_camera_system.h>
 #include <core/scene/scene.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>
@@ -17,6 +18,7 @@ struct EditorPlay
     GameSession session;
     PhysicsSystem physics_system;
     CharacterSystem character_system;
+    OrbitCameraSystem orbit_camera_system;
     Guid scene_guid;
     EnvironmentSettings _environment;
     TerrainSettings _terrain;

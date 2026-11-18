@@ -558,7 +558,7 @@ void Viewport::draw_options_menu(EditorContext& ctx)
         float internal = ctx.renderer->main_view.render_scale * 100.0f;
         if (ImGui::SliderFloat("Internal Resolution", &internal, RenderView::MIN_RENDER_SCALE * 100.0f, RenderView::MAX_RENDER_SCALE * 100.0f, "%.0f%%")) ctx.renderer->main_view.render_scale = internal / 100.0f;
         float lod_bias = ctx.renderer->main_view.lod_bias * 100.0f;
-        if (ImGui::SliderFloat("LOD Bias", &lod_bias, 25.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
+        if (ImGui::SliderFloat("LOD Bias", &lod_bias, 0.0f, 400.0f, "%.0f%%")) ctx.renderer->main_view.lod_bias = lod_bias / 100.0f;
         ImGui::PopItemWidth();
         ImGui::EndPopup();
     }

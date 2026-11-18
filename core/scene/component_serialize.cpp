@@ -32,6 +32,19 @@ void serialize(Archive& a, LocomotionComponent& r_c)
     a.field("max_slope", r_c.max_slope);
 }
 
+void serialize(Archive& a, OrbitCameraComponent& r_c)
+{
+    a.field("distance", r_c.distance);
+    a.field("aim_distance", r_c.aim_distance);
+    a.field("shoulder", r_c.shoulder);
+    a.field("aim_shoulder", r_c.aim_shoulder);
+    a.field("pivot_height", r_c.pivot_height);
+    a.field("radius", r_c.radius);
+    a.field("pitch_min", r_c.pitch_min);
+    a.field("pitch_max", r_c.pitch_max);
+    a.field("sprint_fov", r_c.sprint_fov);
+}
+
 void serialize(Archive& a, CollisionComponent& r_c)
 {
     static constexpr uint32_t LEGACY_MODEL_SHAPE = 3;

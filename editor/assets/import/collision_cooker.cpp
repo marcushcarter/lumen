@@ -2,6 +2,7 @@
 #include <Jolt/Geometry/ConvexHullBuilder.h>
 #include <editor/assets/import/collision_cooker.h>
 #include <editor/assets/import/model_cooker.h>
+#include <editor/assets/import/skeleton_cooker.h>
 #include <editor/application/editor_context.h>
 #include <core/assets/asset_common.h>
 #include <core/base/jobs.h>
@@ -292,6 +293,41 @@ static toml::array _vec3(vec3 p_v)
     return toml::array{ (double)p_v.x, (double)p_v.y, (double)p_v.z };
 }
 
+CollisionShapeSettings collision_generated_shape(CollisionType p_type, int32_t p_slot)
+{
+    CollisionShapeSettings s;
+    s.type = p_type;
+    s.slot = p_slot;
+    s.name = collision_type_label(p_type);
+    return s;
+}
+
+CollisionSettings collision_settings_upgrade(const CollisionSettings& p_settings)
+{
+    if (p_settings.type != CollisionType::MESH && p_settings.type != CollisionType::HULL && p_settings.type != CollisionType::NONE) return p_settings;
+    CollisionSettings out = p_settings;
+    out.type = CollisionType::SHAPES;
+    out.shapes.clear();
+    if (p_settings.type == CollisionType::NONE) return out;
+    CollisionShapeSettings s = collision_generated_shape(p_settings.type, COLLISION_ALL_SLOTS);
+    s.error = p_settings.error;
+    s.min_feature = p_settings.min_feature;
+    s.exclude_masked = p_settings.exclude_masked;
+    out.shapes.push_back(std::move(s));
+    return out;
+}
+
+bool collision_settings_empty(const CollisionSettings& p_settings)
+{
+    return p_settings.type == CollisionType::NONE || (p_settings.type == CollisionType::SHAPES && p_settings.shapes.empty());
+}
+
+bool collision_settings_generated(const CollisionSettings& p_settings)
+{
+    if (p_settings.type != CollisionType::SHAPES) return false;
+    return std::any_of(p_settings.shapes.begin(), p_settings.shapes.end(), [](const CollisionShapeSettings& s) { return s.generated(); });
+}
+
 void collision_settings_read(const toml::table& p_import, CollisionSettings& r_settings)
 {
     const toml::node_view<const toml::node> rec(p_import);
@@ -309,13 +345,17 @@ void collision_settings_read(const toml::table& p_import, CollisionSettings& r_s
         CollisionShapeSettings s;
         s.name = v["name"].value_or(std::string());
         s.type = collision_type_from_name(v["type"].value_or(std::string()), CollisionType::BOX);
-        if (!collision_type_shape(s.type)) s.type = CollisionType::BOX;
+        if (!collision_type_shape(s.type) && !s.generated()) s.type = CollisionType::BOX;
         s.position = _read_vec3(v["position"], s.position);
         s.rotation = _read_vec3(v["rotation"], s.rotation);
         s.half_extents = _read_vec3(v["half_extents"], s.half_extents);
         s.radius = (float)v["radius"].value_or((double)s.radius);
         s.half_height = (float)v["half_height"].value_or((double)s.half_height);
         s.top_radius = (float)v["top_radius"].value_or((double)s.top_radius);
+        s.slot = (int32_t)v["slot"].value_or((int64_t)s.slot);
+        s.error = (float)v["error"].value_or((double)s.error);
+        s.min_feature = (float)v["min_feature"].value_or((double)s.min_feature);
+        s.exclude_masked = v["exclude_masked"].value_or(s.exclude_masked);
         r_settings.shapes.push_back(std::move(s));
     }
 }
@@ -340,39 +380,117 @@ void collision_settings_write(toml::table& r_import, const CollisionSettings& p_
             { "half_extents", _vec3(s.half_extents) },
             { "radius", static_cast<double>(s.radius) },
             { "half_height", static_cast<double>(s.half_height) },
-            { "top_radius", static_cast<double>(s.top_radius) } });
+            { "top_radius", static_cast<double>(s.top_radius) },
+            { "slot", static_cast<int64_t>(s.slot) },
+            { "error", static_cast<double>(s.error) },
+            { "min_feature", static_cast<double>(s.min_feature) },
+            { "exclude_masked", s.exclude_masked } });
     }
     r_import.insert_or_assign("collision_shapes", std::move(shapes));
 }
 
-static bool _build_shapes(const CollisionSettings& p_settings, LCollision& r_collision)
+static bool _generate_part(const aiScene* p_scene, const CollisionShapeSettings& p_shape, const mat4& p_import, const std::vector<uint32_t>& p_skip_slots, LCollision& r_collision)
+{
+    const std::vector<uint32_t> materials = MeshCooker::material_slots(p_scene);
+    std::vector<bool> excluded(p_scene->mNumMaterials, false);
+    for (uint32_t m = 0; m < p_scene->mNumMaterials; m++) {
+        if (p_shape.exclude_masked) excluded[m] = _material_excluded(p_scene->mMaterials[m]);
+        if (p_shape.slot >= 0 && ((size_t)p_shape.slot >= materials.size() || m != materials[p_shape.slot])) excluded[m] = true;
+    }
+    for (uint32_t slot : p_skip_slots) {
+        if (slot < materials.size() && materials[slot] < excluded.size()) excluded[materials[slot]] = true;
+    }
+
+    std::vector<vec3> positions;
+    std::vector<uint32_t> indices;
+    _gather(p_scene, p_scene->mRootNode, aiMatrix4x4(), excluded, positions, indices);
+    r_collision.source_triangles += (uint32_t)(indices.size() / 3);
+    _apply_transform(p_import, positions);
+    _weld(positions, indices);
+    _drop_degenerate(positions, indices);
+    _cull_islands(positions, indices, p_shape.min_feature);
+    _compact(positions, indices);
+    if (indices.empty()) {
+        log_write("CollisionCooker: '%s' has no triangles to build from (wrong slot, or all of it is cloth or masked).", p_shape.name.c_str());
+        return false;
+    }
+
+    LCollisionPart part;
+    part.type = (uint32_t)p_shape.type;
+    part.vertex_first = (uint32_t)r_collision.vertices.size();
+    part.index_first = (uint32_t)r_collision.indices.size();
+    if (p_shape.type == CollisionType::MESH) {
+        _simplify(positions, indices, p_shape.error);
+        r_collision.vertices.insert(r_collision.vertices.end(), positions.begin(), positions.end());
+        for (uint32_t i : indices) r_collision.indices.push_back(part.vertex_first + i);
+    } else if (!_build_hull(positions, p_shape.error, r_collision)) {
+        r_collision.vertices.resize(part.vertex_first);
+        r_collision.indices.resize(part.index_first);
+        return false;
+    }
+    part.vertex_count = (uint32_t)r_collision.vertices.size() - part.vertex_first;
+    part.index_count = (uint32_t)r_collision.indices.size() - part.index_first;
+    r_collision.parts.push_back(part);
+    return true;
+}
+
+static bool _build_shape_list(const aiScene* p_scene, const CollisionSettings& p_settings, const mat4& p_import, const std::vector<uint32_t>& p_skip_slots, LCollision& r_collision)
 {
     r_collision = LCollision{};
     r_collision.type = CollisionType::SHAPES;
     vec3 lo(FLT_MAX), hi(-FLT_MAX);
     for (const CollisionShapeSettings& s : p_settings.shapes) {
+        if (s.generated()) {
+            if (p_scene && p_scene->mRootNode) _generate_part(p_scene, s, p_import, p_skip_slots, r_collision);
+            continue;
+        }
         const LCollisionShape shape = collision_shape_cook(s);
         r_collision.shapes.push_back(shape);
         const vec3 reach(std::max({ length(vec3(shape.half_extents)), shape.radius + shape.half_height, shape.top_radius + shape.half_height }));
         lo = min(lo, s.position - reach);
         hi = max(hi, s.position + reach);
     }
-    if (r_collision.shapes.empty()) return false;
+    for (const vec3& p : r_collision.vertices) {
+        lo = min(lo, p);
+        hi = max(hi, p);
+    }
+    if (r_collision.shapes.empty() && r_collision.parts.empty()) return false;
     r_collision.bounds_min = lo;
     r_collision.bounds_max = hi;
     return true;
 }
 
-bool CollisionCooker::build(const aiScene* p_scene, const CollisionSettings& p_settings, const mat4& p_import, LCollision& r_collision)
+static bool _build_shapes(const CollisionSettings& p_settings, LCollision& r_collision)
 {
-    if (p_settings.type == CollisionType::SHAPES) return _build_shapes(p_settings, r_collision);
+    return _build_shape_list(nullptr, p_settings, mat4(1.0f), {}, r_collision);
+}
+
+std::vector<uint32_t> CollisionCooker::cloth_slots(const std::filesystem::path& p_lmesh)
+{
+    LSkeleton skeleton;
+    SkeletonCooker::load_dynamics(p_lmesh, skeleton);
+    std::vector<uint32_t> slots;
+    for (const SkeletonCloth& c : skeleton.cloths) slots.push_back(c.slot);
+    return slots;
+}
+
+bool CollisionCooker::build(const aiScene* p_scene, const CollisionSettings& p_settings, const mat4& p_import, LCollision& r_collision, const std::vector<uint32_t>& p_skip_slots)
+{
+    if (p_settings.type == CollisionType::SHAPES) return _build_shape_list(p_scene, p_settings, p_import, p_skip_slots, r_collision);
     r_collision = LCollision{};
     r_collision.type = p_settings.type;
+    if (p_settings.type == CollisionType::NONE) return true;
     if (!p_scene || !p_scene->mRootNode) return false;
 
     std::vector<bool> excluded(p_scene->mNumMaterials, false);
     if (p_settings.exclude_masked) {
         for (uint32_t m = 0; m < p_scene->mNumMaterials; m++) excluded[m] = _material_excluded(p_scene->mMaterials[m]);
+    }
+    if (!p_skip_slots.empty()) {
+        const std::vector<uint32_t> materials = MeshCooker::material_slots(p_scene);
+        for (uint32_t slot : p_skip_slots) {
+            if (slot < materials.size() && materials[slot] < excluded.size()) excluded[materials[slot]] = true;
+        }
     }
 
     std::vector<vec3> positions;
@@ -448,7 +566,7 @@ static Error _write_record(const CollisionReimport& p_job, const std::filesystem
         rec->erase("generate_collision");
         collision_settings_write(*rec, p_job.settings.collision);
     }
-    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->insert_or_assign("collision", true);
+    if (toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table()) mesh->insert_or_assign("collision", !collision_settings_empty(p_job.settings.collision));
     std::ostringstream ss;
     ss << tbl;
     return write_file_atomic(p_out, ss.str()) ? Error::OK : Error::FAILED;
@@ -459,10 +577,12 @@ static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_st
     using enum Error;
     Assimp::Importer importer;
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
-    const bool shapes = p_job.settings.collision.type == CollisionType::SHAPES;
-    const aiScene* scene = shapes ? nullptr : importer.ReadFile(p_job.source.string(), MeshCooker::import_flags());
+    const CollisionSettings& settings = p_job.settings.collision;
+    const bool none = collision_settings_empty(settings);
+    const bool needs_scene = !none && (settings.type != CollisionType::SHAPES || collision_settings_generated(settings));
+    const aiScene* scene = needs_scene ? importer.ReadFile(p_job.source.string(), MeshCooker::import_flags()) : nullptr;
     if (p_step.cancelled()) return CANCELED;
-    if (!scene && !shapes) {
+    if (!scene && needs_scene) {
         log_write("CollisionCooker: assimp failed for %s (%s)", p_job.source.string().c_str(), importer.GetErrorString());
         return FAILED;
     }
@@ -470,9 +590,9 @@ static Error _reimport_collision(const CollisionReimport& p_job, ImportStep p_st
     p_step.report(0.5f);
 
     LCollision collision;
-    if (!CollisionCooker::build(scene, p_job.settings.collision, MeshCooker::import_matrix(p_job.settings), collision)) return FAILED;
+    if (!none && !CollisionCooker::build(scene, settings, MeshCooker::import_matrix(p_job.settings), collision, CollisionCooker::cloth_slots(p_job.lmesh))) return FAILED;
     if (p_step.cancelled()) return CANCELED;
-    if (lmesh_write_collision(p_job.mesh_bin, p_job.staged_bin, collision.to_payload()) != LMeshCollisionWrite::OK) {
+    if (lmesh_write_collision(p_job.mesh_bin, p_job.staged_bin, none ? std::vector<uint8_t>() : collision.to_payload()) != LMeshCollisionWrite::OK) {
         log_write("CollisionCooker: couldn't write collision into '%s'.", p_job.mesh_bin.string().c_str());
         return FAILED;
     }
@@ -495,16 +615,11 @@ Error CollisionCooker::write_shapes(EditorContext& ctx, const std::filesystem::p
     job.lmesh = p_lmesh;
     job.mesh = info.guid;
     job.mesh_bin = ctx.project->content_path(info.guid);
-    if (!lmesh_has_collision_slot(job.mesh_bin)) return reimport(ctx, p_lmesh, job.settings.collision);
+    if (!lmesh_has_collision_slot(job.mesh_bin) || collision_settings_generated(job.settings.collision)) return reimport(ctx, p_lmesh, job.settings.collision);
 
     LCollision collision;
-    if (!_build_shapes(job.settings.collision, collision)) {
-        CollisionSettings fallback;
-        fallback.type = CollisionType::MESH;
-        log_write("'%s' has no collision shapes left, it falls back to triangle collision.", p_lmesh.filename().string().c_str());
-        return reimport(ctx, p_lmesh, fallback);
-    }
-    if (lmesh_write_collision(job.mesh_bin, job.mesh_bin, collision.to_payload()) != LMeshCollisionWrite::OK) {
+    const bool none = !_build_shapes(job.settings.collision, collision);
+    if (lmesh_write_collision(job.mesh_bin, job.mesh_bin, none ? std::vector<uint8_t>() : collision.to_payload()) != LMeshCollisionWrite::OK) {
         log_write("CollisionCooker: couldn't write collision into '%s'.", job.mesh_bin.string().c_str());
         return FAILED;
     }

@@ -180,18 +180,27 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
     } else {
         snprintf(label, sizeof(label), "Missing %.*s##field", (int)type.size(), type.data());
     }
-    const float clear_w = ImGui::GetFrameHeight();
-    const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    if (ImGui::Button(label, ImVec2(-(clear_w + spacing), 0.0f))) ImGui::OpenPopup("##asset_picker");
+    bool open_picker = ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
     const ImVec2 field_min = ImGui::GetItemRectMin();
     const ImVec2 field_max = ImGui::GetItemRectMax();
-    if (ImGui::IsItemHovered(asset ? ImGuiHoveredFlags_DelayNormal : ImGuiHoveredFlags_None) && !ImGui::GetDragDropPayload()) {
+    if (ImGui::IsItemHovered(asset ? ImGuiHoveredFlags_DelayNormal : ImGuiHoveredFlags_None) && !ImGui::GetDragDropPayload() && !ImGui::IsPopupOpen("##asset_menu")) {
         if (asset) {
             asset_tooltip(ctx, r_guid, p_type);
         } else {
-            ImGui::SetTooltip("Click to pick a %.*s, or drag one here from the Content Browser", (int)type.size(), type.data());
+            ImGui::SetTooltip("Click to pick a %.*s, or drag one here from the Content Browser. Right-click to clear.", (int)type.size(), type.data());
         }
     }
+    ui_context_menu_push_style();
+    if (ImGui::BeginPopupContextItem("##asset_menu")) {
+        if (ImGui::MenuItem(ICON_FA_MAGNIFYING_GLASS "  Pick...")) open_picker = true;
+        if (ImGui::MenuItem(ICON_FA_XMARK "  Clear", nullptr, false, r_guid.valid())) {
+            r_guid = Guid{};
+            changed = true;
+        }
+        ImGui::EndPopup();
+    }
+    ui_context_menu_pop_style();
+    if (open_picker) ImGui::OpenPopup("##asset_picker");
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
             if (((const AssetDragPayload*)peek->Data)->type == p_type) {
@@ -206,17 +215,6 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
 
     ImGui::SetNextWindowPos(ImVec2(field_min.x, field_max.y + ui_style().menu.popup_offset), ImGuiCond_Appearing);
     if (asset_picker(ctx, "##asset_picker", r_guid, p_type)) changed = true;
-
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::BeginDisabled(!r_guid.valid());
-    ui_push_buttons(UiButton::GHOST);
-    if (ImGui::Button(ICON_FA_TRASH_CAN "##clear", ImVec2(clear_w, 0.0f))) {
-        r_guid = Guid{};
-        changed = true;
-    }
-    ui_pop_buttons();
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Clear");
     ImGui::PopID();
     return changed;
 }

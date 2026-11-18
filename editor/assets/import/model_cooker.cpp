@@ -337,16 +337,28 @@ uint32_t ModelCooker::_import_animations(const Job& p_job, const aiScene* p_scen
 struct CollisionPlan
 {
     bool cook = false;
+    CollisionSettings settings;
     LCollision data;
 };
 
 static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScene* p_scene)
 {
     CollisionPlan plan;
+    plan.settings = p_job.settings.mesh_settings.collision;
     bool skinned = false;
     for (uint32_t m = 0; m < p_scene->mNumMeshes && !skinned; m++) skinned = p_scene->mMeshes[m]->mNumBones > 0;
-    if (skinned && p_job.settings.mesh_settings.load_skeleton) return plan;
-    plan.cook = CollisionCooker::build(p_scene, p_job.settings.mesh_settings.collision, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data);
+    skinned = skinned && p_job.settings.mesh_settings.load_skeleton;
+    std::error_code ec;
+    if (!std::filesystem::exists(p_job.dst_lmesh, ec)) {
+        plan.settings = CollisionSettings{};
+        plan.settings.type = CollisionType::SHAPES;
+        if (!skinned) plan.settings.shapes.push_back(collision_generated_shape(CollisionType::MESH, COLLISION_ALL_SLOTS));
+    } else if (skinned && plan.settings.type != CollisionType::SHAPES && !CollisionCooker::has_collision(p_job.dst_lmesh)) {
+        plan.settings.type = CollisionType::NONE;
+    }
+    plan.settings = collision_settings_upgrade(plan.settings);
+    if (collision_settings_empty(plan.settings)) return plan;
+    plan.cook = CollisionCooker::build(p_scene, plan.settings, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data, CollisionCooker::cloth_slots(p_job.dst_lmesh));
     return plan;
 }
 
@@ -381,6 +393,7 @@ Error ModelCooker::_import(const Job& p_job)
         if (collision.cook) mesh.collision = collision.data.to_payload();
         mesh.guid = p_job.mesh_guid;
         mesh.settings = p_job.settings.mesh_settings;
+        mesh.settings.collision = collision.settings;
         const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, true);
         mesh.dst_lmesh = mesh_staged.asset;
         mesh.content_bin = mesh_staged.content_bin;
@@ -429,6 +442,7 @@ Error ModelCooker::_import(const Job& p_job)
     if (collision.cook) mesh.collision = collision.data.to_payload();
     mesh.guid = p_job.mesh_guid;
     mesh.settings = p_job.settings.mesh_settings;
+    mesh.settings.collision = collision.settings;
     const ImportSession::Staged mesh_staged = session.stage(*p_job.project, p_job.dst_lmesh, p_job.mesh_guid, true, false);
     mesh.dst_lmesh = mesh_staged.asset;
     mesh.content_bin = mesh_staged.content_bin;

@@ -68,6 +68,7 @@ struct FrameData
     vec3 player_box_max = vec3(0.0f);
 
     float px_per_unit = 1.0f;
+    float screen_px_per_unit = 1.0f;
     float aspect = 1.0f;
 
     vec4 sun_cascade_sphere[SUN_CASCADE_COUNT] = {};

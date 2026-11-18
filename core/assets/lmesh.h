@@ -160,7 +160,7 @@ struct LMeshNode
 
 static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
-enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, DYNAMICS = 7, SKELETON = 8 };
+enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, DYNAMICS = 7, SKELETON = 8, CLOTH_PINS = 9 };
 
 struct LMeshClothParticle
 {
@@ -189,6 +189,8 @@ struct LMeshClothRestore
 
 static_assert(sizeof(LMeshClothRestore) == 12, "LMeshClothRestore layout changed");
 
+inline constexpr uint32_t LMESH_CLOTH_NO_ROOT = 0xFFFFFFFFu;
+
 struct LMeshCloth
 {
     uint32_t root_joint;
@@ -202,7 +204,7 @@ struct LMeshCloth
     uint32_t triangle_count;
     uint32_t restore_first;
     uint32_t restore_count;
-    uint32_t _pad;
+    uint32_t slot;
 };
 
 static_assert(sizeof(LMeshCloth) == 48, "LMeshCloth layout changed");
@@ -272,6 +274,7 @@ struct LMeshSource
     std::vector<VertexPosition> positions;
     std::vector<VertexAttributes> attributes;
     std::vector<SkinVertex> skin;
+    std::vector<uint8_t> pins;
     std::vector<uint32_t> indices;
     std::vector<uint32_t> tri_slots;
     std::vector<Cluster> clusters;
@@ -298,6 +301,7 @@ struct LMeshData
     std::vector<ClusterVertex> vertices;
     std::vector<SkinVertex> skin;
     std::vector<uint32_t> tri_slots;
+    std::vector<uint8_t> pins;
     std::vector<uint8_t> skeleton;
     std::vector<uint8_t> collision;
     std::vector<LMeshJointBox> joint_boxes;

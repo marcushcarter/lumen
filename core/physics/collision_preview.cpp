@@ -89,7 +89,8 @@ void debug_draw_lcollision(DebugDraw& r_draw, const mat4& p_transform, const LCo
         }
         case CollisionType::SHAPES:
             for (const LCollisionShape& shape : c.shapes) debug_draw_lcollision_shape(r_draw, p_transform, shape, p_style);
-            return;
+            if (c.parts.empty() || !p_meshes) return;
+            break;
         case CollisionType::MESH:
             if (!p_meshes) return;
             break;

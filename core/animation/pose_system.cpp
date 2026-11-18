@@ -131,7 +131,7 @@ void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_ske
 {
     static const LLocomotion DEFAULT_BODY;
     const uint64_t key = hash_combine(hash_combine(hash_combine(p_mesh.value, p_rig.skeleton.value), skeleton_version ^ (geometry_version << 1)), p_body.asset.value);
-    r_dynamics.bind(key, p_skeleton, p_rig, p_map, p_body.names ? *p_body.names : DEFAULT_BODY);
+    r_dynamics.bind(key, p_skeleton, p_rig, p_body.names ? *p_body.names : DEFAULT_BODY);
     if (p_settings.chains || p_settings.cloth) r_dynamics.update_colliders(_global, p_model, p_body.model_yaw);
     if (p_settings.chains) r_dynamics.simulate_chains(p_skeleton, p_model, p_dt, p_settings.gravity, _local.data(), _global);
     else r_dynamics.follow_chains(p_model, _global);

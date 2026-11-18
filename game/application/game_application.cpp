@@ -51,7 +51,8 @@ Error GameApplication::on_init()
     physics_system.project = &project;
     character_system.physics = &physics_system;
     character_system.anims = &poses.anims;
-    session.systems = { &physics_system, &character_system };
+    orbit_camera_system.physics = &physics_system;
+    session.systems = { &physics_system, &orbit_camera_system, &character_system, &orbit_camera_system.late };
     session.begin(scene, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());

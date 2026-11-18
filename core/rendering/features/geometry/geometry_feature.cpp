@@ -193,7 +193,7 @@ void GeometryFeature::_create_instance_cull_pass(RenderGraph::Pass& r_pass, bool
         pc.occluded_addr = occluded->device_address;
         pc.candidates_addr = cl.graph->buffer("InstanceCandidates")->device_address;
         pc.instance_count = ctx->frame->candidate_count;
-        pc.px_per_unit = ctx->frame->px_per_unit;
+        pc.px_per_unit = ctx->frame->screen_px_per_unit;
         pc.min_screen_radius_px = contribution_culling ? contribution_px : 0.0f;
         pc.hiz_index = hiz->bindless_sampled;
         pc.hiz_mips = hiz->mip_levels;

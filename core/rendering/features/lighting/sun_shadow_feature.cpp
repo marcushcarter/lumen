@@ -1126,8 +1126,8 @@ void SunShadowFeature::_create_heightfield_pass()
     heightfield_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* terrain = cl.graph->buffer("Terrain");
         if (!terrain || !ctx->terrain || !cl.graph->image(heightfield_target_name)) return;
-        const LTerrainPayloadHeader& h = ctx->terrain->source.header;
-        const float range = std::max(h.height_max - h.height_min, 1e-3f);
+        const TerrainCache& tc = *ctx->terrain;
+        const float range = std::max(tc.height_hi - tc.height_lo, 1e-3f);
         const float texel = _heightfield_texel(heightfield_exec_level);
 
         struct Push {
@@ -1151,7 +1151,7 @@ void SunShadowFeature::_create_heightfield_pass()
         pc.sun = _heightfield_axis(heightfield_exec_sun);
         pc.texel = texel;
         pc.drop = texel * _heightfield_slope(heightfield_exec_sun);
-        pc.height_min = h.height_min;
+        pc.height_min = tc.height_lo;
         pc.inv_range = 1.0f / range;
         pc.size = SUN_HEIGHTFIELD_SIZE;
         pc.prefix = HEIGHTFIELD_PREFIX;
@@ -1171,7 +1171,7 @@ bool SunShadowFeature::_heightfield_dirty(uint32_t p_level, const vec2& p_center
     const HeightfieldLevel& level = heightfield[p_level];
     if (level.blending) return false;
     const HeightfieldMap& active = level.maps[level.active];
-    if (!active.valid || active.origin != p_center || dot(active.sun, p_sun) < HEIGHTFIELD_SUN_COS[p_level] || active.terrain != ctx->terrain->source.guid) return true;
+    if (!active.valid || active.origin != p_center || dot(active.sun, p_sun) < HEIGHTFIELD_SUN_COS[p_level] || active.terrain != ctx->terrain->signature) return true;
     if (p_level != 0) return false;
     return active.terrain_epoch != heightfield_epoch && heightfield_frame - heightfield_upload_frame >= HEIGHTFIELD_RESTREAM_FRAMES && heightfield_frame - level.build_frame >= HEIGHTFIELD_RESTREAM_FRAMES;
 }
@@ -1184,7 +1184,7 @@ void SunShadowFeature::_heightfield_start(uint32_t p_level, const vec2& p_center
     HeightfieldMap& t = level.maps[target];
     t.origin = p_center;
     t.sun = p_sun;
-    t.terrain = ctx->terrain->source.guid;
+    t.terrain = ctx->terrain->signature;
     t.terrain_epoch = heightfield_epoch;
     t.valid = false;
     level.building = true;
@@ -1259,7 +1259,7 @@ void SunShadowFeature::_build_heightfield(RenderGraph& g)
             }
         }
 
-        info.params = vec4(terrain->source.header.height_min, std::max(terrain->source.header.height_max - terrain->source.header.height_min, 1e-3f), 0.0f, 0.0f);
+        info.params = vec4(terrain->height_lo, std::max(terrain->height_hi - terrain->height_lo, 1e-3f), 0.0f, 0.0f);
         info.fade = vec4(HEIGHTFIELD_FADE[0][0], HEIGHTFIELD_FADE[0][1], HEIGHTFIELD_FADE[1][0], HEIGHTFIELD_FADE[1][1]);
         auto publish = [&](const std::string& p_name, HeightfieldMap& p_map, uint32_t p_level, uint32_t p_slot) {
             if (!g.image_resource(p_name)) g.import_image(p_name, &p_map.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, true);

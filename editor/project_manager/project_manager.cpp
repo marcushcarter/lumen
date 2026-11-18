@@ -1,4 +1,6 @@
 #include <editor/project_manager/project_manager.h>
+#include <core/io/embedded_resource.h>
+#include <editor/export/project_exporter.h>
 #include <core/base/error.h>
 #include <core/base/hash.h>
 #include <core/base/strings.h>
@@ -191,11 +193,21 @@ ProjectManager::ContentStats ProjectManager::_scan_content(const std::filesystem
     std::error_code ec;
     const auto opts = std::filesystem::directory_options::skip_permission_denied;
 
+    const std::filesystem::path content = p_root / Project::DIR_CONTENT;
+    const std::filesystem::path project_file = p_root / Project::FILE_NAME;
+    s.export_bytes = EmbeddedResource::load(ProjectExporter::RUNTIME_RESOURCE).size;
     for (auto it = std::filesystem::recursive_directory_iterator(p_root, opts, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         std::error_code fec;
+        if (it->is_directory(fec)) {
+            if (it->path().filename() == ".git") it.disable_recursion_pending();
+            continue;
+        }
         if (!it->is_regular_file(fec)) continue;
         const uintmax_t size = it->file_size(fec);
-        if (!fec) s.disk_bytes += size;
+        if (fec) continue;
+        s.disk_bytes += size;
+        const std::filesystem::path rel = it->path().lexically_relative(content);
+        if (it->path() == project_file || (!rel.empty() && *rel.begin() != "..")) s.export_bytes += size;
     }
 
     ec.clear();
@@ -462,8 +474,8 @@ void ProjectManager::_draw_inspector(EditorContext& ctx)
         else if (e.stats_valid) snprintf(value, sizeof(value), "%u", e.stats.counts[k]);
         content_row(CONTENT_KINDS[k].label, value);
     }
-    const char* disk = e.missing ? "-" : e.stats_valid ? fmt_bytes(e.stats.disk_bytes) : "...";
-    content_row("Disk", disk);
+    content_row("Project Size", e.missing ? "-" : e.stats_valid ? fmt_bytes(e.stats.disk_bytes) : "...");
+    content_row("Export Size", e.missing ? "-" : e.stats_valid ? fmt_bytes(e.stats.export_bytes) : "...");
 
     ImGui::Dummy(ImVec2(0.0f, ui.space.xxl));
 

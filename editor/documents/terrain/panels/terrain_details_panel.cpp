@@ -19,9 +19,9 @@ void TerrainDetailsPanel::draw_contents(EditorContext& ctx)
     if (ui_category("Info")) {
         if (tab->disk_size) ImGui::Text("Disk Size: %s", fmt_bytes(tab->disk_size));
         if (tab->has_data()) {
-            ImGui::Text("Size: %.0f x %.0f m", (float)(t.samples_x - 1) * t.spacing, (float)(t.samples_y - 1) * t.spacing);
+            ImGui::Text("Size: %.2f x %.2f m", (float)(t.samples_x - 1) * t.spacing, (float)(t.samples_y - 1) * t.spacing);
             ImGui::Text("Samples: %u x %u", t.samples_x, t.samples_y);
-            ImGui::Text("Tiles: %u x %u (%.0f m each)", t.tiles_x, t.tiles_y, (float)LTERRAIN_TILE_QUADS * t.spacing);
+            ImGui::Text("Tiles: %u x %u (%.2f m each)", t.tiles_x, t.tiles_y, (float)LTERRAIN_TILE_QUADS * t.spacing);
             if (t.source_bits) ImGui::Text("Source Depth: %u-bit", t.source_bits);
         } else {
             ImGui::TextDisabled("Empty. Generate a terrain or import a heightfield.");
@@ -42,13 +42,13 @@ void TerrainDetailsPanel::draw_contents(EditorContext& ctx)
             }
             ImGui::EndCombo();
         }
-        ImGui::DragFloat("Spacing##generate", &tab->generate_spacing, 0.01f, TerrainDocument::MIN_SPACING, TerrainDocument::MAX_SPACING, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
-        ImGui::DragFloat("Height Min##generate", &tab->generate_height_min, 0.5f, -TerrainDocument::MAX_HEIGHT, -TerrainDocument::MIN_HEIGHT_RANGE, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Spacing##generate", &tab->generate_spacing, 0.001f, TerrainDocument::MIN_SPACING, TerrainDocument::MAX_SPACING, "%.3f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
+        ImGui::DragFloat("Height Min##generate", &tab->generate_height_min, 0.01f, -TerrainDocument::MAX_HEIGHT, tab->generate_height_max - TerrainDocument::MIN_HEIGHT_RANGE, "%.3f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Lowest height the terrain can reach");
-        ImGui::DragFloat("Height Max##generate", &tab->generate_height_max, 0.5f, TerrainDocument::MIN_HEIGHT_RANGE, TerrainDocument::MAX_HEIGHT, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Height Max##generate", &tab->generate_height_max, 0.01f, tab->generate_height_min + TerrainDocument::MIN_HEIGHT_RANGE, TerrainDocument::MAX_HEIGHT, "%.3f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Highest height the terrain can reach");
         const float meters = (float)(samples - 1) * tab->generate_spacing;
-        ImGui::TextDisabled("Flat ground at 0 m, %.0f x %.0f m", meters, meters);
+        ImGui::TextDisabled("Flat ground at 0 m, %.2f x %.2f m", meters, meters);
         if (ImGui::Button("Generate Flat")) tab->generate_flat(ctx);
         if (tab->has_data()) {
             ImGui::SameLine();
@@ -57,11 +57,11 @@ void TerrainDetailsPanel::draw_contents(EditorContext& ctx)
     }
 
     if (tab->has_data() && ui_category("Settings")) {
-        ImGui::DragFloat("Spacing", &t.spacing, 0.01f, TerrainDocument::MIN_SPACING, TerrainDocument::MAX_SPACING, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Spacing", &t.spacing, 0.001f, TerrainDocument::MIN_SPACING, TerrainDocument::MAX_SPACING, "%.3f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Distance between height samples");
-        ImGui::DragFloat("Height Min", &t.height_min, 0.5f, -TerrainDocument::MAX_HEIGHT, t.height_max - TerrainDocument::MIN_HEIGHT_RANGE, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Height Min", &t.height_min, 0.01f, -TerrainDocument::MAX_HEIGHT, t.height_max - TerrainDocument::MIN_HEIGHT_RANGE, "%.3f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Height of the lowest stored value");
-        ImGui::DragFloat("Height Max", &t.height_max, 0.5f, t.height_min + TerrainDocument::MIN_HEIGHT_RANGE, TerrainDocument::MAX_HEIGHT, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Height Max", &t.height_max, 0.01f, t.height_min + TerrainDocument::MIN_HEIGHT_RANGE, TerrainDocument::MAX_HEIGHT, "%.3f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Height of the highest stored value");
     }
 

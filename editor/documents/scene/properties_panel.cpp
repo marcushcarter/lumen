@@ -118,7 +118,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const Scene* live = live_on ? &ctx.play->runtime : nullptr;
 
     const Entity selected = ctx.selection->primary();
-    const bool has_target = ctx.selection->environment || ctx.selection->terrain || ctx.selection->shadows || ctx.selection->physics || world.valid(selected);
+    const bool has_target = ctx.selection->environment || ctx.selection->shadows || ctx.selection->physics || world.valid(selected);
     const float inset = ui_category_inset();
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
@@ -187,18 +187,6 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Chain Simulation Enabled");
             ImGui::Checkbox("##chains_enabled", &world.physics.chains);
             _live("%s", live ? (live->physics.chains ? "On" : "Off") : "-");
-        }
-        _section_end();
-        ImGui::EndChild();
-        ui_field_pop_style();
-        return;
-    }
-
-    if (ctx.selection->terrain) {
-        if (_section("Terrain")) {
-            _name("Terrain");
-            asset_field(ctx, "", "###terrain_asset", world.terrain.terrain, AssetType::TERRAIN);
-            _live("%s", live && live->terrain.terrain.valid() ? "Set" : "-");
         }
         _section_end();
         ImGui::EndChild();
@@ -377,6 +365,19 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             else _live("-");
         }
         if (remove) world.deferred_remove<ModelComponent>(e);
+    }
+
+    if (TerrainComponent* terrain = world.try_get<TerrainComponent>(e)) {
+        bool remove = false;
+        if (_section("Terrain", &remove, nullptr)) {
+            _name("Terrain");
+            if (asset_field(ctx, "", "###terrain_field", terrain->terrain, AssetType::TERRAIN)) world.touch(e);
+            const TerrainComponent* lt = has_live ? live->try_get<TerrainComponent>(le) : nullptr;
+            const AssetRegistry::Entry* entry = lt && ctx.assets ? ctx.assets->find(lt->terrain) : nullptr;
+            if (entry) _live("%s", entry->name.c_str());
+            else _live("-");
+        }
+        if (remove) world.deferred_remove<TerrainComponent>(e);
     }
 
     if (LocomotionComponent* loco = world.try_get<LocomotionComponent>(e)) {

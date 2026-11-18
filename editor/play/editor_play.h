@@ -23,7 +23,6 @@ struct EditorPlay
     OrbitCameraSystem orbit_camera_system;
     Guid scene_guid;
     EnvironmentSettings _environment;
-    TerrainSettings _terrain;
     ShadowSettings _shadows;
     PhysicsSettings _physics;
     bool step_pending = false;

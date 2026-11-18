@@ -36,10 +36,22 @@ Error TerrainDocument::create(EditorContext& ctx)
     return OK;
 }
 
+static void _preview_terrain(Scene& r_preview, Guid p_guid)
+{
+    Entity found = ENTITY_NULL;
+    r_preview.view<TerrainComponent>([&](Entity p_entity, const TerrainComponent&) { found = p_entity; });
+    if (found == ENTITY_NULL) {
+        if (!p_guid.valid()) return;
+        found = r_preview.create();
+        r_preview.add<TransformComponent>(found);
+    }
+    r_preview.add<TerrainComponent>(found, { p_guid });
+}
+
 void TerrainDocument::_frame_terrain(EditorContext& ctx)
 {
     if (!has_data()) return;
-    preview.terrain.terrain = terrain.guid;
+    _preview_terrain(preview, terrain.guid);
     float low = terrain.height_min;
     float high = terrain.height_max;
     TerrainSource cooked;
@@ -68,7 +80,7 @@ void TerrainDocument::_apply_new_data(EditorContext& ctx)
     saved = terrain;
     _info_poll = -1.0e9;
     _info_time = {};
-    preview.terrain.terrain = {};
+    _preview_terrain(preview, {});
     if (has_data()) {
         orbit.keep_view = false;
         _frame_terrain(ctx);

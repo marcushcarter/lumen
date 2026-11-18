@@ -10,7 +10,7 @@ namespace lumen {
 
 static constexpr uint32_t MAX_COARSE_SAMPLES = 1025u * 1025u;
 static constexpr uint32_t MAX_TILES = 64u * 64u;
-static constexpr uint32_t COARSE_WORDS_MAX = (MAX_COARSE_SAMPLES + 1) / 2;
+static constexpr uint32_t COARSE_POOL_WORDS = MAX_COARSE_SAMPLES + 1;
 
 static bool _read_range(const std::filesystem::path& p_path, uint64_t p_offset, uint64_t p_bytes, void* r_dst)
 {
@@ -36,13 +36,19 @@ static bool _box_visible(const vec4* p_planes, const vec3& p_min, const vec3& p_
     return true;
 }
 
+static uint64_t _mix(uint64_t p_hash, uint64_t p_value)
+{
+    p_hash ^= p_value + 0x9E3779B97F4A7C15ull + (p_hash << 6) + (p_hash >> 2);
+    return p_hash;
+}
+
 Error TerrainCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
 {
     using enum Error;
     dd = &r_dd;
     frame_count = p_frame_count;
 
-    const VkDeviceSize words = (VkDeviceSize)COARSE_WORDS_MAX + (VkDeviceSize)TERRAIN_FINE_SLOTS * FINE_SLOT_WORDS + (VkDeviceSize)TERRAIN_SMALL_SLOTS * SMALL_SLOT_WORDS;
+    const VkDeviceSize words = (VkDeviceSize)COARSE_POOL_WORDS + (VkDeviceSize)TERRAIN_FINE_SLOTS * FINE_SLOT_WORDS + (VkDeviceSize)TERRAIN_SMALL_SLOTS * SMALL_SLOT_WORDS;
     heights = dd->buffer_create({ .size = words * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, .device_local = true, .name = "terrain_heights" });
     LUMEN_ERR_FAIL_COND_V(!heights.buffer, FAILED);
 
@@ -54,7 +60,7 @@ Error TerrainCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_fra
         staging[i] = dd->buffer_create({ .size = UPLOAD_BUDGET, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT, .device_local = false, .host_visible = true, .name = "terrain_staging" });
         patch_buffers[i] = dd->buffer_create({ .size = (VkDeviceSize)TERRAIN_MAX_PATCHES * sizeof(TerrainPatch), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "terrain_patches" });
         tile_buffers[i] = dd->buffer_create({ .size = (VkDeviceSize)MAX_TILES * sizeof(TerrainTileGpu), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "terrain_tiles" });
-        uniform_buffers[i] = dd->buffer_create({ .size = sizeof(TerrainUniform), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "terrain_uniform" });
+        uniform_buffers[i] = dd->buffer_create({ .size = (VkDeviceSize)TERRAIN_MAX_INSTANCES * sizeof(TerrainUniform), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "terrain_uniform" });
         LUMEN_ERR_FAIL_COND_V(!staging[i].buffer || !patch_buffers[i].buffer || !tile_buffers[i].buffer || !uniform_buffers[i].buffer, FAILED);
     }
 
@@ -81,6 +87,7 @@ void TerrainCache::shutdown()
 {
     if (!dd) return;
     _deactivate();
+    _instances.clear();
     dd->buffer_free(heights);
     for (uint32_t i = 0; i < staging.size(); i++) {
         dd->buffer_free(staging[i]);
@@ -100,50 +107,80 @@ void TerrainCache::shutdown()
 void TerrainCache::clear()
 {
     _deactivate();
+    _instances.clear();
     paths.clear();
 }
 
 void TerrainCache::register_path(Guid p_guid, const std::filesystem::path& p_path)
 {
     paths[p_guid.value] = p_path;
+    for (const TerrainInstance& inst : _instances) {
+        if (inst.guid == p_guid) {
+            _instances.clear();
+            return;
+        }
+    }
 }
 
 void TerrainCache::reload(Guid p_guid, const std::filesystem::path& p_path)
 {
     register_path(p_guid, p_path);
-    if (source.guid == p_guid) _deactivate();
 }
 
-bool TerrainCache::_activate(Guid p_terrain)
+bool TerrainCache::_same_set(const std::vector<TerrainInstance>& p_terrains) const
+{
+    if (p_terrains.size() != _instances.size()) return false;
+    for (size_t i = 0; i < p_terrains.size(); i++) {
+        if (p_terrains[i].key != _instances[i].key || p_terrains[i].guid != _instances[i].guid) return false;
+    }
+    return true;
+}
+
+void TerrainCache::_activate(const std::vector<TerrainInstance>& p_terrains)
 {
     _deactivate();
-    const auto it = paths.find(p_terrain.value);
-    if (it == paths.end()) return false;
-    if (source.open(p_terrain, it->second) != Error::OK) {
-        log_write("Terrain: couldn't open '%s'.", it->second.string().c_str());
-        source.close();
-        return false;
-    }
-    const LTerrainPayloadHeader& h = source.header;
-    if ((uint64_t)h.coarse_w * h.coarse_h > MAX_COARSE_SAMPLES || source.tile_count() > MAX_TILES) {
-        log_write("Terrain: '%s' is larger than the streaming limits.", it->second.string().c_str());
-        source.close();
-        return false;
+    _instances = p_terrains;
+    uint32_t tile_total = 0;
+    uint32_t coarse_used = 0;
+    for (const TerrainInstance& inst : p_terrains) {
+        const auto it = paths.find(inst.guid.value);
+        if (it == paths.end()) continue;
+        Terrain t;
+        if (t.source.open(inst.guid, it->second) != Error::OK) {
+            log_write("Terrain: couldn't open '%s'.", it->second.string().c_str());
+            continue;
+        }
+        const LTerrainPayloadHeader& h = t.source.header;
+        const uint32_t coarse_words = ((uint32_t)t.source.coarse.size() + 1) / 2;
+        if ((uint64_t)h.coarse_w * h.coarse_h > MAX_COARSE_SAMPLES || tile_total + t.source.tile_count() > MAX_TILES || coarse_used + coarse_words > COARSE_POOL_WORDS) {
+            log_write("Terrain: '%s' doesn't fit in the streaming limits next to the other terrains.", it->second.string().c_str());
+            continue;
+        }
+        t.key = inst.key;
+        t.tiles.assign(t.source.tile_count(), Tile{});
+        t.tile_base = tile_total;
+        t.coarse_word = coarse_used;
+        tile_total += t.source.tile_count();
+        coarse_used += coarse_words;
+        const float base = (float)TERRAIN_PATCH_QUADS * h.spacing * LOD_RANGE_SCALE;
+        for (uint32_t l = 0; l < TERRAIN_LEVELS; l++) t.ranges[l] = base * (float)(1u << l);
+        terrains.push_back(std::move(t));
     }
 
-    tiles.assign(source.tile_count(), Tile{});
-    tile_table.assign(source.tile_count(), TerrainTileGpu{ 0u, TERRAIN_LOD_NONE });
+    tile_table.assign(tile_total, TerrainTileGpu{ 0u, TERRAIN_LOD_NONE });
     free_fine.clear();
     free_small.clear();
     for (uint32_t i = TERRAIN_FINE_SLOTS; i-- > 0;) free_fine.push_back(i);
     for (uint32_t i = TERRAIN_SMALL_SLOTS; i-- > 0;) free_small.push_back(TERRAIN_FINE_SLOTS + i);
     retired.clear();
-    coarse_words = ((uint32_t)source.coarse.size() + 1) / 2;
-    coarse_pending = true;
 
-    const float base = (float)TERRAIN_PATCH_QUADS * h.spacing * LOD_RANGE_SCALE;
-    for (uint32_t l = 0; l < TERRAIN_LEVELS; l++) ranges[l] = base * (float)(1u << l);
-    return true;
+    height_lo = FLT_MAX;
+    height_hi = -FLT_MAX;
+    for (const Terrain& t : terrains) {
+        height_lo = std::min(height_lo, t.source.header.height_min);
+        height_hi = std::max(height_hi, t.source.header.height_max);
+    }
+    if (terrains.empty()) height_lo = height_hi = 0.0f;
 }
 
 void TerrainCache::_deactivate()
@@ -154,18 +191,36 @@ void TerrainCache::_deactivate()
     }
     inflight.clear();
     ready.clear();
-    source.close();
-    tiles.clear();
+    terrains.clear();
     tile_table.clear();
     retired.clear();
     patch_count = 0;
-    coarse_pending = false;
+    signature = 0;
+}
+
+void TerrainCache::_place(const std::vector<TerrainInstance>& p_terrains)
+{
+    uint64_t hash = 0xCBF29CE484222325ull;
+    size_t i = 0;
+    for (Terrain& t : terrains) {
+        while (i < p_terrains.size() && p_terrains[i].key != t.key) i++;
+        if (i == p_terrains.size()) break;
+        t.position = p_terrains[i].position;
+        t.origin = t.source.origin() + t.position;
+        uint32_t bits[3];
+        std::memcpy(bits, &t.position, sizeof(bits));
+        hash = _mix(hash, t.key);
+        hash = _mix(hash, t.source.guid.value);
+        hash = _mix(hash, ((uint64_t)bits[0] << 32) | bits[1]);
+        hash = _mix(hash, bits[2]);
+    }
+    signature = terrains.empty() ? 0 : hash;
 }
 
 VkDeviceSize TerrainCache::_slot_word(uint32_t p_slot) const
 {
-    if (p_slot < TERRAIN_FINE_SLOTS) return (VkDeviceSize)COARSE_WORDS_MAX + (VkDeviceSize)p_slot * FINE_SLOT_WORDS;
-    return (VkDeviceSize)COARSE_WORDS_MAX + (VkDeviceSize)TERRAIN_FINE_SLOTS * FINE_SLOT_WORDS + (VkDeviceSize)(p_slot - TERRAIN_FINE_SLOTS) * SMALL_SLOT_WORDS;
+    if (p_slot < TERRAIN_FINE_SLOTS) return (VkDeviceSize)COARSE_POOL_WORDS + (VkDeviceSize)p_slot * FINE_SLOT_WORDS;
+    return (VkDeviceSize)COARSE_POOL_WORDS + (VkDeviceSize)TERRAIN_FINE_SLOTS * FINE_SLOT_WORDS + (VkDeviceSize)(p_slot - TERRAIN_FINE_SLOTS) * SMALL_SLOT_WORDS;
 }
 
 bool TerrainCache::_stage(const void* p_data, VkDeviceSize p_bytes, VkDeviceSize p_dst)
@@ -198,23 +253,27 @@ bool TerrainCache::_alloc_slot(uint32_t p_lod, uint64_t p_frame_number, uint32_t
     const bool fine = p_lod == 0;
     std::vector<uint32_t>& pool = fine ? free_fine : free_small;
     if (pool.empty()) {
+        Terrain* victim_terrain = nullptr;
         uint32_t victim = TERRAIN_LOD_NONE;
         float farthest = -1.0f;
-        for (uint32_t t = 0; t < tiles.size(); t++) {
-            const Tile& tile = tiles[t];
-            if (tile.slot == TERRAIN_LOD_NONE || (tile.slot < TERRAIN_FINE_SLOTS) != fine) continue;
-            if (tile.desired != TERRAIN_LOD_NONE && tile.desired <= tile.lod) continue;
-            if (tile.distance > farthest) {
-                farthest = tile.distance;
-                victim = t;
+        for (Terrain& t : terrains) {
+            for (uint32_t i = 0; i < t.tiles.size(); i++) {
+                const Tile& tile = t.tiles[i];
+                if (tile.slot == TERRAIN_LOD_NONE || (tile.slot < TERRAIN_FINE_SLOTS) != fine) continue;
+                if (tile.desired != TERRAIN_LOD_NONE && tile.desired <= tile.lod) continue;
+                if (tile.distance > farthest) {
+                    farthest = tile.distance;
+                    victim_terrain = &t;
+                    victim = i;
+                }
             }
         }
-        if (victim == TERRAIN_LOD_NONE) return false;
-        Tile& v = tiles[victim];
+        if (!victim_terrain) return false;
+        Tile& v = victim_terrain->tiles[victim];
         _release_slot(v.slot, p_frame_number);
         v.slot = TERRAIN_LOD_NONE;
         v.lod = TERRAIN_LOD_NONE;
-        tile_table[victim] = { 0u, TERRAIN_LOD_NONE };
+        tile_table[victim_terrain->tile_base + victim] = { 0u, TERRAIN_LOD_NONE };
         return false;
     }
     r_slot = pool.back();
@@ -234,11 +293,12 @@ void TerrainCache::_receive(uint64_t p_frame_number)
         }
     }
 
-    std::sort(ready.begin(), ready.end(), [&](const std::shared_ptr<Request>& a, const std::shared_ptr<Request>& b) { return tiles[a->tile].distance < tiles[b->tile].distance; });
+    const auto tile_of = [&](const Request& r) -> Tile& { return terrains[r.terrain].tiles[r.tile]; };
+    std::sort(ready.begin(), ready.end(), [&](const std::shared_ptr<Request>& a, const std::shared_ptr<Request>& b) { return tile_of(*a).distance < tile_of(*b).distance; });
     size_t kept = 0;
     for (size_t i = 0; i < ready.size(); i++) {
         std::shared_ptr<Request>& r = ready[i];
-        Tile& tile = tiles[r->tile];
+        Tile& tile = tile_of(*r);
         const bool wanted = r->ok && tile.desired != TERRAIN_LOD_NONE && (tile.lod == TERRAIN_LOD_NONE || r->lod < tile.lod);
         if (!wanted) {
             if (tile.loading == r->lod) tile.loading = TERRAIN_LOD_NONE;
@@ -255,7 +315,7 @@ void TerrainCache::_receive(uint64_t p_frame_number)
         tile.slot = slot;
         tile.lod = r->lod;
         tile.loading = TERRAIN_LOD_NONE;
-        tile_table[r->tile] = { (uint32_t)_slot_word(slot), r->lod };
+        tile_table[terrains[r->terrain].tile_base + r->tile] = { (uint32_t)_slot_word(slot), r->lod };
     }
     ready.resize(kept);
 }
@@ -263,33 +323,38 @@ void TerrainCache::_receive(uint64_t p_frame_number)
 void TerrainCache::_plan_streaming(const vec3& p_camera)
 {
     _order.clear();
-    for (uint32_t t = 0; t < tiles.size(); t++) {
-        vec3 lo, hi;
-        _node_box(t, TERRAIN_COARSE_LEVEL, 0, 0, lo, hi);
-        Tile& tile = tiles[t];
-        tile.distance = _box_distance(p_camera, lo, hi);
-        tile.desired = TERRAIN_LOD_NONE;
-        for (uint32_t l = 0; l < STREAMED_LODS; l++) {
-            if (tile.distance < ranges[l] * PREFETCH_SCALE) {
-                tile.desired = l;
-                break;
+    for (uint32_t ti = 0; ti < terrains.size(); ti++) {
+        Terrain& terrain = terrains[ti];
+        for (uint32_t t = 0; t < terrain.tiles.size(); t++) {
+            vec3 lo, hi;
+            _node_box(terrain, t, TERRAIN_COARSE_LEVEL, 0, 0, lo, hi);
+            Tile& tile = terrain.tiles[t];
+            tile.distance = _box_distance(p_camera, lo, hi);
+            tile.desired = TERRAIN_LOD_NONE;
+            for (uint32_t l = 0; l < STREAMED_LODS; l++) {
+                if (tile.distance < terrain.ranges[l] * PREFETCH_SCALE) {
+                    tile.desired = l;
+                    break;
+                }
             }
+            const uint32_t have = std::min(tile.lod, tile.loading);
+            if (tile.desired != TERRAIN_LOD_NONE && (have == TERRAIN_LOD_NONE || tile.desired < have)) _order.push_back({ ti, t });
         }
-        const uint32_t have = std::min(tile.lod, tile.loading);
-        if (tile.desired != TERRAIN_LOD_NONE && (have == TERRAIN_LOD_NONE || tile.desired < have)) _order.push_back(t);
     }
-    std::sort(_order.begin(), _order.end(), [&](uint32_t a, uint32_t b) { return tiles[a].distance < tiles[b].distance; });
+    std::sort(_order.begin(), _order.end(), [&](const TileRef& a, const TileRef& b) { return terrains[a.terrain].tiles[a.tile].distance < terrains[b.terrain].tiles[b.tile].distance; });
 
-    for (const uint32_t t : _order) {
+    for (const TileRef& ref : _order) {
         if (inflight.size() + ready.size() >= MAX_INFLIGHT) break;
-        Tile& tile = tiles[t];
+        Terrain& terrain = terrains[ref.terrain];
+        Tile& tile = terrain.tiles[ref.tile];
         std::shared_ptr<Request> r = std::make_shared<Request>();
-        r->tile = t;
+        r->terrain = ref.terrain;
+        r->tile = ref.tile;
         r->lod = tile.desired;
         r->samples.resize((size_t)lterrain_lod_samples(r->lod) * lterrain_lod_samples(r->lod));
         tile.loading = r->lod;
-        const std::filesystem::path path = source.path;
-        const uint64_t offset = source.tiles[t].offset + source.lod_offsets[r->lod];
+        const std::filesystem::path path = terrain.source.path;
+        const uint64_t offset = terrain.source.tiles[ref.tile].offset + terrain.source.lod_offsets[r->lod];
         inflight.push_back(r);
         job_system().run_background_owned([r, path, offset] {
             r->ok = _read_range(path, offset, (uint64_t)r->samples.size() * sizeof(uint16_t), r->samples.data());
@@ -298,44 +363,44 @@ void TerrainCache::_plan_streaming(const vec3& p_camera)
     }
 }
 
-void TerrainCache::_node_box(uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, vec3& r_min, vec3& r_max) const
+void TerrainCache::_node_box(const Terrain& p_terrain, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, vec3& r_min, vec3& r_max) const
 {
-    const LTerrainPayloadHeader& h = source.header;
-    const vec3 origin = source.origin();
+    const LTerrainPayloadHeader& h = p_terrain.source.header;
     const float size = (float)(TERRAIN_PATCH_QUADS << p_level);
     const float x0 = (float)((p_tile % h.tiles_x) * LTERRAIN_TILE_QUADS) + (float)p_i * size;
     const float z0 = (float)((p_tile / h.tiles_x) * LTERRAIN_TILE_QUADS) + (float)p_j * size;
     float lo, hi;
-    source.node_range(p_tile, TERRAIN_COARSE_LEVEL - p_level, p_i, p_j, lo, hi);
-    r_min = origin + vec3(x0 * h.spacing, lo, z0 * h.spacing);
-    r_max = origin + vec3((x0 + size) * h.spacing, hi, (z0 + size) * h.spacing);
+    p_terrain.source.node_range(p_tile, TERRAIN_COARSE_LEVEL - p_level, p_i, p_j, lo, hi);
+    r_min = p_terrain.origin + vec3(x0 * h.spacing, lo, z0 * h.spacing);
+    r_max = p_terrain.origin + vec3((x0 + size) * h.spacing, hi, (z0 + size) * h.spacing);
 }
 
-void TerrainCache::_emit(uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, uint32_t p_quarter)
+void TerrainCache::_emit(uint32_t p_terrain, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, uint32_t p_quarter)
 {
     if (patch_count >= TERRAIN_MAX_PATCHES) return;
-    const LTerrainPayloadHeader& h = source.header;
+    const LTerrainPayloadHeader& h = terrains[p_terrain].source.header;
     const uint32_t size = TERRAIN_PATCH_QUADS << p_level;
-    patches[patch_count++] = { (p_tile % h.tiles_x) * LTERRAIN_TILE_QUADS + p_i * size, (p_tile / h.tiles_x) * LTERRAIN_TILE_QUADS + p_j * size, p_tile, p_level | (p_quarter << 4) };
+    patches[patch_count++] = { (p_tile % h.tiles_x) * LTERRAIN_TILE_QUADS + p_i * size, (p_tile / h.tiles_x) * LTERRAIN_TILE_QUADS + p_j * size, p_tile, p_level | (p_quarter << 4) | (p_terrain << 8) };
 }
 
-bool TerrainCache::_select_node(const CameraUniform& p_camera, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, bool p_root)
+bool TerrainCache::_select_node(const CameraUniform& p_camera, uint32_t p_terrain, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, bool p_root)
 {
+    const Terrain& terrain = terrains[p_terrain];
     vec3 lo, hi;
-    _node_box(p_tile, p_level, p_i, p_j, lo, hi);
+    _node_box(terrain, p_tile, p_level, p_i, p_j, lo, hi);
     const vec3 cam = vec3(p_camera.position);
     const float dist = _box_distance(cam, lo, hi);
-    if (!p_root && dist >= ranges[p_level]) return false;
+    if (!p_root && dist >= terrain.ranges[p_level]) return false;
     if (!_box_visible(p_camera.frustum_planes, lo, hi)) return true;
 
-    const uint32_t lod = tiles[p_tile].lod;
+    const uint32_t lod = terrain.tiles[p_tile].lod;
     const bool can_refine = p_level > 0 && lod != TERRAIN_LOD_NONE && lod <= p_level - 1;
-    if (!can_refine || dist >= ranges[p_level - 1]) {
-        for (uint32_t q = 0; q < 4; q++) _emit(p_tile, p_level, p_i, p_j, q);
+    if (!can_refine || dist >= terrain.ranges[p_level - 1]) {
+        for (uint32_t q = 0; q < 4; q++) _emit(p_terrain, p_tile, p_level, p_i, p_j, q);
         return true;
     }
     for (uint32_t q = 0; q < 4; q++) {
-        if (!_select_node(p_camera, p_tile, p_level - 1, p_i * 2 + (q & 1), p_j * 2 + (q >> 1), false)) _emit(p_tile, p_level, p_i, p_j, q);
+        if (!_select_node(p_camera, p_terrain, p_tile, p_level - 1, p_i * 2 + (q & 1), p_j * 2 + (q >> 1), false)) _emit(p_terrain, p_tile, p_level, p_i, p_j, q);
     }
     return true;
 }
@@ -343,25 +408,34 @@ bool TerrainCache::_select_node(const CameraUniform& p_camera, uint32_t p_tile, 
 void TerrainCache::_select(const CameraUniform& p_camera)
 {
     patch_count = 0;
-    for (uint32_t t = 0; t < tiles.size(); t++) _select_node(p_camera, t, TERRAIN_COARSE_LEVEL, 0, 0, true);
+    for (uint32_t ti = 0; ti < terrains.size(); ti++) {
+        if (terrains[ti].coarse_pending) continue;
+        for (uint32_t t = 0; t < terrains[ti].tiles.size(); t++) _select_node(p_camera, ti, t, TERRAIN_COARSE_LEVEL, 0, 0, true);
+    }
 }
 
-void TerrainCache::update(Guid p_terrain, const CameraUniform& p_camera, uint64_t p_frame_number, uint32_t p_slot)
+void TerrainCache::update(const std::vector<TerrainInstance>& p_terrains, const CameraUniform& p_camera, uint64_t p_frame_number, uint32_t p_slot)
 {
     frame_active = false;
     uploads.clear();
     upload_used = 0;
     upload_slot = p_slot;
     patch_count = 0;
-    if (!dd || !p_terrain.valid()) {
-        if (source.valid()) _deactivate();
+    if (!dd) return;
+    if (p_terrains.empty()) {
+        if (!_instances.empty() || !terrains.empty()) {
+            _deactivate();
+            _instances.clear();
+        }
         return;
     }
-    if (source.guid != p_terrain && !_activate(p_terrain)) return;
-    if (!source.valid()) return;
+    if (!_same_set(p_terrains)) _activate(p_terrains);
+    if (terrains.empty()) return;
+    _place(p_terrains);
 
-    if (coarse_pending && _stage(source.coarse.data(), (VkDeviceSize)source.coarse.size() * sizeof(uint16_t), 0)) coarse_pending = false;
-    if (coarse_pending) return;
+    for (Terrain& t : terrains) {
+        if (t.coarse_pending && _stage(t.source.coarse.data(), (VkDeviceSize)t.source.coarse.size() * sizeof(uint16_t), (VkDeviceSize)t.coarse_word * sizeof(uint32_t))) t.coarse_pending = false;
+    }
 
     const bool replay = freeze && frozen;
     if (!replay) {
@@ -385,36 +459,46 @@ void TerrainCache::update(Guid p_terrain, const CameraUniform& p_camera, uint64_
         dd->buffer_update(pb, patches.data(), (VkDeviceSize)patch_count * sizeof(TerrainPatch));
         dd->buffer_flush(pb, 0, (VkDeviceSize)patch_count * sizeof(TerrainPatch));
     }
-    dd->buffer_update(tb, tile_table.data(), (VkDeviceSize)tile_table.size() * sizeof(TerrainTileGpu));
-    dd->buffer_flush(tb, 0, (VkDeviceSize)tile_table.size() * sizeof(TerrainTileGpu));
+    if (!tile_table.empty()) {
+        dd->buffer_update(tb, tile_table.data(), (VkDeviceSize)tile_table.size() * sizeof(TerrainTileGpu));
+        dd->buffer_flush(tb, 0, (VkDeviceSize)tile_table.size() * sizeof(TerrainTileGpu));
+    }
     if (upload_used) dd->buffer_flush(staging[p_slot], 0, upload_used);
 
-    const LTerrainPayloadHeader& h = source.header;
-    TerrainUniform u{};
-    u.origin_spacing = vec4(source.origin(), h.spacing);
-    u.morph_camera = vec4(frozen_camera, 0.0f);
-    for (uint32_t l = 0; l < TERRAIN_LEVELS; l++) {
-        if (l == TERRAIN_COARSE_LEVEL) {
-            u.morph[l] = vec4(FLT_MAX, 0.0f, 0.0f, 0.0f);
-            continue;
+    _uniforms.assign(terrains.size(), TerrainUniform{});
+    for (uint32_t ti = 0; ti < terrains.size(); ti++) {
+        const Terrain& t = terrains[ti];
+        const LTerrainPayloadHeader& h = t.source.header;
+        TerrainUniform& u = _uniforms[ti];
+        u.origin_spacing = vec4(t.origin, h.spacing);
+        u.morph_camera = vec4(frozen_camera, 0.0f);
+        for (uint32_t l = 0; l < TERRAIN_LEVELS; l++) {
+            if (l == TERRAIN_COARSE_LEVEL) {
+                u.morph[l] = vec4(FLT_MAX, 0.0f, 0.0f, 0.0f);
+                continue;
+            }
+            const float prev = l > 0 ? t.ranges[l - 1] : 0.0f;
+            const float start = prev + (t.ranges[l] - prev) * MORPH_START;
+            u.morph[l] = vec4(start, 1.0f / std::max(t.ranges[l] - start, 1e-3f), 0.0f, 0.0f);
         }
-        const float prev = l > 0 ? ranges[l - 1] : 0.0f;
-        const float start = prev + (ranges[l] - prev) * MORPH_START;
-        u.morph[l] = vec4(start, 1.0f / std::max(ranges[l] - start, 1e-3f), 0.0f, 0.0f);
+        u.height_min = h.height_min;
+        u.height_scale = t.source.height_scale();
+        u.tiles_x = h.tiles_x;
+        u.tiles_y = h.tiles_y;
+        u.samples_x = h.samples_x;
+        u.samples_y = h.samples_y;
+        u.coarse_w = h.coarse_w;
+        u.coarse_h = h.coarse_h;
+        u.heights = heights.device_address;
+        u.tile_table = tb.device_address + (VkDeviceAddress)t.tile_base * sizeof(TerrainTileGpu);
+        u.patches = pb.device_address;
+        if (t.coarse_pending) u.height_scale = 0.0f;
+        u.coarse_base = t.coarse_word;
+        u.count = (uint32_t)terrains.size();
     }
-    u.height_min = h.height_min;
-    u.height_scale = source.height_scale();
-    u.tiles_x = h.tiles_x;
-    u.tiles_y = h.tiles_y;
-    u.samples_x = h.samples_x;
-    u.samples_y = h.samples_y;
-    u.coarse_w = h.coarse_w;
-    u.coarse_h = h.coarse_h;
-    u.heights = heights.device_address;
-    u.tile_table = tb.device_address;
-    u.patches = pb.device_address;
-    dd->buffer_update(ub, &u, sizeof(u));
-    dd->buffer_flush(ub, 0, sizeof(u));
+    const VkDeviceSize bytes = (VkDeviceSize)_uniforms.size() * sizeof(TerrainUniform);
+    dd->buffer_update(ub, _uniforms.data(), bytes);
+    dd->buffer_flush(ub, 0, bytes);
     frame_active = true;
 }
 

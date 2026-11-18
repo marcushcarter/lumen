@@ -26,18 +26,28 @@ struct TerrainCollision
         float distance = 0.0f;
     };
 
-    TerrainSource source;
+    struct Field {
+        uint64_t key = 0;
+        Guid guid;
+        vec3 position = vec3(0.0f);
+        std::filesystem::path path;
+        TerrainSource source;
+        float lowest = 0.0f;
+        std::vector<Tile> tiles;
+        std::vector<std::shared_ptr<Build>> inflight;
+    };
+
+    std::vector<std::unique_ptr<Field>> fields;
     float lowest = 0.0f;
-    std::vector<Tile> tiles;
-    std::vector<std::shared_ptr<Build>> inflight;
     std::vector<uint32_t> _order;
 
-    void update(PhysicsWorld& r_physics, Guid p_terrain, const std::filesystem::path& p_path, const std::vector<vec3>& p_anchors);
+    bool valid() const;
+    void update(PhysicsWorld& r_physics, const std::vector<TerrainInstance>& p_terrains, const std::vector<std::filesystem::path>& p_paths, const std::vector<vec3>& p_anchors);
     void clear(PhysicsWorld& r_physics);
 
-    void _wait();
-    void _tile_box(uint32_t p_tile, vec2& r_min, vec2& r_max) const;
-    static void _build(const TerrainSource& p_source, uint32_t p_tile, const std::filesystem::path& p_path, uint64_t p_offset, Build& r_build);
+    static void _clear_field(PhysicsWorld& r_physics, Field& r_field);
+    void _update_field(PhysicsWorld& r_physics, Field& r_field, const std::vector<vec3>& p_anchors);
+    static void _tile_box(const Field& p_field, uint32_t p_tile, vec2& r_min, vec2& r_max);
 };
 
 }

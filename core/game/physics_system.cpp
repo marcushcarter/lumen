@@ -318,20 +318,21 @@ void PhysicsSystem::_update_floor()
             if (physics.body_bounds(body.id, lo, hi)) static_floor = std::min(static_floor, lo.y);
         }
     }
-    world_floor = terrain.source.valid() ? std::min(static_floor, terrain.lowest) : static_floor;
+    world_floor = terrain.valid() ? std::min(static_floor, terrain.lowest) : static_floor;
 }
 
 void PhysicsSystem::_sync_terrain(GameSession& r_session)
 {
     const Scene& world = *r_session.world;
-    const Guid guid = world.terrain.terrain;
-    const std::filesystem::path path = guid.valid() && project ? project->content_path(guid) : std::filesystem::path();
+    terrain_instances(world, _terrains);
+    _terrain_paths.clear();
+    for (const TerrainInstance& t : _terrains) _terrain_paths.push_back(project ? project->content_path(t.guid) : std::filesystem::path());
     _anchors.clear();
     _anchors.push_back(r_session.camera.position);
     world.view<TransformComponent, LocomotionComponent>([&](Entity p_entity, const TransformComponent&, const LocomotionComponent&) {
         _anchors.push_back(vec3(world.world_matrix(p_entity)[3]));
     });
-    terrain.update(physics, guid, path, _anchors);
+    terrain.update(physics, _terrains, _terrain_paths, _anchors);
 }
 
 void PhysicsSystem::update(GameSession& r_session, float p_dt)

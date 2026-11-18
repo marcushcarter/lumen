@@ -38,6 +38,7 @@ struct ProjectManager
     struct ContentStats {
         uint32_t counts[CONTENT_KIND_COUNT] = {};
         uint64_t disk_bytes = 0;
+        uint64_t export_bytes = 0;
     };
 
     struct Entry {

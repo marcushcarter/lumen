@@ -171,7 +171,8 @@ struct TerrainUniform
     uint64_t heights;
     uint64_t tile_table;
     uint64_t patches;
-    uint64_t _pad;
+    uint32_t coarse_base;
+    uint32_t count;
 };
 static_assert(sizeof(TerrainUniform) == 176, "TerrainUniform layout changed");
 

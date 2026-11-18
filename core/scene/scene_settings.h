@@ -35,11 +35,4 @@ struct PhysicsSettings
     bool operator==(const PhysicsSettings&) const = default;
 };
 
-struct TerrainSettings
-{
-    Guid terrain;
-
-    bool operator==(const TerrainSettings&) const = default;
-};
-
 }

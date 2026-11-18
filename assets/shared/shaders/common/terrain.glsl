@@ -3,6 +3,7 @@
 
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference_uvec2 : require
 
 const uint TERRAIN_TILE_QUADS = 256u;
 const uint TERRAIN_APRON = 1u;
@@ -11,6 +12,7 @@ const uint TERRAIN_COARSE_STEP = 16u;
 const uint TERRAIN_LEVELS = 5u;
 const uint TERRAIN_LOD_NONE = 0xFFFFFFFFu;
 const uint TERRAIN_QUARTER_QUADS = 8u;
+const uint TERRAIN_UNIFORM_SIZE = 176u;
 
 struct TerrainPatch {
     uint origin_x;
@@ -43,9 +45,21 @@ layout(buffer_reference, scalar) buffer TerrainBuffer {
     TerrainHeightBuffer heights;
     TerrainTileBuffer tile_table;
     TerrainPatchBuffer patches;
-    uint _pad0;
-    uint _pad1;
+    uint coarse_base;
+    uint count;
 };
+
+TerrainBuffer terrain_at(TerrainBuffer p_base, uint p_index) {
+    uvec2 a = uvec2(p_base);
+    uint carry;
+    a.x = uaddCarry(a.x, p_index * TERRAIN_UNIFORM_SIZE, carry);
+    a.y += carry;
+    return TerrainBuffer(a);
+}
+
+uint terrain_patch_terrain(TerrainPatch p_patch) {
+    return (p_patch.packed >> 8u) & 15u;
+}
 
 float terrain_u16(TerrainHeightBuffer p_heights, uint p_word_base, uint p_index) {
     const uint w = p_heights.data[p_word_base + (p_index >> 1u)];
@@ -59,7 +73,7 @@ uvec2 terrain_tile_origin(TerrainBuffer p_t, uint p_tile) {
 float terrain_fetch(TerrainBuffer p_t, uint p_tile, uvec2 p_tile_origin, uint p_level, uvec2 p_i) {
     if (p_level >= TERRAIN_COARSE_LEVEL) {
         const uvec2 c = min(p_tile_origin / TERRAIN_COARSE_STEP + p_i * (1u << (p_level - TERRAIN_COARSE_LEVEL)), uvec2(p_t.coarse_w, p_t.coarse_h) - 1u);
-        return terrain_u16(p_t.heights, 0u, c.y * p_t.coarse_w + c.x);
+        return terrain_u16(p_t.heights, p_t.coarse_base, c.y * p_t.coarse_w + c.x);
     }
     const TerrainTile e = p_t.tile_table.data[p_tile];
     const uint r = e.lod;
@@ -102,7 +116,7 @@ float terrain_height(TerrainBuffer p_t, vec2 p_sample, out float r_step) {
 uint terrain_sample_index(TerrainBuffer p_t, TerrainTile p_entry, uvec2 p_tile_origin, uint p_level, uvec2 p_i, out uint r_word_base) {
     if (p_level >= TERRAIN_COARSE_LEVEL) {
         const uvec2 c = p_tile_origin / TERRAIN_COARSE_STEP + p_i;
-        r_word_base = 0u;
+        r_word_base = p_t.coarse_base;
         return c.y * p_t.coarse_w + c.x;
     }
     const uvec2 s = p_i + TERRAIN_APRON;

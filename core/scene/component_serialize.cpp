@@ -118,7 +118,7 @@ void serialize(Archive& a, PhysicsSettings& r_c)
     a.field("chains", r_c.chains);
 }
 
-void serialize(Archive& a, TerrainSettings& r_c)
+void serialize(Archive& a, TerrainComponent& r_c)
 {
     a.field("terrain", r_c.terrain);
 }

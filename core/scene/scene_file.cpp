@@ -181,12 +181,6 @@ std::string SceneFile::write_text(Scene& r_world, const SceneFile& p_file)
         TomlWriter physics_writer(physics);
         serialize(physics_writer, r_world.physics);
         section.insert_or_assign(KEY_PHYSICS, std::move(physics));
-        if (r_world.terrain.terrain.valid()) {
-            toml::table terrain;
-            TomlWriter terrain_writer(terrain);
-            serialize(terrain_writer, r_world.terrain);
-            section.insert_or_assign(KEY_TERRAIN, std::move(terrain));
-        }
     } else if (p_file.root.valid()) {
         section.insert_or_assign(KEY_ROOT, p_file.root.to_string());
     }
@@ -246,9 +240,19 @@ Error SceneFile::read_text(std::string_view p_text, Scene& r_world, bool p_edito
         TomlReader reader(*physics);
         serialize(reader, r_world.physics);
     }
-    if (const toml::table* terrain = section->get_as<toml::table>(KEY_TERRAIN)) {
-        TomlReader reader(*terrain);
-        serialize(reader, r_world.terrain);
+    if (const toml::table* legacy_terrain = section->get_as<toml::table>(KEY_LEGACY_TERRAIN)) {
+        TerrainComponent terrain;
+        TomlReader reader(*legacy_terrain);
+        serialize(reader, terrain);
+        if (terrain.terrain.valid()) {
+            const Entity e = r_world.create_persistent(Guid::generate());
+            NameComponent name{};
+            std::snprintf(name.name, NameComponent::MAX_LENGTH, "Terrain");
+            r_world.add<NameComponent>(e, name);
+            r_world.add<TransformComponent>(e);
+            r_world.add<TerrainComponent>(e, terrain);
+            log_write("Scene File: moved the scene terrain onto a 'Terrain' entity.");
+        }
     }
 
     const std::unordered_map<int64_t, LegacyFolder> legacy = _legacy_folders(section->get_as<toml::array>(KEY_LEGACY_FOLDERS));
@@ -299,7 +303,6 @@ uint64_t SceneFile::hash(Scene& r_world)
 {
     HashWriter writer;
     serialize(writer, r_world.environment);
-    serialize(writer, r_world.terrain);
     serialize(writer, r_world.shadows);
     serialize(writer, r_world.physics);
 

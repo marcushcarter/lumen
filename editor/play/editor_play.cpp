@@ -129,10 +129,6 @@ void EditorPlay::_sync_entity(Entity p_authored)
 
 void EditorPlay::_sync_environment()
 {
-    if (authored->terrain != _terrain) {
-        _terrain = authored->terrain;
-        runtime.terrain = authored->terrain;
-    }
     if (authored->shadows != _shadows) {
         _shadows = authored->shadows;
         runtime.shadows = authored->shadows;
@@ -152,8 +148,6 @@ void EditorPlay::_clone()
     runtime.load();
     std::memcpy((void*)&_environment, &authored->environment, sizeof(EnvironmentSettings));
     runtime.environment = authored->environment;
-    _terrain = authored->terrain;
-    runtime.terrain = authored->terrain;
     _shadows = authored->shadows;
     runtime.shadows = authored->shadows;
     _physics = authored->physics;

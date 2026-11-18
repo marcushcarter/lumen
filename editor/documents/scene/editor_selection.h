@@ -11,7 +11,6 @@ struct EditorSelection
     std::vector<uint32_t> entity_marks;
     uint64_t version = 0;
     bool environment = false;
-    bool terrain = false;
     bool shadows = false;
     bool physics = false;
     int32_t _shape = -1;
@@ -30,7 +29,6 @@ struct EditorSelection
     void clear();
     void select(Entity p_entity);
     void select_environment();
-    void select_terrain();
     void select_shadows();
     void select_physics();
     void add(Entity p_entity);

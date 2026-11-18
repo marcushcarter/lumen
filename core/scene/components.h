@@ -88,6 +88,11 @@ struct OrbitCameraComponent
     float sprint_fov = 5.0f;
 };
 
+struct TerrainComponent
+{
+    Guid terrain;
+};
+
 struct ParentComponent
 {
     Guid parent;

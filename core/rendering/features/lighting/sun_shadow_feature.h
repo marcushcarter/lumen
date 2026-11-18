@@ -80,7 +80,7 @@ struct SunShadowFeature : Feature
         vec2 origin = vec2(0.0f);
         vec3 sun = vec3(0.0f);
         uint64_t terrain_epoch = 0;
-        Guid terrain;
+        uint64_t terrain = 0;
         bool valid = false;
     };
 

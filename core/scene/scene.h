@@ -62,7 +62,6 @@ struct Scene
     Camera default_camera;
     Camera* active_camera = &default_camera;
     EnvironmentSettings environment;
-    TerrainSettings terrain;
     ShadowSettings shadows;
     PhysicsSettings physics;
 

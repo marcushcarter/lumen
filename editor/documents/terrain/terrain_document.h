@@ -12,10 +12,10 @@ struct TerrainDocument : AssetDocument
     static constexpr const char* ICON = ICON_FA_MOUNTAIN_SUN;
 
     static constexpr float NEAR_SCALE = 0.0002f;
-    static constexpr float MIN_SPACING = 0.05f;
+    static constexpr float MIN_SPACING = 0.01f;
     static constexpr float MAX_SPACING = 100.0f;
     static constexpr float MAX_HEIGHT = 20000.0f;
-    static constexpr float MIN_HEIGHT_RANGE = 0.1f;
+    static constexpr float MIN_HEIGHT_RANGE = 0.01f;
     static constexpr float FRAME_PITCH = 0.6f;
     static constexpr uint32_t GENERATE_SIZES[] = { 257, 513, 1025, 2049, 4097, 8193 };
     static constexpr uint32_t GENERATE_DEFAULT_SIZE = 3;

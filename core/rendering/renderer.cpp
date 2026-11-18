@@ -787,7 +787,9 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
     _player_shadow_fit(frame, width, height, p_world.shadows.player_shadow);
     _sun_cascade_fit(frame, camera, p_world.shadows, frame_number);
     if (&r_view == &main_view) {
-        terrain.update(p_world.terrain.terrain, frame.camera, frame_number, current_frame);
+        std::vector<TerrainInstance> terrains;
+        terrain_instances(p_world, terrains);
+        terrain.update(terrains, frame.camera, frame_number, current_frame);
         terrain.owner = &frame;
     }
 

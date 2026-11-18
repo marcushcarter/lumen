@@ -345,7 +345,8 @@ bool _load_clustered(const aiScene* p_scene, const MeshCooker::CookSettings& p_s
 
     std::vector<uint32_t> flat;
     flat.reserve(indices.size());
-    if (_build_meshlets(verts, indices, CLUSTER_GROUP_NONE, p_settings, flat, r_src).first == (uint32_t)r_src.clusters.size()) return false;
+    const std::pair<uint32_t, uint32_t> built = _build_meshlets(verts, indices, CLUSTER_GROUP_NONE, p_settings, flat, r_src);
+    if (built.first == built.second) return false;
 
     r_src.indices = std::move(flat);
     _finalize(r_src);

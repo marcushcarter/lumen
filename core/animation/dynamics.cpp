@@ -91,13 +91,12 @@ static mat3 _frame(const vec3& p_normal, const vec3& p_toward)
     return mat3(t, cross(n, t), n);
 }
 
-static uint32_t _substeps(float p_dt, float& r_step)
+static uint32_t _substeps(float p_dt, float& r_time, float& r_alpha)
 {
-    r_step = 0.0f;
-    if (p_dt <= 0.0f) return 0;
-    const float dt = std::min(p_dt, DYNAMICS_MAX_DT);
-    const uint32_t steps = std::clamp((uint32_t)std::ceil(dt / DYNAMICS_STEP), 1u, DYNAMICS_MAX_STEPS);
-    r_step = dt / (float)steps;
+    r_time += std::clamp(p_dt, 0.0f, DYNAMICS_MAX_DT);
+    const uint32_t steps = std::min((uint32_t)(r_time / DYNAMICS_STEP), DYNAMICS_MAX_STEPS);
+    r_time = std::clamp(r_time - (float)steps * DYNAMICS_STEP, 0.0f, DYNAMICS_STEP);
+    r_alpha = r_time / DYNAMICS_STEP;
     return steps;
 }
 
@@ -207,8 +206,9 @@ void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4&
     const vec3 now = vec3(p_model[3]);
     const bool reset = !initialized || distance(now, origin) > DYNAMICS_TELEPORT;
     const vec3 moved = reset ? vec3(0.0f) : now - origin;
-    float step = 0.0f;
-    const uint32_t steps = _substeps(p_dt, step);
+    const float step = DYNAMICS_STEP;
+    float alpha = 0.0f;
+    const uint32_t steps = _substeps(p_dt, chain_time, alpha);
     const mat4 inv_model = inverse(p_model);
 
     for (DynamicsChain& chain : chains) {
@@ -280,7 +280,7 @@ void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4&
                 const int32_t cj = chain.joints[c];
                 const vec3 origin_s = vec3(g[3]);
                 const vec3 child_now = vec3(g * vec4(r_local[cj].translation, 1.0f));
-                const vec3 target = vec3(inv_model * vec4(chain.pos[c], 1.0f));
+                const vec3 target = vec3(inv_model * vec4(mix(chain.prev[c], chain.pos[c], alpha), 1.0f));
                 const quat q = _from_to(child_now - origin_s, target - origin_s);
                 const quat world_rot = normalize(q * _rotation_of(g));
                 r_local[j].rotation = normalize(inverse(_rotation_of(parent_global)) * world_rot);
@@ -300,8 +300,9 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
     const vec3 moved = reset ? vec3(0.0f) : now - origin;
     const float scale = _model_scale(p_model);
     const mat4 inv_model = inverse(p_model);
-    float step = 0.0f;
-    const uint32_t steps = _substeps(p_dt, step);
+    const float step = DYNAMICS_STEP;
+    float alpha = 0.0f;
+    const uint32_t steps = _substeps(p_dt, cloth_time, alpha);
 
     const auto usable = [&](const DynamicsCloth& p_cloth) {
         return p_cloth.cloth < dyn.cloths.size() && dyn.cloths[p_cloth.cloth].joint_first + dyn.cloths[p_cloth.cloth].particle_count <= r_skin.size();
@@ -393,7 +394,10 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
 
         std::vector<vec3>& local = cloth.local;
         local.resize(n);
-        for (uint32_t p = 0; p < n; p++) local[p] = vec3(inv_model * vec4(cloth.pos[p], 1.0f));
+        for (uint32_t p = 0; p < n; p++) {
+            const vec3 shown = parts[p].max_distance <= 0.0f ? cloth.anchor[p] : mix(cloth.prev[p], cloth.pos[p], alpha);
+            local[p] = vec3(inv_model * vec4(shown, 1.0f));
+        }
         for (uint32_t p = 0; p < n; p++) {
             vec3 normal(0.0f);
             for (uint32_t k = cloth.tri_offset[p]; k < cloth.tri_offset[p + 1]; k++) {

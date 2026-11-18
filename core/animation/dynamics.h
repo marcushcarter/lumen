@@ -53,6 +53,8 @@ struct CharacterDynamics
     uint64_t key = 0;
     bool initialized = false;
     vec3 origin = vec3(0.0f);
+    float chain_time = 0.0f;
+    float cloth_time = 0.0f;
     std::vector<DynamicsCollider> colliders;
     std::vector<uint8_t> moving;
     RagdollBody body;

@@ -20,6 +20,7 @@ static constexpr int CLOTH_SIMPLIFY_ATTEMPTS = 10;
 static constexpr float CLOTH_SIMPLIFY_SHRINK = 0.7f;
 static constexpr float CLOTH_PIN_FALLBACK_SHARE = 0.1f;
 static constexpr float CLOTH_PINNED = 0.05f;
+static constexpr float CLOTH_LOD_EDGE_ERROR = 0.5f;
 
 static vec3 _closest_on_triangle(const vec3& p_p, const vec3& p_a, const vec3& p_b, const vec3& p_c, vec3& r_bary)
 {
@@ -310,6 +311,60 @@ bool dynamics_strip_cloths(LMeshData& r_data)
     return true;
 }
 
+static void _raise_cloth_lod_error(LMeshData& r_data, const std::vector<vec3>& p_positions)
+{
+    std::vector<uint8_t> cloth(p_positions.size(), 0);
+    for (const LMeshClothRestore& r : r_data.rig.dynamics.restore) {
+        if (r.vertex < cloth.size()) cloth[r.vertex] = 1;
+    }
+
+    std::vector<float> edge_sum(r_data.groups.size(), 0.0f);
+    std::vector<uint32_t> edge_count(r_data.groups.size(), 0u);
+    for (const LMeshPage& page : r_data.pages) {
+        for (uint32_t ci = page.cluster_first; ci < page.cluster_first + page.cluster_count && ci < r_data.clusters.size(); ci++) {
+            const LMeshCluster& c = r_data.clusters[ci];
+            if (c.self_group >= r_data.groups.size()) continue;
+            const uint32_t base = page.vertex_first + c.vertex_offset;
+            for (uint32_t t = 0; t < c.tri_count; t++) {
+                const size_t at = (size_t)page.tri_first + c.tri_offset + t;
+                if (at >= r_data.local_tris.size()) break;
+                const uint32_t lt = r_data.local_tris[at];
+                const uint32_t v[3] = { base + (lt & 0xFFu), base + ((lt >> 8) & 0xFFu), base + ((lt >> 16) & 0xFFu) };
+                if (v[0] >= cloth.size() || v[1] >= cloth.size() || v[2] >= cloth.size()) continue;
+                if (!cloth[v[0]] && !cloth[v[1]] && !cloth[v[2]]) continue;
+                for (int k = 0; k < 3; k++) edge_sum[c.self_group] += distance(p_positions[v[k]], p_positions[v[(k + 1) % 3]]);
+                edge_count[c.self_group] += 3;
+            }
+        }
+    }
+    for (size_t g = 0; g < r_data.groups.size(); g++) {
+        if (edge_count[g]) r_data.groups[g].error = std::max(r_data.groups[g].error, edge_sum[g] / (float)edge_count[g] * CLOTH_LOD_EDGE_ERROR);
+    }
+
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (const LMeshCluster& c : r_data.clusters) {
+            if (c.self_group >= r_data.groups.size() || c.parent_group >= r_data.groups.size()) continue;
+            if (r_data.groups[c.parent_group].error < r_data.groups[c.self_group].error) {
+                r_data.groups[c.parent_group].error = r_data.groups[c.self_group].error;
+                changed = true;
+            }
+        }
+    }
+
+    for (size_t i = r_data.nodes.size(); i-- > 0;) {
+        LMeshNode& n = r_data.nodes[i];
+        if (n.page == LMESH_NODE_INNER) {
+            float err = 0.0f;
+            for (uint32_t k = n.first; k < n.first + n.count && k < r_data.nodes.size(); k++) err = std::max(err, r_data.nodes[k].max_parent_error);
+            n.max_parent_error = err;
+        } else if (n.count && n.first < r_data.clusters.size()) {
+            const uint32_t parent = r_data.clusters[n.first].parent_group;
+            n.max_parent_error = parent < r_data.groups.size() ? r_data.groups[parent].error : FLT_MAX;
+        }
+    }
+}
+
 uint32_t dynamics_bake_cloths(LMeshData& r_data, const LSkeleton& p_skeleton)
 {
     if (!r_data.skinned() || p_skeleton.cloths.empty() || r_data.skin.size() != r_data.vertices.size()) return 0;
@@ -342,6 +397,7 @@ uint32_t dynamics_bake_cloths(LMeshData& r_data, const LSkeleton& p_skeleton)
         if (def.root < 0 || def.root >= (int32_t)p_skeleton.joint_count()) continue;
         if (_bake_cloth((uint32_t)i, def, p_skeleton, skel_of_rig, positions, indices, original, r_data.skin, rig.joints, rig.inverse_binds, rig.dynamics)) baked++;
     }
+    if (baked) _raise_cloth_lod_error(r_data, positions);
     return baked;
 }
 

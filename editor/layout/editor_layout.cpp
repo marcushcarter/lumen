@@ -136,28 +136,28 @@ void EditorLayout::_draw_well(EditorContext& ctx, DockZone p_zone, ImVec2 p_min,
 
 void EditorLayout::_draw_column(EditorContext& ctx, DockZone p_top, DockZone p_bottom, float& r_split, ImVec2 p_min, ImVec2 p_max, const char* p_id)
 {
-    const float gap = ui_style().splitter.gap;
     const bool top = has(p_top);
     const bool bottom = has(p_bottom);
     if (!(top && bottom)) {
         _draw_well(ctx, top ? p_top : p_bottom, p_min, p_max);
         return;
     }
-    const float h = ImMax(1.0f, p_max.y - p_min.y - gap);
+    const float h = ImMax(1.0f, p_max.y - p_min.y);
     const float min_r = ImMin(0.5f, MIN_SIDE_PX / h);
     r_split = ImClamp(r_split, min_r, 1.0f - min_r);
-    const float top_h = ImFloor(h * r_split);
-    _draw_well(ctx, p_top, p_min, ImVec2(p_max.x, p_min.y + top_h));
-    ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + top_h));
-    const SplitterState s = ui_splitter(p_id, SplitAxis::Y, ImVec2(p_max.x - p_min.x, gap), 0.0f);
-    if (s.active) r_split += s.delta / h;
-    _draw_well(ctx, p_bottom, ImVec2(p_min.x, p_min.y + top_h + gap), p_max);
+    float split = p_min.y + ImFloor(h * r_split);
+    const SplitterState s = ui_edge_splitter(p_id, SplitAxis::Y, ImVec2(p_min.x, split), ImVec2(p_max.x, split));
+    if (s.active) {
+        r_split = ImClamp(r_split + s.delta / h, min_r, 1.0f - min_r);
+        split = p_min.y + ImFloor(h * r_split);
+    }
+    _draw_well(ctx, p_top, p_min, ImVec2(p_max.x, split));
+    _draw_well(ctx, p_bottom, ImVec2(p_min.x, split), p_max);
 }
 
 void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorContext&, ImVec2, ImVec2)>& p_toolbar)
 {
     const UiStyle& ui = ui_style();
-    const float gap = ui.splitter.gap;
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -185,7 +185,7 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     if (p_toolbar) {
         const float bar_h = ui.toolbar.main_height;
         p_toolbar(ctx, origin, ImVec2(end.x, origin.y + bar_h));
-        body_y += bar_h + gap;
+        body_y += bar_h;
     }
     const float body_h = ImMax(1.0f, end.y - body_y);
 
@@ -193,42 +193,42 @@ void EditorLayout::draw(EditorContext& ctx, const std::function<void(EditorConte
     const bool right = has(DockZone::RIGHT_TOP) || has(DockZone::RIGHT_BOTTOM);
     const bool bottom = has(DockZone::BOTTOM);
 
-    const float avail_w = ImMax(1.0f, extent.x - (left ? gap : 0.0f) - (right ? gap : 0.0f));
+    const float avail_w = ImMax(1.0f, extent.x);
     const float max_side = ImMax(MIN_SIDE_PX, avail_w - MIN_CENTER_PX);
-    if (right) right_w = ImClamp(right_w, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, max_side - (left ? MIN_SIDE_PX : 0.0f)));
-    if (left) left_w = ImClamp(left_w, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, max_side - (right ? right_w : 0.0f)));
-    const float lw = left ? ImFloor(left_w) : 0.0f;
-    const float rw = right ? ImFloor(right_w) : 0.0f;
-    const float lx1 = origin.x + lw;
-    const float cx0 = lx1 + (left ? gap : 0.0f);
-    const float rx0 = end.x - rw;
-    const float cx1 = rx0 - (right ? gap : 0.0f);
+    const auto clamp_sides = [&] {
+        if (right) right_w = ImClamp(right_w, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, max_side - (left ? MIN_SIDE_PX : 0.0f)));
+        if (left) left_w = ImClamp(left_w, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, max_side - (right ? right_w : 0.0f)));
+    };
+    clamp_sides();
+    if (left) {
+        const float x = origin.x + ImFloor(left_w);
+        const SplitterState sl = ui_edge_splitter("##split_left", SplitAxis::X, ImVec2(x, body_y), ImVec2(x, end.y));
+        if (sl.active) left_w += sl.delta;
+    }
+    if (right) {
+        const float x = end.x - ImFloor(right_w);
+        const SplitterState sr = ui_edge_splitter("##split_right", SplitAxis::X, ImVec2(x, body_y), ImVec2(x, end.y));
+        if (sr.active) right_w -= sr.delta;
+    }
+    clamp_sides();
+    const float lx1 = origin.x + (left ? ImFloor(left_w) : 0.0f);
+    const float rx0 = end.x - (right ? ImFloor(right_w) : 0.0f);
+    const float cx0 = lx1;
+    const float cx1 = rx0;
 
     float center_y1 = end.y;
     if (bottom) {
         bottom_h = ImClamp(bottom_h, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, body_h - MIN_CENTER_PX));
-        center_y1 = end.y - ImFloor(bottom_h) - gap;
+        const float y = end.y - ImFloor(bottom_h);
+        const SplitterState sb = ui_edge_splitter("##split_bottom", SplitAxis::Y, ImVec2(cx0, y), ImVec2(cx1, y));
+        if (sb.active) bottom_h = ImClamp(bottom_h - sb.delta, MIN_SIDE_PX, ImMax(MIN_SIDE_PX, body_h - MIN_CENTER_PX));
+        center_y1 = end.y - ImFloor(bottom_h);
     }
 
     if (center) center(ctx, ImVec2(cx0, body_y), ImVec2(cx1, center_y1));
-    if (bottom) {
-        ImGui::SetCursorScreenPos(ImVec2(cx0, center_y1));
-        const SplitterState sb = ui_splitter("##split_bottom", SplitAxis::Y, ImVec2(cx1 - cx0, gap), 0.0f);
-        if (sb.active) bottom_h -= sb.delta;
-        _draw_well(ctx, DockZone::BOTTOM, ImVec2(cx0, center_y1 + gap), ImVec2(cx1, end.y));
-    }
-    if (left) {
-        _draw_column(ctx, DockZone::LEFT_TOP, DockZone::LEFT_BOTTOM, left_split_y, ImVec2(origin.x, body_y), ImVec2(lx1, end.y), "##left_split_y");
-        ImGui::SetCursorScreenPos(ImVec2(lx1, body_y));
-        const SplitterState sl = ui_splitter("##split_left", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
-        if (sl.active) left_w += sl.delta;
-    }
-    if (right) {
-        _draw_column(ctx, DockZone::RIGHT_TOP, DockZone::RIGHT_BOTTOM, right_split_y, ImVec2(rx0, body_y), end, "##right_split_y");
-        ImGui::SetCursorScreenPos(ImVec2(cx1, body_y));
-        const SplitterState sr = ui_splitter("##split_right", SplitAxis::X, ImVec2(gap, body_h), 0.0f);
-        if (sr.active) right_w -= sr.delta;
-    }
+    if (bottom) _draw_well(ctx, DockZone::BOTTOM, ImVec2(cx0, center_y1), ImVec2(cx1, end.y));
+    if (left) _draw_column(ctx, DockZone::LEFT_TOP, DockZone::LEFT_BOTTOM, left_split_y, ImVec2(origin.x, body_y), ImVec2(lx1, end.y), "##left_split_y");
+    if (right) _draw_column(ctx, DockZone::RIGHT_TOP, DockZone::RIGHT_BOTTOM, right_split_y, ImVec2(rx0, body_y), end, "##right_split_y");
 
     if (close_request) {
         for (Slot& s : slots) if (s.panel == close_request) s.open = false;

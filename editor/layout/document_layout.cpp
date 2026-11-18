@@ -18,15 +18,14 @@ void DocumentLayout::_draw_left(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (center) center(ctx, p_min, p_max);
         return;
     }
-    const float gap = ui_style().splitter.gap;
-    const float h = ImMax(1.0f, p_max.y - p_min.y - gap);
+    const float h = ImMax(1.0f, p_max.y - p_min.y);
     split_y = ImClamp(split_y, MIN_SPLIT, MAX_SPLIT);
+    const float split = p_min.y + ImFloor(h * split_y);
+    const SplitterState s = ui_edge_splitter("##window_split_y", SplitAxis::Y, ImVec2(p_min.x, split), ImVec2(p_max.x, split));
+    if (s.active) split_y = ImClamp(split_y + s.delta / h, MIN_SPLIT, MAX_SPLIT);
     const float top_h = ImFloor(h * split_y);
     if (center) center(ctx, p_min, ImVec2(p_max.x, p_min.y + top_h));
-    ImGui::SetCursorScreenPos(ImVec2(p_min.x, p_min.y + top_h));
-    const SplitterState s = ui_splitter("##window_split_y", SplitAxis::Y, ImVec2(p_max.x - p_min.x, gap), 0.0f);
-    if (s.active) split_y += s.delta / h;
-    const float y0 = p_min.y + top_h + gap;
+    const float y0 = p_min.y + top_h;
     const float each = ImFloor((p_max.y - y0) / (float)bottom.size());
     for (size_t i = 0; i < bottom.size(); ++i) {
         const float a = y0 + each * (float)i;
@@ -77,15 +76,14 @@ void DocumentLayout::draw(EditorContext& ctx, const std::function<void(EditorCon
         return;
     }
 
-    const float gap = ui.splitter.gap;
-    const float w = ImMax(1.0f, end.x - origin.x - gap);
+    const float w = ImMax(1.0f, end.x - origin.x);
     split_x = ImClamp(split_x, MIN_SPLIT, MAX_SPLIT);
+    const float split = origin.x + ImFloor(w * split_x);
+    const SplitterState s = ui_edge_splitter("##window_split_x", SplitAxis::X, ImVec2(split, body_y), ImVec2(split, end.y));
+    if (s.active) split_x = ImClamp(split_x + s.delta / w, MIN_SPLIT, MAX_SPLIT);
     const float left_w = ImFloor(w * split_x);
     _draw_left(ctx, body_min, ImVec2(origin.x + left_w, end.y));
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + left_w, body_y));
-    const SplitterState s = ui_splitter("##window_split_x", SplitAxis::X, ImVec2(gap, end.y - body_y), 0.0f);
-    if (s.active) split_x += s.delta / w;
-    _draw_side(ctx, ImVec2(origin.x + left_w + gap, body_y), end);
+    _draw_side(ctx, ImVec2(origin.x + left_w, body_y), end);
 }
 
 }

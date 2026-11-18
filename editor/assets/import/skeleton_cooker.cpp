@@ -135,7 +135,22 @@ toml::table SkeletonCooker::dynamics_table(const LSkeleton& p_skeleton)
             { "thickness", (double)c.thickness },
             { "max_distance", (double)c.max_distance } });
     }
-    return toml::table{ { "chains", chains }, { "cloths", cloths } };
+    toml::array colliders;
+    for (const SkeletonCollider& c : p_skeleton.colliders) {
+        colliders.push_back(toml::table{
+            { "root", p_skeleton.names[c.joint] },
+            { "a", toml::array{ (double)c.a.x, (double)c.a.y, (double)c.a.z } },
+            { "b", toml::array{ (double)c.b.x, (double)c.b.y, (double)c.b.z } },
+            { "radius", (double)c.radius } });
+    }
+    return toml::table{ { "chains", chains }, { "cloths", cloths }, { "colliders", colliders } };
+}
+
+static vec3 _vec3(const toml::table& p_t, const char* p_key, vec3 p_fallback)
+{
+    const toml::array* a = p_t[p_key].as_array();
+    if (!a || a->size() != 3) return p_fallback;
+    return vec3((float)(*a)[0].value_or((double)p_fallback.x), (float)(*a)[1].value_or((double)p_fallback.y), (float)(*a)[2].value_or((double)p_fallback.z));
 }
 
 static float _float(const toml::table& p_t, const char* p_key, float p_fallback)
@@ -147,6 +162,7 @@ static uint32_t _read_dynamics(const toml::table& p_tbl, const std::filesystem::
 {
     r_skeleton.chains.clear();
     r_skeleton.cloths.clear();
+    r_skeleton.colliders.clear();
     const toml::table* dyn = p_tbl["dynamics"].as_table();
     if (!dyn) return 0;
     uint32_t dropped = 0;
@@ -196,6 +212,19 @@ static uint32_t _read_dynamics(const toml::table& p_tbl, const std::filesystem::
             r_skeleton.cloths.push_back(c);
         }
     }
+    if (const toml::array* colliders = (*dyn)["colliders"].as_array()) {
+        for (const toml::node& n : *colliders) {
+            const toml::table* t = n.as_table();
+            if (!t) continue;
+            SkeletonCollider c;
+            c.joint = resolve(*t);
+            if (c.joint == SKELETON_NO_JOINT) continue;
+            c.a = _vec3(*t, "a", c.a);
+            c.b = _vec3(*t, "b", c.b);
+            c.radius = _float(*t, "radius", c.radius);
+            r_skeleton.colliders.push_back(c);
+        }
+    }
     return dropped;
 }
 
@@ -203,6 +232,7 @@ uint32_t SkeletonCooker::load_dynamics(const std::filesystem::path& p_lmesh, LSk
 {
     r_skeleton.chains.clear();
     r_skeleton.cloths.clear();
+    r_skeleton.colliders.clear();
     std::error_code ec;
     if (!std::filesystem::exists(p_lmesh, ec)) return 0;
     toml::table tbl;
@@ -217,7 +247,7 @@ Error SkeletonCooker::save_dynamics(const std::filesystem::path& p_lmesh, const 
     toml::table tbl;
     try { tbl = toml::parse_file(p_lmesh.string()); }
     catch (const toml::parse_error&) { return FAILED; }
-    if (p_skeleton.chains.empty() && p_skeleton.cloths.empty()) tbl.erase("dynamics");
+    if (p_skeleton.chains.empty() && p_skeleton.cloths.empty() && p_skeleton.colliders.empty()) tbl.erase("dynamics");
     else tbl.insert_or_assign("dynamics", dynamics_table(p_skeleton));
     if (p_skeleton.save_cooked(p_content_bin) != OK) {
         log_write("SkeletonCooker: failed to write '%s'.", p_content_bin.string().c_str());

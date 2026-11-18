@@ -503,6 +503,19 @@ void PhysicsWorld::move_kinematic(PhysicsBodyId p_body, const vec3& p_position, 
     impl->bodies().MoveKinematic(to_jph(p_body), to_jph_r(p_position), to_jph(normalize(p_rotation)), p_dt);
 }
 
+void PhysicsWorld::set_frozen(PhysicsBodyId p_body, bool p_frozen)
+{
+    if (!impl || !p_body.valid()) return;
+    JPH::BodyInterface& bodies = impl->bodies();
+    const JPH::BodyID id = to_jph(p_body);
+    if (p_frozen) {
+        bodies.SetLinearAndAngularVelocity(id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+        bodies.SetMotionType(id, JPH::EMotionType::Kinematic, JPH::EActivation::DontActivate);
+    } else {
+        bodies.SetMotionType(id, JPH::EMotionType::Dynamic, JPH::EActivation::Activate);
+    }
+}
+
 void PhysicsWorld::set_linear_velocity(PhysicsBodyId p_body, const vec3& p_velocity)
 {
     if (!impl || !p_body.valid()) return;

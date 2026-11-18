@@ -184,18 +184,22 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
     }
 }
 
-void CharacterDynamics::update_colliders(const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw)
+void CharacterDynamics::update_colliders(const LSkeleton& p_skeleton, const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw)
 {
-    if ((chains.empty() && cloths.empty()) || !body.valid) {
-        colliders.clear();
-        return;
-    }
-    vec3 a[RAGDOLL_PART_COUNT], b[RAGDOLL_PART_COUNT];
-    float radius[RAGDOLL_PART_COUNT];
-    body.capsules(p_global, p_model, p_model_yaw, a, b, radius);
+    colliders.clear();
+    if (chains.empty() && cloths.empty()) return;
     const float scale = _model_scale(p_model);
-    colliders.resize(RAGDOLL_PART_COUNT);
-    for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) colliders[i] = DynamicsCollider{ a[i], b[i], radius[i] * scale, body.part_joint(i) };
+    if (body.valid) {
+        vec3 a[RAGDOLL_PART_COUNT], b[RAGDOLL_PART_COUNT];
+        float radius[RAGDOLL_PART_COUNT];
+        body.capsules(p_global, p_model, p_model_yaw, a, b, radius);
+        for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) colliders.push_back(DynamicsCollider{ a[i], b[i], radius[i] * scale, body.part_joint(i) });
+    }
+    for (const SkeletonCollider& c : p_skeleton.colliders) {
+        if (c.joint < 0 || c.joint >= (int32_t)p_global.size()) continue;
+        const mat4 m = p_model * p_global[c.joint];
+        colliders.push_back(DynamicsCollider{ vec3(m * vec4(c.a, 1.0f)), vec3(m * vec4(c.b, 1.0f)), c.radius * scale, c.joint });
+    }
 }
 
 void CharacterDynamics::simulate_chains(const LSkeleton& p_skeleton, const mat4& p_model, float p_dt, float p_gravity, JointTransform* r_local, std::vector<mat4>& r_global)
@@ -412,9 +416,28 @@ void CharacterDynamics::simulate_cloth(const LSkeleton& p_skeleton, const LMeshR
     else job_system().parallel_for((uint32_t)cloths.size(), 1, solve, JobPriority::HIGH, "Cloth");
 }
 
+void CharacterDynamics::hold(const mat4& p_model)
+{
+    if (!initialized) return;
+    const mat4 delta = p_model * inverse(frame);
+    const auto carry = [&](std::vector<vec3>& r_points) {
+        for (vec3& p : r_points) p = vec3(delta * vec4(p, 1.0f));
+    };
+    for (DynamicsChain& chain : chains) {
+        carry(chain.pos);
+        carry(chain.prev);
+    }
+    for (DynamicsCloth& cloth : cloths) {
+        carry(cloth.pos);
+        carry(cloth.prev);
+    }
+    finish(p_model);
+}
+
 void CharacterDynamics::finish(const mat4& p_model)
 {
     origin = vec3(p_model[3]);
+    frame = p_model;
     initialized = true;
 }
 

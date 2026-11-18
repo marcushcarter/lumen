@@ -261,6 +261,7 @@ struct CharacterAction
 struct Character
 {
     Guid asset;
+    bool frozen = false;
     MovementState movement = MovementState::GROUNDED;
     Stance stance = Stance::STANDING;
     Gait gait = Gait::WALKING;

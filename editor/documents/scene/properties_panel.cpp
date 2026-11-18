@@ -40,7 +40,7 @@ static void _section_end()
 static bool _section(const char* p_label, bool* r_remove = nullptr, bool* r_revert = nullptr)
 {
     _section_end();
-    bool* open = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID(p_label), true);
+    bool* open = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID(p_label), std::strcmp(p_label, "Entity Info") == 0);
     if (ui_list_item(p_label, nullptr, p_label, nullptr, *open, r_remove, r_revert)) *open = !*open;
     if (!*open) return false;
     ui_list_body_begin();

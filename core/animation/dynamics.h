@@ -53,8 +53,11 @@ struct CharacterDynamics
     uint64_t key = 0;
     bool initialized = false;
     vec3 origin = vec3(0.0f);
+    mat4 frame = mat4(1.0f);
     float chain_time = 0.0f;
     float cloth_time = 0.0f;
+    float lod_time = 0.0f;
+    uint32_t lod_frame = 0;
     std::vector<DynamicsCollider> colliders;
     std::vector<uint8_t> moving;
     RagdollBody body;
@@ -62,9 +65,10 @@ struct CharacterDynamics
     std::vector<DynamicsCloth> cloths;
 
     void bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const LLocomotion& p_body);
-    void update_colliders(const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw);
+    void update_colliders(const LSkeleton& p_skeleton, const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw);
     void simulate_chains(const LSkeleton& p_skeleton, const mat4& p_model, float p_dt, float p_gravity, JointTransform* r_local, std::vector<mat4>& r_global);
     void simulate_cloth(const LSkeleton& p_skeleton, const LMeshRig& p_rig, const mat4& p_model, float p_dt, float p_gravity, bool p_solve, std::vector<mat4>& r_skin);
+    void hold(const mat4& p_model);
     void finish(const mat4& p_model);
     void follow_chains(const mat4& p_model, const std::vector<mat4>& p_global);
     void draw(DebugDraw& r_draw, bool p_chains, bool p_cloth) const;

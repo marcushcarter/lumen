@@ -12,6 +12,8 @@ namespace lumen {
 struct EditorPlay
 {
     static constexpr float STEP_DT = 1.0f / 30.0f;
+    static constexpr float MIN_SPEED = 0.01f;
+    static constexpr float MAX_SPEED = 10.0f;
 
     Scene* authored = nullptr;
     Scene runtime;
@@ -25,6 +27,9 @@ struct EditorPlay
     ShadowSettings _shadows;
     PhysicsSettings _physics;
     bool step_pending = false;
+    bool scaled = false;
+    bool scaled_from_pause = false;
+    float speed = 1.0f;
     float simulated_dt = 0.0f;
 
     Error initialize();
@@ -38,6 +43,7 @@ struct EditorPlay
     void stop();
     void toggle();
     void step();
+    void set_scaled(bool p_on);
     void update(float p_dt);
 
     Entity to_runtime(Entity p_authored) const;

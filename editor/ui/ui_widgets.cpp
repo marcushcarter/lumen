@@ -82,7 +82,7 @@ void ui_field_pop_style()
 
 bool ui_search_bar(const char* p_id, char* p_buf, size_t p_size, float p_width)
 {
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui_style().radius.xl);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
     ui_field_push_style();
     ImGui::SetNextItemWidth(p_width);
     const bool changed = ImGui::InputTextWithHint(p_id, ICON_FA_MAGNIFYING_GLASS "  Search", p_buf, p_size);
@@ -303,44 +303,49 @@ ImU32 ui_percent_color(float p_percent)
     return ui.color.viz_full;
 }
 
-SplitterState ui_splitter(const char* p_id, SplitAxis p_axis, ImVec2 p_size, float p_grip_len)
+SplitterState ui_edge_splitter(const char* p_id, SplitAxis p_axis, ImVec2 p_min, ImVec2 p_max)
 {
     const UiStyle& ui = ui_style();
-    if (p_grip_len < 0.0f) p_grip_len = ui.splitter.grip_length;
-    ImGui::InvisibleButton(p_id, p_size);
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const ImGuiID id = window->GetID(p_id);
+    const float half = ui.splitter.hit;
+    ImVec2 a = p_min;
+    ImVec2 b = p_max;
+    if (p_axis == SplitAxis::X) { a.x -= half; b.x += half; }
+    else { a.y -= half; b.y += half; }
+
     SplitterState s;
-    s.hovered = ImGui::IsItemHovered() && ImGui::GetHoveredID() == ImGui::GetItemID();
-    s.active = ImGui::IsItemActive();
-    s.activated = ImGui::IsItemActivated();
-
-    if (s.hovered || s.active) ImGui::SetMouseCursor(p_axis == SplitAxis::X ? ImGuiMouseCursor_ResizeEW : ImGuiMouseCursor_ResizeNS);
-    if (s.active) s.delta = (p_axis == SplitAxis::X) ? ImGui::GetIO().MouseDelta.x : ImGui::GetIO().MouseDelta.y;
-
-    ImVec2 mn = ImGui::GetItemRectMin();
-    ImVec2 mx = ImGui::GetItemRectMax();
-    float cx = ImFloor((mn.x + mx.x) * 0.5f);
-    float cy = ImFloor((mn.y + mx.y) * 0.5f);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    if (s.hovered || s.active) {
-        ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered);
-        const float half = ui.splitter.line_width * 0.5f;
-        if (p_axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - half, mn.y), ImVec2(cx + half, mx.y), col);
-        else dl->AddRectFilled(ImVec2(mn.x, cy - half), ImVec2(mx.x, cy + half), col);
-    } else if (p_grip_len > 0.0f) {
-        ImU32 col = ImGui::GetColorU32(ImGuiCol_Separator);
-        const float t = ui.splitter.grip_half_width;
-        if (p_axis == SplitAxis::X) dl->AddRectFilled(ImVec2(cx - t, cy - p_grip_len * 0.5f), ImVec2(cx + t, cy + p_grip_len * 0.5f), col, t);
-        else dl->AddRectFilled(ImVec2(cx - p_grip_len * 0.5f, cy - t), ImVec2(cx + p_grip_len * 0.5f, cy + t), col, t);
+    if (g.ActiveId == id) {
+        ImGui::KeepAliveID(id);
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            s.active = true;
+            s.delta = p_axis == SplitAxis::X ? g.IO.MouseDelta.x : g.IO.MouseDelta.y;
+        } else {
+            ImGui::ClearActiveID();
+        }
+    } else if (g.ActiveId == 0 && ImGui::IsMouseHoveringRect(a, b, false) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        s.hovered = true;
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            ImGui::SetActiveID(id, window);
+            s.active = true;
+            s.activated = true;
+        }
     }
-
+    if (s.hovered || s.active) {
+        ImGui::SetMouseCursor(p_axis == SplitAxis::X ? ImGuiMouseCursor_ResizeEW : ImGuiMouseCursor_ResizeNS);
+        const ImU32 col = ImGui::GetColorU32(s.active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered);
+        ImDrawList* fg = ImGui::GetForegroundDrawList(window->Viewport);
+        if (p_axis == SplitAxis::X) fg->AddRectFilled(ImVec2(ImFloor(p_min.x) - 1.0f, p_min.y), ImVec2(ImFloor(p_min.x) + 1.0f, p_max.y), col);
+        else fg->AddRectFilled(ImVec2(p_min.x, ImFloor(p_min.y) - 1.0f), ImVec2(p_max.x, ImFloor(p_min.y) + 1.0f), col);
+    }
     return s;
 }
 
 bool ui_property_grid_begin(const char* p_id, int p_columns)
 {
     p_columns = ImMax(p_columns, 2);
-    if (!ImGui::BeginTable(p_id, p_columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) return false;
+    if (!ImGui::BeginTable(p_id, p_columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersInnerH)) return false;
     for (int i = 0; i < p_columns; i++) ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize, 1.0f);
     return true;
 }
@@ -400,21 +405,82 @@ void ui_chevron(ImDrawList* p_dl, ImVec2 p_center, float p_size, ImGuiDir p_dir,
     p_dl->AddPolyline(pts, 3, p_color, ImDrawFlags_None, p_thickness);
 }
 
-static void _panel_grip(ImDrawList* p_dl, ImVec2 p_right_center, ImU32 p_color)
+float ui_tree_box_half()
 {
-    const UiStyle::PanelBox& pb = ui_style().panel_box;
-    const float s = pb.grip_spacing;
-    for (int row = 0; row < 2; row++) {
-        for (int col = 0; col < 4; col++) {
-            const ImVec2 c(ImFloor(p_right_center.x - (3 - col) * s), ImFloor(p_right_center.y + (row == 0 ? -s * 0.5f : s * 0.5f)));
-            p_dl->AddRectFilled(c, ImVec2(c.x + pb.grip_dot, c.y + pb.grip_dot), p_color);
-        }
+    return ImFloor(ImGui::GetFontSize() * 0.36f);
+}
+
+static void _line_v(ImDrawList* p_dl, float p_x, float p_y0, float p_y1, ImU32 p_color)
+{
+    const float x = ImFloor(p_x);
+    p_dl->AddRectFilled(ImVec2(x, ImFloor(p_y0)), ImVec2(x + 1.0f, ImFloor(p_y1)), p_color);
+}
+
+static void _line_h(ImDrawList* p_dl, float p_x0, float p_x1, float p_y, ImU32 p_color)
+{
+    const float y = ImFloor(p_y);
+    p_dl->AddRectFilled(ImVec2(ImFloor(p_x0), y), ImVec2(ImFloor(p_x1), y + 1.0f), p_color);
+}
+
+void ui_tree_lines(ImDrawList* p_dl, float p_x0, float p_indent, float p_y0, float p_y1, int p_depth, uint64_t p_lines, bool p_last, float p_stub_x1)
+{
+    if (p_depth <= 0) return;
+    const ImU32 col = ui_style().color.text_dim;
+    const auto center = [&](int p_level) { return p_x0 + (float)p_level * p_indent + ImFloor(p_indent * 0.5f); };
+    for (int k = 0; k < p_depth - 1 && k < 64; k++) {
+        if ((p_lines >> k) & 1ull) _line_v(p_dl, center(k), p_y0, p_y1, col);
     }
+    const float cx = center(p_depth - 1);
+    const float mid = ImFloor((p_y0 + p_y1) * 0.5f);
+    _line_v(p_dl, cx, p_y0, p_last ? mid + 1.0f : p_y1, col);
+    _line_h(p_dl, cx, p_stub_x1, mid, col);
+}
+
+void ui_icon_folder(ImDrawList* p_dl, ImVec2 p_min, float p_size)
+{
+    const float k = p_size / 16.0f;
+    const ImVec2 o(ImFloor(p_min.x), ImFloor(p_min.y));
+    const auto at = [&](float p_x, float p_y) { return ImVec2(o.x + ImFloor(p_x * k), o.y + ImFloor(p_y * k)); };
+    const ImU32 edge = IM_COL32(170, 128, 32, 255);
+    p_dl->AddRectFilled(at(1, 2), at(7, 5), IM_COL32(236, 196, 84, 255));
+    p_dl->AddRect(at(1, 2), at(7, 5), edge);
+    p_dl->AddRectFilledMultiColor(at(1, 4), at(15, 14), IM_COL32(255, 233, 148, 255), IM_COL32(255, 233, 148, 255), IM_COL32(234, 186, 66, 255), IM_COL32(234, 186, 66, 255));
+    p_dl->AddRect(at(1, 4), at(15, 14), edge);
+    p_dl->AddRectFilled(at(2, 5), at(14, 6), IM_COL32(255, 248, 214, 255));
+}
+
+void ui_icon_file(ImDrawList* p_dl, ImVec2 p_min, float p_size)
+{
+    const float k = p_size / 16.0f;
+    const ImVec2 o(ImFloor(p_min.x), ImFloor(p_min.y));
+    const auto at = [&](float p_x, float p_y) { return ImVec2(o.x + ImFloor(p_x * k) + 0.5f, o.y + ImFloor(p_y * k) + 0.5f); };
+    const ImU32 edge = IM_COL32(128, 128, 128, 255);
+    const ImVec2 page[5] = { at(3, 1), at(9, 1), at(13, 5), at(13, 15), at(3, 15) };
+    p_dl->AddConvexPolyFilled(page, 5, IM_COL32(255, 255, 255, 255));
+    p_dl->AddPolyline(page, 5, edge, ImDrawFlags_Closed, 1.0f);
+    const ImVec2 fold[3] = { at(9, 1), at(9, 5), at(13, 5) };
+    p_dl->AddConvexPolyFilled(fold, 3, IM_COL32(222, 222, 222, 255));
+    p_dl->AddPolyline(fold, 3, edge, ImDrawFlags_Closed, 1.0f);
+}
+
+void ui_tree_box(ImDrawList* p_dl, ImVec2 p_center, bool p_open, bool p_hovered)
+{
+    const UiStyle& ui = ui_style();
+    const float half = ui_tree_box_half();
+    const ImVec2 c(ImFloor(p_center.x), ImFloor(p_center.y));
+    const ImVec2 a(c.x - half, c.y - half);
+    const ImVec2 b(c.x + half + 1.0f, c.y + half + 1.0f);
+    p_dl->AddRectFilled(a, b, p_hovered ? ui.color.text_field_hover : ui.color.text_field);
+    p_dl->AddRect(a, b, p_hovered ? ui.color.accent : ui.color.outline);
+    const float arm = half - 2.0f;
+    const ImU32 sign = ui.color.text;
+    p_dl->AddRectFilled(ImVec2(c.x - arm, c.y), ImVec2(c.x + arm + 1.0f, c.y + 1.0f), sign);
+    if (!p_open) p_dl->AddRectFilled(ImVec2(c.x, c.y - arm), ImVec2(c.x + 1.0f, c.y + arm + 1.0f), sign);
 }
 
 float ui_category_inset()
 {
-    return ui_style().panel_box.margin_x + ui_style().space.lg;
+    return ui_style().panel_box.margin_x + ui_style().space.xs;
 }
 
 void ui_category_flush()
@@ -433,7 +499,7 @@ void ui_category_flush()
 
     const float y1 = window->DC.CursorPos.y - ImGui::GetStyle().ItemSpacing.y + ui.panel_box.body_pad_y;
     op.splitter.SetCurrentChannel(dl, 0);
-    if (y1 > op.y0) dl->AddRectFilled(ImVec2(op.x0, op.y0), ImVec2(op.x1, y1), ui.color.category_header, ui.panel_box.rounding, ImDrawFlags_RoundCornersBottom);
+    if (y1 > op.y0) dl->AddRectFilled(ImVec2(op.x0, op.y0), ImVec2(op.x1, y1), ui.color.panel);
     op.splitter.Merge(dl);
 
     if (current) {
@@ -461,7 +527,7 @@ bool ui_category(const char* p_label, bool* r_remove, bool* r_revert)
     const float y0 = ImGui::GetCursorScreenPos().y;
     const float y1 = y0 + h;
     const float button = ImGui::GetFrameHeight();
-    const float grip_w = pb.grip_spacing * 4.0f + ui.space.md;
+    const float grip_w = ui.space.xs;
     const float button_x = max_x - grip_w - button;
     const float revert_x = r_remove ? button_x - button : button_x;
     const float buttons_x = r_revert ? revert_x : button_x;
@@ -477,14 +543,13 @@ bool ui_category(const char* p_label, bool* r_remove, bool* r_revert)
 
     const ImRect& clip = window->InnerClipRect;
     dl->PushClipRect(ImMax(ImVec2(min_x, y0), clip.Min), ImMin(ImVec2(max_x, y1), clip.Max), true);
-    dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(max_x, y1), hovered ? ui.color.category_header_hover : ui.color.category_header, pb.rounding, open ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
+    dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(max_x, y1), hovered ? ui.color.category_header_hover : ui.color.category_header);
+    dl->AddLine(ImVec2(min_x, y1 - 1.0f), ImVec2(max_x, y1 - 1.0f), ui.color.grid_line);
     const float cy = ImFloor(y0 + h * 0.5f);
-    const float chev = ImFloor(ImGui::GetFontSize() * 0.5f);
-    ui_chevron(dl, ImVec2(ImFloor(min_x + d.arrow_x + chev * 0.5f) + 0.5f, cy + 0.5f), chev, open ? ImGuiDir_Down : ImGuiDir_Right, ui.color.text, ui.stroke.thin);
+    ui_tree_box(dl, ImVec2(min_x + d.arrow_x + ImFloor(ImGui::GetFontSize() * 0.36f), cy), open, hovered);
     const float text_y = ImFloor(y0 + (h - ImGui::GetFontSize()) * 0.5f);
     dl->AddText(ImVec2(min_x + d.header_indent, text_y), r_revert ? ui.color.accent : ui.color.text, p_label, ImGui::FindRenderedTextEnd(p_label));
-    if (r_revert) dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(min_x + ui.space.xxs * 2.0f, y1), ui.color.accent, pb.rounding, ImDrawFlags_RoundCornersLeft);
-    _panel_grip(dl, ImVec2(max_x - ui.space.md, cy), ui.color.text_dim);
+    if (r_revert) dl->AddRectFilled(ImVec2(min_x, y0), ImVec2(min_x + ui.space.xs, y1), ui.color.accent);
     dl->PopClipRect();
 
     if (r_remove) {
@@ -615,7 +680,6 @@ bool ui_list_item(const char* p_id, const char* p_icon, const char* p_label, con
     if (r_revert) *r_revert = false;
     ImGui::PushID(p_id);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float rounding = ui.base.frame_rounding;
     const float h = ImGui::GetFrameHeight();
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     const ImVec2 p1(p0.x + ImMax(1.0f, ImGui::GetContentRegionAvail().x), p0.y + h);
@@ -624,18 +688,17 @@ bool ui_list_item(const char* p_id, const char* p_icon, const char* p_label, con
 
     const bool clicked = ImGui::InvisibleButton("##row", ImVec2(ImMax(1.0f, remove_x - p0.x), h));
     const bool hovered = ImGui::IsItemHovered();
-    const ImU32 fill = p_open ? ui.color.list_selected : hovered ? ui.color.list_hover : ui.color.field;
-    dl->AddRectFilled(p0, p1, fill, rounding, p_open ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
-    if (p_open) dl->AddRectFilled(p0, ImVec2(p0.x + ui.space.xxs, p1.y), ui.color.accent, rounding, ImDrawFlags_RoundCornersTopLeft);
+    dl->AddRectFilled(p0, p1, hovered ? ui.color.category_header_hover : ui.color.category_header);
+    dl->AddLine(ImVec2(p0.x, p1.y - 1.0f), ImVec2(p1.x, p1.y - 1.0f), ui.color.grid_line);
 
     const float font = ImGui::GetFontSize();
-    const float chev = ImFloor(font * 0.45f);
+    const float box = ImFloor(font * 0.36f);
     const float cy = ImFloor(p0.y + h * 0.5f);
-    ui_chevron(dl, ImVec2(ImFloor(p0.x + ui.space.lg + chev * 0.5f) + 0.5f, cy + 0.5f), chev, p_open ? ImGuiDir_Down : ImGuiDir_Right, ui.color.text_dim, ui.stroke.thin);
+    ui_tree_box(dl, ImVec2(p0.x + ui.space.md + box, cy), p_open, hovered);
     const float text_y = ImFloor(p0.y + (h - font) * 0.5f);
-    float x = p0.x + ui.space.lg + chev + ui.space.lg;
+    float x = p0.x + ui.space.md + box * 2.0f + ui.space.lg;
     if (p_icon) {
-        dl->AddText(ImVec2(x, text_y), p_open ? ui.color.accent : ui.color.text_dim, p_icon);
+        dl->AddText(ImVec2(x, text_y), ui.color.text, p_icon);
         x += ImGui::CalcTextSize(p_icon).x + ui.space.md;
     }
     const float summary_w = p_summary ? ImGui::CalcTextSize(p_summary).x : 0.0f;
@@ -677,17 +740,12 @@ void ui_list_body_begin()
 {
     const ImVec2 at = ImGui::GetCursorScreenPos();
     g_list_body = ImVec2(at.x, at.y - ImGui::GetStyle().ItemSpacing.y);
-    ImGui::Dummy(ImVec2(0.0f, ui_style().space.xs));
-    ImGui::Indent(ui_style().space.xl);
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
 void ui_list_body_end()
 {
-    const UiStyle& ui = ui_style();
-    ImGui::Unindent(ui.space.xl);
-    const float y1 = ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y + ui.space.sm;
-    ImGui::GetWindowDrawList()->AddRectFilled(g_list_body, ImVec2(g_list_body.x + ui.space.xxs, y1), ui.color.accent, ui.base.frame_rounding, ImDrawFlags_RoundCornersBottomLeft);
-    ImGui::Dummy(ImVec2(0.0f, ui.space.md));
+    ImGui::Dummy(ImVec2(0.0f, ui_style().space.xs));
 }
 
 bool ui_list_add_begin(const char* p_id, const char* p_label)

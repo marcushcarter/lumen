@@ -2,6 +2,7 @@
 #include <core/rendering/renderer.h>
 #include <editor/documents/document_manager.h>
 #include <editor/layout/document_layout.h>
+#include <editor/play/editor_play.h>
 #include <editor/tools/settings/editor_settings_tool.h>
 #include <editor/tools/settings/project_settings_tool.h>
 #include <editor/tools/version_control/version_control_tool.h>
@@ -123,7 +124,7 @@ struct ToolGrid
     float gap = 0.0f;
     float x = 0.0f;
 
-    bool _button(const char* p_id, const char* p_icon, const char* p_tip, ImVec2 p_a, ImVec2 p_b, bool p_active, bool p_enabled, float p_icon_size)
+    bool _button(const char* p_id, const char* p_icon, const char* p_tip, ImVec2 p_a, ImVec2 p_b, bool p_active, bool p_enabled, float p_icon_size, ImU32 p_color)
     {
         const UiStyle& ui = ui_style();
         ImGui::SetCursorScreenPos(p_a);
@@ -138,29 +139,30 @@ struct ToolGrid
             dl->AddRectFilled(p_a, p_b, ui.color.tool_hover, r);
             dl->AddRect(p_a, p_b, ui.color.accent, r);
         }
-        ImU32 col = (p_active || held) ? ui.color.active_icon : ui.color.text;
-        if (!p_enabled) col = ui_with_alpha(ui.color.text_dim, ui.alpha.disabled);
+        ImU32 col = p_color ? p_color : ui.color.text;
+        if (p_active || held) col = ui.color.text_hi;
+        if (!p_enabled) col = ui_with_alpha(p_color ? p_color : ui.color.text_dim, ui.alpha.disabled);
         ImFont* font = ImGui::GetFont();
         const ImVec2 ts = font->CalcTextSizeA(p_icon_size, FLT_MAX, 0.0f, p_icon);
         dl->AddText(font, p_icon_size, ImVec2(ImFloor((p_a.x + p_b.x - ts.x) * 0.5f), ImFloor((p_a.y + p_b.y - ts.y) * 0.5f)), col, p_icon);
         return pressed && p_enabled;
     }
 
-    bool big(const char* p_id, const char* p_icon, const char* p_tip, bool p_active, bool p_enabled)
+    bool big(const char* p_id, const char* p_icon, const char* p_tip, bool p_active, bool p_enabled, ImU32 p_color)
     {
         const float s = cell * 2.0f;
         const ImVec2 a(x, origin.y);
         x += s;
-        return _button(p_id, p_icon, p_tip, a, ImVec2(a.x + s, a.y + s), p_active, p_enabled, ImGui::GetFontSize() * 1.7f);
+        return _button(p_id, p_icon, p_tip, a, ImVec2(a.x + s, a.y + s), p_active, p_enabled, ImGui::GetFontSize() * 1.7f, p_color);
     }
 
-    bool small(int p_row, const char* p_id, const char* p_icon, const char* p_tip, bool p_active, bool p_enabled)
+    bool small(int p_row, const char* p_id, const char* p_icon, const char* p_tip, bool p_active, bool p_enabled, ImU32 p_color, int p_col = 0)
     {
-        const ImVec2 a(x, origin.y + cell * (float)p_row);
-        return _button(p_id, p_icon, p_tip, a, ImVec2(a.x + cell, a.y + cell), p_active, p_enabled, ImGui::GetFontSize());
+        const ImVec2 a(x + cell * (float)p_col, origin.y + cell * (float)p_row);
+        return _button(p_id, p_icon, p_tip, a, ImVec2(a.x + cell, a.y + cell), p_active, p_enabled, ImGui::GetFontSize(), p_color);
     }
 
-    ImVec2 slot(int p_row) const { return ImVec2(x, origin.y + cell * (float)p_row); }
+    ImVec2 slot(int p_row, int p_col = 0) const { return ImVec2(x + cell * (float)p_col, origin.y + cell * (float)p_row); }
     void column(float p_width) { x += p_width + gap; }
 
     void separator()
@@ -186,37 +188,49 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     ToolGrid g;
     g.origin = p_min;
     g.gap = 0.0f;
-    g.cell = ui.row;
+    g.cell = ImFloor((p_max.y - p_min.y) * 0.5f);
     g.x = p_min.x;
 
-    if (g.small(0, "##save", ICON_FA_FLOPPY_DISK, "Save (Ctrl+S)", false, dirty())) save(ctx);
-    if (g.small(1, "##save_all", ICON_FA_FOLDER_CLOSED, "Save All (Ctrl+Shift+S)", false, true) && ctx.save_all_callback) ctx.save_all_callback();
-    g.column(g.cell);
-    g.separator();
-
-    if (!playing) {
-        if (g.big("##play", ICON_FA_PLAY, can_play ? "Play" : "Open a scene to play", false, can_play)) ctx.pie_toggle_play();
-    } else {
-        if (g.big("##stop", ICON_FA_STOP, "Stop", true, true)) ctx.pie_toggle_play();
-    }
-    if (g.small(0, "##pause", paused ? ICON_FA_PLAY : ICON_FA_PAUSE, paused ? "Resume" : "Pause and edit", paused, playing && (bool)ctx.pie_toggle_pause)) ctx.pie_toggle_pause();
-    if (g.small(1, "##step", ICON_FA_FORWARD_STEP, "Step one frame", false, paused && (bool)ctx.pie_step)) ctx.pie_step();
-    g.column(g.cell);
-    g.separator();
-
-    const float field_w = ImFloor(ImGui::CalcTextSize("Global").x * 3.0f);
-    const int orientation = scene.viewport.gizmo_world ? 0 : 1;
-    const float field_h = g.cell;
+    const float field_inset = 2.0f;
+    const float field_h = g.cell - field_inset * 2.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImFloor((field_h - ImGui::GetFontSize()) * 0.5f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ui.color.search);
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ui.color.field_hover);
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ui.color.search);
     ImGui::PushStyleColor(ImGuiCol_Border, ui.color.search_border);
     ImGui::PushStyleColor(ImGuiCol_Button, ui.color.search);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui.color.field_hover);
-    ImGui::SetCursorScreenPos(g.slot(1));
-    ImGui::SetNextItemWidth(field_w);
+    const auto field_at = [&](ImVec2 p_slot, float p_width) {
+        ImGui::SetCursorScreenPos(ImVec2(p_slot.x + field_inset, p_slot.y + field_inset));
+        ImGui::SetNextItemWidth(p_width - field_inset * 2.0f);
+    };
+
+    if (g.small(0, "##save", ICON_FA_FLOPPY_DISK, "Save (Ctrl+S)", false, dirty(), 0)) save(ctx);
+    if (g.small(1, "##save_all", ICON_FA_FOLDER_CLOSED, "Save All (Ctrl+Shift+S)", false, true, 0) && ctx.save_all_callback) ctx.save_all_callback();
+    g.column(g.cell);
+    g.separator();
+
+    if (!playing) {
+        if (g.big("##play", ICON_FA_PLAY, can_play ? "Play" : "Open a scene to play", false, can_play, 0)) ctx.pie_toggle_play();
+    } else {
+        if (g.big("##stop", ICON_FA_STOP, "Stop", true, true, 0)) ctx.pie_toggle_play();
+    }
+    const bool scaled = playing && ctx.pie_is_scaled && ctx.pie_is_scaled();
+    if (g.small(0, "##pause", paused ? ICON_FA_PLAY : ICON_FA_PAUSE, paused ? "Resume" : "Pause and edit", paused, playing && (bool)ctx.pie_toggle_pause, 0, 0)) ctx.pie_toggle_pause();
+    if (g.small(0, "##step", ICON_FA_FORWARD_STEP, "Step one frame", false, paused && (bool)ctx.pie_step, 0, 1)) ctx.pie_step();
+    if (g.small(1, "##scaled", ICON_FA_FORWARD, scaled ? "Back to normal speed" : "Run continuously at the set speed", scaled, playing && (bool)ctx.pie_toggle_scaled, 0, 0)) ctx.pie_toggle_scaled();
+    const float speed_w = ImFloor(g.cell * 1.6f);
+    if (ctx.play) {
+        field_at(g.slot(1, 1), speed_w);
+        if (ImGui::InputFloat("##play_speed", &ctx.play->speed, 0.0f, 0.0f, "%g")) ctx.play->speed = ImClamp(ctx.play->speed, EditorPlay::MIN_SPEED, EditorPlay::MAX_SPEED);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Play speed (time scale)");
+    }
+    g.column(ImMax(g.cell * 2.0f, g.cell + speed_w));
+    g.separator();
+
+    const float field_w = ImFloor(ImGui::CalcTextSize("Global").x * 3.0f);
+    const int orientation = scene.viewport.gizmo_world ? 0 : 1;
+    field_at(g.slot(1), field_w);
     if (ImGui::BeginCombo("##transform_orientation", TRANSFORM_ORIENTATION_NAMES[orientation])) {
         for (int i = 0; i < (int)std::size(TRANSFORM_ORIENTATION_NAMES); i++) {
             if (ImGui::Selectable(TRANSFORM_ORIENTATION_NAMES[i], i == orientation)) scene.viewport.gizmo_world = i == 0;
@@ -225,13 +239,12 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Transform orientation");
     if (ctx.editor_camera) {
-        ImGui::SetCursorScreenPos(g.slot(0));
-        ImGui::SetNextItemWidth(field_w);
+        field_at(g.slot(0), field_w);
         ImGui::DragFloat("##camera_speed", &ctx.editor_camera->speed, 0.1f, EditorCamera::MIN_SPEED, EditorCamera::MAX_SPEED, "%.1f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Camera fly speed");
     }
     ImGui::PopStyleColor(6);
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleVar();
     g.column(field_w);
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
     ImGui::EndChild();
@@ -271,14 +284,13 @@ void Workspace::_draw_tabs(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
             t.icon = ICON_FA_DESKTOP;
             t.active = !active_document && scene.active == SceneDocument::SCENE;
             t.dirty = scene.scene_dirty();
+            const RenderView& v = ctx.renderer->main_view;
+            char title[256];
+            const std::string stem = std::filesystem::path(e.name).stem().string();
+            std::snprintf(title, sizeof(title), "%s (%ux%u)", stem.c_str(), v.output_width, v.output_height);
+            single = title;
+            t.name = single.c_str();
         }
-    }
-    if (entries.size() == 1) {
-        const RenderView& v = ctx.renderer->main_view;
-        char title[256];
-        std::snprintf(title, sizeof(title), "Engine View 1 (%ux%u) - %s", v.output_width, v.output_height, entries[0].name.c_str());
-        single = title;
-        tabs[0].name = single.c_str();
     }
 
     const PanelTabResult r = panel_tab_bar(tabs.data(), (int)tabs.size(), p_min, p_max, true);

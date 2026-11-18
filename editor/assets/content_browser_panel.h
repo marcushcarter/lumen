@@ -37,6 +37,8 @@ struct ContentBrowserPanel : Panel
         const Entry* entry = nullptr;
         std::filesystem::path pending;
         uint16_t depth = 0;
+        bool last = false;
+        uint64_t lines = 0;
     };
 
     std::unordered_map<std::filesystem::path, Dir> dirs;
@@ -44,6 +46,7 @@ struct ContentBrowserPanel : Panel
     std::filesystem::path root;
     double last_refresh = -1.0e9;
     bool refresh_requested = false;
+    bool root_open = true;
     AssetRegistry* registry = nullptr;
 
     char search_buf[256] = {};
@@ -76,7 +79,7 @@ struct ContentBrowserPanel : Panel
     Dir& _cache_get(const std::filesystem::path& p_dir);
     void _cache_scan(const std::filesystem::path& p_dir, Dir& r_dir);
     void _search_collect(const std::filesystem::path& p_dir, const std::string& p_query);
-    void _rows_emit(EditorContext& ctx, const std::filesystem::path& p_dir, uint16_t p_depth);
+    void _rows_emit(EditorContext& ctx, const std::filesystem::path& p_dir, uint16_t p_depth, uint64_t p_lines);
     void _toggle(const std::filesystem::path& p_dir);
 
     bool _is_selected(const std::filesystem::path& p_path) const;
@@ -85,8 +88,9 @@ struct ContentBrowserPanel : Panel
     void _click(const std::filesystem::path& p_path, bool p_ctrl, bool p_shift);
 
     void _draw_list(EditorContext& ctx, const char* p_id, ImVec2 p_size, bool p_results);
-    bool _draw_row(EditorContext& ctx, const Entry& p_entry, uint16_t p_depth, float p_row_h, bool p_show_path);
-    void _draw_pending(EditorContext& ctx, const std::filesystem::path& p_path, uint16_t p_depth, float p_row_h);
+    bool _draw_row(EditorContext& ctx, const Entry& p_entry, uint16_t p_depth, float p_row_h, bool p_show_path, uint64_t p_lines = 0, bool p_last = true);
+    void _draw_pending(EditorContext& ctx, const std::filesystem::path& p_path, uint16_t p_depth, float p_row_h, uint64_t p_lines, bool p_last);
+    void _draw_root(float p_row_h);
     void _drag_source(const Entry& p_entry);
     void _list_end(EditorContext& ctx);
 
@@ -100,6 +104,7 @@ struct ContentBrowserPanel : Panel
     void _import(EditorContext& ctx);
     void _move_selection(const std::filesystem::path& p_dst);
     void _drop_target(const std::filesystem::path& p_dst);
+    void _drop_accept(const std::filesystem::path& p_dst);
     void _delete_content(EditorContext& ctx, const std::filesystem::path& p_asset);
     void _delete_asset(EditorContext& ctx, const std::filesystem::path& p_path);
     void _delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder);

@@ -87,7 +87,7 @@ void Theme::apply() const
 
     c[ImGuiCol_TableHeaderBg] = hex(p.PANEL);
     c[ImGuiCol_TableBorderStrong] = hex(p.EDITOR_BORDER);
-    c[ImGuiCol_TableBorderLight] = hex(p.OUTLINE);
+    c[ImGuiCol_TableBorderLight] = hex(p.GRID_LINE);
     c[ImGuiCol_TableRowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     c[ImGuiCol_TableRowBgAlt] = hex(p.ROW_ALTERNATE);
 

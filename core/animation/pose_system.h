@@ -3,6 +3,7 @@
 #include <core/animation/anim_library.h>
 #include <core/animation/dynamics.h>
 #include <core/scene/scene_settings.h>
+#include <core/scene/relevance.h>
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <cstdint>
@@ -17,6 +18,8 @@ struct Scene;
 struct Entity;
 struct Renderer;
 struct PoseComponent;
+
+enum class DynamicsMode : uint8_t { REST, HOLD, SIMULATE };
 
 struct PoseSystem
 {
@@ -38,13 +41,16 @@ struct PoseSystem
     AnimEvaluator evaluator;
     std::vector<JointTransform> _local;
     std::vector<mat4> _global;
+    RelevanceView _view;
+    DynamicsMode _mode = DynamicsMode::SIMULATE;
 
     void load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir);
-    void update(Scene& r_world, const Renderer& p_renderer, float p_dt);
+    void update(Scene& r_world, const Renderer& p_renderer, float p_dt, DynamicsMode p_mode);
     void clear();
 
     const Binding* _binding(const Renderer& p_renderer, uint32_t p_mesh_index);
-    void _simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_dt, const PhysicsSettings& p_settings, const Body& p_body, PoseComponent& r_pose);
+    static float _mesh_radius(const Renderer& p_renderer, uint32_t p_mesh_index, const mat4& p_model);
+    void _simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_radius, float p_dt, const PhysicsSettings& p_settings, const Body& p_body, PoseComponent& r_pose);
     Body _body_of(const Scene& p_world, Entity p_entity);
 };
 

@@ -38,6 +38,8 @@ void EditorPlay::start(Scene& r_authored, Guid p_world, const Camera& p_camera)
 void EditorPlay::stop()
 {
     if (!active()) return;
+    scaled = false;
+    scaled_from_pause = false;
     session.end();
     runtime.unload();
     if (authored) {
@@ -51,6 +53,8 @@ void EditorPlay::stop()
 
 void EditorPlay::toggle()
 {
+    scaled = false;
+    scaled_from_pause = false;
     if (playing()) session.pause();
     else if (editing()) session.resume();
 }
@@ -58,6 +62,19 @@ void EditorPlay::toggle()
 void EditorPlay::step()
 {
     if (editing()) step_pending = true;
+}
+
+void EditorPlay::set_scaled(bool p_on)
+{
+    if (!active() || p_on == scaled) return;
+    scaled = p_on;
+    if (p_on) {
+        scaled_from_pause = editing();
+        if (scaled_from_pause) session.resume();
+        return;
+    }
+    if (scaled_from_pause && playing()) session.pause();
+    scaled_from_pause = false;
 }
 
 void EditorPlay::update(float p_dt)
@@ -74,6 +91,10 @@ void EditorPlay::update(float p_dt)
         return;
     }
     step_pending = false;
+    if (scaled && playing()) {
+        speed = std::clamp(speed, MIN_SPEED, MAX_SPEED);
+        p_dt *= speed;
+    }
     session.update(p_dt);
     if (playing()) simulated_dt = p_dt;
 }

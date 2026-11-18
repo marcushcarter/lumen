@@ -124,7 +124,9 @@ Error LSkeleton::decode(const std::vector<uint8_t>& payload)
         const size_t cloth_stride = v2 ? SKELETON_CLOTH_V2_BYTES : v3 ? sizeof(SkeletonClothV3) : sizeof(SkeletonCloth);
         const size_t chain_bytes = (size_t)dh.chain_count * sizeof(SkeletonChain);
         const size_t cloth_bytes = (size_t)dh.cloth_count * cloth_stride;
-        if (payload.size() != base_bytes + sizeof(dh) + chain_bytes + cloth_bytes) return FAILED;
+        const uint32_t collider_count = v2 || v3 ? 0u : dh.collider_count;
+        const size_t collider_bytes = (size_t)collider_count * sizeof(SkeletonCollider);
+        if (payload.size() != base_bytes + sizeof(dh) + chain_bytes + cloth_bytes + collider_bytes) return FAILED;
         const uint8_t* d = payload.data() + base_bytes + sizeof(dh);
         chains.resize(dh.chain_count);
         if (chain_bytes) std::memcpy(chains.data(), d, chain_bytes);
@@ -162,6 +164,11 @@ Error LSkeleton::decode(const std::vector<uint8_t>& payload)
         for (const SkeletonCloth& c : cloths) {
             if (c.slot == SKELETON_CLOTH_NO_SLOT) return FAILED;
         }
+        colliders.resize(collider_count);
+        if (collider_bytes) std::memcpy(colliders.data(), d + chain_bytes + cloth_bytes, collider_bytes);
+        for (const SkeletonCollider& c : colliders) {
+            if (c.joint < 0 || c.joint >= (int32_t)ph.joint_count) return FAILED;
+        }
     } else if (payload.size() != base_bytes) {
         return FAILED;
     }
@@ -184,11 +191,12 @@ Error LSkeleton::encode(std::vector<uint8_t>& r_payload) const
     const size_t parent_bytes = (size_t)count * sizeof(int32_t);
     const size_t rest_bytes = (size_t)count * sizeof(JointTransform);
     const size_t base_bytes = sizeof(ph) + parent_bytes + rest_bytes + text.size();
-    const bool dynamic = !chains.empty() || !cloths.empty();
+    const bool dynamic = !chains.empty() || !cloths.empty() || !colliders.empty();
     const size_t chain_bytes = chains.size() * sizeof(SkeletonChain);
     const size_t cloth_bytes = cloths.size() * sizeof(SkeletonCloth);
+    const size_t collider_bytes = colliders.size() * sizeof(SkeletonCollider);
     std::vector<uint8_t>& payload = r_payload;
-    payload.assign(base_bytes + (dynamic ? sizeof(LSkeletonDynamicsHeader) + chain_bytes + cloth_bytes : 0), 0);
+    payload.assign(base_bytes + (dynamic ? sizeof(LSkeletonDynamicsHeader) + chain_bytes + cloth_bytes + collider_bytes : 0), 0);
     uint8_t* p = payload.data();
     std::memcpy(p, &ph, sizeof(ph));
     if (count) {
@@ -197,10 +205,11 @@ Error LSkeleton::encode(std::vector<uint8_t>& r_payload) const
     }
     if (!text.empty()) std::memcpy(p + sizeof(ph) + parent_bytes + rest_bytes, text.data(), text.size());
     if (dynamic) {
-        const LSkeletonDynamicsHeader dh{ SKELETON_DYNAMICS_MAGIC, (uint32_t)chains.size(), (uint32_t)cloths.size(), 0u };
+        const LSkeletonDynamicsHeader dh{ SKELETON_DYNAMICS_MAGIC, (uint32_t)chains.size(), (uint32_t)cloths.size(), (uint32_t)colliders.size() };
         std::memcpy(p + base_bytes, &dh, sizeof(dh));
         if (chain_bytes) std::memcpy(p + base_bytes + sizeof(dh), chains.data(), chain_bytes);
         if (cloth_bytes) std::memcpy(p + base_bytes + sizeof(dh) + chain_bytes, cloths.data(), cloth_bytes);
+        if (collider_bytes) std::memcpy(p + base_bytes + sizeof(dh) + chain_bytes + cloth_bytes, colliders.data(), collider_bytes);
     }
     return OK;
 }

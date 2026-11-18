@@ -103,6 +103,7 @@ struct Application
     virtual void on_simulate(float p_dt) { (void)p_dt; }
     virtual Scene& simulated_scene() { return scene; }
     virtual float pose_dt(float p_dt) const { return p_dt; }
+    virtual DynamicsMode dynamics_mode() const { return DynamicsMode::SIMULATE; }
     virtual void update_camera(float p_dt) { (void)p_dt; }
     virtual const Camera& active_camera() const { return *scene.active_camera; }
     virtual const Scene& render_scene() const { return scene; }

@@ -60,10 +60,24 @@ const std::filesystem::path* SceneDocument::_path(EditorContext& ctx) const
     return e && e->type == AssetType::SCENE ? &e->path : nullptr;
 }
 
-bool SceneDocument::_confirm_discard(const std::string& p_name, const wchar_t* p_action) const
+bool SceneDocument::_confirm_discard(EditorContext& ctx, int32_t p_index, const wchar_t* p_body, const wchar_t* p_save)
 {
-    const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(p_name) + L"' has unsaved changes";
-    return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), p_action, L"Discard Changes", L"Cancel");
+    using Choice = drivers::Win32Dialogs::SaveChoice;
+    const std::string name = p_index == SCENE ? _name : templates[p_index]->name();
+    const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(name) + L"' has unsaved changes";
+    const Choice choice = drivers::Win32Dialogs::ask_save(L"Lumen Editor", heading.c_str(), p_body, p_save);
+    if (choice == Choice::CANCEL) return false;
+    if (choice == Choice::DISCARD) return true;
+    return p_index == SCENE ? _save_scene(ctx) == Error::OK : templates[p_index]->save(ctx) == Error::OK;
+}
+
+Error SceneDocument::_save_scene(EditorContext& ctx)
+{
+    const int32_t was = active;
+    active = SCENE;
+    const Error err = save(ctx);
+    active = was;
+    return err;
 }
 
 void SceneDocument::_unload(EditorContext& ctx)
@@ -186,7 +200,7 @@ void SceneDocument::close_template(EditorContext& ctx, int32_t p_index, bool p_f
 {
     if (p_index < 0 || p_index >= (int32_t)templates.size()) return;
     TemplateDocument& doc = *templates[p_index];
-    if (!p_force && doc.dirty() && !_confirm_discard(doc.name(), L"Closing it will discard them. Save first with Ctrl+S to keep them.")) return;
+    if (!p_force && doc.dirty() && !_confirm_discard(ctx, p_index, L"Do you want to save them before closing?", L"Save and Close")) return;
     const int32_t was = active;
     if (was == p_index) activate(ctx, SCENE);
     _closing.emplace_back(0u, std::move(templates[p_index]));
@@ -214,11 +228,11 @@ bool SceneDocument::any_dirty() const
     return false;
 }
 
-bool SceneDocument::confirm_discard_all() const
+bool SceneDocument::confirm_discard_all(EditorContext& ctx)
 {
-    if (scene_dirty() && !_confirm_discard(_name, L"Closing will discard them. Save first with Ctrl+S to keep them.")) return false;
-    for (const auto& t : templates) {
-        if (t->dirty() && !_confirm_discard(t->name(), L"Closing will discard them. Save first with Ctrl+S to keep them.")) return false;
+    if (scene_dirty() && !_confirm_discard(ctx, SCENE, L"Do you want to save them before closing?", L"Save and Close")) return false;
+    for (int32_t i = 0; i < (int32_t)templates.size(); i++) {
+        if (templates[i]->dirty() && !_confirm_discard(ctx, i, L"Do you want to save them before closing?", L"Save and Close")) return false;
     }
     return true;
 }
@@ -243,12 +257,7 @@ void SceneDocument::save_all(EditorContext& ctx)
     for (auto& t : templates) {
         if (t->dirty()) t->save(ctx);
     }
-    if (scene_dirty()) {
-        const int32_t was = active;
-        active = SCENE;
-        save(ctx);
-        active = was;
-    }
+    if (scene_dirty()) _save_scene(ctx);
 }
 
 void SceneDocument::tick(EditorContext& ctx)
@@ -275,7 +284,7 @@ void SceneDocument::tick(EditorContext& ctx)
     if (_has_pending) {
         _has_pending = false;
         if (_pending == guid) activate(ctx, SCENE);
-        else if (!scene_dirty() || _confirm_discard(_name, L"Opening another scene will discard them. Save first with Ctrl+S to keep them.")) _load(ctx, _pending);
+        else if (!scene_dirty() || _confirm_discard(ctx, SCENE, L"Do you want to save them before opening another scene?", L"Save and Continue")) _load(ctx, _pending);
     }
     if (has_world() && !_path(ctx)) _unload(ctx);
 

@@ -70,31 +70,43 @@ void DocumentManager::_process_closes(EditorContext& ctx)
         const size_t i = _index_of(r.kind, r.guid);
         if (i == NPOS) continue;
         EditorDocument* w = documents[i].get();
-        if (!r.force && w->dirty() && !_confirm_discard(*w)) continue;
+        if (!r.force && w->dirty() && !_confirm_discard(ctx, *w)) continue;
         _remove_at(ctx, i);
     }
     close_requests.clear();
 }
 
-bool DocumentManager::_confirm_discard(const EditorDocument& p_document)
+bool DocumentManager::_confirm_discard(EditorContext& ctx, EditorDocument& r_document)
 {
-    const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(p_document.title()) + L"' has unsaved changes";
-    return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Closing it will discard them. Save first with Ctrl+S to keep them.", L"Close Without Saving", L"Cancel");
+    using Choice = drivers::Win32Dialogs::SaveChoice;
+    const std::wstring heading = L"'" + drivers::WindowDriverWin32::utf8_to_wide(r_document.title()) + L"' has unsaved changes";
+    const Choice choice = drivers::Win32Dialogs::ask_save(L"Lumen Editor", heading.c_str(), L"Do you want to save them before closing?", L"Save and Close");
+    if (choice == Choice::CANCEL) return false;
+    if (choice == Choice::SAVE) return r_document.save(ctx) == Error::OK;
+    return true;
 }
 
-bool DocumentManager::confirm_discard_all() const
+bool DocumentManager::confirm_discard_all(EditorContext& ctx)
 {
+    using Choice = drivers::Win32Dialogs::SaveChoice;
     uint32_t count = 0;
-    const EditorDocument* only = nullptr;
+    EditorDocument* only = nullptr;
     for (const auto& w : documents) {
         if (!w->dirty()) continue;
         count++;
         only = w.get();
     }
     if (count == 0) return true;
-    if (count == 1) return _confirm_discard(*only);
+    if (count == 1) return _confirm_discard(ctx, *only);
     const std::wstring heading = std::to_wstring(count) + L" documents have unsaved changes";
-    return drivers::Win32Dialogs::ask(L"Lumen Editor", heading.c_str(), L"Closing will discard them. Save first with Ctrl+Shift+S to keep them.", L"Close Without Saving", L"Cancel");
+    const Choice choice = drivers::Win32Dialogs::ask_save(L"Lumen Editor", heading.c_str(), L"Do you want to save them before closing?", L"Save All and Close");
+    if (choice == Choice::CANCEL) return false;
+    if (choice == Choice::DISCARD) return true;
+    bool ok = true;
+    for (const auto& w : documents) {
+        if (w->dirty() && w->save(ctx) != Error::OK) ok = false;
+    }
+    return ok;
 }
 
 void DocumentManager::_remove_at(EditorContext& ctx, size_t p_index, bool p_now)

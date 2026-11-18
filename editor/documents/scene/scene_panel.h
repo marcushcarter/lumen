@@ -20,6 +20,8 @@ struct ScenePanel : Panel
         Entity entity;
         uint16_t depth;
         bool has_children;
+        bool last;
+        uint64_t lines;
     };
 
     struct Node {
@@ -47,6 +49,7 @@ struct ScenePanel : Panel
     bool dirty = true;
     bool expect_world_change = false;
     bool world_open = false;
+    bool root_open = true;
 
     char filter[128] = {};
     bool sort_ascending = true;
@@ -61,7 +64,7 @@ struct ScenePanel : Panel
 
     void _refresh(const Scene& world);
     void _rebuild(const Scene& world);
-    void _emit(const Scene& world, uint32_t p_node, uint16_t p_depth);
+    void _emit(const Scene& world, uint32_t p_node, uint16_t p_depth, uint64_t p_lines, bool p_last);
     const Node* _node(Entity p_entity) const;
 
     void _draw_toolbar(EditorContext& ctx);

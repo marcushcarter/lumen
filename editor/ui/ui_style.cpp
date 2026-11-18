@@ -13,67 +13,68 @@ const UiStyle::Palette& UiStyle::palette_dark()
 {
     static const Palette p = [] {
         Palette d;
-        d.EDITOR_BORDER = 0x2e2e2eff;
-        d.TOPBAR = 0x0a0a0aff;
-        d.BACK = 0x1c1c1cff;
-        d.HEADER = 0x0a0a0aff;
-        d.OUTLINER_BACK = 0x1c1c1cff;
+        d.EDITOR_BORDER = 0x3c3c3cff;
+        d.TOPBAR = 0x2d2d30ff;
+        d.BACK = 0x1b1b1bff;
+        d.HEADER = 0x2d2d30ff;
+        d.OUTLINER_BACK = 0x1b1b1bff;
         d.VIEWPORT_BACK = 0x262626ff;
-        d.PANEL = 0x252525ff;
+        d.PANEL = 0x2a2a2aff;
         d.PANEL_SUB = 0x0000001f;
         d.PANEL_OUTLINE = 0xffffff0d;
-        d.OUTLINE = 0x3f3f3fff;
+        d.OUTLINE = 0x434346ff;
         d.SEPARATOR = 0xffffff1f;
         d.EMBOSS = 0x00000026;
-        d.TEXT = 0xf1f1f1ff;
+        d.TEXT = 0xe8e8e8ff;
         d.TEXT_HI = 0xffffffff;
-        d.TEXT_DIM = 0x9b9b9bff;
+        d.TEXT_DIM = 0x8c8c8cff;
         d.TEXT_STATUS = 0x9b9b9bff;
         d.TEXT_CURSOR = 0xffffffff;
         d.LINK = 0x5ea8f0ff;
-        d.NUM = 0x2b2b2bff;
-        d.NUM_HOVER = 0x353535ff;
-        d.NUM_ACTIVE = 0x262626ff;
-        d.TEXT_FIELD = 0x2b2b2bff;
-        d.TEXT_FIELD_HOVER = 0x353535ff;
-        d.TEXT_FIELD_ACTIVE = 0x303030ff;
-        d.MENU = 0x2b2b2bff;
-        d.MENU_HOVER = 0x353535ff;
-        d.TOOLBAR_ITEM = 0x333333ff;
+        d.NUM = 0x252526ff;
+        d.NUM_HOVER = 0x2d2d30ff;
+        d.NUM_ACTIVE = 0x1e1e1eff;
+        d.TEXT_FIELD = 0x252526ff;
+        d.TEXT_FIELD_HOVER = 0x2d2d30ff;
+        d.TEXT_FIELD_ACTIVE = 0x1e1e1eff;
+        d.MENU = 0x252526ff;
+        d.MENU_HOVER = 0x2d2d30ff;
+        d.TOOLBAR_ITEM = 0x2d2d30ff;
         d.PULLDOWN_TEXT = 0xf1f1f1ff;
         d.PULLDOWN_HOVER = 0xffffff1f;
         d.MENU_BACK = 0x1f1f1fff;
-        d.MENU_BACK_OUTLINE = 0x434343ff;
+        d.MENU_BACK_OUTLINE = 0x4a4a4aff;
         d.MENU_ITEM_TEXT = 0xf1f1f1ff;
         d.MENU_ITEM_DIM = 0x9b9b9bff;
         d.TOOLTIP = 0x1f1f1fff;
         d.TOOLTIP_OUTLINE = 0x434343ff;
-        d.ACCENT = 0x1f7ad8ff;
-        d.ACCENT_HOVER = 0x3a8ce0ff;
-        d.ACCENT_SELECT = 0x1f7ad866;
-        d.ACCENT_DROP = 0x1f7ad833;
-        d.TAB = 0x0a0a0aff;
-        d.TAB_HOVER = 0x2d2d2dff;
-        d.TAB_ACTIVE = 0x1c1c1cff;
-        d.LIST_HOVER = 0xffffff12;
-        d.LIST_SELECTED = 0x0b5cbfff;
-        d.LIST_ACTIVE = 0x1f7ad8ff;
+        d.ACCENT = 0x0078d7ff;
+        d.ACCENT_HOVER = 0x1c97eaff;
+        d.ACCENT_SELECT = 0x0078d766;
+        d.ACCENT_DROP = 0x0078d733;
+        d.TAB = 0x2d2d30ff;
+        d.TAB_HOVER = 0x3e3e42ff;
+        d.TAB_ACTIVE = 0x1b1b1bff;
+        d.LIST_HOVER = 0xffffff10;
+        d.LIST_SELECTED = 0x0078d7ff;
+        d.LIST_ACTIVE = 0x1c97eaff;
         d.ROW_ALTERNATE = 0xffffff05;
-        d.SCROLL = 0x424242ff;
-        d.SCROLL_HOVER = 0x4f4f4fff;
-        d.SCROLL_ACTIVE = 0x5c5c5cff;
+        d.SCROLL = 0x4a4a4aff;
+        d.SCROLL_HOVER = 0x5a5a5aff;
+        d.SCROLL_ACTIVE = 0x6a6a6aff;
         d.GRID = 0x4a4a4aff;
         d.ICON_FOLDER = 0xe6c364ff;
         d.CHECK = 0xffffffff;
         d.STATS_TEXT = 0xffe14dff;
         d.PLAY_BORDER = 0xf08a24ff;
-        d.TOOLBAR = 0x1c1c1cff;
-        d.SEARCH = 0x2b2b2bff;
-        d.SEARCH_BORDER = 0x3c3c3cff;
+        d.GRID_LINE = 0x2e2e30ff;
+        d.TOOLBAR = 0x1f1f1fff;
+        d.SEARCH = 0x252526ff;
+        d.SEARCH_BORDER = 0x434346ff;
         d.ACTIVE_ICON = 0xffffffff;
-        d.TOOL_HOVER = 0x2e2e2eff;
-        d.VIEW_HEADER = 0x0a0a0aff;
-        d.VIEW_BAR = 0x1c1c1cff;
+        d.TOOL_HOVER = 0x3e3e42ff;
+        d.VIEW_HEADER = 0x2d2d30ff;
+        d.VIEW_BAR = 0x1f1f1fff;
         return d;
     }();
     return p;
@@ -83,67 +84,68 @@ const UiStyle::Palette& UiStyle::palette_light()
 {
     static const Palette p = [] {
         Palette l;
-        l.EDITOR_BORDER = 0xc6cbd2ff;
+        l.EDITOR_BORDER = 0xb4bcc6ff;
         l.TOPBAR = 0xc9d9eaff;
         l.BACK = 0xffffffff;
         l.HEADER = 0xc9d9eaff;
         l.OUTLINER_BACK = 0xffffffff;
         l.VIEWPORT_BACK = 0x9a9a9aff;
-        l.PANEL = 0xf0f3f7ff;
+        l.PANEL = 0xeeeeeeff;
         l.PANEL_SUB = 0x0000000f;
         l.PANEL_OUTLINE = 0x00000014;
-        l.OUTLINE = 0xbcc6d2ff;
+        l.OUTLINE = 0xa9b3bfff;
         l.SEPARATOR = 0x0000001f;
         l.EMBOSS = 0x00000014;
-        l.TEXT = 0x111111ff;
+        l.TEXT = 0x000000ff;
         l.TEXT_HI = 0xffffffff;
-        l.TEXT_DIM = 0x7a7a7aff;
+        l.TEXT_DIM = 0x8a8a8aff;
         l.TEXT_STATUS = 0x7a7a7aff;
         l.TEXT_CURSOR = 0x000000ff;
         l.LINK = 0x0060c0ff;
-        l.NUM = 0xeeeeeeff;
-        l.NUM_HOVER = 0xe4e4e4ff;
-        l.NUM_ACTIVE = 0xdcdcdcff;
-        l.TEXT_FIELD = 0xeeeeeeff;
-        l.TEXT_FIELD_HOVER = 0xe4e4e4ff;
-        l.TEXT_FIELD_ACTIVE = 0xe8e8e8ff;
-        l.MENU = 0xeeeeeeff;
-        l.MENU_HOVER = 0xe4e4e4ff;
-        l.TOOLBAR_ITEM = 0xf2f5f9ff;
+        l.NUM = 0xffffffff;
+        l.NUM_HOVER = 0xf5f9fdff;
+        l.NUM_ACTIVE = 0xffffffff;
+        l.TEXT_FIELD = 0xffffffff;
+        l.TEXT_FIELD_HOVER = 0xf5f9fdff;
+        l.TEXT_FIELD_ACTIVE = 0xffffffff;
+        l.MENU = 0xffffffff;
+        l.MENU_HOVER = 0xe5f3ffff;
+        l.TOOLBAR_ITEM = 0xf0f0f0ff;
         l.PULLDOWN_TEXT = 0x111111ff;
         l.PULLDOWN_HOVER = 0xffffff66;
-        l.MENU_BACK = 0xf7f9fcff;
-        l.MENU_BACK_OUTLINE = 0xa9b5c3ff;
+        l.MENU_BACK = 0xf5f5f5ff;
+        l.MENU_BACK_OUTLINE = 0x979797ff;
         l.MENU_ITEM_TEXT = 0x111111ff;
         l.MENU_ITEM_DIM = 0x7a7a7aff;
         l.TOOLTIP = 0xffffffff;
         l.TOOLTIP_OUTLINE = 0xa9b5c3ff;
-        l.ACCENT = 0x4f9fe8ff;
-        l.ACCENT_HOVER = 0x59a2eeff;
+        l.ACCENT = 0x3c91e6ff;
+        l.ACCENT_HOVER = 0x5aa5eeff;
         l.ACCENT_SELECT = 0x3b8fe84d;
         l.ACCENT_DROP = 0x3b8fe826;
         l.TAB = 0xc9d9eaff;
         l.TAB_HOVER = 0xe2ebf5ff;
         l.TAB_ACTIVE = 0xffffffff;
-        l.LIST_HOVER = 0x3b8fe81f;
-        l.LIST_SELECTED = 0x99c9f7ff;
-        l.LIST_ACTIVE = 0x7ab6f2ff;
+        l.LIST_HOVER = 0xe5f3ffff;
+        l.LIST_SELECTED = 0xcce8ffff;
+        l.LIST_ACTIVE = 0x99d1ffff;
         l.ROW_ALTERNATE = 0x00000008;
-        l.SCROLL = 0xc3ccd6ff;
-        l.SCROLL_HOVER = 0xa9b5c3ff;
-        l.SCROLL_ACTIVE = 0x8e9babff;
+        l.SCROLL = 0xc2c2c2ff;
+        l.SCROLL_HOVER = 0xa8a8a8ff;
+        l.SCROLL_ACTIVE = 0x8a8a8aff;
         l.GRID = 0x4a4a4aff;
         l.ICON_FOLDER = 0xe0b84aff;
         l.CHECK = 0x3b8fe8ff;
         l.STATS_TEXT = 0xffe14dff;
         l.PLAY_BORDER = 0xf08a24ff;
-        l.TOOLBAR = 0xffffffff;
-        l.SEARCH = 0xeeeeeeff;
-        l.SEARCH_BORDER = 0xa8b6c5ff;
+        l.GRID_LINE = 0xe2e2e2ff;
+        l.TOOLBAR = 0xf5f6f7ff;
+        l.SEARCH = 0xffffffff;
+        l.SEARCH_BORDER = 0xa9b3bfff;
         l.ACTIVE_ICON = 0x111111ff;
-        l.TOOL_HOVER = 0xdceaf7ff;
+        l.TOOL_HOVER = 0xd5e8f9ff;
         l.VIEW_HEADER = 0xc9d9eaff;
-        l.VIEW_BAR = 0xffffffff;
+        l.VIEW_BAR = 0xf5f6f7ff;
         return l;
     }();
     return p;
@@ -212,19 +214,19 @@ ImU32 ui_hex_over(uint32_t p_rgba, uint32_t p_background)
 void UiStyle::build()
 {
     pal = light ? palette_light() : palette_dark();
-    unit = ImFloor(18.0f * scale);
-    row = ImFloor(30.0f * scale);
-    font.size = ImFloor(14.0f * scale);
+    unit = ImFloor(16.0f * scale);
+    row = ImFloor(20.0f * scale);
+    font.size = ImFloor(13.0f * scale);
     font.icon_size = ImFloor(font.size * 0.9f);
-    space.xxs = ImFloor(2.0f * scale);
-    space.xs = ImFloor(3.0f * scale);
-    space.sm = ImFloor(4.0f * scale);
-    space.md = ImFloor(6.0f * scale);
-    space.lg = ImFloor(8.0f * scale);
-    space.xl = ImFloor(10.0f * scale);
-    space.xxl = ImFloor(12.0f * scale);
-    space.xxxl = ImFloor(16.0f * scale);
-    space.huge = ImFloor(20.0f * scale);
+    space.xxs = ImFloor(1.0f * scale);
+    space.xs = ImFloor(2.0f * scale);
+    space.sm = ImFloor(3.0f * scale);
+    space.md = ImFloor(4.0f * scale);
+    space.lg = ImFloor(6.0f * scale);
+    space.xl = ImFloor(8.0f * scale);
+    space.xxl = ImFloor(10.0f * scale);
+    space.xxxl = ImFloor(12.0f * scale);
+    space.huge = ImFloor(16.0f * scale);
     radius.sm = 0.0f;
     radius.md = 0.0f;
     radius.lg = 0.0f;
@@ -235,15 +237,15 @@ void UiStyle::build()
 
 void UiStyle::_build_components()
 {
-    base.window_padding = ImVec2(space.lg, space.lg);
+    base.window_padding = ImVec2(space.md, space.md);
     base.frame_padding = ImVec2(space.md, ImFloor((row - font.size) * 0.5f));
-    base.item_spacing = ImVec2(space.lg, space.xxs);
-    base.item_inner_spacing = ImVec2(space.sm, space.sm);
+    base.item_spacing = ImVec2(space.md, space.xs);
+    base.item_inner_spacing = ImVec2(space.sm, space.xs);
     base.cell_padding = ImVec2(space.sm, 1.0f);
-    base.indent = unit;
-    base.scrollbar_size = ImFloor(0.4f * unit);
+    base.indent = ImFloor(14.0f * scale);
+    base.scrollbar_size = ImFloor(12.0f * scale);
     base.scrollbar_rounding = radius.md;
-    base.grab_min_size = unit;
+    base.grab_min_size = ImFloor(12.0f * scale);
     base.window_rounding = radius.md;
     base.frame_rounding = radius.md;
     base.popup_rounding = radius.md;
@@ -251,7 +253,7 @@ void UiStyle::_build_components()
     base.tab_rounding = radius.md;
     base.window_border = stroke.hairline;
     base.popup_border = stroke.hairline;
-    base.frame_border = 0.0f;
+    base.frame_border = stroke.hairline;
 
 
 
@@ -261,10 +263,11 @@ void UiStyle::_build_components()
     menu.border = stroke.hairline;
     menu.popup_offset = space.xxs;
 
-    splitter.gap = ImFloor(3.0f * scale);
-    splitter.line_width = stroke.thick;
+    splitter.gap = 0.0f;
+    splitter.hit = ImFloor(3.0f * scale);
+    splitter.line_width = stroke.hairline;
     splitter.grip_half_width = stroke.thick;
-    splitter.grip_length = 40.0f;
+    splitter.grip_length = 0.0f;
 
     property.label_ratio = 0.4f;
     property.label_ratio_wide = 0.55f;
@@ -272,7 +275,7 @@ void UiStyle::_build_components()
     property.section_gap = space.xxs;
 
     toolbar.height = row;
-    toolbar.main_height = row * 2.0f;
+    toolbar.main_height = ImFloor(24.0f * scale) * 2.0f;
     toolbar.padding_x = space.lg;
 
     header.height = toolbar.height;
@@ -283,23 +286,23 @@ void UiStyle::_build_components()
     header.menu_pad_x = space.md;
     header.dropdown_arrow = ImFloor(font.size * 0.32f);
 
-    panel_box.margin_x = space.sm;
-    panel_box.margin_top = space.sm;
-    panel_box.gap = space.sm;
+    panel_box.margin_x = 0.0f;
+    panel_box.margin_top = 0.0f;
+    panel_box.gap = 0.0f;
     panel_box.rounding = radius.md;
-    panel_box.header_height = unit + ImFloor(4.0f * scale);
-    panel_box.body_pad_y = space.sm;
+    panel_box.header_height = row;
+    panel_box.body_pad_y = space.xs;
     panel_box.grip_dot = 1.0f;
     panel_box.grip_spacing = 3.0f;
 
 
-    panel.padding = ImVec2(space.md, space.sm);
-    panel.header_height = row;
+    panel.padding = ImVec2(space.xs, space.xs);
+    panel.header_height = ImFloor(22.0f * scale);
     panel.header_pad_x = space.md;
 
     viewport.play_border = ImFloor(2.0f * scale);
 
-    titlebar.height = row;
+    titlebar.height = ImFloor(30.0f * scale);
     titlebar.search_width = ImFloor(170.0f * scale);
     titlebar.menu_padding = ImVec2(space.md, space.xs);
     titlebar.menu_gap = 0.0f;
@@ -333,18 +336,19 @@ void UiStyle::_build_components()
 
 
     outliner.pad_x = space.sm;
-    outliner.row_pad_y = ImFloor((unit - font.size) * 0.5f);
+    outliner.row_pad_y = ImFloor((ImFloor(18.0f * scale) - font.size) * 0.5f);
     outliner.cell_pad_x = space.sm;
-    outliner.icon_width_scale = 1.25f;
-    outliner.icon_gap = space.sm;
+    outliner.icon_width_scale = 1.2f;
+    outliner.icon_gap = space.md;
+    outliner.box_gap = space.md;
     outliner.rename_pad_x = space.xxs;
     outliner.arrow_scale = 0.7f;
     outliner.arrow_offset_scale = 0.15f;
-    outliner.padding = ImVec2(0.0f, space.lg);
+    outliner.padding = ImVec2(0.0f, space.xs);
 
 
     details.header_pad_y = ImFloor(2.0f * scale);
-    details.header_indent = ImFloor(24.0f * scale);
+    details.header_indent = ImFloor(18.0f * scale);
     details.button_inset = space.md;
     details.arrow_x = space.md;
     details.arrow_scale = 0.6f;
@@ -477,6 +481,8 @@ void UiStyle::_build_colors()
     color.header_hover = ui_hex_over(p.PULLDOWN_HOVER, p.HEADER);
     color.outliner_back = ui_hex(p.OUTLINER_BACK);
     color.viewport_back = ui_hex(p.VIEWPORT_BACK);
+    color.grid_line = ui_hex(p.GRID_LINE);
+    color.search_match = ui_hex(0xfff200ff);
     color.panel_sub = ui_hex_over(p.PANEL_SUB, p.PANEL);
     color.outline = ui_hex(p.OUTLINE);
     color.emboss = ImGui::GetColorU32(ui_hex4_over(p.EMBOSS, p.BACK));
@@ -563,8 +569,8 @@ void UiStyle::_build_colors()
     color.gizmo_center = ui_hex(0xffffffff);
     color.gizmo_hot = ui_hex(0xffd640ff);
 
-    color.category_header = ui_hex(p.PANEL);
-    color.category_header_hover = ui_hex_over(p.PULLDOWN_HOVER, p.PANEL);
+    color.category_header = ui_hex(p.HEADER);
+    color.category_header_hover = ui_hex_over(p.PULLDOWN_HOVER, p.HEADER);
     color.category_line = ui_hex(p.BACK);
     color.axis_x = ui_hex(p.AXIS_X);
     color.axis_y = ui_hex(p.AXIS_Y);

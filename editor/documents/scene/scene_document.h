@@ -36,7 +36,8 @@ struct SceneDocument
     EditorCamera scene_camera;
 
     const std::filesystem::path* _path(EditorContext& ctx) const;
-    bool _confirm_discard(const std::string& p_name, const wchar_t* p_action) const;
+    bool _confirm_discard(EditorContext& ctx, int32_t p_index, const wchar_t* p_body, const wchar_t* p_save);
+    Error _save_scene(EditorContext& ctx);
     static constexpr float PLAYER_EYE_HEIGHT = 1.2f;
     static constexpr float PLAYER_DISTANCE = 4.0f;
     static constexpr float PLAYER_RISE = 1.0f;
@@ -65,7 +66,7 @@ struct SceneDocument
     bool scene_dirty() const { return has_world() && _hash != _saved_hash; }
     bool dirty() const;
     bool any_dirty() const;
-    bool confirm_discard_all() const;
+    bool confirm_discard_all(EditorContext& ctx);
     Error save(EditorContext& ctx);
     void save_all(EditorContext& ctx);
 

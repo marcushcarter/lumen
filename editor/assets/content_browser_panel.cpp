@@ -228,15 +228,21 @@ void ContentBrowserPanel::_toggle(const std::filesystem::path& p_dir)
     if (!open_folders.erase(p_dir)) open_folders.insert(p_dir);
 }
 
-void ContentBrowserPanel::_rows_emit(EditorContext& ctx, const std::filesystem::path& p_dir, uint16_t p_depth)
+void ContentBrowserPanel::_rows_emit(EditorContext& ctx, const std::filesystem::path& p_dir, uint16_t p_depth, uint64_t p_lines)
 {
     const Dir& dir = _cache_get(p_dir);
+    std::vector<std::filesystem::path> pending;
+    if (ctx.imports && ctx.imports->busy()) pending = ctx.imports->pending_out(p_dir);
+    const size_t total = dir.entries.size() + pending.size();
+    size_t i = 0;
     for (const Entry& e : dir.entries) {
-        rows.push_back({ &e, {}, p_depth });
-        if (e.is_dir && open_folders.contains(e.path)) _rows_emit(ctx, e.path, (uint16_t)(p_depth + 1));
+        const bool last = ++i == total;
+        rows.push_back({ &e, {}, p_depth, last, p_lines });
+        if (e.is_dir && open_folders.contains(e.path)) _rows_emit(ctx, e.path, (uint16_t)(p_depth + 1), last || p_depth > 64 ? p_lines : p_lines | (1ull << (p_depth - 1)));
     }
-    if (ctx.imports && ctx.imports->busy()) {
-        for (const std::filesystem::path& p : ctx.imports->pending_out(p_dir)) rows.push_back({ nullptr, p, p_depth });
+    for (const std::filesystem::path& p : pending) {
+        const bool last = ++i == total;
+        rows.push_back({ nullptr, p, p_depth, last, p_lines });
     }
 }
 
@@ -299,7 +305,7 @@ void ContentBrowserPanel::_drag_source(const Entry& p_entry)
     ImGui::EndDragDropSource();
 }
 
-bool ContentBrowserPanel::_draw_row(EditorContext& ctx, const Entry& p_entry, uint16_t p_depth, float p_row_h, bool p_show_path)
+bool ContentBrowserPanel::_draw_row(EditorContext& ctx, const Entry& p_entry, uint16_t p_depth, float p_row_h, bool p_show_path, uint64_t p_lines, bool p_last)
 {
     const UiStyle& ui = ui_style();
     const float font = ImGui::GetFontSize();
@@ -345,20 +351,20 @@ bool ContentBrowserPanel::_draw_row(EditorContext& ctx, const Entry& p_entry, ui
 
     const float text_y = ImFloor(p0.y + (p_row_h - font) * 0.5f);
     float x = p0.x + ui.outliner.pad_x + (float)p_depth * font;
-    if (p_entry.is_dir && !p_show_path) {
+    const bool has_box = p_entry.is_dir && !p_show_path;
+    if (!p_show_path) ui_tree_lines(dl, p0.x + ui.outliner.pad_x, font, p0.y, p1.y, p_depth, p_lines, p_last, has_box ? x + ImFloor(font * 0.5f) - ui_tree_box_half() : x + font + ui.outliner.box_gap);
+    if (has_box) {
         ImGui::SetCursorScreenPos(ImVec2(x, p0.y));
         if (ImGui::InvisibleButton("##arrow", ImVec2(font, p_row_h))) _toggle(p_entry.path);
-        const bool arrow_hovered = ImGui::IsItemHovered();
-        ImGui::RenderArrow(dl, ImVec2(x, text_y + font * ui.outliner.arrow_offset_scale), ImGui::GetColorU32(arrow_hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), open ? ImGuiDir_Down : ImGuiDir_Right, ui.outliner.arrow_scale);
+        ui_tree_box(dl, ImVec2(x + font * 0.5f, p0.y + p_row_h * 0.5f), open, ImGui::IsItemHovered());
     }
-    if (!p_show_path) x += font;
+    if (!p_show_path) x += font + ui.outliner.box_gap;
 
-    const char* icon = p_entry.is_dir ? (open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER) : p_entry.icon;
     const float icon_w = font * ui.outliner.icon_width_scale;
-    if (icon) {
-        const ImVec2 is = ImGui::CalcTextSize(icon);
-        dl->AddText(ImVec2(ImFloor(x + (icon_w - is.x) * 0.5f), text_y), p_entry.is_dir ? ui.color.folder : ui.color.text_dim, icon);
-    }
+    const float icon_px = ImFloor(font * 1.2f);
+    const ImVec2 icon_at(x + ImFloor((icon_w - icon_px) * 0.5f), p0.y + ImFloor((p_row_h - icon_px) * 0.5f));
+    if (p_entry.is_dir) ui_icon_folder(dl, icon_at, icon_px);
+    else ui_icon_file(dl, icon_at, icon_px);
     x += icon_w + ui.outliner.icon_gap;
 
     if (renaming) {
@@ -372,6 +378,17 @@ bool ContentBrowserPanel::_draw_row(EditorContext& ctx, const Entry& p_entry, ui
         if (p_show_path) {
             const std::string rel = p_entry.path.lexically_relative(root).generic_string();
             dl->AddText(ImVec2(x, text_y), ui.color.text, rel.c_str());
+            const size_t name_at = rel.size() >= p_entry.name.size() ? rel.size() - p_entry.name.size() : 0;
+            const size_t n = _result_query.size();
+            if (n > 0) {
+                for (size_t at = p_entry.lower_name.find(_result_query); at != std::string::npos; at = p_entry.lower_name.find(_result_query, at + n)) {
+                    const char* s0 = rel.c_str() + name_at + at;
+                    const float hx0 = x + ImGui::CalcTextSize(rel.c_str(), s0).x;
+                    const float hx1 = hx0 + ImGui::CalcTextSize(s0, s0 + n).x;
+                    dl->AddRectFilled(ImVec2(hx0, p0.y + 1.0f), ImVec2(hx1, p1.y - 1.0f), ui.color.search_match);
+                    dl->AddText(ImVec2(hx0, text_y), IM_COL32(0, 0, 0, 255), s0, s0 + n);
+                }
+            }
         } else {
             dl->AddText(ImVec2(x, text_y), ui.color.text, p_entry.name.c_str());
         }
@@ -391,7 +408,7 @@ bool ContentBrowserPanel::_draw_row(EditorContext& ctx, const Entry& p_entry, ui
     return activated;
 }
 
-void ContentBrowserPanel::_draw_pending(EditorContext& ctx, const std::filesystem::path& p_path, uint16_t p_depth, float p_row_h)
+void ContentBrowserPanel::_draw_pending(EditorContext& ctx, const std::filesystem::path& p_path, uint16_t p_depth, float p_row_h, uint64_t p_lines, bool p_last)
 {
     const UiStyle& ui = ui_style();
     const float font = ImGui::GetFontSize();
@@ -407,11 +424,46 @@ void ContentBrowserPanel::_draw_pending(EditorContext& ctx, const std::filesyste
     ui_context_menu_pop_style();
     const float progress = ImMax(ctx.imports->progress(p_path), 0.0f);
     char label[320];
-    std::snprintf(label, sizeof(label), "%s  (importing %d%%)", p_path.filename().string().c_str(), (int)(progress * 100.0f));
-    const float x = p0.x + ui.outliner.pad_x + (float)p_depth * font + font + font * ui.outliner.icon_width_scale + ui.outliner.icon_gap;
+    std::snprintf(label, sizeof(label), "%s  (%d%%)", p_path.filename().string().c_str(), (int)(progress * 100.0f));
+    const float x = p0.x + ui.outliner.pad_x + (float)p_depth * font + font + ui.outliner.box_gap + font * ui.outliner.icon_width_scale + ui.outliner.icon_gap;
     ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float lx = p0.x + ui.outliner.pad_x + (float)p_depth * font;
+    ui_tree_lines(dl, p0.x + ui.outliner.pad_x, font, p0.y, p0.y + p_row_h, p_depth, p_lines, p_last, lx + font + ui.outliner.box_gap);
+    const float icon_w = font * ui.outliner.icon_width_scale;
+    const float icon_px = ImFloor(font * 1.2f);
+    ui_icon_file(dl, ImVec2(lx + font + ui.outliner.box_gap + ImFloor((icon_w - icon_px) * 0.5f), p0.y + ImFloor((p_row_h - icon_px) * 0.5f)), icon_px);
     dl->AddText(ImVec2(x, ImFloor(p0.y + (p_row_h - font) * 0.5f)), ui.color.text_dim, label);
     dl->AddRectFilled(ImVec2(p0.x, p0.y + p_row_h - ui.asset_browser.progress_height), ImVec2(p0.x + w * progress, p0.y + p_row_h), ui.color.accent);
+    ImGui::PopID();
+}
+
+void ContentBrowserPanel::_draw_root(float p_row_h)
+{
+    const UiStyle& ui = ui_style();
+    const float font = ImGui::GetFontSize();
+    ImGui::PushID("##asset_root");
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p1(p0.x + w, p0.y + p_row_h);
+    ImGui::SetNextItemAllowOverlap();
+    if (ImGui::InvisibleButton("##row", ImVec2(ImMax(1.0f, w), p_row_h))) {
+        _clear_selection();
+        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) root_open = !root_open;
+    }
+    const bool hovered = ImGui::IsItemHovered();
+    _drop_target(root);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (hovered) dl->AddRectFilled(p0, p1, ui.color.list_hover);
+    const float x = p0.x + ui.outliner.pad_x;
+    ImGui::SetCursorScreenPos(ImVec2(x, p0.y));
+    if (ImGui::InvisibleButton("##arrow", ImVec2(font, p_row_h))) root_open = !root_open;
+    ui_tree_box(dl, ImVec2(x + ImFloor(font * 0.5f), p0.y + ImFloor(p_row_h * 0.5f)), root_open, ImGui::IsItemHovered());
+    const float icon_w = font * ui.outliner.icon_width_scale;
+    const float icon_px = ImFloor(font * 1.2f);
+    ui_icon_folder(dl, ImVec2(x + font + ui.outliner.box_gap + ImFloor((icon_w - icon_px) * 0.5f), p0.y + ImFloor((p_row_h - icon_px) * 0.5f)), icon_px);
+    const std::string name = root.filename().string();
+    dl->AddText(ImVec2(x + font + ui.outliner.box_gap + icon_w + ui.outliner.icon_gap, ImFloor(p0.y + (p_row_h - font) * 0.5f)), ui.color.text, name.c_str());
+    ImGui::SetCursorScreenPos(ImVec2(p0.x, p1.y));
     ImGui::PopID();
 }
 
@@ -450,7 +502,8 @@ void ContentBrowserPanel::_draw_list(EditorContext& ctx, const char* p_id, ImVec
             }
         } else {
             rows.clear();
-            _rows_emit(ctx, root, 0);
+            _draw_root(row_h);
+            if (root_open) _rows_emit(ctx, root, 1, 0);
             ImGuiListClipper clipper;
             clipper.Begin((int)rows.size(), row_h);
             if (!_scroll_target.empty()) {
@@ -462,14 +515,21 @@ void ContentBrowserPanel::_draw_list(EditorContext& ctx, const char* p_id, ImVec
                 for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
                     const Row& r = rows[i];
                     if (!r.entry) {
-                        _draw_pending(ctx, r.pending, r.depth, row_h);
+                        _draw_pending(ctx, r.pending, r.depth, row_h, r.lines, r.last);
                         continue;
                     }
-                    if (_draw_row(ctx, *r.entry, r.depth, row_h, false)) activate = r.entry->path;
+                    if (_draw_row(ctx, *r.entry, r.depth, row_h, false, r.lines, r.last)) activate = r.entry->path;
                 }
             }
         }
         ImGui::Dummy(ImVec2(0.0f, 0.0f));
+        if (!p_results) {
+            const ImRect area = ImGui::GetCurrentWindow()->Rect();
+            if (ImGui::BeginDragDropTargetCustom(area, ImGui::GetID("##root_drop"))) {
+                _drop_accept(root);
+                ImGui::EndDragDropTarget();
+            }
+        }
         _list_end(ctx);
         if (!activate.empty()) {
             std::error_code ec;
@@ -661,6 +721,12 @@ void ContentBrowserPanel::_move_selection(const std::filesystem::path& p_dst)
 void ContentBrowserPanel::_drop_target(const std::filesystem::path& p_dst)
 {
     if (!ImGui::BeginDragDropTarget()) return;
+    _drop_accept(p_dst);
+    ImGui::EndDragDropTarget();
+}
+
+void ContentBrowserPanel::_drop_accept(const std::filesystem::path& p_dst)
+{
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
         const AssetDragPayload* asset = (const AssetDragPayload*)payload->Data;
         if (asset->path[0]) {
@@ -669,7 +735,6 @@ void ContentBrowserPanel::_drop_target(const std::filesystem::path& p_dst)
         }
         request_refresh();
     }
-    ImGui::EndDragDropTarget();
 }
 
 void ContentBrowserPanel::_delete_content(EditorContext& ctx, const std::filesystem::path& p_asset)

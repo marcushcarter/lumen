@@ -141,6 +141,12 @@ Error EditorApplication::on_init()
         play.toggle();
     };
     _ctx.pie_step = [this] { play.step(); };
+    _ctx.pie_is_scaled = [this] { return play.scaled; };
+    _ctx.pie_toggle_scaled = [this] {
+        const bool back_to_pause = play.scaled && play.scaled_from_pause;
+        play.set_scaled(!play.scaled);
+        if (back_to_pause && play.editing()) editor_camera.place(play.session.camera);
+    };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
         if (run.is_running_for(p_root)) { run.stop(); return; }
@@ -427,12 +433,14 @@ bool EditorApplication::_confirm_cancel_imports(const wchar_t* p_action)
 
 bool EditorApplication::on_close_requested()
 {
-    return workspace.scene.confirm_discard_all() && documents.confirm_discard_all() && _confirm_cancel_imports(L"Closing the editor");
+    EditorContext& ctx = _context();
+    return workspace.scene.confirm_discard_all(ctx) && documents.confirm_discard_all(ctx) && _confirm_cancel_imports(L"Closing the editor");
 }
 
 bool EditorApplication::close_project()
 {
-    if (!workspace.scene.confirm_discard_all() || !documents.confirm_discard_all() || !_confirm_cancel_imports(L"Closing the project")) return false;
+    EditorContext& ctx = _context();
+    if (!workspace.scene.confirm_discard_all(ctx) || !documents.confirm_discard_all(ctx) || !_confirm_cancel_imports(L"Closing the project")) return false;
     session_project.clear();
     play.stop();
     pending_transition = [this]{

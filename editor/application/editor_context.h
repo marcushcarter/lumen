@@ -77,6 +77,8 @@ struct EditorContext
     std::function<bool()> pie_is_paused;
     std::function<void()> pie_toggle_pause;
     std::function<void()> pie_step;
+    std::function<bool()> pie_is_scaled;
+    std::function<void()> pie_toggle_scaled;
 };
 
 }

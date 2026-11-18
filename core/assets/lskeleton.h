@@ -67,7 +67,18 @@ struct SkeletonCloth
     bool operator==(const SkeletonCloth&) const = default;
 };
 
-static_assert(std::is_trivially_copyable_v<SkeletonChain> && std::is_trivially_copyable_v<SkeletonCloth>, "must be blittable");
+struct SkeletonCollider
+{
+    int32_t joint = SKELETON_NO_JOINT;
+    vec3 a = vec3(0.0f);
+    vec3 b = vec3(0.0f);
+    float radius = 0.1f;
+
+    bool operator==(const SkeletonCollider&) const = default;
+};
+
+static_assert(sizeof(SkeletonCollider) == 32, "SkeletonCollider layout changed");
+static_assert(std::is_trivially_copyable_v<SkeletonChain> && std::is_trivially_copyable_v<SkeletonCloth> && std::is_trivially_copyable_v<SkeletonCollider>, "must be blittable");
 
 inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC = 0x344E5944u;
 inline constexpr uint32_t SKELETON_DYNAMICS_MAGIC_V3 = 0x334E5944u;
@@ -78,7 +89,7 @@ struct LSkeletonDynamicsHeader
     uint32_t magic;
     uint32_t chain_count;
     uint32_t cloth_count;
-    uint32_t _pad;
+    uint32_t collider_count;
 };
 
 static_assert(sizeof(LSkeletonDynamicsHeader) == 16, "LSkeletonDynamicsHeader layout changed");
@@ -91,6 +102,7 @@ struct LSkeleton
     std::vector<JointTransform> rest;
     std::vector<SkeletonChain> chains;
     std::vector<SkeletonCloth> cloths;
+    std::vector<SkeletonCollider> colliders;
 
     uint32_t joint_count() const { return (uint32_t)names.size(); }
     int32_t find(std::string_view p_name) const;

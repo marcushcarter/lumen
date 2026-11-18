@@ -626,7 +626,7 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "skinned", skinned } }},
     };
     collision_settings_write(*tbl["import"].as_table(), p_job.settings.collision);
-    if (skinned && p_job.skeleton_data && (!p_job.skeleton_data->chains.empty() || !p_job.skeleton_data->cloths.empty())) tbl.insert_or_assign("dynamics", SkeletonCooker::dynamics_table(*p_job.skeleton_data));
+    if (skinned && p_job.skeleton_data && (!p_job.skeleton_data->chains.empty() || !p_job.skeleton_data->cloths.empty() || !p_job.skeleton_data->colliders.empty())) tbl.insert_or_assign("dynamics", SkeletonCooker::dynamics_table(*p_job.skeleton_data));
     if (!p_job.collision.empty()) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", true);
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;

@@ -43,7 +43,7 @@ struct DocumentManager
 
     size_t _index_of(DocumentKind p_kind, Guid p_guid) const;
     void _process_closes(EditorContext& ctx);
-    static bool _confirm_discard(const EditorDocument& p_document);
+    static bool _confirm_discard(EditorContext& ctx, EditorDocument& r_document);
     void _remove_at(EditorContext& ctx, size_t p_index, bool p_now = false);
     void _collect(EditorContext& ctx, bool p_all);
 
@@ -51,7 +51,7 @@ struct DocumentManager
     void focus(EditorDocument* p_document);
     void close(DocumentKind p_kind, Guid p_guid, bool p_force = false);
     void clear(EditorContext& ctx);
-    bool confirm_discard_all() const;
+    bool confirm_discard_all(EditorContext& ctx);
     bool any_dirty() const;
     void update(EditorContext& ctx);
 };

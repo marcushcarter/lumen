@@ -20,6 +20,7 @@ PanelTabResult panel_tab_bar(const PanelTab* p_tabs, int p_count, ImVec2 p_min, 
     const float h = p_max.y - p_min.y;
     const float r = ui.panel_box.rounding;
     dl->AddRectFilled(p_min, p_max, ui.color.header, r, ImDrawFlags_RoundCornersTop);
+    dl->AddLine(ImVec2(p_min.x, p_max.y - 1.0f), ImVec2(p_max.x, p_max.y - 1.0f), ui.color.outline);
 
     const float pad = ui.panel.header_pad_x;
     const float menu_w = p_menu ? h : 0.0f;

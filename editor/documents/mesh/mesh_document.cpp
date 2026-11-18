@@ -64,6 +64,7 @@ Error MeshDocument::save(EditorContext& ctx)
         LSkeleton skeleton = rig_preview.skeleton_data();
         skeleton.chains = chains;
         skeleton.cloths = cloths;
+        skeleton.colliders = colliders;
         const std::filesystem::path bin = ctx.project->content_path(guid);
         if (SkeletonCooker::save_dynamics(path, bin, skeleton) != OK) return FAILED;
         if (rebake && dynamics_rebake_cloths(bin, skeleton) != OK) return FAILED;
@@ -292,6 +293,7 @@ void MeshDocument::_sync_dynamics()
     _dynamics_version = rig_preview.version;
     chains = rig_preview.skeleton_data().chains;
     cloths = rig_preview.skeleton_data().cloths;
+    colliders = rig_preview.skeleton_data().colliders;
     if (selected_bone >= (int32_t)rig_preview.skeleton_data().joint_count()) selected_bone = -1;
 }
 
@@ -316,6 +318,7 @@ void MeshDocument::push_dynamics(EditorContext& ctx)
     for (size_t i = 0; !topology && i < cloths.size(); i++) topology = live.cloths[i].slot != cloths[i].slot;
     live.chains = chains;
     live.cloths = cloths;
+    live.colliders = colliders;
     if (topology) ctx.renderer->skeletons.version++;
 }
 
@@ -341,6 +344,15 @@ void MeshDocument::_draw_bones(DebugDraw& r_draw) const
     for (const SkeletonChain& c : chains) mark(c.root);
     if (selected_bone >= 0 && selected_bone < (int32_t)weights.size()) weights[selected_bone] = 1.0f;
     rig_preview.draw_bones(r_draw, weights.data());
+
+    const DebugDraw::Style style{ .color = DebugDraw::CYAN };
+    const DebugDraw::Style selected{ .color = DebugDraw::YELLOW };
+    for (int32_t i = 0; i < (int32_t)colliders.size(); i++) {
+        const SkeletonCollider& c = colliders[i];
+        if (c.joint < 0 || c.joint >= (int32_t)rig_preview._global.size()) continue;
+        const mat4& m = rig_preview._global[c.joint];
+        r_draw.capsule(vec3(m * vec4(c.a, 1.0f)), vec3(m * vec4(c.b, 1.0f)), c.radius, i == selected_collider ? selected : style);
+    }
 }
 
 void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physics)
@@ -358,6 +370,7 @@ void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physic
     LSkeleton skeleton = rig_preview.skeleton_data();
     skeleton.chains = chains;
     skeleton.cloths = cloths;
+    skeleton.colliders = colliders;
     uint64_t key = rig_preview.version;
     for (const SkeletonChain& c : chains) key = hash_combine(key, (uint64_t)c.root);
     for (const SkeletonCloth& c : cloths) key = hash_combine(key, (uint64_t)c.slot ^ 0x9e3779b97f4a7c15ull);
@@ -367,7 +380,7 @@ void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physic
     skeleton.globals(local.data(), global.data());
     static const LLocomotion DEFAULT_BODY;
     _sim.bind(key, skeleton, rig_preview.rig, DEFAULT_BODY);
-    _sim.update_colliders(global, model, 0.0f);
+    _sim.update_colliders(skeleton, global, model, 0.0f);
     if (p_physics.chains) _sim.simulate_chains(skeleton, model, p_dt, p_physics.gravity, local.data(), global);
     else _sim.follow_chains(model, global);
     rig_skin(global, rig_preview.rig, rig_preview._map, rig_preview._skin);

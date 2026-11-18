@@ -88,6 +88,7 @@ struct UiStyle
         uint32_t VIEW_BAR = 0x1f1f1fff;
         uint32_t STATS_TEXT = 0xffd75aff;
         uint32_t PLAY_BORDER = 0xff8a1eff;
+        uint32_t GRID_LINE = 0x2e2e30ff;
     };
 
     static const Palette& palette_dark();
@@ -275,6 +276,8 @@ struct UiStyle
         ImU32 tool_hover;
         ImU32 view_header;
         ImU32 view_bar;
+        ImU32 grid_line;
+        ImU32 search_match;
     };
 
     /*****************/
@@ -310,6 +313,7 @@ struct UiStyle
 
     struct Splitter {
         float gap;
+        float hit;
         float line_width;
         float grip_half_width;
         float grip_length;
@@ -403,6 +407,7 @@ struct UiStyle
         float cell_pad_x;
         float icon_width_scale;
         float icon_gap;
+        float box_gap;
         float rename_pad_x;
         float arrow_scale;
         float arrow_offset_scale;

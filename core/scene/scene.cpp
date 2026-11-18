@@ -137,7 +137,7 @@ bool Scene::is_folder(Entity p_entity) const
     for (const ComponentInfo& info : components) {
         if (!info.key || !info.has(*this, p_entity)) continue;
         const std::string_view key = info.key;
-        if (key != "name" && key != "parent" && key != "hidden" && key != "expanded") return false;
+        if (key != "name" && key != "parent" && key != "disabled" && key != "expanded") return false;
     }
     return true;
 }

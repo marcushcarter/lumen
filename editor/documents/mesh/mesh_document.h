@@ -37,6 +37,8 @@ struct MeshDocument : AssetDocument
 
     std::vector<SkeletonChain> chains;
     std::vector<SkeletonCloth> cloths;
+    std::vector<SkeletonCollider> colliders;
+    int32_t selected_collider = -1;
     int32_t selected_bone = -1;
     int32_t selected_slot = -1;
     uint64_t _dynamics_version = 0;
@@ -64,7 +66,7 @@ struct MeshDocument : AssetDocument
     int32_t free_source(CollisionType p_type) const;
     void _frame(EditorContext& ctx);
 
-    bool dynamics_dirty() const { return rig_preview.skinned && (chains != rig_preview.skeleton_data().chains || cloths != rig_preview.skeleton_data().cloths); }
+    bool dynamics_dirty() const { return rig_preview.skinned && (chains != rig_preview.skeleton_data().chains || cloths != rig_preview.skeleton_data().cloths || colliders != rig_preview.skeleton_data().colliders); }
     bool cloth_rebake() const;
     void push_dynamics(EditorContext& ctx);
     void _sync_dynamics();

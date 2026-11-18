@@ -308,6 +308,62 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Turns a material slot into cloth. Pinning comes from the mesh's vertex colours: black is pinned, white is free.");
 
+        ui_section_label("Cloth Colliders");
+        const bool bone_valid = bone >= 0 && bone < (int32_t)skeleton.joint_count();
+        int32_t& open_collider = tab->selected_collider;
+        if (open_collider >= (int32_t)tab->colliders.size()) open_collider = -1;
+        int32_t remove_collider = -1;
+        for (int32_t i = 0; i < (int32_t)tab->colliders.size(); i++) {
+            SkeletonCollider& c = tab->colliders[i];
+            const bool open = open_collider == i;
+            bool removed = false;
+            char summary[32];
+            std::snprintf(summary, sizeof(summary), "r %.2f m", c.radius);
+            const char* name = c.joint >= 0 && c.joint < (int32_t)skeleton.joint_count() ? skeleton.names[c.joint].c_str() : "Missing bone";
+            ImGui::PushID(2000 + i);
+            if (ui_list_item("##collider", ICON_FA_CAPSULES, name, summary, open, &removed)) open_collider = open ? -1 : i;
+            if (removed) remove_collider = i;
+            if (open && !removed) {
+                ui_list_body_begin();
+                if (ui_property_grid_begin("##collider_fields")) {
+                    ui_property("Start");
+                    changed |= ImGui::DragFloat3("##start", &c.a.x, 0.005f, -100.0f, 100.0f, "%.3f");
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("One end of the capsule, in the bone's space. Make Start and End the same for a sphere.");
+                    ui_property("End");
+                    changed |= ImGui::DragFloat3("##end", &c.b.x, 0.005f, -100.0f, 100.0f, "%.3f");
+                    ui_property("Radius");
+                    changed |= ImGui::DragFloat("##radius", &c.radius, 0.002f, 0.001f, 10.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp);
+                    ui_property_grid_end();
+                }
+                if (bone_valid && ImGui::Button(ICON_FA_BONE "  Move to Selected Bone")) {
+                    c.joint = bone;
+                    changed = true;
+                }
+                ui_list_body_end();
+            }
+            ImGui::PopID();
+        }
+        char add_collider[160];
+        if (!bone_valid) std::snprintf(add_collider, sizeof(add_collider), "Click a bone in the viewport to add a collider");
+        else std::snprintf(add_collider, sizeof(add_collider), ICON_FA_PLUS "  Add Collider on %s", skeleton.names[bone].c_str());
+        ImGui::BeginDisabled(!bone_valid);
+        if (ImGui::Button(add_collider, ImVec2(-FLT_MIN, 0.0f))) {
+            SkeletonCollider c;
+            c.joint = bone;
+            c.b = vec3(0.0f, 0.5f, 0.0f);
+            tab->colliders.push_back(c);
+            open_collider = (int32_t)tab->colliders.size() - 1;
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Capsules that only cloth and chains collide with, like a flag pole. They never block the player.");
+        if (remove_collider >= 0) {
+            tab->colliders.erase(tab->colliders.begin() + remove_collider);
+            if (open_collider == remove_collider) open_collider = -1;
+            else if (open_collider > remove_collider) open_collider--;
+            changed = true;
+        }
+
         if (remove_chain >= 0) {
             tab->chains.erase(tab->chains.begin() + remove_chain);
             changed = true;

@@ -158,4 +158,35 @@ bool Win32Dialogs::ask(const wchar_t* p_title, const wchar_t* p_heading, const w
     return MessageBoxW(config.hwndParent, p_body, p_title, MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND) == IDOK;
 }
 
+Win32Dialogs::SaveChoice Win32Dialogs::ask_save(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, const wchar_t* p_save)
+{
+    constexpr int SAVE = 100;
+    constexpr int DISCARD = 101;
+    const TASKDIALOG_BUTTON buttons[] = { { SAVE, p_save }, { DISCARD, L"Continue Without Saving" }, { IDCANCEL, L"Cancel" } };
+
+    TASKDIALOGCONFIG config{};
+    config.cbSize = sizeof(config);
+    config.hwndParent = GetActiveWindow();
+    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.pButtons = buttons;
+    config.cButtons = 3;
+    config.nDefaultButton = SAVE;
+    config.pszWindowTitle = p_title;
+    config.pszMainIcon = TD_WARNING_ICON;
+    config.pszMainInstruction = p_heading;
+    config.pszContent = p_body;
+
+    int button = IDCANCEL;
+    if (SUCCEEDED(TaskDialogIndirect(&config, &button, nullptr, nullptr))) {
+        if (button == SAVE) return SaveChoice::SAVE;
+        if (button == DISCARD) return SaveChoice::DISCARD;
+        return SaveChoice::CANCEL;
+    }
+    switch (MessageBoxW(config.hwndParent, p_body, p_title, MB_YESNOCANCEL | MB_ICONWARNING | MB_SETFOREGROUND)) {
+        case IDYES: return SaveChoice::SAVE;
+        case IDNO: return SaveChoice::DISCARD;
+        default: return SaveChoice::CANCEL;
+    }
+}
+
 }

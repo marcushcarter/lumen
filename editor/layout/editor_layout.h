@@ -18,7 +18,7 @@ DockZone dock_zone_from_string(std::string_view p_name, DockZone p_fallback);
 
 struct EditorLayout
 {
-    static constexpr float MIN_SIDE_PX = 72.0f;
+    static constexpr float MIN_SIDE_PX = 120.0f;
     static constexpr float MIN_CENTER_PX = 120.0f;
     static constexpr size_t ZONES = (size_t)DockZone::COUNT;
     static constexpr size_t MAX_PER_WELL = 16;

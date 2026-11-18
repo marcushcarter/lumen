@@ -213,7 +213,11 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
         ImGui::EndDragDropTarget();
     }
 
-    ImGui::SetNextWindowPos(ImVec2(field_min.x, field_max.y + ui_style().menu.popup_offset), ImGuiCond_Appearing);
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float popup_h = ui_style().asset_picker.max_height;
+    const bool above = field_max.y + popup_h > vp->WorkPos.y + vp->WorkSize.y && field_min.y - popup_h >= vp->WorkPos.y;
+    if (above) ImGui::SetNextWindowPos(ImVec2(field_min.x, field_min.y - ui_style().menu.popup_offset), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+    else ImGui::SetNextWindowPos(ImVec2(field_min.x, field_max.y + ui_style().menu.popup_offset), ImGuiCond_Always);
     if (asset_picker(ctx, "##asset_picker", r_guid, p_type)) changed = true;
     ImGui::PopID();
     return changed;

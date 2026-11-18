@@ -58,6 +58,7 @@ struct PhysicsWorld
     bool get_transform(PhysicsBodyId p_body, vec3& r_position, quat& r_rotation) const;
     bool body_bounds(PhysicsBodyId p_body, vec3& r_min, vec3& r_max) const;
     void move_kinematic(PhysicsBodyId p_body, const vec3& p_position, const quat& p_rotation, float p_dt);
+    void set_frozen(PhysicsBodyId p_body, bool p_frozen);
     void set_linear_velocity(PhysicsBodyId p_body, const vec3& p_velocity);
     vec3 get_linear_velocity(PhysicsBodyId p_body) const;
     float body_mass(PhysicsBodyId p_body) const;

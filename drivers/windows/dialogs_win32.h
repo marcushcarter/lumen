@@ -6,6 +6,8 @@ namespace lumen::drivers {
 
 struct Win32Dialogs
 {
+    enum class SaveChoice { SAVE, DISCARD, CANCEL };
+
     static std::wstring save_file(const wchar_t* p_filter, const wchar_t* p_default_ext);
     static std::wstring open_file(const wchar_t* p_filter);
     static std::vector<std::wstring> open_files(const wchar_t* p_filter);
@@ -15,6 +17,7 @@ struct Win32Dialogs
     static bool warning(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, bool p_dont_show_option);
     static bool confirm(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body);
     static bool ask(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, const wchar_t* p_accept, const wchar_t* p_decline);
+    static SaveChoice ask_save(const wchar_t* p_title, const wchar_t* p_heading, const wchar_t* p_body, const wchar_t* p_save);
 };
 
 }

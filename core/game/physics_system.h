@@ -5,6 +5,7 @@
 #include <core/physics/physics_world.h>
 #include <core/scene/components.h>
 #include <core/scene/scene.h>
+#include <core/scene/relevance.h>
 #include <unordered_map>
 #include <cfloat>
 
@@ -28,12 +29,29 @@ struct PhysicsSystem : GameSystem
         quat curr_rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
         bool seen = false;
         bool tagged_static = false;
+        bool frozen = false;
     };
 
     struct SyncItem {
         Entity entity;
         CollisionComponent collision;
     };
+
+    struct StaticItem {
+        Entity entity;
+        CollisionComponent collision;
+        mat4 matrix = mat4(1.0f);
+        uint64_t hash = 0;
+        vec3 center = vec3(0.0f);
+        float radius = 0.0f;
+        bool failed = false;
+    };
+
+    static constexpr float STREAM_LOAD = 150.0f;
+    static constexpr float STREAM_UNLOAD = 180.0f;
+    static constexpr float STREAM_STEP = 4.0f;
+    static constexpr uint32_t STREAM_BUDGET = 64;
+    static constexpr float STREAM_FALLBACK_RADIUS = 1.0f;
 
     const Renderer* renderer = nullptr;
     const Project* project = nullptr;
@@ -42,6 +60,11 @@ struct PhysicsSystem : GameSystem
     TerrainCollision terrain;
     std::vector<vec3> _anchors;
     std::vector<SyncItem> _items;
+    std::vector<StaticItem> _statics;
+    RelevanceView _view;
+    vec3 _stream_points[RelevanceView::MAX_POINTS] = {};
+    uint32_t _stream_count = 0;
+    bool _stream_pending = false;
     std::unordered_map<uint64_t, Body> bodies;
     bool optimize_pending = false;
     bool floor_dirty = true;
@@ -61,6 +84,9 @@ struct PhysicsSystem : GameSystem
     Guid _model_mesh(const Scene& p_world, Entity p_entity) const;
     bool _build(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, Body& r_body);
     void _sync(Scene& r_world, float p_dt);
+    bool _bounds(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, vec3& r_center, float& r_radius) const;
+    void _update_freeze(Body& r_body);
+    void _stream_statics(Scene& r_world, bool p_full);
     void _sync_terrain(GameSession& r_session);
     void _update_floor();
     bool has_floor() const { return world_floor < FLT_MAX; }

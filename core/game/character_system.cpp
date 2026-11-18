@@ -1,6 +1,7 @@
 #include <core/game/character_system.h>
 #include <core/animation/anim_library.h>
 #include <core/game/physics_system.h>
+#include <core/scene/relevance.h>
 #include <core/rendering/debug_draw.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -851,6 +852,8 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
     }
 
     const GameInput idle;
+    RelevanceView relevance = relevance_view(r_session.camera);
+    if (world.valid(player)) relevance.add(vec3(world.world_matrix(player)[3]));
     const vec3 view = r_session.camera.rotation * vec3(0.0f, 0.0f, -1.0f);
     const float view_yaw = character_yaw_of(view);
     const float view_pitch = glm::degrees(std::asin(std::clamp(view.y, -1.0f, 1.0f)));
@@ -867,6 +870,9 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
         if (!asset) continue;
 
         const bool is_player = e == player;
+        const float reach = relevance_distance(relevance, c.position, 0.0f);
+        c.frozen = !is_player && c.ragdoll.state == RagdollState::OFF && (c.frozen ? reach > PhysicsSystem::STREAM_LOAD : reach > PhysicsSystem::STREAM_UNLOAD);
+        if (c.frozen) continue;
         CharacterRagdoll& rag = c.ragdoll;
         rag.obstacle_memory = std::max(rag.obstacle_memory - p_dt, 0.0f);
         const bool toggle = is_player && r_session.input.ragdoll_toggle;

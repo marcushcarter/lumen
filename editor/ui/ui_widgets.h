@@ -54,7 +54,7 @@ void ui_tri_right(ImU32 p_color);
 ImU32 ui_category_color(const char* p_category, float p_alpha = 1.0f);
 ImU32 ui_percent_color(float p_percent);
 
-SplitterState ui_splitter(const char* p_id, SplitAxis p_axis, ImVec2 p_size, float p_grip_len = -1.0f);
+SplitterState ui_edge_splitter(const char* p_id, SplitAxis p_axis, ImVec2 p_min, ImVec2 p_max);
 
 bool ui_property_grid_begin(const char* p_id, int p_columns = 2);
 void ui_property(const char* p_label);
@@ -63,6 +63,11 @@ void ui_property_grid_end();
 bool ui_category(const char* p_label, bool* r_remove = nullptr, bool* r_revert = nullptr);
 void ui_category_flush();
 void ui_chevron(ImDrawList* p_dl, ImVec2 p_center, float p_size, ImGuiDir p_dir, ImU32 p_color, float p_thickness);
+void ui_tree_box(ImDrawList* p_dl, ImVec2 p_center, bool p_open, bool p_hovered);
+float ui_tree_box_half();
+void ui_tree_lines(ImDrawList* p_dl, float p_x0, float p_indent, float p_y0, float p_y1, int p_depth, uint64_t p_lines, bool p_last, float p_stub_x1);
+void ui_icon_folder(ImDrawList* p_dl, ImVec2 p_min, float p_size);
+void ui_icon_file(ImDrawList* p_dl, ImVec2 p_min, float p_size);
 
 bool ui_drag_axes(const char* p_label, ImGuiDataType p_type, void* p_data, int p_count, float p_speed, const void* p_min = nullptr, const void* p_max = nullptr, const char* p_format = nullptr, ImGuiSliderFlags p_flags = 0);
 bool ui_drag_float3_axes(const char* p_label, float* r_values, float p_speed = 1.0f, const char* p_format = "%.3f");

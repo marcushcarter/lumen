@@ -6,6 +6,12 @@
 
 namespace lumen {
 
+bool character_is_player(const Scene& p_world, Entity p_entity)
+{
+    const CharacterComponent* c = p_world.try_get<CharacterComponent>(p_entity);
+    return c && c->controller == CharacterController::PLAYER;
+}
+
 Error Scene::initialize()
 {
     using enum Error;
@@ -17,8 +23,7 @@ Error Scene::initialize()
     component_register_saved<ModelComponent>("Model", "model");
     component_register<PoseComponent>("Pose", false);
     component_register_saved<CollisionComponent>("Collision", "collision");
-    component_register_saved<LocomotionComponent>("Locomotion", "locomotion");
-    component_register_saved<PlayerTag>("Player", "player");
+    component_register_saved<CharacterComponent>("Character", "character");
     component_register_saved<OrbitCameraComponent>("Orbit Camera", "orbit_camera");
     component_register_saved<TerrainComponent>("Terrain", "terrain");
     component_register_saved<TemplateInstanceComponent>("Template", "template", false);

@@ -50,7 +50,7 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt, 
     _view = relevance_view(p_renderer.main_view.camera);
     _view.shadow = normalize(EnvironmentSettings::SUN_DIRECTION);
     r_world.view<TransformComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&) {
-        if (_view.count < RelevanceView::MAX_POINTS && r_world.has<PlayerTag>(p_entity)) _view.add(vec3(r_world.world_matrix(p_entity)[3]));
+        if (_view.count < RelevanceView::MAX_POINTS && character_is_player(r_world, p_entity)) _view.add(vec3(r_world.world_matrix(p_entity)[3]));
     });
     if (geometry_version != p_renderer.geometry.version || skeleton_version != p_renderer.skeletons.version) {
         bindings.clear();
@@ -132,7 +132,7 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt, 
             }
             anims.skeleton = nullptr;
             if (!posed) return;
-            if (ragdoll.state != RagdollState::GETTING_UP) character_foot_ik(*locomotion, r_state.character, skeleton->skeleton, _local.data(), _global);
+            character_foot_ik(*locomotion, r_state.character, skeleton->skeleton, _local.data(), _global);
             _global.resize(joints);
             skeleton->skeleton.globals(_local.data(), _global.data());
             ragdoll.record(_local.data(), _global, p_dt);
@@ -228,7 +228,7 @@ void PoseSystem::_build_world(Scene& r_world, const Renderer& p_renderer)
 
     r_world.view<CharacterStateComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const CharacterStateComponent&) {
         const mat4 model = r_world.world_matrix(p_entity);
-        const LocomotionComponent* body = r_world.try_get<LocomotionComponent>(p_entity);
+        const CharacterComponent* body = r_world.try_get<CharacterComponent>(p_entity);
         const float scale = _max_scale(model);
         const float radius = (body ? body->radius : DEFAULT_RADIUS) * scale;
         const float height = std::max((body ? body->height : DEFAULT_HEIGHT) * scale, 2.0f * radius);
@@ -350,7 +350,7 @@ void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_ske
 
 PoseSystem::Body PoseSystem::_body_of(const Scene& p_world, Entity p_entity)
 {
-    const LocomotionComponent* body = p_world.try_get<LocomotionComponent>(p_entity);
+    const CharacterComponent* body = p_world.try_get<CharacterComponent>(p_entity);
     if (!body) return {};
     return Body{ anims.locomotion(body->locomotion), body->locomotion, body->model_yaw };
 }

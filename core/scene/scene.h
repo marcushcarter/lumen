@@ -289,4 +289,6 @@ struct Scene
     void deferred_flush();
 };
 
+bool character_is_player(const Scene& p_world, Entity p_entity);
+
 }

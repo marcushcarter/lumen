@@ -146,8 +146,8 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
     std::vector<SyncItem>& items = _items;
     items.clear();
     const auto gather = [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) { items.push_back({ p_entity, p_collision }); };
-    if (full) r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag, LocomotionComponent>{}, gather);
-    else r_world.view<TransformComponent, CollisionComponent>(Exclude<StaticTag, DisabledTag, LocomotionComponent>{}, gather);
+    if (full) r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag, CharacterComponent>{}, gather);
+    else r_world.view<TransformComponent, CollisionComponent>(Exclude<StaticTag, DisabledTag, CharacterComponent>{}, gather);
 
     bool static_failed = false;
     if (full) _statics.clear();
@@ -329,7 +329,7 @@ void PhysicsSystem::_sync_terrain(GameSession& r_session)
     for (const TerrainInstance& t : _terrains) _terrain_paths.push_back(project ? project->content_path(t.guid) : std::filesystem::path());
     _anchors.clear();
     _anchors.push_back(r_session.camera.position);
-    world.view<TransformComponent, LocomotionComponent>([&](Entity p_entity, const TransformComponent&, const LocomotionComponent&) {
+    world.view<TransformComponent, CharacterComponent>([&](Entity p_entity, const TransformComponent&, const CharacterComponent&) {
         _anchors.push_back(vec3(world.world_matrix(p_entity)[3]));
     });
     terrain.update(physics, _terrains, _terrain_paths, _anchors);
@@ -343,7 +343,7 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
     if (physics.gravity() != gravity) physics.set_gravity(gravity);
     _view = relevance_view(r_session.camera);
     world.view<TransformComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&) {
-        if (_view.count < RelevanceView::MAX_POINTS && world.has<PlayerTag>(p_entity)) _view.add(vec3(world.world_matrix(p_entity)[3]));
+        if (_view.count < RelevanceView::MAX_POINTS && character_is_player(world, p_entity)) _view.add(vec3(world.world_matrix(p_entity)[3]));
     });
     _sync(world, p_dt);
     _sync_terrain(r_session);

@@ -28,44 +28,6 @@ static void _sorted_entities(const Scene& p_world, std::vector<Entity>& r_entiti
     std::sort(r_entities.begin(), r_entities.end(), [](Entity a, Entity b) { return a.index < b.index; });
 }
 
-struct LegacyFolder
-{
-    Guid guid;
-    int64_t parent = -1;
-    std::string name;
-};
-
-static std::unordered_map<int64_t, LegacyFolder> _legacy_folders(const toml::array* p_folders)
-{
-    std::unordered_map<int64_t, LegacyFolder> out;
-    if (!p_folders) return out;
-    for (const toml::node& n : *p_folders) {
-        const toml::table* t = n.as_table();
-        if (!t) continue;
-        LegacyFolder f;
-        const int64_t index = (*t)["index"].value_or<int64_t>(-1);
-        f.guid = Guid::from_string((*t)["guid"].value_or(std::string{}));
-        if (!f.guid.valid()) f.guid = Guid::generate();
-        f.parent = (*t)["parent"].value_or<int64_t>(-1);
-        f.name = (*t)["name"].value_or(std::string("Folder"));
-        if (index >= 0) out[index] = std::move(f);
-    }
-    return out;
-}
-
-static void _add_legacy_folders(Scene& r_world, const std::unordered_map<int64_t, LegacyFolder>& p_folders)
-{
-    for (const auto& [index, f] : p_folders) {
-        if (r_world.find(f.guid) != ENTITY_NULL) continue;
-        const Entity e = r_world.create_persistent(f.guid);
-        NameComponent name{};
-        std::snprintf(name.name, NameComponent::MAX_LENGTH, "%s", f.name.c_str());
-        r_world.add<NameComponent>(e, name);
-        auto parent = p_folders.find(f.parent);
-        if (parent != p_folders.end() && parent->first != index) r_world.add<ParentComponent>(e, { parent->second.guid });
-    }
-}
-
 static void _write_entity(Scene& r_world, Entity p_entity, toml::table& r_table)
 {
     r_table.insert_or_assign(SceneFile::KEY_GUID, r_world.try_get<EntityIdComponent>(p_entity)->guid.to_string());
@@ -240,24 +202,6 @@ Error SceneFile::read_text(std::string_view p_text, Scene& r_world, bool p_edito
         TomlReader reader(*physics);
         serialize(reader, r_world.physics);
     }
-    if (const toml::table* legacy_terrain = section->get_as<toml::table>(KEY_LEGACY_TERRAIN)) {
-        TerrainComponent terrain;
-        TomlReader reader(*legacy_terrain);
-        serialize(reader, terrain);
-        if (terrain.terrain.valid()) {
-            const Entity e = r_world.create_persistent(Guid::generate());
-            NameComponent name{};
-            std::snprintf(name.name, NameComponent::MAX_LENGTH, "Terrain");
-            r_world.add<NameComponent>(e, name);
-            r_world.add<TransformComponent>(e);
-            r_world.add<TerrainComponent>(e, terrain);
-            log_write("Scene File: moved the scene terrain onto a 'Terrain' entity.");
-        }
-    }
-
-    const std::unordered_map<int64_t, LegacyFolder> legacy = _legacy_folders(section->get_as<toml::array>(KEY_LEGACY_FOLDERS));
-    _add_legacy_folders(r_world, legacy);
-
     const toml::array* list = section->get_as<toml::array>(KEY_ENTITIES);
     if (!list) return OK;
     uint32_t renamed = 0;
@@ -273,16 +217,11 @@ Error SceneFile::read_text(std::string_view p_text, Scene& r_world, bool p_edito
         const Entity e = r_world.create_persistent(guid);
         _read_entity(r_world, e, *t, p_editor);
         if (r_world.has<TemplateInstanceComponent>(e)) instances.emplace_back(e, t);
-        if (const toml::table* old = t->get_as<toml::table>(KEY_LEGACY_FOLDER); old && !r_world.has<ParentComponent>(e)) {
-            auto folder = legacy.find((*old)["folder"].value_or<int64_t>(-1));
-            if (folder != legacy.end()) r_world.add<ParentComponent>(e, { folder->second.guid });
-        }
     }
     for (const auto& [e, t] : instances) {
         Template* tmpl = template_library().get(r_world.try_get<TemplateInstanceComponent>(e)->tmpl);
         if (tmpl) template_build(r_world, e, *tmpl, t, p_editor);
     }
-    if (!legacy.empty()) log_write("Scene File: converted %zu folders into folder entities.", legacy.size());
     if (renamed) log_write("Scene File: %u entities had a missing or duplicate guid and got a new one.", renamed);
     return OK;
 }

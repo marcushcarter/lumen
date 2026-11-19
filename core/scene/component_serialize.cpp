@@ -21,9 +21,12 @@ void serialize(Archive& a, ModelComponent& r_c)
     a.field("model", r_c.model);
 }
 
-void serialize(Archive& a, LocomotionComponent& r_c)
+void serialize(Archive& a, CharacterComponent& r_c)
 {
     a.field("locomotion", r_c.locomotion);
+    uint32_t controller = (uint32_t)r_c.controller;
+    a.field("controller", controller);
+    r_c.controller = controller <= (uint32_t)CharacterController::AI ? (CharacterController)controller : CharacterController::NONE;
     a.field("radius", r_c.radius);
     a.field("height", r_c.height);
     a.field("crouch_height", r_c.crouch_height);
@@ -47,9 +50,7 @@ void serialize(Archive& a, OrbitCameraComponent& r_c)
 
 void serialize(Archive& a, CollisionComponent& r_c)
 {
-    static constexpr uint32_t LEGACY_MODEL_SHAPE = 3;
-    static constexpr uint32_t SOURCE_UNSET = UINT32_MAX;
-    uint32_t source = a.loading ? SOURCE_UNSET : (uint32_t)r_c.source;
+    uint32_t source = (uint32_t)r_c.source;
     a.field("source", source);
     uint32_t motion = (uint32_t)r_c.motion;
     a.field("motion", motion);
@@ -61,7 +62,6 @@ void serialize(Archive& a, CollisionComponent& r_c)
     uint32_t count = r_c.shape_count;
     a.field("shape_count", count);
     count = std::min(count, COLLISION_MAX_SHAPES);
-    bool legacy_model = false;
     uint32_t kept = 0;
     for (uint32_t i = 0; i < count; i++) {
         const std::string p = "shape" + std::to_string(i) + "_";
@@ -75,16 +75,11 @@ void serialize(Archive& a, CollisionComponent& r_c)
         a.field((p + "half_height").c_str(), s.half_height);
         a.field((p + "top_radius").c_str(), s.top_radius);
         if (!a.loading) continue;
-        if (source == SOURCE_UNSET && type == LEGACY_MODEL_SHAPE) {
-            legacy_model = true;
-            continue;
-        }
         s.type = type < (uint32_t)CollisionShapeType::COUNT ? (CollisionShapeType)type : CollisionShapeType::BOX;
         r_c.shapes[kept++] = s;
     }
     if (!a.loading) return;
     r_c.shape_count = kept;
-    if (source == SOURCE_UNSET) source = legacy_model || kept == 0 ? (uint32_t)CollisionSource::MESH : (uint32_t)CollisionSource::SHAPES;
     r_c.source = source < (uint32_t)CollisionSource::COUNT ? (CollisionSource)source : CollisionSource::MESH;
 }
 

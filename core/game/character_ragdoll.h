@@ -18,7 +18,7 @@ inline constexpr uint32_t RAGDOLL_JOINT_COUNT = (uint32_t)RagdollJoint::COUNT;
 inline constexpr uint32_t RAGDOLL_PART_COUNT = 16;
 
 enum class RagdollState : uint8_t { OFF, ACTIVE, GETTING_UP };
-enum class RagdollPose : uint8_t { HIT, BRACE, BRACE_BACK, PROTECT, RELAX, COUNT };
+enum class RagdollPose : uint8_t { HIT, BRACE, BRACE_BACK, PROTECT, RELAX, FALL, COUNT };
 
 inline constexpr uint32_t RAGDOLL_POSE_COUNT = (uint32_t)RagdollPose::COUNT;
 
@@ -46,7 +46,7 @@ struct CharacterRagdoll
     static constexpr float STRENGTH_INTERP = 6.0f;
     static constexpr float MAX_TIME = 8.0f;
     static constexpr float TOGGLE_MIN_TIME = 0.2f;
-    static constexpr float GET_UP_BLEND = 0.25f;
+    static constexpr float GET_UP_BLEND = 0.4f;
     static constexpr float GET_UP_BLEND_OUT = 0.3f;
     static constexpr float SNAP_BLEND = 0.4f;
     static constexpr float MAX_START_SPEED = 25.0f;
@@ -87,6 +87,16 @@ struct CharacterRagdoll
     static constexpr float AIR_CATCH_CEILING = 0.5f;
     static constexpr float STAGGER_RELEASE_DOT = 0.3f;
     static constexpr float MIN_FLINCH_SCALE = 0.05f;
+    static constexpr float FALL_BLEND = 0.5f;
+    static constexpr float START_BLEND = 0.45f;
+    static constexpr float FLINCH_GAIN = 1.4f;
+    static constexpr float FLINCH_MAX_SPIN = 7.0f;
+    static constexpr float FLINCH_FREQUENCY = 2.2f;
+    static constexpr float FLINCH_DAMPING = 0.45f;
+    static constexpr float VISUAL_BLEND = 0.25f;
+    static constexpr float GET_UP_MOVE = 0.6f;
+    static constexpr float GET_UP_IK_START = 0.4f;
+    static constexpr float GET_UP_IK_SPAN = 0.4f;
 
     Guid skeleton;
     bool valid = false;
@@ -120,6 +130,7 @@ struct CharacterRagdoll
     float shape_radius[RAGDOLL_PART_COUNT] = {};
     mat4 driven[RAGDOLL_PART_COUNT] = {};
     quat muscle_target[RAGDOLL_PART_COUNT] = {};
+    quat start_rotation[RAGDOLL_PART_COUNT] = {};
     quat poses[RAGDOLL_POSE_COUNT][RAGDOLL_PART_COUNT] = {};
     RagdollPose muscle_pose = RagdollPose::HIT;
     float strength = 0.0f;
@@ -133,6 +144,7 @@ struct CharacterRagdoll
     bool hit_pending = false;
     bool hit_soft = false;
     bool land_stumble = false;
+    bool falling = false;
     float hit_scale = 1.0f;
     vec3 last_obstacle = vec3(0.0f);
     float obstacle_memory = 0.0f;
@@ -141,6 +153,10 @@ struct CharacterRagdoll
 
     Guid get_up_clip;
     float get_up_time = 0.0f;
+    float get_up_duration = 0.0f;
+    vec3 get_up_from = vec3(0.0f);
+    vec3 get_up_to = vec3(0.0f);
+    bool get_up_moves = false;
     std::vector<JointTransform> _clip_pose;
     std::vector<JointTransform> _blend_pose;
 
@@ -150,6 +166,7 @@ struct CharacterRagdoll
     void hit(const vec3& p_point, const vec3& p_push, float p_speed);
     void update_driven(float p_alpha);
     void update_muscles(const LLocomotion& p_asset, RagdollPose p_pose, float p_dt);
+    void update_fall(const LLocomotion& p_asset, float p_dt);
     void update_facing(float p_model_yaw, vec3& r_head);
     void apply_pose(const LSkeleton& p_skeleton, JointTransform* r_local, std::vector<mat4>& r_global);
     void apply_get_up(ClipProvider& r_assets, uint32_t p_joints, float p_dt, JointTransform* r_pose);

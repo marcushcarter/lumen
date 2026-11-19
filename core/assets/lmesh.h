@@ -21,13 +21,7 @@ enum class MeshFlags : uint32_t { NONE = 0, SKINNED = 1u << 0, WIDE_SLOTS = 1u <
 LUMEN_ENUM_FLAGS(MeshFlags)
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
-static constexpr uint32_t LMESH_VERSION_INTERLEAVED = 1;
-static constexpr uint32_t LMESH_VERSION_SLOT_TABLE = 2;
-static constexpr uint32_t LMESH_VERSION_NO_RIG = 3;
-static constexpr uint32_t LMESH_VERSION_RIG = 4;
-static constexpr uint32_t LMESH_VERSION_PAGED = 5;
-static constexpr uint32_t LMESH_VERSION_STREAMED = 6;
-static constexpr uint32_t LMESH_VERSION = LMESH_VERSION_STREAMED;
+static constexpr uint32_t LMESH_VERSION = 6;
 
 static constexpr uint32_t LMESH_CLUSTER_MAX_TRIS = 256;
 static constexpr uint32_t LMESH_CLUSTER_MAX_VERTS = 256;

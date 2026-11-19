@@ -43,8 +43,7 @@ Error LModel::load(const std::filesystem::path& p_path)
     import = ImportRecord{};
     if (const toml::table* rec = tbl["import"].as_table()) {
         import.source = (*rec)["source"].value_or(std::string{});
-        const ModelImportMode legacy = (*rec)["textures"].value_or(true) ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
-        import.mode = model_import_mode_from_name((*rec)["mode"].value_or(std::string{}), legacy);
+        import.mode = model_import_mode_from_name((*rec)["mode"].value_or(std::string{}), ModelImportMode::FULL);
     }
     return OK;
 }

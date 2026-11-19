@@ -589,7 +589,7 @@ uint32_t GeometryPool::load(Guid p_guid, const std::filesystem::path& p_path)
         return INVALID_MESH;
     }
 
-    const bool streamed = file_version >= LMESH_VERSION_STREAMED && (!data.skinned() || !data.joint_boxes.empty());
+    const bool streamed = file_version == LMESH_VERSION && (!data.skinned() || !data.joint_boxes.empty());
     if (streamed) return _load_streamed(p_guid, p_path, data, id);
     if (!data.has_page_data() && !lmesh_load(p_path, data, error)) {
         log_write("GeometryPool: %s: %s", name.c_str(), error.c_str());

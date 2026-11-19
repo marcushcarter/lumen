@@ -62,9 +62,12 @@ struct CollisionComponent
     CollisionShapeEntry shapes[COLLISION_MAX_SHAPES];
 };
 
-struct LocomotionComponent
+enum class CharacterController : uint8_t { NONE, PLAYER, AI };
+
+struct CharacterComponent
 {
     Guid locomotion;
+    CharacterController controller = CharacterController::NONE;
     float radius = 0.3f;
     float height = 1.8f;
     float crouch_height = 1.2f;
@@ -72,8 +75,6 @@ struct LocomotionComponent
     float max_step_height = 0.45f;
     float max_slope = 45.0f;
 };
-
-struct PlayerTag {};
 
 struct OrbitCameraComponent
 {

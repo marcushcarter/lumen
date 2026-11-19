@@ -223,16 +223,14 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const uint32_t transform_index = component("transform");
     const uint32_t model_index = component("model");
     const uint32_t collision_index = component("collision");
-    const uint32_t locomotion_index = component("locomotion");
-    const uint32_t player_index = component("player");
+    const uint32_t character_index = component("character");
     const uint32_t static_index = component("static");
 
     bool revert_transform = false;
     bool revert_model = false;
     bool revert_static = false;
     bool revert_entity = false;
-    bool revert_locomotion = false;
-    bool revert_player = false;
+    bool revert_character = false;
     bool revert_collision = false;
     bool unpack = false;
 
@@ -380,11 +378,21 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<TerrainComponent>(e);
     }
 
-    if (LocomotionComponent* loco = world.try_get<LocomotionComponent>(e)) {
+    if (CharacterComponent* loco = world.try_get<CharacterComponent>(e)) {
         bool remove = false;
-        const LocomotionComponent* ll = has_live ? live->try_get<LocomotionComponent>(le) : nullptr;
-        if (_section("Locomotion", &remove, overridden(locomotion_index) ? &revert_locomotion : nullptr)) {
+        const CharacterComponent* ll = has_live ? live->try_get<CharacterComponent>(le) : nullptr;
+        if (_section("Character", &remove, overridden(character_index) ? &revert_character : nullptr)) {
             bool changed = false;
+            _name("Controller");
+            static constexpr const char* CONTROLLERS[] = { "None", "Player", "AI" };
+            int controller = (int)loco->controller;
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("##controller", &controller, CONTROLLERS, IM_ARRAYSIZE(CONTROLLERS))) {
+                loco->controller = (CharacterController)controller;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Player gets the input and the camera in play. AI stands still until NPC behaviour exists.");
+            _live("%s", ll ? CONTROLLERS[(int)ll->controller] : "-");
             _name("Locomotion");
             changed |= asset_field(ctx, "", "###locomotion_asset", loco->locomotion, AssetType::LOCOMOTION);
             _live("-");
@@ -411,17 +419,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _live_float(ll != nullptr, ll ? ll->model_yaw : 0.0f, " deg");
             if (changed) world.touch(e);
         }
-        if (remove) world.deferred_remove<LocomotionComponent>(e);
-    }
-
-    if (world.has<PlayerTag>(e)) {
-        bool remove = false;
-        if (_section("Player", &remove, overridden(player_index) ? &revert_player : nullptr)) {
-            _name("Input");
-            ImGui::TextDisabled(world.has<LocomotionComponent>(e) ? "Gets the input and the camera in play" : "Needs a Locomotion component to move");
-            _live(has_live ? "Active" : "-");
-        }
-        if (remove) world.deferred_remove<PlayerTag>(e);
+        if (remove) world.deferred_remove<CharacterComponent>(e);
     }
 
     const uint32_t orbit_index = component("orbit_camera");
@@ -628,8 +626,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_static) template_revert_component(world, e, *tmpl, static_index);
     if (tmpl && revert_model) template_revert_component(world, e, *tmpl, model_index);
     if (tmpl && revert_collision) template_revert_component(world, e, *tmpl, collision_index);
-    if (tmpl && revert_locomotion) template_revert_component(world, e, *tmpl, locomotion_index);
-    if (tmpl && revert_player) template_revert_component(world, e, *tmpl, player_index);
+    if (tmpl && revert_character) template_revert_component(world, e, *tmpl, character_index);
     if (tmpl && revert_orbit) template_revert_component(world, e, *tmpl, orbit_index);
     if (revert_entity) editor_revert_template(ctx, e);
     if (unpack) editor_unpack_template(ctx, e);

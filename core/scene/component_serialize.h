@@ -9,7 +9,7 @@ void serialize(Archive& a, NameComponent& r_c);
 void serialize(Archive& a, TransformComponent& r_c);
 void serialize(Archive& a, ModelComponent& r_c);
 void serialize(Archive& a, CollisionComponent& r_c);
-void serialize(Archive& a, LocomotionComponent& r_c);
+void serialize(Archive& a, CharacterComponent& r_c);
 void serialize(Archive& a, OrbitCameraComponent& r_c);
 void serialize(Archive& a, TerrainComponent& r_c);
 void serialize(Archive& a, ParentComponent& r_c);

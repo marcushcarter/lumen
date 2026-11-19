@@ -38,10 +38,10 @@ static const RagdollPartDef PARTS[RAGDOLL_PART_COUNT] = {
     { UPPERARM_R, 2, 0.03f, 0.055f, PhysicsJoint::SWING_TWIST, 70.0f, 110.0f, 60.0f, 0.0f, 0.0f },
     { LOWERARM_R, 7, 0.02f, 0.045f, PhysicsJoint::HINGE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
     { HAND_R, 8, 0.006f, 0.04f, PhysicsJoint::SWING_TWIST, 40.0f, 50.0f, 15.0f, 0.0f, 0.0f },
-    { THIGH_L, 0, 0.1f, 0.075f, PhysicsJoint::SWING_TWIST, 30.0f, 70.0f, 20.0f, 25.0f, 0.0f },
+    { THIGH_L, 0, 0.1f, 0.075f, PhysicsJoint::SWING_TWIST, 30.0f, 85.0f, 20.0f, 30.0f, 0.0f },
     { CALF_L, 10, 0.045f, 0.055f, PhysicsJoint::HINGE, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f },
     { FOOT_L, 11, 0.015f, 0.045f, PhysicsJoint::SWING_TWIST, 15.0f, 35.0f, 10.0f, 0.0f, 0.0f },
-    { THIGH_R, 0, 0.1f, 0.075f, PhysicsJoint::SWING_TWIST, 30.0f, 70.0f, 20.0f, 25.0f, 0.0f },
+    { THIGH_R, 0, 0.1f, 0.075f, PhysicsJoint::SWING_TWIST, 30.0f, 85.0f, 20.0f, 30.0f, 0.0f },
     { CALF_R, 13, 0.045f, 0.055f, PhysicsJoint::HINGE, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f },
     { FOOT_R, 14, 0.015f, 0.045f, PhysicsJoint::SWING_TWIST, 15.0f, 35.0f, 10.0f, 0.0f, 0.0f },
 };
@@ -52,9 +52,12 @@ static const float POSE_FLEX[RAGDOLL_POSE_COUNT][RAGDOLL_PART_COUNT] = {
     { 0, 5, 5, 25, -45, 20, 0, -45, 20, 0, 20, -25, 0, 20, -25, 0 },
     { 0, 25, 25, 35, 100, 110, 20, 100, 110, 20, 80, -100, 10, 80, -100, 10 },
     { 0, 10, 10, 15, 40, 50, 10, 40, 50, 10, 35, -45, 5, 35, -45, 5 },
+    { 0, -5, -5, -8, 70, 45, 10, 70, 45, 10, 30, -45, 5, 30, -45, 5 },
 };
 
-static const float POSE_STRENGTH[RAGDOLL_POSE_COUNT] = { 1.0f, 0.8f, 0.8f, 0.5f, 0.2f };
+static const float FALL_NOISE[RAGDOLL_PART_COUNT] = { 0, 4, 4, 6, 22, 18, 10, 22, 18, 10, 12, 10, 6, 12, 10, 6 };
+
+static const float POSE_STRENGTH[RAGDOLL_POSE_COUNT] = { 1.0f, 0.8f, 0.8f, 0.5f, 0.2f, 0.55f };
 
 static constexpr float HEAD_LENGTH = 0.16f;
 static constexpr float HAND_LENGTH = 0.1f;
@@ -291,6 +294,7 @@ bool CharacterRagdoll::build(const LLocomotion& p_asset, float p_model_yaw, cons
         part.parent = def.parent;
         part.position = world_frame.position[j];
         part.rotation = world_frame.rotation[j];
+        start_rotation[i] = part.rotation;
         part.mass = p_asset.ragdoll_mass * def.mass / total;
         mass[i] = part.mass;
         muscle_target[i] = def.parent >= 0 ? normalize(inverse(world_frame.rotation[(uint32_t)PARTS[def.parent].joint]) * world_frame.rotation[j]) : quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -393,9 +397,12 @@ void CharacterRagdoll::update_driven(float p_alpha)
     const bool blend = previous_positions.size() == count;
     const float alpha = std::clamp(p_alpha, 0.0f, 1.0f);
     const mat4 inv = inverse(matrix);
+    const float k = std::clamp(time / VISUAL_BLEND, 0.0f, 1.0f);
+    const float settle = k * k * (3.0f - 2.0f * k);
     for (uint32_t i = 0; i < count; i++) {
         const vec3 position = blend ? mix(previous_positions[i], positions[i], alpha) : positions[i];
-        const quat rotation = blend ? slerp(previous_rotations[i], rotations[i], alpha) : rotations[i];
+        quat rotation = blend ? slerp(previous_rotations[i], rotations[i], alpha) : rotations[i];
+        if (settle < 1.0f) rotation = normalize(slerp(start_rotation[i], rotation, settle));
         if (i == 0) pelvis = position;
         driven[i] = inv * (translate(mat4(1.0f), position) * mat4_cast(rotation) * scale(mat4(1.0f), world_scale[i]));
     }
@@ -409,10 +416,34 @@ void CharacterRagdoll::update_muscles(const LLocomotion& p_asset, RagdollPose p_
     const float pose_mix = p_dt > 0.0f ? 1.0f - std::exp(-POSE_INTERP * p_dt) : 1.0f;
     const float strength_blend = p_dt > 0.0f ? 1.0f - std::exp(-STRENGTH_INTERP * p_dt) : 1.0f;
     strength += (target - strength) * strength_blend;
+    const float k = std::clamp(time / START_BLEND, 0.0f, 1.0f);
+    const float hold = 1.0f - k * k * (3.0f - 2.0f * k);
+    const float effective = strength + (p_asset.muscle_strength - strength) * hold;
+    const uint32_t start = (uint32_t)RagdollPose::HIT;
     for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) {
         muscle_target[i] = normalize(slerp(muscle_target[i], poses[index][i], pose_mix));
-        muscle[i] = strength * MUSCLE_TORQUE * mass[i];
+        if (hold > 0.0f) muscle_target[i] = normalize(slerp(muscle_target[i], poses[start][i], hold));
+        muscle[i] = effective * MUSCLE_TORQUE * mass[i];
     }
+}
+
+static quat _limb_noise(uint32_t p_part, float p_time, float p_degrees)
+{
+    const float p = (float)p_part * 1.7f;
+    const vec3 n(std::sin(1.3f * p_time + p) * 0.6f + std::sin(2.9f * p_time + 2.1f * p) * 0.4f,
+                 std::sin(1.1f * p_time + 0.7f * p) * 0.6f + std::sin(2.3f * p_time + 1.3f * p) * 0.4f,
+                 std::sin(0.9f * p_time + 1.9f * p) * 0.6f + std::sin(2.7f * p_time + 0.4f * p) * 0.4f);
+    return quat(n * glm::radians(p_degrees));
+}
+
+void CharacterRagdoll::update_fall(const LLocomotion& p_asset, float p_dt)
+{
+    update_muscles(p_asset, RagdollPose::FALL, p_dt);
+    const float k = std::clamp(time / FALL_BLEND, 0.0f, 1.0f);
+    const float w = k * k * (3.0f - 2.0f * k);
+    const uint32_t hit = (uint32_t)RagdollPose::HIT;
+    const uint32_t fall = (uint32_t)RagdollPose::FALL;
+    for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) muscle_target[i] = normalize(slerp(poses[hit][i], poses[fall][i], w) * _limb_noise(i, time, FALL_NOISE[i] * w));
 }
 
 void CharacterRagdoll::update_facing(float p_model_yaw, vec3& r_head)
@@ -453,6 +484,7 @@ void CharacterRagdoll::apply_get_up(ClipProvider& r_assets, uint32_t p_joints, f
     const BoundClip clip = r_assets.clip(get_up_clip);
     const bool has_clip = clip.valid() && clip.clip->duration > 0.0f;
     const float duration = has_clip ? clip.clip->duration : SNAP_BLEND;
+    get_up_duration = duration;
     const float t = get_up_time;
     if (has_clip) {
         _clip_pose.assign(r_pose, r_pose + p_joints);

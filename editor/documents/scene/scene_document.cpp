@@ -115,8 +115,8 @@ void SceneDocument::_place_camera(EditorContext& ctx)
     if (!cam) return;
     Scene& world = *ctx.main_scene;
     Entity player = ENTITY_NULL;
-    world.view<PlayerTag, TransformComponent>([&](Entity p_entity, const PlayerTag&, const TransformComponent&) {
-        if (player == ENTITY_NULL) player = p_entity;
+    world.view<CharacterComponent, TransformComponent>([&](Entity p_entity, const CharacterComponent& p_character, const TransformComponent&) {
+        if (player == ENTITY_NULL && p_character.controller == CharacterController::PLAYER) player = p_entity;
     });
 
     vec3 target(0.0f);

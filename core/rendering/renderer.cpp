@@ -709,7 +709,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         Instance instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base };
         const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
         if (pose && geometry.joint_boxes(cache.mesh_index)) instance.skin_id = _skin_add(frame, cache, continuous, *pose, geometry, cache.mesh_index);
-        if (p_world.has<PlayerTag>(p_entity)) {
+        if (character_is_player(p_world, p_entity)) {
             instance.flags |= INSTANCE_FLAG_PLAYER;
             if (frame.player_instance == UINT32_MAX) {
                 frame.player_instance = base + (uint32_t)frame.instances_scratch.size();

@@ -165,9 +165,9 @@ void MeshDocument::_refresh_collision(EditorContext& ctx)
         }
     }
 
-    CollisionSettings legacy = saved.collision;
-    if (!collision.has && legacy.type != CollisionType::SHAPES) legacy.type = CollisionType::NONE;
-    CollisionSettings current = collision_settings_upgrade(legacy);
+    CollisionSettings current = saved.collision;
+    if (!collision.has && current.type != CollisionType::SHAPES) current.type = CollisionType::NONE;
+    if (current.type == CollisionType::NONE) current.shapes.clear();
     if (collision.loaded && collision.data.primitive() && current.type == collision.data.type) {
         current.type = CollisionType::SHAPES;
         current.shapes = { collision_shape_from(collision.data) };

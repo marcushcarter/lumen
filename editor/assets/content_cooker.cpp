@@ -87,7 +87,7 @@ ContentCooker::Result ContentCooker::cook(const Project& p_project)
         if (ext == ".lmodel") _cook_file(p_project, it->path(), AssetType::MODEL, result);
         else if (ext == ".lmaterial") _cook_file(p_project, it->path(), AssetType::MATERIAL, result);
         else if (ext == AnimLibrary::SPACE_EXTENSION) _cook_copy(p_project, it->path(), AnimLibrary::SPACE_EXTENSION, result);
-        else if (ext == LLocomotion::EXTENSION || ext == LLocomotion::LEGACY_EXTENSION) _cook_copy(p_project, it->path(), LLocomotion::EXTENSION, result);
+        else if (ext == LLocomotion::EXTENSION) _cook_copy(p_project, it->path(), LLocomotion::EXTENSION, result);
         else if (ext == SceneFile::EXTENSION) _cook_copy(p_project, it->path(), SceneFile::EXTENSION, result);
         else if (ext == TemplateLibrary::EXTENSION) _cook_copy(p_project, it->path(), TemplateLibrary::EXTENSION, result);
     }

@@ -55,7 +55,6 @@ struct CharacterStance
 struct LLocomotion
 {
     static constexpr const char* EXTENSION = ".llocomotion";
-    static constexpr const char* LEGACY_EXTENSION = ".lcharacter";
 
     Guid guid;
     CharacterStance standing;
@@ -67,13 +66,7 @@ struct LLocomotion
     Guid jump_walk_right;
     Guid jump_left;
     Guid jump_right;
-    Guid jump_loop;
-    Guid fall_fast;
-    float fast_fall_speed = 10.0f;
-    Guid fall;
-    Guid land_light;
     Guid land_heavy;
-    bool flip_feet = false;
     float heavy_land_speed = 7.0f;
     float lean_angle = 8.0f;
     float air_lean_angle = 10.0f;

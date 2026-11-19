@@ -356,7 +356,6 @@ static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScen
     } else if (skinned && plan.settings.type != CollisionType::SHAPES && !CollisionCooker::has_collision(p_job.dst_lmesh)) {
         plan.settings.type = CollisionType::NONE;
     }
-    plan.settings = collision_settings_upgrade(plan.settings);
     if (collision_settings_empty(plan.settings)) return plan;
     plan.cook = CollisionCooker::build(p_scene, plan.settings, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data, CollisionCooker::cloth_slots(p_job.dst_lmesh));
     return plan;

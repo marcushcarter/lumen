@@ -217,7 +217,7 @@ ProjectManager::ContentStats ProjectManager::_scan_content(const std::filesystem
         const std::filesystem::path ext = it->path().extension();
         for (uint32_t k = 0; k < CONTENT_KIND_COUNT; k++) {
             const ContentKind& kind = CONTENT_KINDS[k];
-            if (ext != kind.extension && (!kind.legacy_extension || ext != kind.legacy_extension)) continue;
+            if (ext != kind.extension) continue;
             s.counts[k]++;
             break;
         }

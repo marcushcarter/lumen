@@ -402,9 +402,6 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
     _documents_signature = _documents_hash();
     git.initialize(project.root);
 
-    std::error_code legacy_ec;
-    std::filesystem::remove(project.root / "Data/Content/window_icon.ico", legacy_ec);
-    std::filesystem::remove(project.root / "Data/Content/splash.bin", legacy_ec);
 
     if (project.settings.window_icon.valid() && IconCooker::stale(project.content_path(project.settings.window_icon), project.icon_path())) {
         IconCooker::cook_icon(project);

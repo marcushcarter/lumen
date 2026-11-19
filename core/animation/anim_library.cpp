@@ -43,7 +43,7 @@ void AnimLibrary::_scan()
     for (auto it = std::filesystem::recursive_directory_iterator(assets_dir, std::filesystem::directory_options::skip_permission_denied, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext != SPACE_EXTENSION && ext != LLocomotion::EXTENSION && ext != LLocomotion::LEGACY_EXTENSION) continue;
+        if (ext != SPACE_EXTENSION && ext != LLocomotion::EXTENSION) continue;
         const AssetInfo info = read_asset_info(it->path());
         if (info.valid() && info.guid.valid()) asset_paths[info.guid] = it->path();
     }

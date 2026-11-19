@@ -17,21 +17,20 @@ struct ProjectManager
     struct ContentKind {
         const char* label;
         const char* extension;
-        const char* legacy_extension;
     };
 
     static constexpr ContentKind CONTENT_KINDS[] = {
-        { "Scenes", ".lscene", nullptr },
-        { "Templates", ".ltemplate", nullptr },
-        { "Terrains", ".lterrain", nullptr },
-        { "Models", ".lmodel", nullptr },
-        { "Meshes", ".lmesh", nullptr },
-        { "Materials", ".lmaterial", nullptr },
-        { "Textures", ".ltexture", nullptr },
-        { "Animations", ".lanim", nullptr },
-        { "Blend Spaces", ".lblendspace", nullptr },
-        { "Locomotion", ".llocomotion", ".lcharacter" },
-        { "Overlays", ".loverlay", nullptr },
+        { "Scenes", ".lscene" },
+        { "Templates", ".ltemplate" },
+        { "Terrains", ".lterrain" },
+        { "Models", ".lmodel" },
+        { "Meshes", ".lmesh" },
+        { "Materials", ".lmaterial" },
+        { "Textures", ".ltexture" },
+        { "Animations", ".lanim" },
+        { "Blend Spaces", ".lblendspace" },
+        { "Locomotion", ".llocomotion" },
+        { "Overlays", ".loverlay" },
     };
     static constexpr uint32_t CONTENT_KIND_COUNT = (uint32_t)(sizeof(CONTENT_KINDS) / sizeof(CONTENT_KINDS[0]));
 

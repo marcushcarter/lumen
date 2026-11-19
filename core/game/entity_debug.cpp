@@ -40,7 +40,7 @@ static void _draw_collision(DebugDraw& r_draw, const Scene& p_scene, Entity p_en
         }
     }
 
-    if (const LocomotionComponent* body = p_scene.try_get<LocomotionComponent>(p_entity)) {
+    if (const CharacterComponent* body = p_scene.try_get<CharacterComponent>(p_entity)) {
         const CharacterStateComponent* state = p_scene.try_get<CharacterStateComponent>(p_entity);
         const vec3 base = state ? state->character.position : vec3(p_scene.world_matrix(p_entity)[3]);
         const float height = state && state->character.stance == Stance::CROUCHING ? body->crouch_height : body->height;

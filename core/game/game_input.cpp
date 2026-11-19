@@ -26,8 +26,14 @@ void GameInput::clear()
 
 void GameInput::read(bool p_captured, vec2 p_mouse_delta, float p_dt)
 {
+    const bool kept_run = run_toggle;
+    const float kept_shift = shift_time;
+    const float kept_still = still_time;
     clear();
     if (!p_captured) return;
+    run_toggle = kept_run;
+    shift_time = kept_shift;
+    still_time = kept_still;
 
     vec2 keys(0.0f);
     if (ImGui::IsKeyDown(ImGuiKey_W)) keys.y += 1.0f;
@@ -41,7 +47,18 @@ void GameInput::read(bool p_captured, vec2 p_mouse_delta, float p_dt)
     look = p_mouse_delta * MOUSE_SENSITIVITY;
     look += _stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, ImGuiKey_GamepadRStickDown, ImGuiKey_GamepadRStickUp) * vec2(1.0f, -1.0f) * STICK_LOOK_RATE * p_dt;
 
-    sprint = ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_GamepadL3);
+    if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) {
+        shift_time += p_dt;
+    } else {
+        if (shift_time > 0.0f) run_toggle = shift_time < SHIFT_HOLD ? !run_toggle : true;
+        shift_time = 0.0f;
+    }
+    still_time = length(move) > 0.0f ? 0.0f : still_time + p_dt;
+    if (still_time > RUN_RESET) run_toggle = false;
+    const bool held = shift_time >= SHIFT_HOLD;
+    const bool keyboard = length(keys) > 0.0f && length(keys) >= length(stick);
+    sprint = held || ImGui::IsKeyDown(ImGuiKey_GamepadL3);
+    walk = keyboard && !run_toggle && !held;
     aim = ImGui::IsMouseDown(ImGuiMouseButton_Right) || _analog(ImGuiKey_GamepadL2) > 0.5f;
     jump = ImGui::IsKeyPressed(ImGuiKey_Space, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false);
     crouch_toggle = ImGui::IsKeyPressed(ImGuiKey_LeftCtrl, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadR3, false);

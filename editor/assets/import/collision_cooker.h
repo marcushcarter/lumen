@@ -50,7 +50,6 @@ struct CollisionSettings
     bool operator==(const CollisionSettings&) const = default;
 };
 
-CollisionSettings collision_settings_upgrade(const CollisionSettings& p_settings);
 bool collision_settings_empty(const CollisionSettings& p_settings);
 bool collision_settings_generated(const CollisionSettings& p_settings);
 CollisionShapeSettings collision_generated_shape(CollisionType p_type, int32_t p_slot);

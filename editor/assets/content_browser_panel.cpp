@@ -76,7 +76,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".llocomotion" || ext == ".lcharacter" || ext == ".loverlay" || ext == ".lscene" || ext == ".ltemplate";
+    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".llocomotion" || ext == ".loverlay" || ext == ".lscene" || ext == ".ltemplate";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -106,7 +106,7 @@ const char* ContentBrowserPanel::icon_for(const std::filesystem::path& p_path, b
     if (ext == ".lmaterial") return MaterialDocument::ICON;
     if (ext == ".lanim") return AnimationDocument::ICON;
     if (ext == ".lblendspace") return BlendSpaceDocument::ICON;
-    if (ext == ".llocomotion" || ext == ".lcharacter") return LocomotionDocument::ICON;
+    if (ext == ".llocomotion") return LocomotionDocument::ICON;
     if (ext == ".loverlay") return OverlayDocument::ICON;
     if (ext == ".lscene") return ICON_FA_EARTH_AMERICAS;
     if (ext == ".lterrain") return TerrainDocument::ICON;
@@ -123,7 +123,7 @@ std::string ContentBrowserPanel::type_name(std::string p_ext)
     if (p_ext == ".lmaterial") return "Material";
     if (p_ext == ".lanim") return "Animation";
     if (p_ext == ".lblendspace") return "Blend Space";
-    if (p_ext == ".llocomotion" || p_ext == ".lcharacter") return "Locomotion";
+    if (p_ext == ".llocomotion") return "Locomotion";
     if (p_ext == ".loverlay") return "Overlay";
     if (p_ext == ".lscene") return "Scene";
     if (p_ext == ".lterrain") return "Terrain";

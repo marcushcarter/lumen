@@ -46,7 +46,7 @@ vec3 OrbitCameraSystem::_pivot_target(Scene& p_world) const
 {
     const OrbitCameraComponent& cam = *p_world.try_get<OrbitCameraComponent>(target);
     const CharacterStateComponent* state = p_world.try_get<CharacterStateComponent>(target);
-    const LocomotionComponent* body = p_world.try_get<LocomotionComponent>(target);
+    const CharacterComponent* body = p_world.try_get<CharacterComponent>(target);
     if (state && body) {
         const Character& c = state->character;
         return c.position + ORBIT_UP * (c.step_offset + CharacterSystem::_stance_height(c, *body) * cam.pivot_height);
@@ -62,13 +62,13 @@ void OrbitCameraSystem::update(GameSession& r_session, float p_dt)
     Entity best = ENTITY_NULL;
     bool best_player = false;
     world.view<OrbitCameraComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const OrbitCameraComponent&) {
-        const bool player = world.has<PlayerTag>(p_entity);
+        const bool player = character_is_player(world, p_entity);
         if (best == ENTITY_NULL || (player && !best_player)) {
             best = p_entity;
             best_player = player;
         }
     });
-    const bool keep = world.valid(target) && world.has<OrbitCameraComponent>(target) && !world.has<DisabledTag>(target) && (world.has<PlayerTag>(target) || !best_player);
+    const bool keep = world.valid(target) && world.has<OrbitCameraComponent>(target) && !world.has<DisabledTag>(target) && (character_is_player(world, target) || !best_player);
     if (!keep && target != best) {
         target = best;
         ready = false;
@@ -78,7 +78,7 @@ void OrbitCameraSystem::update(GameSession& r_session, float p_dt)
     const OrbitCameraComponent& cam = *world.try_get<OrbitCameraComponent>(target);
     if (!ready) {
         ready = true;
-        const LocomotionComponent* body = world.try_get<LocomotionComponent>(target);
+        const CharacterComponent* body = world.try_get<CharacterComponent>(target);
         const vec3 forward = world.world_transform(target).rotation * vec3(0.0f, 0.0f, 1.0f);
         yaw = character_wrap(character_yaw_of(forward) - (body ? body->model_yaw : 0.0f));
         pitch = std::clamp(START_PITCH, cam.pitch_min, cam.pitch_max);
@@ -111,16 +111,33 @@ void OrbitCameraSystem::place(GameSession& r_session, float p_dt)
     fov = _interp(fov, base_fov + (sprinting ? glm::radians(cam->sprint_fov) : 0.0f), p_dt, FOV_INTERP);
     r_session.camera.fov_y = fov;
 
+    if (state) {
+        const Character& c = state->character;
+        const bool air = c.movement == MovementState::IN_AIR;
+        if (was_air && !air && c.land_speed >= DIP_MIN_SPEED) dip_velocity -= std::min(c.land_speed * DIP_SCALE, DIP_MAX);
+        was_air = air;
+    }
+    if (p_dt > 0.0f) {
+        const float f = 1.0f + 2.0f * p_dt * DIP_SPRING;
+        const float hoo = p_dt * DIP_SPRING * DIP_SPRING;
+        const float inv = 1.0f / (f + p_dt * hoo);
+        const float x = f * dip + p_dt * dip_velocity;
+        const float v = dip_velocity - hoo * dip;
+        dip = x * inv;
+        dip_velocity = v * inv;
+    }
+    const vec3 anchor = pivot + ORBIT_UP * dip;
+
     const vec3 look = _look(yaw, pitch);
-    vec3 eye = pivot - look * distance + character_right(yaw) * shoulder;
+    vec3 eye = anchor - look * distance + character_right(yaw) * shoulder;
     if (const PhysicsWorld* pw = _physics()) {
         PhysicsQuery query;
         auto body = physics->bodies.find(PhysicsSystem::key(target));
         if (body != physics->bodies.end()) query.ignore = body->second.id;
-        const vec3 offset = eye - pivot;
+        const vec3 offset = eye - anchor;
         const float len = length(offset);
         PhysicsHit hit;
-        if (len > 1.0e-3f && pw->sphere_cast(pivot, cam->radius, offset / len, len, hit, query)) eye = pivot + offset / len * std::max(hit.distance - WALL_GAP, MIN_DISTANCE);
+        if (len > 1.0e-3f && pw->sphere_cast(anchor, cam->radius, offset / len, len, hit, query)) eye = anchor + offset / len * std::max(hit.distance - WALL_GAP, MIN_DISTANCE);
     }
     r_session.camera.position = eye;
     r_session.camera.rotation = quatLookAt(look, ORBIT_UP);

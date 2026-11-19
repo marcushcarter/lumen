@@ -273,19 +273,6 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         _pair(ctx, "Jump Walk", c.jump_walk_left, c.jump_walk_right, AssetType::ANIMATION);
         _tooltip("Take-off from the left or right foot");
         _pair(ctx, "Jump Run", c.jump_left, c.jump_right, AssetType::ANIMATION);
-        _asset(ctx, "Jump Loop", c.jump_loop, AssetType::ANIMATION);
-        _tooltip("Optional loop while still rising after the take-off");
-        if (_row("Flip Feet")) {
-            ImGui::Checkbox("##flip_feet", &c.flip_feet);
-            _tooltip("Turn on if moving jumps start on the wrong foot");
-        }
-        _asset(ctx, "Fall", c.fall, AssetType::ANIMATION);
-        _asset(ctx, "Fall Fast", c.fall_fast, AssetType::ANIMATION);
-        if (_row("Fast Fall Speed")) {
-            ImGui::DragFloat("##fast_fall_speed", &c.fast_fall_speed, 0.1f, 0.0f, 60.0f, "%.1f m/s");
-            _tooltip("Falling faster than this switches to Fall Fast");
-        }
-        _asset(ctx, "Land Light", c.land_light, AssetType::ANIMATION);
         _asset(ctx, "Land Heavy", c.land_heavy, AssetType::ANIMATION);
         _tooltip("Stand-in for ALS's breakfall roll until actions exist");
         if (_row("Heavy Land Speed")) {

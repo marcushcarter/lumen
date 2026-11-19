@@ -99,19 +99,11 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
     jump_speed = _float(section["jump_speed"], jump_speed);
     air_control = _float(section["air_control"], air_control);
     jump_standing = _guid(section["jump_standing"]);
-    if (!jump_standing.valid()) jump_standing = _guid(section["jump"]);
     jump_walk_left = _guid(section["jump_walk_left"]);
     jump_walk_right = _guid(section["jump_walk_right"]);
     jump_left = _guid(section["jump_left"]);
     jump_right = _guid(section["jump_right"]);
-    jump_loop = _guid(section["jump_loop"]);
-    fall_fast = _guid(section["fall_fast"]);
-    fast_fall_speed = _float(section["fast_fall_speed"], fast_fall_speed);
-    fall = _guid(section["fall"]);
-    land_light = _guid(section["land_light"]);
-    if (!land_light.valid()) land_light = _guid(section["land"]);
     land_heavy = _guid(section["land_heavy"]);
-    flip_feet = section["flip_feet"].value_or(flip_feet);
     heavy_land_speed = _float(section["heavy_land_speed"], heavy_land_speed);
     lean_angle = _float(section["lean_angle"], lean_angle);
     air_lean_angle = _float(section["air_lean_angle"], air_lean_angle);
@@ -170,13 +162,7 @@ Error LLocomotion::save(const std::filesystem::path& p_path) const
             { "jump_walk_right", _guid_text(jump_walk_right) },
             { "jump_left", _guid_text(jump_left) },
             { "jump_right", _guid_text(jump_right) },
-            { "jump_loop", _guid_text(jump_loop) },
-            { "fall_fast", _guid_text(fall_fast) },
-            { "fast_fall_speed", (double)fast_fall_speed },
-            { "fall", _guid_text(fall) },
-            { "land_light", _guid_text(land_light) },
             { "land_heavy", _guid_text(land_heavy) },
-            { "flip_feet", flip_feet },
             { "heavy_land_speed", (double)heavy_land_speed },
             { "lean_angle", (double)lean_angle },
             { "air_lean_angle", (double)air_lean_angle },

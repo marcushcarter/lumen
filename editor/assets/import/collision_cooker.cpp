@@ -302,21 +302,6 @@ CollisionShapeSettings collision_generated_shape(CollisionType p_type, int32_t p
     return s;
 }
 
-CollisionSettings collision_settings_upgrade(const CollisionSettings& p_settings)
-{
-    if (p_settings.type != CollisionType::MESH && p_settings.type != CollisionType::HULL && p_settings.type != CollisionType::NONE) return p_settings;
-    CollisionSettings out = p_settings;
-    out.type = CollisionType::SHAPES;
-    out.shapes.clear();
-    if (p_settings.type == CollisionType::NONE) return out;
-    CollisionShapeSettings s = collision_generated_shape(p_settings.type, COLLISION_ALL_SLOTS);
-    s.error = p_settings.error;
-    s.min_feature = p_settings.min_feature;
-    s.exclude_masked = p_settings.exclude_masked;
-    out.shapes.push_back(std::move(s));
-    return out;
-}
-
 bool collision_settings_empty(const CollisionSettings& p_settings)
 {
     return p_settings.type == CollisionType::NONE || (p_settings.type == CollisionType::SHAPES && p_settings.shapes.empty());

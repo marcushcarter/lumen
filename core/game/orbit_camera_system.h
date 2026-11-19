@@ -19,6 +19,10 @@ struct OrbitCameraSystem : GameSystem
     static constexpr float FOV_INTERP = 4.0f;
     static constexpr float WALL_GAP = 0.05f;
     static constexpr float MIN_DISTANCE = 0.1f;
+    static constexpr float DIP_SCALE = 0.2f;
+    static constexpr float DIP_MAX = 2.5f;
+    static constexpr float DIP_MIN_SPEED = 2.0f;
+    static constexpr float DIP_SPRING = 8.0f;
 
     struct Place : GameSystem
     {
@@ -37,6 +41,9 @@ struct OrbitCameraSystem : GameSystem
     float shoulder = 0.0f;
     float base_fov = 0.0f;
     float fov = 0.0f;
+    float dip = 0.0f;
+    float dip_velocity = 0.0f;
+    bool was_air = false;
 
     OrbitCameraSystem() { late.owner = this; }
 

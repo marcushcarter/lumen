@@ -13,25 +13,6 @@
 
 namespace lumen {
 
-struct LMeshLegacyHeader
-{
-    uint32_t vertex_count;
-    uint32_t index_count;
-    uint32_t tri_count;
-    uint32_t slot_count;
-    uint32_t cluster_count;
-    uint32_t group_count;
-    uint32_t bvh_node_count;
-    uint32_t flags;
-    vec3 pos_min, pos_extent;
-    vec2 uv_min, uv_extent;
-    vec4 bounds_sphere;
-};
-
-static_assert(sizeof(LMeshLegacyHeader) == 88, "legacy lmesh header layout is frozen");
-
-static constexpr size_t LEGACY_BVH_NODE_BYTES = 32;
-
 const char* mesh_dag_level_name(MeshDagLevel p_level)
 {
     switch (p_level) {
@@ -48,24 +29,6 @@ MeshDagLevel mesh_dag_level_from_name(const std::string& p_name, MeshDagLevel p_
     if (p_name == "clustered") return MeshDagLevel::CLUSTERED;
     if (p_name == "clustered_dag") return MeshDagLevel::CLUSTERED_DAG;
     return p_fallback;
-}
-
-static size_t _payload_header_bytes(uint32_t p_version)
-{
-    return p_version >= LMESH_VERSION_PAGED ? sizeof(LMeshPayloadHeader) : sizeof(LMeshLegacyHeader);
-}
-
-static uint32_t _payload_flags(uint32_t p_version, const uint8_t* p_header)
-{
-    uint32_t flags = 0;
-    const size_t at = p_version >= LMESH_VERSION_PAGED ? offsetof(LMeshPayloadHeader, flags) : offsetof(LMeshLegacyHeader, flags);
-    std::memcpy(&flags, p_header + at, sizeof(flags));
-    return flags;
-}
-
-static bool _has_rig_block(uint32_t p_version, uint32_t p_flags)
-{
-    return p_version >= LMESH_VERSION_RIG && has_flag((MeshFlags)p_flags, MeshFlags::SKINNED);
 }
 
 static vec4 _sphere_union(const std::vector<vec4>& p_spheres)
@@ -943,191 +906,47 @@ static bool _read(const std::vector<uint8_t>& p_bytes, size_t& r_at, T* r_data, 
     return true;
 }
 
-static const char* _parse_rig_block(const std::vector<uint8_t>& p_bytes, size_t& r_at, LMeshRig& r_rig)
+static const char* _parse_dynamics(const std::vector<uint8_t>& p_bytes, uint32_t p_joint_count, uint32_t p_vertex_count, LMeshDynamics& r_dynamics)
 {
-    if (r_at > p_bytes.size() || !lmesh_parse_rig(p_bytes.data() + r_at, p_bytes.size() - r_at, r_rig)) return "bad rig";
-    LMeshRigHeader rh{};
-    std::memcpy(&rh, p_bytes.data() + r_at, sizeof(rh));
-    r_at += lmesh_rig_bytes(rh);
+    r_dynamics = {};
+    size_t at = 0;
+    LMeshDynamicsHeader h{};
+    if (!_read(p_bytes, at, &h, 1)) return "truncated dynamics header";
+    if (h.cloth_count > MESH_MAX_JOINTS) return "too many cloths";
+    r_dynamics.cloths.resize(h.cloth_count);
+    r_dynamics.particles.resize(h.particle_count);
+    r_dynamics.links.resize(h.link_count);
+    r_dynamics.triangles.resize(h.triangle_count);
+    r_dynamics.restore.resize(h.restore_count);
+    if (!_read(p_bytes, at, r_dynamics.cloths.data(), r_dynamics.cloths.size())) return "truncated cloths";
+    if (!_read(p_bytes, at, r_dynamics.particles.data(), r_dynamics.particles.size())) return "truncated particles";
+    if (!_read(p_bytes, at, r_dynamics.links.data(), r_dynamics.links.size())) return "truncated links";
+    if (!_read(p_bytes, at, r_dynamics.triangles.data(), r_dynamics.triangles.size())) return "truncated triangles";
+    if (!_read(p_bytes, at, r_dynamics.restore.data(), r_dynamics.restore.size())) return "truncated restore";
+    const auto inside = [](uint64_t p_first, uint64_t p_count, uint64_t p_size) { return p_first + p_count <= p_size; };
+    for (const LMeshCloth& c : r_dynamics.cloths) {
+        if (!inside(c.particle_first, c.particle_count, h.particle_count)) return "cloth particles out of range";
+        if (!inside(c.link_first, (uint64_t)c.stretch_count + c.bend_count, h.link_count)) return "cloth links out of range";
+        if (!inside(c.triangle_first, c.triangle_count, h.triangle_count)) return "cloth triangles out of range";
+        if (!inside(c.restore_first, c.restore_count, h.restore_count)) return "cloth restore out of range";
+        if (c.root_joint != LMESH_CLOTH_NO_ROOT && c.root_joint >= p_joint_count) return "cloth root out of range";
+    }
+    for (const LMeshClothParticle& particle : r_dynamics.particles) {
+        for (int i = 0; i < 4; i++) {
+            if (particle.weights[i] && particle.joints[i] >= p_joint_count) return "particle joint out of range";
+        }
+    }
+    if (p_vertex_count != UINT32_MAX) {
+        for (const LMeshClothRestore& restore : r_dynamics.restore) {
+            if (restore.vertex >= p_vertex_count) return "restore vertex out of range";
+        }
+    }
     return nullptr;
 }
 
 static bool _counts_sane(const LMeshPayloadHeader& p_h)
 {
     return p_h.cluster_count <= (1u << 26) && p_h.tri_count <= (1u << 28) && p_h.vertex_count <= (1u << 28) && p_h.page_count <= (1u << 24) && p_h.node_count <= (1u << 26) && p_h.group_count <= (1u << 26) && p_h.group_child_page_count <= (1u << 28) && p_h.section_count <= 16;
-}
-
-struct LMeshPageV5
-{
-    uint64_t offset;
-    uint32_t size;
-    uint32_t cluster_first;
-    uint32_t cluster_count;
-    uint32_t tri_first;
-    uint32_t tri_count;
-    uint32_t vertex_first;
-    uint32_t vertex_count;
-    uint32_t level;
-    uint32_t _pad[2];
-};
-
-static_assert(sizeof(LMeshPageV5) == 48, "v5 page layout is frozen");
-
-static const char* _parse_v5(const std::vector<uint8_t>& p_bytes, LMeshData& r_data)
-{
-    size_t at = sizeof(LAssetHeader);
-    LMeshPayloadHeader& h = r_data.header;
-    if (!_read(p_bytes, at, &h, 1)) return "truncated header";
-    h.section_count = 0;
-    h.group_child_page_count = 0;
-    if (r_data.skinned()) {
-        if (const char* why = _parse_rig_block(p_bytes, at, r_data.rig)) return why;
-    }
-    if (!_counts_sane(h)) return "counts out of range";
-
-    std::vector<LMeshPageV5> pages(h.page_count);
-    r_data.groups.resize(h.group_count);
-    r_data.nodes.resize(h.node_count);
-    if (!_read(p_bytes, at, r_data.groups.data(), h.group_count) || !_read(p_bytes, at, r_data.nodes.data(), h.node_count) || !_read(p_bytes, at, pages.data(), h.page_count)) return "truncated tables";
-
-    const bool skinned = r_data.skinned();
-    const bool wide = r_data.wide_slots();
-    r_data.clusters.resize(h.cluster_count);
-    r_data.local_tris.resize(h.tri_count);
-    r_data.vertices.resize(h.vertex_count);
-    r_data.skin.resize(skinned ? h.vertex_count : 0u);
-    r_data.tri_slots.resize(wide ? h.tri_count : 0u);
-    r_data.pages.resize(h.page_count);
-    for (uint32_t i = 0; i < h.page_count; i++) {
-        const LMeshPageV5& v5 = pages[i];
-        if ((uint64_t)v5.cluster_first + v5.cluster_count > h.cluster_count || (uint64_t)v5.tri_first + v5.tri_count > h.tri_count || (uint64_t)v5.vertex_first + v5.vertex_count > h.vertex_count) return "page range out of bounds";
-        size_t p = (size_t)v5.offset;
-        if (v5.offset > p_bytes.size()) return "page out of bounds";
-        bool ok = _read(p_bytes, p, r_data.clusters.data() + v5.cluster_first, v5.cluster_count)
-            && _read(p_bytes, p, r_data.local_tris.data() + v5.tri_first, v5.tri_count)
-            && _read(p_bytes, p, r_data.vertices.data() + v5.vertex_first, v5.vertex_count);
-        if (ok && skinned) ok = _read(p_bytes, p, r_data.skin.data() + v5.vertex_first, v5.vertex_count);
-        if (ok && wide) ok = _read(p_bytes, p, r_data.tri_slots.data() + v5.tri_first, v5.tri_count);
-        if (!ok) return "truncated page";
-        LMeshPage& page = r_data.pages[i];
-        page = {};
-        page.cluster_first = v5.cluster_first;
-        page.cluster_count = v5.cluster_count;
-        page.tri_first = v5.tri_first;
-        page.tri_count = v5.tri_count;
-        page.vertex_first = v5.vertex_first;
-        page.vertex_count = v5.vertex_count;
-    }
-    _compute_child_pages(r_data);
-    _rebuild_nodes(r_data);
-    return nullptr;
-}
-
-static const char* _parse_legacy(const std::vector<uint8_t>& p_bytes, uint32_t p_version, uint32_t p_payload_size, LMeshSource& r_src)
-{
-    const bool interleaved = p_version == LMESH_VERSION_INTERLEAVED;
-    const bool legacy_slot_table = p_version < LMESH_VERSION_NO_RIG;
-
-    size_t at = sizeof(LAssetHeader);
-    LMeshLegacyHeader ph{};
-    if (!_read(p_bytes, at, &ph, 1)) return "truncated header";
-    if (p_payload_size < sizeof(ph)) return "payload_size underflow";
-    const bool skinned = has_flag((MeshFlags)ph.flags, MeshFlags::SKINNED);
-
-    size_t rig_bytes = 0;
-    if (_has_rig_block(p_version, ph.flags)) {
-        const size_t before = at;
-        if (const char* why = _parse_rig_block(p_bytes, at, r_src.rig)) return why;
-        rig_bytes = at - before;
-    }
-
-    const size_t vtx_bytes = (size_t)ph.vertex_count * (interleaved ? sizeof(Vertex) : sizeof(VertexPosition) + sizeof(VertexAttributes));
-    const size_t idx_bytes = (size_t)ph.index_count * sizeof(uint32_t);
-    const size_t tri_bytes = (size_t)ph.tri_count * sizeof(uint32_t);
-    const size_t slot_bytes = legacy_slot_table ? (size_t)ph.slot_count * sizeof(uint32_t) : 0;
-    const size_t clus_bytes = (size_t)ph.cluster_count * sizeof(Cluster);
-    const size_t group_bytes = (size_t)ph.group_count * sizeof(ClusterGroup);
-    const size_t skin_bytes = skinned ? (size_t)ph.vertex_count * sizeof(SkinVertex) : 0;
-    const size_t bvhn_bytes = (size_t)ph.bvh_node_count * LEGACY_BVH_NODE_BYTES;
-    if (p_payload_size < sizeof(ph) + rig_bytes) return "payload_size underflow";
-    const size_t blocks = (size_t)p_payload_size - sizeof(ph) - rig_bytes;
-    if (vtx_bytes + idx_bytes + tri_bytes + slot_bytes + clus_bytes + group_bytes + skin_bytes + bvhn_bytes != blocks || at + blocks > p_bytes.size()) return "bad/truncated payload";
-    if (ph.vertex_count == 0 || ph.index_count == 0 || ph.index_count % 3 != 0 || ph.tri_count != ph.index_count / 3) return "bad vertex/index counts";
-
-    r_src.positions.resize(ph.vertex_count);
-    r_src.attributes.resize(ph.vertex_count);
-    if (interleaved) {
-        std::vector<Vertex> v(ph.vertex_count);
-        _read(p_bytes, at, v.data(), v.size());
-        for (uint32_t i = 0; i < ph.vertex_count; i++) {
-            r_src.positions[i] = { v[i].position, 0 };
-            r_src.attributes[i] = { v[i].normal, v[i].uv };
-        }
-    } else {
-        _read(p_bytes, at, r_src.positions.data(), ph.vertex_count);
-        _read(p_bytes, at, r_src.attributes.data(), ph.vertex_count);
-    }
-    r_src.indices.resize(ph.index_count);
-    r_src.tri_slots.resize(ph.tri_count);
-    r_src.clusters.resize(ph.cluster_count);
-    r_src.groups.resize(ph.group_count);
-    _read(p_bytes, at, r_src.indices.data(), ph.index_count);
-    _read(p_bytes, at, r_src.tri_slots.data(), ph.tri_count);
-    at += slot_bytes;
-    _read(p_bytes, at, r_src.clusters.data(), ph.cluster_count);
-    _read(p_bytes, at, r_src.groups.data(), ph.group_count);
-    if (skinned) {
-        r_src.skin.resize(ph.vertex_count);
-        _read(p_bytes, at, r_src.skin.data(), ph.vertex_count);
-    }
-    r_src.slot_count = ph.slot_count;
-    r_src.pos_min = ph.pos_min;
-    r_src.pos_extent = ph.pos_extent;
-    r_src.uv_min = ph.uv_min;
-    r_src.uv_extent = ph.uv_extent;
-    r_src.bounds_sphere = ph.bounds_sphere;
-    return nullptr;
-}
-
-static const char* _parse_dynamics(const std::vector<uint8_t>& p_bytes, uint32_t p_joint_count, uint32_t p_vertex_count, LMeshDynamics& r_dyn)
-{
-    size_t at = 0;
-    LMeshDynamicsHeader dh{};
-    if (!_read(p_bytes, at, &dh, 1)) return "truncated dynamics";
-    if (dh.cloth_count > MESH_MAX_JOINTS || dh.particle_count > MESH_MAX_JOINTS || dh.link_count > (1u << 20) || dh.triangle_count > (1u << 20) || dh.restore_count > (1u << 26)) return "dynamics counts out of range";
-    r_dyn.cloths.resize(dh.cloth_count);
-    r_dyn.particles.resize(dh.particle_count);
-    r_dyn.links.resize(dh.link_count);
-    r_dyn.triangles.resize(dh.triangle_count);
-    r_dyn.restore.resize(dh.restore_count);
-    const bool ok = _read(p_bytes, at, r_dyn.cloths.data(), r_dyn.cloths.size())
-        && _read(p_bytes, at, r_dyn.particles.data(), r_dyn.particles.size())
-        && _read(p_bytes, at, r_dyn.links.data(), r_dyn.links.size())
-        && _read(p_bytes, at, r_dyn.triangles.data(), r_dyn.triangles.size())
-        && _read(p_bytes, at, r_dyn.restore.data(), r_dyn.restore.size());
-    if (!ok || at != p_bytes.size()) return "truncated dynamics";
-    for (const LMeshClothRestore& r : r_dyn.restore) {
-        if (r.vertex >= p_vertex_count) return "cloth restore vertex out of range";
-    }
-    for (const LMeshClothParticle& p : r_dyn.particles) {
-        for (int k = 0; k < 4; k++) {
-            if (p.weights[k] && p.joints[k] >= p_joint_count) return "cloth anchor joint out of range";
-        }
-    }
-    for (const LMeshCloth& c : r_dyn.cloths) {
-        const uint64_t links = (uint64_t)c.stretch_count + c.bend_count;
-        if ((c.root_joint >= p_joint_count && c.root_joint != LMESH_CLOTH_NO_ROOT) || (uint64_t)c.joint_first + c.particle_count > p_joint_count) return "cloth joints out of range";
-        if ((uint64_t)c.particle_first + c.particle_count > r_dyn.particles.size() || (uint64_t)c.link_first + links > r_dyn.links.size() || (uint64_t)c.triangle_first + c.triangle_count > r_dyn.triangles.size()) return "cloth ranges out of range";
-        if ((uint64_t)c.restore_first + c.restore_count > r_dyn.restore.size()) return "cloth restore range out of range";
-        for (uint64_t l = c.link_first; l < c.link_first + links; l++) {
-            if (r_dyn.links[l].a >= c.particle_count || r_dyn.links[l].b >= c.particle_count) return "cloth link out of range";
-        }
-        for (uint32_t t = c.triangle_first; t < c.triangle_first + c.triangle_count; t++) {
-            const u16vec4 tri = r_dyn.triangles[t];
-            if (tri.x >= c.particle_count || tri.y >= c.particle_count || tri.z >= c.particle_count) return "cloth triangle out of range";
-        }
-    }
-    return nullptr;
 }
 
 static std::vector<uint8_t> _read_range(std::ifstream& r_file, uint64_t p_offset, uint64_t p_size)
@@ -1254,10 +1073,6 @@ bool lmesh_open(const std::filesystem::path& p_bin, LMeshData& r_tables, uint32_
     if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) { r_error = "bad asset header"; return false; }
     if (!asset_version_supported(AssetType::MESH, ah.version)) { r_error = "unsupported mesh version"; return false; }
     r_version = ah.version;
-    if (ah.version < LMESH_VERSION_STREAMED) {
-        f.close();
-        return lmesh_load(p_bin, r_tables, r_error);
-    }
     if (const char* why = _open_streamed(f, file_size, r_tables)) {
         r_error = why;
         r_tables = {};
@@ -1279,9 +1094,8 @@ bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::stri
     if (!asset_version_supported(AssetType::MESH, ah.version)) { r_error = "unsupported mesh version"; return false; }
     if ((uint64_t)ah.payload_size + sizeof(ah) > file_size) { r_error = "truncated payload"; return false; }
 
-    const char* why = nullptr;
-    if (ah.version >= LMESH_VERSION_STREAMED) {
-        why = _open_streamed(f, file_size, r_data);
+    const char* why = _open_streamed(f, file_size, r_data);
+    {
         if (!why) {
             const LMeshPayloadHeader& h = r_data.header;
             r_data.local_tris.resize(h.tri_count);
@@ -1307,19 +1121,6 @@ bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::stri
             }
             if (!why) why = lmesh_validate(r_data);
         }
-    } else {
-        f.close();
-        std::ifstream all(p_bin, std::ios::binary);
-        std::vector<uint8_t> bytes((size_t)file_size);
-        if (!all.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)file_size)) { r_error = "read failed"; return false; }
-        if (ah.version == LMESH_VERSION_PAGED) {
-            why = _parse_v5(bytes, r_data);
-            if (!why) why = lmesh_validate(r_data);
-        } else {
-            LMeshSource src;
-            why = _parse_legacy(bytes, ah.version, ah.payload_size, src);
-            if (!why) why = lmesh_build(src, r_data);
-        }
     }
     if (why) {
         r_error = why;
@@ -1341,7 +1142,7 @@ bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats)
     if (!f.read(reinterpret_cast<char*>(&ah), sizeof(ah))) return false;
     if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH) return false;
 
-    if (ah.version >= LMESH_VERSION_PAGED) {
+    {
         LMeshPayloadHeader h{};
         if (!f.read(reinterpret_cast<char*>(&h), sizeof(h))) return false;
         if (has_flag((MeshFlags)h.flags, MeshFlags::SKINNED)) {
@@ -1359,60 +1160,6 @@ bool lmesh_read_stats(const std::filesystem::path& p_bin, LMeshStats& r_stats)
         r_stats.bounds_min = h.pos_min;
         return true;
     }
-
-    LMeshLegacyHeader ph{};
-    if (!f.read(reinterpret_cast<char*>(&ph), sizeof(ph))) return false;
-    if (_has_rig_block(ah.version, ph.flags)) {
-        LMeshRigHeader rh{};
-        if (!f.read(reinterpret_cast<char*>(&rh), sizeof(rh))) return false;
-        r_stats.joints = rh.joint_count;
-        f.seekg((std::streamoff)(lmesh_rig_bytes(rh) - sizeof(rh)), std::ios::cur);
-    }
-
-    r_stats.vertices = ph.vertex_count;
-    r_stats.triangles = ph.tri_count;
-    r_stats.slots = ph.slot_count;
-    r_stats.clusters = ph.cluster_count;
-    r_stats.cluster_triangles = ph.tri_count;
-    r_stats.lods = ph.cluster_count ? 1u : 0u;
-    r_stats.size = ph.pos_extent;
-    r_stats.bounds_min = ph.pos_min;
-    if (ah.version < LMESH_VERSION_NO_RIG || ph.cluster_count == 0) return true;
-
-    std::vector<uint32_t> indices(ph.index_count);
-    std::vector<Cluster> clusters(ph.cluster_count);
-    std::vector<ClusterGroup> groups(ph.group_count);
-    const std::streamoff vertex_bytes = (std::streamoff)ph.vertex_count * (sizeof(VertexPosition) + sizeof(VertexAttributes));
-    const std::streamoff tri_slot_bytes = (std::streamoff)ph.tri_count * sizeof(uint32_t);
-    f.seekg(vertex_bytes, std::ios::cur);
-    if (!f.read(reinterpret_cast<char*>(indices.data()), (std::streamsize)(indices.size() * sizeof(uint32_t)))) return true;
-    f.seekg(tri_slot_bytes, std::ios::cur);
-    if (!f.read(reinterpret_cast<char*>(clusters.data()), (std::streamsize)(clusters.size() * sizeof(Cluster)))) return true;
-    if (!groups.empty() && !f.read(reinterpret_cast<char*>(groups.data()), (std::streamsize)(groups.size() * sizeof(ClusterGroup)))) return true;
-
-    std::vector<uint32_t> stamp(ph.vertex_count, UINT32_MAX);
-    uint64_t lod0_tris = 0;
-    uint64_t cluster_vertices = 0;
-    for (uint32_t c = 0; c < ph.cluster_count; ++c) {
-        const Cluster& cl = clusters[c];
-        if ((uint64_t)cl.index_base + cl.index_count > indices.size()) return true;
-        if (cl.self_group == CLUSTER_GROUP_NONE) lod0_tris += cl.index_count / 3;
-        for (uint32_t i = 0; i < cl.index_count; ++i) {
-            const uint32_t v = indices[cl.index_base + i];
-            if (v < ph.vertex_count && stamp[v] != c) {
-                stamp[v] = c;
-                ++cluster_vertices;
-            }
-        }
-    }
-
-    uint32_t max_level = 0;
-    for (const ClusterGroup& g : groups) max_level = std::max(max_level, g.level);
-
-    r_stats.triangles = (uint32_t)lod0_tris;
-    r_stats.cluster_vertices = cluster_vertices;
-    r_stats.lods = max_level + 1;
-    return true;
 }
 
 size_t lmesh_rig_bytes(const LMeshRigHeader& p_header)
@@ -1424,11 +1171,10 @@ static bool _seek_rig(std::fstream& r_file)
 {
     LAssetHeader ah{};
     if (!r_file.read(reinterpret_cast<char*>(&ah), sizeof(ah))) return false;
-    if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH || ah.version < LMESH_VERSION_RIG) return false;
-    uint8_t header[sizeof(LMeshPayloadHeader)] = {};
-    const size_t header_bytes = _payload_header_bytes(ah.version);
-    if (!r_file.read(reinterpret_cast<char*>(header), (std::streamsize)header_bytes)) return false;
-    return _has_rig_block(ah.version, _payload_flags(ah.version, header));
+    if (ah.magic != BCON_MAGIC || ah.type != AssetType::MESH || ah.version != LMESH_VERSION) return false;
+    LMeshPayloadHeader header{};
+    if (!r_file.read(reinterpret_cast<char*>(&header), sizeof(header))) return false;
+    return has_flag((MeshFlags)header.flags, MeshFlags::SKINNED);
 }
 
 bool lmesh_parse_rig(const uint8_t* p_data, size_t p_size, LMeshRig& r_rig)

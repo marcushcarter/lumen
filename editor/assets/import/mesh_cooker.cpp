@@ -1,7 +1,6 @@
 #include <editor/assets/import/mesh_cooker.h>
 #include <editor/application/editor_context.h>
 #include <editor/assets/import/asset_import_tracker.h>
-#include <editor/assets/import/dynamics_baker.h>
 #include <editor/assets/import/skeleton_cooker.h>
 #include <core/io/file_io.h>
 #include <core/assets/asset_common.h>
@@ -39,8 +38,6 @@ struct MeshSource
     uint32_t slot_count = 0;
     std::vector<uint32_t> vertex_slots;
     std::vector<SkinVertex> skin_vertices;
-    std::vector<uint8_t> pins;
-    bool has_pins = false;
     std::vector<std::string> joints;
     std::vector<mat4> inverse_binds;
     std::vector<Cluster> clusters;
@@ -95,11 +92,6 @@ void _gather_node(const aiScene* p_scene, const aiNode* p_node, const aiMatrix4x
         }
         const uint32_t slot = mesh->mMaterialIndex < p_slot_of.size() ? p_slot_of[mesh->mMaterialIndex] : 0u;
         r_vert_slots.resize(r_verts.size(), slot);
-        r_src.pins.resize(r_verts.size(), UINT8_MAX);
-        if (mesh->HasVertexColors(0)) {
-            r_src.has_pins = true;
-            for (uint32_t vi = 0; vi < mesh->mNumVertices; vi++) r_src.pins[base + vi] = (uint8_t)glm::round(std::clamp(mesh->mColors[0][vi].r, 0.0f, 1.0f) * 255.0f);
-        }
 
         const bool mesh_skinned = mesh->mNumBones > 0;
         if (mesh_skinned || !r_skin.empty()) r_skin.resize(r_verts.size(), SKIN_RIGID);
@@ -203,7 +195,6 @@ bool _gather_scene(const aiScene* p_scene, std::vector<SrcVert>& r_verts, std::v
     r_src.slot_count = std::max(1u, (uint32_t)slots.size());
 
     _gather_node(p_scene, p_scene->mRootNode, aiMatrix4x4(), slot_of, r_verts, r_indices, r_skin, r_src.vertex_slots, r_src);
-    if (!r_src.has_pins) r_src.pins.clear();
     if (r_src.joints.size() > MESH_MAX_JOINTS) {
         log_write("MeshCooker: %zu bones is over the limit of %u, importing without skinning.", r_src.joints.size(), MESH_MAX_JOINTS);
         r_skin.clear();
@@ -569,7 +560,6 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
         out.attributes[i] = { src.vertices[i].normal, src.vertices[i].uv };
     }
     out.skin = std::move(src.skin_vertices);
-    out.pins = std::move(src.pins);
     out.indices = std::move(src.indices);
     out.tri_slots = std::move(src.tri_slots);
     out.clusters = std::move(src.clusters);
@@ -593,7 +583,6 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
     }
     data.collision = p_job.collision;
     if (skinned && p_job.skeleton_data) {
-        dynamics_bake_cloths(data, *p_job.skeleton_data);
         LSkeleton skeleton = *p_job.skeleton_data;
         skeleton.guid = p_job.guid;
         if (skeleton.encode(data.skeleton) != OK) {
@@ -626,7 +615,6 @@ Error MeshCooker::cook_scene(const Job& p_job, const aiScene* p_scene)
             { "skinned", skinned } }},
     };
     collision_settings_write(*tbl["import"].as_table(), p_job.settings.collision);
-    if (skinned && p_job.skeleton_data && (!p_job.skeleton_data->chains.empty() || !p_job.skeleton_data->cloths.empty() || !p_job.skeleton_data->colliders.empty())) tbl.insert_or_assign("dynamics", SkeletonCooker::dynamics_table(*p_job.skeleton_data));
     if (!p_job.collision.empty()) tbl[asset_type_section(AssetType::MESH)].as_table()->insert_or_assign("collision", true);
     std::string text; { std::ostringstream ss; ss << tbl; text = ss.str(); }
     if (!write_file_atomic(p_job.dst_lmesh, text.data(), text.size())) return FAILED;

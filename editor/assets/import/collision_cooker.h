@@ -63,8 +63,7 @@ struct CollisionCooker
     static constexpr int MAX_HULL_VERTICES = 256;
     static constexpr float MIN_PRIMITIVE_SIZE = 0.001f;
 
-    static bool build(const aiScene* p_scene, const CollisionSettings& p_settings, const glm::mat4& p_import, LCollision& r_collision, const std::vector<uint32_t>& p_skip_slots = {});
-    static std::vector<uint32_t> cloth_slots(const std::filesystem::path& p_lmesh);
+    static bool build(const aiScene* p_scene, const CollisionSettings& p_settings, const glm::mat4& p_import, LCollision& r_collision);
     static bool has_collision(const std::filesystem::path& p_lmesh);
     static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings);
     static Error write_shapes(EditorContext& ctx, const std::filesystem::path& p_lmesh, const CollisionSettings& p_settings);

@@ -201,7 +201,6 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
     const uint32_t vertex_count = (uint32_t)p_src.positions.size();
     if (vertex_count == 0 || p_src.attributes.size() != vertex_count) return "bad vertex streams";
     if (!p_src.skin.empty() && p_src.skin.size() != vertex_count) return "bad skin stream";
-    if (!p_src.pins.empty() && p_src.pins.size() != vertex_count) return "bad cloth pin stream";
     if (p_src.indices.empty() || p_src.indices.size() % 3 != 0) return "bad index count";
     const uint32_t src_tri_count = (uint32_t)p_src.indices.size() / 3;
     if (p_src.tri_slots.size() != src_tri_count) return "bad triangle slot count";
@@ -408,7 +407,6 @@ const char* lmesh_build(const LMeshSource& p_src, LMeshData& r_data)
                     const uint32_t g = local_vertices[l.vertex_first + v];
                     r_data.vertices.push_back(ClusterVertex{ p_src.positions[g], p_src.attributes[g] });
                     if (skinned) r_data.skin.push_back(p_src.skin[g]);
-                    if (!p_src.pins.empty()) r_data.pins.push_back(p_src.pins[g]);
                 }
             }
         }
@@ -820,33 +818,16 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     }
     const size_t joint_box_bytes = joint_boxes.size() * sizeof(LMeshJointBox);
 
-    std::vector<uint8_t> dynamics;
-    const LMeshDynamics& dyn = p_data.rig.dynamics;
-    if (skinned && !dyn.empty()) {
-        const LMeshDynamicsHeader dh{ (uint32_t)dyn.cloths.size(), (uint32_t)dyn.particles.size(), (uint32_t)dyn.links.size(), (uint32_t)dyn.triangles.size(), (uint32_t)dyn.restore.size(), {} };
-        _append(dynamics, &dh, 1);
-        _append(dynamics, dyn.cloths.data(), dyn.cloths.size());
-        _append(dynamics, dyn.particles.data(), dyn.particles.size());
-        _append(dynamics, dyn.links.data(), dyn.links.size());
-        _append(dynamics, dyn.triangles.data(), dyn.triangles.size());
-        _append(dynamics, dyn.restore.data(), dyn.restore.size());
-    }
-
-    const std::vector<uint8_t> no_pins;
-    const std::vector<uint8_t>& pins = p_data.pins.size() == p_data.vertices.size() ? p_data.pins : no_pins;
-
     LMeshPayloadHeader header = p_data.header;
-    header.section_count = 7;
+    header.section_count = 5;
     header.group_child_page_count = (uint32_t)p_data.group_child_pages.size();
 
     const uint64_t sections_at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
     const uint64_t resident_at = sections_at + header.section_count * sizeof(LMeshSection);
     const uint64_t blobs_at = resident_at + resident.size();
     const uint64_t joint_boxes_at = blobs_at + blobs.size();
-    const uint64_t dynamics_at = joint_boxes_at + joint_box_bytes;
-    const uint64_t skeleton_at = dynamics_at + dynamics.size();
-    const uint64_t pins_at = skeleton_at + p_data.skeleton.size();
-    const uint64_t collision_at = pins_at + pins.size();
+    const uint64_t skeleton_at = joint_boxes_at + joint_box_bytes;
+    const uint64_t collision_at = skeleton_at + p_data.skeleton.size();
     const uint64_t total = collision_at + p_data.collision.size();
     if (total > UINT32_MAX) {
         log_write("lmesh: '%s' would be over 4 GB.", p_bin.string().c_str());
@@ -855,13 +836,11 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     for (LMeshPage& page : pages) page.offset += blobs_at;
     std::memcpy(resident.data() + pages_at, pages.data(), pages.size() * sizeof(LMeshPage));
 
-    const LMeshSection sections[7] = {
+    const LMeshSection sections[5] = {
         { LMeshSectionType::RASTER_RESIDENT, 0, resident_at, resident.size() },
         { LMeshSectionType::RASTER_PAGES, 0, blobs_at, blobs.size() },
         { LMeshSectionType::JOINT_BOXES, 0, joint_boxes_at, joint_box_bytes },
-        { LMeshSectionType::DYNAMICS, 0, dynamics_at, dynamics.size() },
         { LMeshSectionType::SKELETON, 0, skeleton_at, p_data.skeleton.size() },
-        { LMeshSectionType::CLOTH_PINS, 0, pins_at, pins.size() },
         { LMeshSectionType::COLLISION, 0, collision_at, p_data.collision.size() },
     };
 
@@ -881,13 +860,11 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
         _append(out, p_data.rig.inverse_binds.data(), p_data.rig.inverse_binds.size());
         _append(out, rig_names.data(), rig_names.size());
     }
-    _append(out, sections, 7);
+    _append(out, sections, 5);
     _append(out, resident.data(), resident.size());
     _append(out, blobs.data(), blobs.size());
     _append(out, joint_boxes.data(), joint_boxes.size());
-    _append(out, dynamics.data(), dynamics.size());
     _append(out, p_data.skeleton.data(), p_data.skeleton.size());
-    _append(out, pins.data(), pins.size());
     _append(out, p_data.collision.data(), p_data.collision.size());
     if (out.size() != total) return false;
 
@@ -904,44 +881,6 @@ static bool _read(const std::vector<uint8_t>& p_bytes, size_t& r_at, T* r_data, 
     if (n) std::memcpy(r_data, p_bytes.data() + r_at, n);
     r_at += n;
     return true;
-}
-
-static const char* _parse_dynamics(const std::vector<uint8_t>& p_bytes, uint32_t p_joint_count, uint32_t p_vertex_count, LMeshDynamics& r_dynamics)
-{
-    r_dynamics = {};
-    size_t at = 0;
-    LMeshDynamicsHeader h{};
-    if (!_read(p_bytes, at, &h, 1)) return "truncated dynamics header";
-    if (h.cloth_count > MESH_MAX_JOINTS) return "too many cloths";
-    r_dynamics.cloths.resize(h.cloth_count);
-    r_dynamics.particles.resize(h.particle_count);
-    r_dynamics.links.resize(h.link_count);
-    r_dynamics.triangles.resize(h.triangle_count);
-    r_dynamics.restore.resize(h.restore_count);
-    if (!_read(p_bytes, at, r_dynamics.cloths.data(), r_dynamics.cloths.size())) return "truncated cloths";
-    if (!_read(p_bytes, at, r_dynamics.particles.data(), r_dynamics.particles.size())) return "truncated particles";
-    if (!_read(p_bytes, at, r_dynamics.links.data(), r_dynamics.links.size())) return "truncated links";
-    if (!_read(p_bytes, at, r_dynamics.triangles.data(), r_dynamics.triangles.size())) return "truncated triangles";
-    if (!_read(p_bytes, at, r_dynamics.restore.data(), r_dynamics.restore.size())) return "truncated restore";
-    const auto inside = [](uint64_t p_first, uint64_t p_count, uint64_t p_size) { return p_first + p_count <= p_size; };
-    for (const LMeshCloth& c : r_dynamics.cloths) {
-        if (!inside(c.particle_first, c.particle_count, h.particle_count)) return "cloth particles out of range";
-        if (!inside(c.link_first, (uint64_t)c.stretch_count + c.bend_count, h.link_count)) return "cloth links out of range";
-        if (!inside(c.triangle_first, c.triangle_count, h.triangle_count)) return "cloth triangles out of range";
-        if (!inside(c.restore_first, c.restore_count, h.restore_count)) return "cloth restore out of range";
-        if (c.root_joint != LMESH_CLOTH_NO_ROOT && c.root_joint >= p_joint_count) return "cloth root out of range";
-    }
-    for (const LMeshClothParticle& particle : r_dynamics.particles) {
-        for (int i = 0; i < 4; i++) {
-            if (particle.weights[i] && particle.joints[i] >= p_joint_count) return "particle joint out of range";
-        }
-    }
-    if (p_vertex_count != UINT32_MAX) {
-        for (const LMeshClothRestore& restore : r_dynamics.restore) {
-            if (restore.vertex >= p_vertex_count) return "restore vertex out of range";
-        }
-    }
-    return nullptr;
 }
 
 static bool _counts_sane(const LMeshPayloadHeader& p_h)
@@ -981,22 +920,12 @@ static const char* _open_streamed(std::ifstream& r_file, uint64_t p_file_size, L
 
     const LMeshSection* resident = nullptr;
     const LMeshSection* joint_boxes = nullptr;
-    const LMeshSection* dynamics = nullptr;
     for (const LMeshSection& s : r_data.sections) {
         if (s.offset + s.size > p_file_size || s.offset + s.size < s.offset) return "section out of bounds";
         if (s.type == LMeshSectionType::RASTER_RESIDENT) resident = &s;
         if (s.type == LMeshSectionType::JOINT_BOXES) joint_boxes = &s;
-        if (s.type == LMeshSectionType::DYNAMICS) dynamics = &s;
     }
     if (!resident) return "no raster section";
-    if (dynamics && dynamics->size && r_data.skinned()) {
-        const std::vector<uint8_t> bytes = _read_range(r_file, dynamics->offset, dynamics->size);
-        if (bytes.size() != dynamics->size) return "truncated dynamics";
-        if (const char* why = _parse_dynamics(bytes, (uint32_t)r_data.rig.joints.size(), r_data.header.vertex_count, r_data.rig.dynamics)) {
-            log_write("lmesh: cloth data is unreadable (%s) and was skipped. Reimport the mesh.", why);
-            r_data.rig.dynamics = {};
-        }
-    }
     if (joint_boxes && joint_boxes->size) {
         if (joint_boxes->size % sizeof(LMeshJointBox) || joint_boxes->size / sizeof(LMeshJointBox) > MESH_MAX_JOINTS) return "bad joint boxes";
         const std::vector<uint8_t> boxes = _read_range(r_file, joint_boxes->offset, joint_boxes->size);
@@ -1114,11 +1043,6 @@ bool lmesh_load(const std::filesystem::path& p_bin, LMeshData& r_data, std::stri
                 if (r_data.skinned()) std::copy(page.skin.begin(), page.skin.end(), r_data.skin.begin() + info.vertex_first);
                 if (r_data.wide_slots()) std::copy(page.tri_slots.begin(), page.tri_slots.end(), r_data.tri_slots.begin() + info.tri_first);
             }
-            for (const LMeshSection& s : r_data.sections) {
-                if (why || s.type != LMeshSectionType::CLOTH_PINS || s.size != h.vertex_count) continue;
-                r_data.pins = _read_range(f, s.offset, s.size);
-                if (r_data.pins.size() != h.vertex_count) r_data.pins.clear();
-            }
             if (!why) why = lmesh_validate(r_data);
         }
     }
@@ -1214,8 +1138,6 @@ bool lmesh_read_rig(const std::filesystem::path& p_bin, LMeshRig& r_rig)
     if (!f.read(reinterpret_cast<char*>(block.data() + sizeof(rh)), (std::streamsize)(block.size() - sizeof(rh)))) return false;
     f.close();
     if (!lmesh_parse_rig(block.data(), block.size(), r_rig)) return false;
-    std::vector<uint8_t> dynamics;
-    if (lmesh_read_section(p_bin, LMeshSectionType::DYNAMICS, dynamics) && _parse_dynamics(dynamics, (uint32_t)r_rig.joints.size(), UINT32_MAX, r_rig.dynamics)) r_rig.dynamics = {};
     return true;
 }
 

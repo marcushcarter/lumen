@@ -154,77 +154,7 @@ struct LMeshNode
 
 static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
-enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, DYNAMICS = 7, SKELETON = 8, CLOTH_PINS = 9 };
-
-struct LMeshClothParticle
-{
-    vec3 rest;
-    float max_distance;
-    u8vec4 joints;
-    u8vec4 weights;
-};
-
-static_assert(sizeof(LMeshClothParticle) == 24, "LMeshClothParticle layout changed");
-
-struct LMeshClothLink
-{
-    uint16_t a;
-    uint16_t b;
-    float rest;
-};
-
-static_assert(sizeof(LMeshClothLink) == 8, "LMeshClothLink layout changed");
-
-struct LMeshClothRestore
-{
-    uint32_t vertex;
-    SkinVertex skin;
-};
-
-static_assert(sizeof(LMeshClothRestore) == 12, "LMeshClothRestore layout changed");
-
-inline constexpr uint32_t LMESH_CLOTH_NO_ROOT = 0xFFFFFFFFu;
-
-struct LMeshCloth
-{
-    uint32_t root_joint;
-    uint32_t joint_first;
-    uint32_t particle_first;
-    uint32_t particle_count;
-    uint32_t link_first;
-    uint32_t stretch_count;
-    uint32_t bend_count;
-    uint32_t triangle_first;
-    uint32_t triangle_count;
-    uint32_t restore_first;
-    uint32_t restore_count;
-    uint32_t slot;
-};
-
-static_assert(sizeof(LMeshCloth) == 48, "LMeshCloth layout changed");
-
-struct LMeshDynamicsHeader
-{
-    uint32_t cloth_count;
-    uint32_t particle_count;
-    uint32_t link_count;
-    uint32_t triangle_count;
-    uint32_t restore_count;
-    uint32_t _pad[3];
-};
-
-static_assert(sizeof(LMeshDynamicsHeader) == 32, "LMeshDynamicsHeader layout changed");
-
-struct LMeshDynamics
-{
-    std::vector<LMeshCloth> cloths;
-    std::vector<LMeshClothParticle> particles;
-    std::vector<LMeshClothLink> links;
-    std::vector<u16vec4> triangles;
-    std::vector<LMeshClothRestore> restore;
-
-    bool empty() const { return cloths.empty(); }
-};
+enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, SKELETON = 8 };
 
 struct LMeshJointBox
 {
@@ -260,7 +190,6 @@ struct LMeshRig
     Guid skeleton;
     std::vector<std::string> joints;
     std::vector<mat4> inverse_binds;
-    LMeshDynamics dynamics;
 };
 
 struct LMeshSource
@@ -268,7 +197,6 @@ struct LMeshSource
     std::vector<VertexPosition> positions;
     std::vector<VertexAttributes> attributes;
     std::vector<SkinVertex> skin;
-    std::vector<uint8_t> pins;
     std::vector<uint32_t> indices;
     std::vector<uint32_t> tri_slots;
     std::vector<Cluster> clusters;
@@ -295,7 +223,6 @@ struct LMeshData
     std::vector<ClusterVertex> vertices;
     std::vector<SkinVertex> skin;
     std::vector<uint32_t> tri_slots;
-    std::vector<uint8_t> pins;
     std::vector<uint8_t> skeleton;
     std::vector<uint8_t> collision;
     std::vector<LMeshJointBox> joint_boxes;

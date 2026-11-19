@@ -103,8 +103,6 @@ struct EditorApplication : Application
     void _play_start();
     void on_simulate(float p_dt) override;
     Scene& simulated_scene() override { return play.active() ? play.runtime : scene; }
-    float pose_dt(float p_dt) const override { return play.active() ? play.simulated_dt : p_dt; }
-    DynamicsMode dynamics_mode() const override { return !play.active() ? DynamicsMode::REST : play.simulated_dt > 0.0f ? DynamicsMode::SIMULATE : DynamicsMode::HOLD; }
     void update_camera(float p_dt) override;
     const Camera& active_camera() const override;
     bool renders_scene() const override;

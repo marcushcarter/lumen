@@ -189,7 +189,7 @@ Error Application::_frame()
 
     if (draw_scene) {
         cpu.zone_begin("Poses");
-        poses.update(simulated_scene(), renderer, pose_dt((float)delta), dynamics_mode());
+        poses.update(simulated_scene(), renderer);
         cpu.zone_end();
     }
 

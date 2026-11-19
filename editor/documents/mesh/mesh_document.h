@@ -3,8 +3,6 @@
 #include <core/assets/lcollision.h>
 #include <editor/assets/import/collision_cooker.h>
 #include <editor/assets/rig_preview.h>
-#include <core/animation/dynamics.h>
-#include <core/scene/scene_settings.h>
 #include <editor/documents/asset_document.h>
 #include <editor/ui/ui_style.h>
 #include <IconsFontAwesome6.h>
@@ -35,15 +33,7 @@ struct MeshDocument : AssetDocument
     CollisionView collision;
     int32_t selected_shape = -1;
 
-    std::vector<SkeletonChain> chains;
-    std::vector<SkeletonCloth> cloths;
-    std::vector<SkeletonCollider> colliders;
-    int32_t selected_collider = -1;
     int32_t selected_bone = -1;
-    int32_t selected_slot = -1;
-    uint64_t _dynamics_version = 0;
-    CharacterDynamics _sim;
-    bool _simulating = false;
 
     std::filesystem::file_time_type _stats_time{};
     double _stats_poll = -1.0e9;
@@ -66,17 +56,11 @@ struct MeshDocument : AssetDocument
     int32_t free_source(CollisionType p_type) const;
     void _frame(EditorContext& ctx);
 
-    bool dynamics_dirty() const { return rig_preview.skinned && (chains != rig_preview.skeleton_data().chains || cloths != rig_preview.skeleton_data().cloths || colliders != rig_preview.skeleton_data().colliders); }
-    bool cloth_rebake() const;
-    void push_dynamics(EditorContext& ctx);
-    void _sync_dynamics();
     void _pick_bone(EditorContext& ctx);
-    void _simulate_preview(float p_dt, const PhysicsSettings& p_physics);
     void _draw_bones(DebugDraw& r_draw) const;
-    bool dirty() const override { return shapes_dirty() || dynamics_dirty(); }
+    bool dirty() const override { return shapes_dirty(); }
     Error create(EditorContext& ctx) override;
     Error save(EditorContext& ctx) override;
-    void destroy(EditorContext& ctx) override;
     void on_update(EditorContext& ctx, float p_dt) override;
 };
 

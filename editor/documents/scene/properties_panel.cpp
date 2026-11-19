@@ -181,12 +181,6 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Gravity");
             ImGui::DragFloat("##gravity", &world.physics.gravity, 0.05f, 0.0f, 100.0f, "%.2f m/s2");
             _live("%.2f m/s2", live ? live->physics.gravity : 0.0f);
-            _name("Cloth Simulation Enabled");
-            ImGui::Checkbox("##cloth_enabled", &world.physics.cloth);
-            _live("%s", live ? (live->physics.cloth ? "On" : "Off") : "-");
-            _name("Chain Simulation Enabled");
-            ImGui::Checkbox("##chains_enabled", &world.physics.chains);
-            _live("%s", live ? (live->physics.chains ? "On" : "Off") : "-");
         }
         _section_end();
         ImGui::EndChild();

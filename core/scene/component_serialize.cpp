@@ -99,8 +99,6 @@ void serialize(Archive& a, ShadowSettings& r_c)
 void serialize(Archive& a, PhysicsSettings& r_c)
 {
     a.field("gravity", r_c.gravity);
-    a.field("cloth", r_c.cloth);
-    a.field("chains", r_c.chains);
 }
 
 void serialize(Archive& a, TerrainComponent& r_c)

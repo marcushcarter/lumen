@@ -13,7 +13,6 @@ enum EntityDebug : uint32_t
 {
     ENTITY_DEBUG_COLLISION = 1u << 0,
     ENTITY_DEBUG_BONES = 1u << 1,
-    ENTITY_DEBUG_DYNAMICS = 1u << 2,
 };
 
 struct EntityDebugSource

@@ -1,6 +1,5 @@
 #include <core/game/entity_debug.h>
 #include <core/animation/bone_debug.h>
-#include <core/animation/dynamics.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <algorithm>
@@ -15,16 +14,6 @@ static const CollisionMeshCache::Entry* _model_collision(const Scene& p_scene, E
     if (!p_source.renderer.geometry.get(mesh_index)) return nullptr;
     const Guid mesh = p_source.renderer.geometry.mesh_guids[mesh_index];
     return p_source.meshes->get(mesh, p_source.project->content_path(mesh));
-}
-
-static void _draw_body(DebugDraw& r_draw, const Scene& p_scene, Entity p_entity)
-{
-    const DynamicsComponent* d = p_scene.try_get<DynamicsComponent>(p_entity);
-    if (!d) return;
-    const DebugDraw::Style style{ .color = DebugDraw::CYAN, .category = DebugCategory::COLLISION };
-    for (const DynamicsCollider& c : d->dynamics.colliders) {
-        if (c.radius > 0.0f) r_draw.capsule(c.a, c.b, c.radius, style);
-    }
 }
 
 static void _draw_collision(DebugDraw& r_draw, const Scene& p_scene, Entity p_entity, const EntityDebugSource& p_source)
@@ -43,14 +32,8 @@ static void _draw_collision(DebugDraw& r_draw, const Scene& p_scene, Entity p_en
 void debug_draw_entity(DebugDraw& r_draw, const Scene& p_scene, Entity p_entity, const EntityDebugSource& p_source, uint32_t p_kinds)
 {
     if (!p_scene.valid(p_entity) || p_scene.has<DisabledTag>(p_entity)) return;
-    if (p_kinds & ENTITY_DEBUG_COLLISION) {
-        _draw_collision(r_draw, p_scene, p_entity, p_source);
-        _draw_body(r_draw, p_scene, p_entity);
-    }
+    if (p_kinds & ENTITY_DEBUG_COLLISION) _draw_collision(r_draw, p_scene, p_entity, p_source);
     if (p_kinds & ENTITY_DEBUG_BONES) debug_draw_entity_bones(r_draw, p_scene, p_source.renderer, p_entity);
-    if (p_kinds & ENTITY_DEBUG_DYNAMICS) {
-        if (const DynamicsComponent* d = p_scene.try_get<DynamicsComponent>(p_entity)) d->dynamics.draw(r_draw, p_scene.physics.chains, p_scene.physics.cloth);
-    }
 }
 
 void debug_draw_entities(DebugDraw& r_draw, const Scene& p_scene, const std::vector<Entity>& p_entities, const EntityDebugSource& p_source, uint32_t p_kinds)

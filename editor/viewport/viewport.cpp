@@ -30,7 +30,7 @@
 
 namespace lumen {
 
-static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Cloth & Chains", "Debug Lines", "Everything" };
+static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Debug Lines", "Everything" };
 static_assert(std::size(VIEW_OVERLAY_NAMES) == (size_t)ViewOverlay::COUNT);
 static constexpr uint32_t EDITOR_LINE_MASK = (uint32_t)DebugCategory::GENERAL | (uint32_t)DebugCategory::COLLISION | (uint32_t)DebugCategory::BONES;
 
@@ -141,8 +141,7 @@ uint32_t view_overlay_kinds(ViewOverlay p_overlay)
     switch (p_overlay) {
         case ViewOverlay::COLLISION: return ENTITY_DEBUG_COLLISION;
         case ViewOverlay::BONES: return ENTITY_DEBUG_BONES;
-        case ViewOverlay::CLOTH: return ENTITY_DEBUG_DYNAMICS;
-        case ViewOverlay::EVERYTHING: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_BONES | ENTITY_DEBUG_DYNAMICS;
+        case ViewOverlay::EVERYTHING: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_BONES;
         default: return 0;
     }
 }

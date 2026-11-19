@@ -15,7 +15,7 @@ namespace lumen {
 
 struct EditorPlay;
 
-enum class ViewOverlay : uint8_t { NONE, COLLISION, BONES, CLOTH, DEBUG_LINES, EVERYTHING, COUNT };
+enum class ViewOverlay : uint8_t { NONE, COLLISION, BONES, DEBUG_LINES, EVERYTHING, COUNT };
 
 struct ViewportView
 {

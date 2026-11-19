@@ -275,7 +275,6 @@ bool ModelCooker::_import_skeleton(const Job& p_job, const aiScene* p_scene, LSk
     r_skeleton = {};
     if (!p_job.settings.mesh_settings.load_skeleton || !SkeletonCooker::build(p_scene, p_job.settings.mesh_settings, r_skeleton)) return false;
     r_skeleton.guid = p_job.mesh_guid;
-    SkeletonCooker::load_dynamics(p_job.dst_lmesh, r_skeleton);
     return true;
 }
 
@@ -357,7 +356,7 @@ static CollisionPlan _plan_collision(const ModelCooker::Job& p_job, const aiScen
         plan.settings.type = CollisionType::NONE;
     }
     if (collision_settings_empty(plan.settings)) return plan;
-    plan.cook = CollisionCooker::build(p_scene, plan.settings, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data, CollisionCooker::cloth_slots(p_job.dst_lmesh));
+    plan.cook = CollisionCooker::build(p_scene, plan.settings, MeshCooker::import_matrix(p_job.settings.mesh_settings), plan.data);
     return plan;
 }
 

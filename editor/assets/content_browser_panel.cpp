@@ -1,9 +1,6 @@
 #include <editor/assets/content_browser_panel.h>
-#include <core/assets/lblendspace.h>
-#include <core/assets/llocomotion.h>
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
-#include <core/assets/loverlay.h>
 #include <core/assets/lterrain.h>
 #include <core/assets/lscene.h>
 #include <core/base/strings.h>
@@ -25,12 +22,9 @@
 #include <editor/documents/scene/scene_document.h>
 #include <editor/documents/document_manager.h>
 #include <editor/documents/animation/animation_document.h>
-#include <editor/documents/blend_space/blend_space_document.h>
-#include <editor/documents/locomotion/locomotion_document.h>
 #include <editor/documents/material/material_document.h>
 #include <editor/documents/mesh/mesh_document.h>
 #include <editor/documents/model/model_document.h>
-#include <editor/documents/overlay/overlay_document.h>
 #include <editor/documents/terrain/terrain_document.h>
 #include <editor/documents/texture/texture_document.h>
 #include <editor/ui/ui_style.h>
@@ -59,9 +53,6 @@ static const NewAssetDesc NEW_ASSETS[] = {
     { "Terrain", "New Terrain", ".lterrain" },
     { "Model", "New Model", ".lmodel" },
     { "Material", "New Material", ".lmaterial" },
-    { "Blend Space", "New Blend Space", ".lblendspace" },
-    { "Locomotion", "New Locomotion", ".llocomotion" },
-    { "Overlay", "New Overlay", ".loverlay" },
 };
 static_assert(std::size(NEW_ASSETS) == (size_t)ContentBrowserPanel::NewAsset::COUNT);
 
@@ -76,7 +67,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lblendspace" || ext == ".llocomotion" || ext == ".loverlay" || ext == ".lscene" || ext == ".ltemplate";
+    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lscene" || ext == ".ltemplate";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -105,9 +96,6 @@ const char* ContentBrowserPanel::icon_for(const std::filesystem::path& p_path, b
     if (ext == ".lmodel") return ModelDocument::ICON;
     if (ext == ".lmaterial") return MaterialDocument::ICON;
     if (ext == ".lanim") return AnimationDocument::ICON;
-    if (ext == ".lblendspace") return BlendSpaceDocument::ICON;
-    if (ext == ".llocomotion") return LocomotionDocument::ICON;
-    if (ext == ".loverlay") return OverlayDocument::ICON;
     if (ext == ".lscene") return ICON_FA_EARTH_AMERICAS;
     if (ext == ".lterrain") return TerrainDocument::ICON;
     if (ext == ".ltemplate") return ICON_FA_BOX;
@@ -122,9 +110,6 @@ std::string ContentBrowserPanel::type_name(std::string p_ext)
     if (p_ext == ".lmodel") return "Model";
     if (p_ext == ".lmaterial") return "Material";
     if (p_ext == ".lanim") return "Animation";
-    if (p_ext == ".lblendspace") return "Blend Space";
-    if (p_ext == ".llocomotion") return "Locomotion";
-    if (p_ext == ".loverlay") return "Overlay";
     if (p_ext == ".lscene") return "Scene";
     if (p_ext == ".lterrain") return "Terrain";
     if (p_ext == ".ltemplate") return "Template";
@@ -141,10 +126,7 @@ bool ContentBrowserPanel::open_entry(EditorContext& ctx, const std::filesystem::
         case AssetType::MODEL: ctx.documents->open<ModelDocument>(info.guid)->path = p_path; break;
         case AssetType::MESH: ctx.documents->open<MeshDocument>(info.guid)->path = p_path; break;
         case AssetType::ANIMATION: ctx.documents->open<AnimationDocument>(info.guid)->path = p_path; break;
-        case AssetType::BLEND_SPACE: ctx.documents->open<BlendSpaceDocument>(info.guid)->path = p_path; break;
-        case AssetType::LOCOMOTION: ctx.documents->open<LocomotionDocument>(info.guid)->path = p_path; break;
         case AssetType::TERRAIN: ctx.documents->open<TerrainDocument>(info.guid)->path = p_path; break;
-        case AssetType::OVERLAY: ctx.documents->open<OverlayDocument>(info.guid)->path = p_path; break;
         case AssetType::MATERIAL: ctx.documents->open<MaterialDocument>(info.guid)->path = p_path; break;
         case AssetType::TEXTURE: ctx.documents->open<TextureDocument>(info.guid)->path = p_path; break;
         case AssetType::TEMPLATE:
@@ -881,9 +863,6 @@ void ContentBrowserPanel::_create_asset(EditorContext& ctx, NewAsset p_kind)
         case NewAsset::TERRAIN: { LTerrain a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MODEL: { LModel a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MATERIAL: { LMaterial a; a.guid = Guid::generate(); err = a.save(path); } break;
-        case NewAsset::BLEND_SPACE: { LBlendSpace a; a.guid = Guid::generate(); err = a.save(path); } break;
-        case NewAsset::LOCOMOTION: { LLocomotion a; a.guid = Guid::generate(); err = a.save(path); } break;
-        case NewAsset::OVERLAY: { LOverlay a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::COUNT: break;
     }
     if (err != Error::OK) {

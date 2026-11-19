@@ -551,8 +551,6 @@ void UiStyle::_build_colors()
     color.asset_texture = IM_COL32(226, 96, 86, 255);
     color.asset_skeleton = IM_COL32(214, 206, 180, 255);
     color.asset_animation = IM_COL32(186, 132, 232, 255);
-    color.asset_blend_space = IM_COL32(232, 132, 190, 255);
-    color.asset_locomotion = IM_COL32(240, 150, 110, 255);
     color.asset_overlay = IM_COL32(236, 178, 84, 255);
     color.asset_scene = IM_COL32(122, 156, 240, 255);
     color.asset_terrain = IM_COL32(150, 186, 104, 255);

@@ -28,9 +28,6 @@ struct ProjectManager
         { "Materials", ".lmaterial" },
         { "Textures", ".ltexture" },
         { "Animations", ".lanim" },
-        { "Blend Spaces", ".lblendspace" },
-        { "Locomotion", ".llocomotion" },
-        { "Overlays", ".loverlay" },
     };
     static constexpr uint32_t CONTENT_KIND_COUNT = (uint32_t)(sizeof(CONTENT_KINDS) / sizeof(CONTENT_KINDS[0]));
 

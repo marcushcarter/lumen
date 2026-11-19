@@ -1,7 +1,5 @@
 #include <core/game/orbit_camera_system.h>
 #include <core/game/physics_system.h>
-#include <core/game/character_system.h>
-#include <core/game/character.h>
 #include <core/scene/components.h>
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
@@ -16,6 +14,13 @@ static float _interp(float p_current, float p_target, float p_dt, float p_speed)
     return p_current + (p_target - p_current) * std::clamp(p_dt * p_speed, 0.0f, 1.0f);
 }
 
+static float _wrap(float p_degrees)
+{
+    p_degrees = std::fmod(p_degrees + 180.0f, 360.0f);
+    if (p_degrees < 0.0f) p_degrees += 360.0f;
+    return p_degrees - 180.0f;
+}
+
 static vec3 _look(float p_yaw, float p_pitch)
 {
     const float yaw = glm::radians(p_yaw);
@@ -28,9 +33,8 @@ const PhysicsWorld* OrbitCameraSystem::_physics() const
     return physics && physics->physics.initialized() ? &physics->physics : nullptr;
 }
 
-void OrbitCameraSystem::start(GameSession& r_session)
+void OrbitCameraSystem::start(GameSession&)
 {
-    base_fov = fov = r_session.camera.fov_y;
     target = ENTITY_NULL;
     ready = false;
 }
@@ -45,12 +49,6 @@ void OrbitCameraSystem::stop(GameSession& r_session)
 vec3 OrbitCameraSystem::_pivot_target(Scene& p_world) const
 {
     const OrbitCameraComponent& cam = *p_world.try_get<OrbitCameraComponent>(target);
-    const CharacterStateComponent* state = p_world.try_get<CharacterStateComponent>(target);
-    const CharacterComponent* body = p_world.try_get<CharacterComponent>(target);
-    if (state && body) {
-        const Character& c = state->character;
-        return c.visual_position() + ORBIT_UP * (CharacterSystem::_stance_height(c, *body) * cam.pivot_height);
-    }
     return p_world.world_transform(target).position + ORBIT_UP * cam.pivot_height;
 }
 
@@ -78,15 +76,14 @@ void OrbitCameraSystem::update(GameSession& r_session, float p_dt)
     const OrbitCameraComponent& cam = *world.try_get<OrbitCameraComponent>(target);
     if (!ready) {
         ready = true;
-        const CharacterComponent* body = world.try_get<CharacterComponent>(target);
         const vec3 forward = world.world_transform(target).rotation * vec3(0.0f, 0.0f, 1.0f);
-        yaw = character_wrap(character_yaw_of(forward) - (body ? body->model_yaw : 0.0f));
+        yaw = _wrap(glm::degrees(std::atan2(forward.x, forward.z)));
         pitch = std::clamp(START_PITCH, cam.pitch_min, cam.pitch_max);
         pivot = _pivot_target(world);
         distance = cam.distance;
         shoulder = cam.shoulder;
     }
-    yaw = character_wrap(yaw - r_session.input.look.x);
+    yaw = _wrap(yaw - r_session.input.look.x);
     pitch = std::clamp(pitch - r_session.input.look.y, cam.pitch_min, cam.pitch_max);
     r_session.camera.rotation = quatLookAt(_look(yaw, pitch), ORBIT_UP);
 }
@@ -99,20 +96,16 @@ void OrbitCameraSystem::place(GameSession& r_session, float p_dt)
     const OrbitCameraComponent* cam = world.try_get<OrbitCameraComponent>(target);
     if (!cam) return;
 
-    const CharacterStateComponent* state = world.try_get<CharacterStateComponent>(target);
-    const bool aiming = state && state->character.rotation_mode == RotationMode::AIMING;
-    const bool sprinting = state && state->character.gait == Gait::SPRINTING;
-    distance = _interp(distance, aiming ? cam->aim_distance : cam->distance, p_dt, ZOOM);
-    shoulder = _interp(shoulder, aiming ? cam->aim_shoulder : cam->shoulder, p_dt, ZOOM);
+    distance = _interp(distance, cam->distance, p_dt, ZOOM);
+    shoulder = _interp(shoulder, cam->shoulder, p_dt, ZOOM);
     const vec3 goal = _pivot_target(world);
     pivot.x = _interp(pivot.x, goal.x, p_dt, FOLLOW);
     pivot.z = _interp(pivot.z, goal.z, p_dt, FOLLOW);
     pivot.y = _interp(pivot.y, goal.y, p_dt, FOLLOW_VERTICAL);
-    fov = _interp(fov, base_fov + (sprinting ? glm::radians(cam->sprint_fov) : 0.0f), p_dt, FOV_INTERP);
-    r_session.camera.fov_y = fov;
 
     const vec3 look = _look(yaw, pitch);
-    vec3 eye = pivot - look * distance + character_right(yaw) * shoulder;
+    const float yaw_rad = glm::radians(yaw);
+    vec3 eye = pivot - look * distance + vec3(-std::cos(yaw_rad), 0.0f, std::sin(yaw_rad)) * shoulder;
     if (const PhysicsWorld* pw = _physics()) {
         PhysicsQuery query;
         auto body = physics->bodies.find(PhysicsSystem::key(target));

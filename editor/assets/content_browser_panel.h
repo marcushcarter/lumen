@@ -18,7 +18,7 @@ struct ContentBrowserPanel : Panel
     static constexpr double CACHE_REFRESH_INTERVAL_S = 1.0;
     static constexpr size_t MAX_RESULTS = 2000;
 
-    enum class NewAsset : uint8_t { SCENE, TEMPLATE, TERRAIN, MODEL, MATERIAL, BLEND_SPACE, LOCOMOTION, OVERLAY, COUNT };
+    enum class NewAsset : uint8_t { SCENE, TEMPLATE, TERRAIN, MODEL, MATERIAL, COUNT };
 
     struct Entry {
         std::filesystem::path path;

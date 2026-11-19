@@ -209,11 +209,10 @@ static uint32_t _substeps(float p_dt, uint32_t p_limit, float& r_time, float& r_
     return steps;
 }
 
-void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const LLocomotion& p_body)
+void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig)
 {
     if (key == p_key) return;
     key = p_key;
-    body.bind(p_body, p_skeleton);
     initialized = false;
     colliders.clear();
     boxes.clear();
@@ -294,17 +293,11 @@ void CharacterDynamics::bind(uint64_t p_key, const LSkeleton& p_skeleton, const 
     }
 }
 
-void CharacterDynamics::update_colliders(const LSkeleton& p_skeleton, const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw)
+void CharacterDynamics::update_colliders(const LSkeleton& p_skeleton, const std::vector<mat4>& p_global, const mat4& p_model)
 {
     colliders.clear();
     if (chains.empty() && cloths.empty()) return;
     const float scale = _model_scale(p_model);
-    if (body.valid) {
-        vec3 a[RAGDOLL_PART_COUNT], b[RAGDOLL_PART_COUNT];
-        float radius[RAGDOLL_PART_COUNT];
-        body.capsules(p_global, p_model, p_model_yaw, a, b, radius);
-        for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) colliders.push_back(DynamicsCollider{ a[i], b[i], radius[i] * scale, body.part_joint(i) });
-    }
     for (const SkeletonCollider& c : p_skeleton.colliders) {
         if (c.joint < 0 || c.joint >= (int32_t)p_global.size()) continue;
         const mat4 m = p_model * p_global[c.joint];

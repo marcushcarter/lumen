@@ -378,9 +378,8 @@ void MeshDocument::_simulate_preview(float p_dt, const PhysicsSettings& p_physic
     std::vector<JointTransform> local = skeleton.rest;
     std::vector<mat4>& global = rig_preview._global;
     skeleton.globals(local.data(), global.data());
-    static const LLocomotion DEFAULT_BODY;
-    _sim.bind(key, skeleton, rig_preview.rig, DEFAULT_BODY);
-    _sim.update_colliders(skeleton, global, model, 0.0f);
+    _sim.bind(key, skeleton, rig_preview.rig);
+    _sim.update_colliders(skeleton, global, model);
     if (p_physics.chains) _sim.simulate_chains(skeleton, model, p_dt, p_physics.gravity, local.data(), global);
     else _sim.follow_chains(model, global);
     rig_skin(global, rig_preview.rig, rig_preview._map, rig_preview._skin);

@@ -16,7 +16,6 @@ struct OrbitCameraSystem : GameSystem
     static constexpr float FOLLOW = 15.0f;
     static constexpr float FOLLOW_VERTICAL = 8.0f;
     static constexpr float ZOOM = 8.0f;
-    static constexpr float FOV_INTERP = 4.0f;
     static constexpr float WALL_GAP = 0.05f;
     static constexpr float MIN_DISTANCE = 0.1f;
 
@@ -35,8 +34,6 @@ struct OrbitCameraSystem : GameSystem
     vec3 pivot = vec3(0.0f);
     float distance = 0.0f;
     float shoulder = 0.0f;
-    float base_fov = 0.0f;
-    float fov = 0.0f;
 
     OrbitCameraSystem() { late.owner = this; }
 

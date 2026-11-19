@@ -66,27 +66,17 @@ enum class CharacterController : uint8_t { NONE, PLAYER, AI };
 
 struct CharacterComponent
 {
-    Guid locomotion;
     CharacterController controller = CharacterController::NONE;
-    float radius = 0.3f;
-    float height = 1.8f;
-    float crouch_height = 1.2f;
-    float model_yaw = 0.0f;
-    float max_step_height = 0.45f;
-    float max_slope = 45.0f;
 };
 
 struct OrbitCameraComponent
 {
     float distance = 3.0f;
-    float aim_distance = 1.6f;
     float shoulder = 0.35f;
-    float aim_shoulder = 0.55f;
-    float pivot_height = 0.9f;
+    float pivot_height = 1.6f;
     float radius = 0.2f;
     float pitch_min = -70.0f;
     float pitch_max = 60.0f;
-    float sprint_fov = 5.0f;
 };
 
 struct TerrainComponent

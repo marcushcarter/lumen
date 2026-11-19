@@ -15,9 +15,6 @@
 #include <editor/tools/settings/project_settings_tool.h>
 #include <editor/documents/mesh/mesh_document.h>
 #include <editor/documents/animation/animation_document.h>
-#include <editor/documents/blend_space/blend_space_document.h>
-#include <editor/documents/locomotion/locomotion_document.h>
-#include <editor/documents/overlay/overlay_document.h>
 #include <editor/documents/terrain/terrain_document.h>
 #include <editor/tools/version_control/version_control_tool.h>
 #include <editor/documents/asset_document.h>
@@ -129,7 +126,6 @@ Error EditorApplication::on_init()
     _ctx.play = &play;
     play.physics_system.renderer = &renderer;
     play.physics_system.project = &project;
-    play.character_system.anims = &poses.anims;
     _ctx.pie_is_playing = [this] { return play.active(); };
     _ctx.pie_toggle_play = [this] {
         if (play.active()) play.stop();
@@ -203,9 +199,6 @@ void EditorApplication::on_simulate(float p_dt)
     Viewport& viewport = workspace.scene.viewport;
     play.session.input.read(viewport.game_captured, vec2(viewport.game_look.x, viewport.game_look.y), p_dt);
     viewport.game_look = ImVec2(0.0f, 0.0f);
-    play.character_system.debug_all = false;
-    play.character_system.debug_lines = view_overlay_lines(viewport_view().overlay);
-    play.character_system.debug_entities = viewport.debug_entities;
     play.update(p_dt);
 }
 
@@ -337,9 +330,6 @@ EditorDocument* EditorApplication::_open_document(DocumentKind p_kind, Guid p_gu
         case DocumentKind::TEXTURE: return documents.open<TextureDocument>(p_guid);
         case DocumentKind::MESH: return documents.open<MeshDocument>(p_guid);
         case DocumentKind::ANIMATION: return documents.open<AnimationDocument>(p_guid);
-        case DocumentKind::BLEND_SPACE: return documents.open<BlendSpaceDocument>(p_guid);
-        case DocumentKind::LOCOMOTION: return documents.open<LocomotionDocument>(p_guid);
-        case DocumentKind::OVERLAY: return documents.open<OverlayDocument>(p_guid);
         case DocumentKind::TERRAIN: return documents.open<TerrainDocument>(p_guid);
         default: return nullptr;
     }
@@ -488,11 +478,8 @@ static const char* _document_kind_name(DocumentKind p_kind)
         case DocumentKind::TEXTURE: return "texture";
         case DocumentKind::MESH: return "mesh";
         case DocumentKind::ANIMATION: return "animation";
-        case DocumentKind::BLEND_SPACE: return "blend_space";
-        case DocumentKind::OVERLAY: return "overlay";
         case DocumentKind::TERRAIN: return "terrain";
         case DocumentKind::VERSION_CONTROL: return "version_control";
-        case DocumentKind::LOCOMOTION: return "locomotion";
         case DocumentKind::GPU_PROFILER: return "gpu_profiler";
         case DocumentKind::MEMORY: return "memory";
     }
@@ -501,7 +488,7 @@ static const char* _document_kind_name(DocumentKind p_kind)
 
 static bool _document_kind_from_string(const std::string& p_name, DocumentKind& r_kind)
 {
-    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MODEL, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::BLEND_SPACE, DocumentKind::OVERLAY, DocumentKind::TERRAIN, DocumentKind::VERSION_CONTROL, DocumentKind::LOCOMOTION, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
+    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MODEL, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::TERRAIN, DocumentKind::VERSION_CONTROL, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
     for (DocumentKind k : ALL) {
         if (p_name != _document_kind_name(k)) continue;
         r_kind = k;

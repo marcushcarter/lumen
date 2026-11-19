@@ -1,7 +1,6 @@
 #pragma once
 #include <core/assets/lmesh.h>
 #include <core/assets/lskeleton.h>
-#include <core/game/character_ragdoll.h>
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <vector>
@@ -117,12 +116,11 @@ struct CharacterDynamics
     std::vector<DynamicsCollider> colliders;
     std::vector<DynamicsBox> boxes;
     std::vector<uint8_t> moving;
-    RagdollBody body;
     std::vector<DynamicsChain> chains;
     std::vector<DynamicsCloth> cloths;
 
-    void bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const LLocomotion& p_body);
-    void update_colliders(const LSkeleton& p_skeleton, const std::vector<mat4>& p_global, const mat4& p_model, float p_model_yaw);
+    void bind(uint64_t p_key, const LSkeleton& p_skeleton, const LMeshRig& p_rig);
+    void update_colliders(const LSkeleton& p_skeleton, const std::vector<mat4>& p_global, const mat4& p_model);
     void gather_world(const DynamicsWorld& p_world, uint32_t p_owner, const vec3& p_center, float p_radius, float p_margin);
     void simulate_chains(const LSkeleton& p_skeleton, const mat4& p_model, float p_dt, float p_gravity, JointTransform* r_local, std::vector<mat4>& r_global);
     void simulate_cloth(const LSkeleton& p_skeleton, const LMeshRig& p_rig, const mat4& p_model, float p_dt, float p_gravity, bool p_solve, std::vector<mat4>& r_skin);

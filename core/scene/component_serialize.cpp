@@ -23,29 +23,19 @@ void serialize(Archive& a, ModelComponent& r_c)
 
 void serialize(Archive& a, CharacterComponent& r_c)
 {
-    a.field("locomotion", r_c.locomotion);
     uint32_t controller = (uint32_t)r_c.controller;
     a.field("controller", controller);
     r_c.controller = controller <= (uint32_t)CharacterController::AI ? (CharacterController)controller : CharacterController::NONE;
-    a.field("radius", r_c.radius);
-    a.field("height", r_c.height);
-    a.field("crouch_height", r_c.crouch_height);
-    a.field("model_yaw", r_c.model_yaw);
-    a.field("max_step_height", r_c.max_step_height);
-    a.field("max_slope", r_c.max_slope);
 }
 
 void serialize(Archive& a, OrbitCameraComponent& r_c)
 {
     a.field("distance", r_c.distance);
-    a.field("aim_distance", r_c.aim_distance);
     a.field("shoulder", r_c.shoulder);
-    a.field("aim_shoulder", r_c.aim_shoulder);
     a.field("pivot_height", r_c.pivot_height);
     a.field("radius", r_c.radius);
     a.field("pitch_min", r_c.pitch_min);
     a.field("pitch_max", r_c.pitch_max);
-    a.field("sprint_fov", r_c.sprint_fov);
 }
 
 void serialize(Archive& a, CollisionComponent& r_c)

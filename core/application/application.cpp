@@ -337,7 +337,7 @@ Error Application::project_load(const std::filesystem::path &p_root)
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = renderer.load(project.content_dir, authoring ? project.assets_dir : std::filesystem::path{});
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    poses.load(project.content_dir, authoring ? project.assets_dir : std::filesystem::path{});
+    poses.clear();
     err = scene.load();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 

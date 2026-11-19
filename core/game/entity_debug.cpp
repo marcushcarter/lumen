@@ -1,6 +1,5 @@
 #include <core/game/entity_debug.h>
 #include <core/animation/bone_debug.h>
-#include <core/game/character.h>
 #include <core/animation/dynamics.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
@@ -38,15 +37,6 @@ static void _draw_collision(DebugDraw& r_draw, const Scene& p_scene, Entity p_en
         } else {
             for (uint32_t i = 0; i < std::min(collision->shape_count, COLLISION_MAX_SHAPES); i++) debug_draw_collision_shape(r_draw, world, collision->shapes[i], style);
         }
-    }
-
-    if (const CharacterComponent* body = p_scene.try_get<CharacterComponent>(p_entity)) {
-        const CharacterStateComponent* state = p_scene.try_get<CharacterStateComponent>(p_entity);
-        const vec3 base = state ? state->character.position : vec3(p_scene.world_matrix(p_entity)[3]);
-        const float height = state && state->character.stance == Stance::CROUCHING ? body->crouch_height : body->height;
-        const float radius = std::min(body->radius, height * 0.5f);
-        const vec3 up(0.0f, 1.0f, 0.0f);
-        r_draw.capsule(base + up * radius, base + up * (height - radius), radius, DebugDraw::Style{ .color = DebugDraw::YELLOW, .category = DebugCategory::COLLISION });
     }
 }
 

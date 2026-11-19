@@ -1,5 +1,4 @@
 #include <core/animation/pose_system.h>
-#include <core/game/character.h>
 #include <core/animation/skinning.h>
 #include <core/base/hash.h>
 #include <core/physics/collision_preview.h>
@@ -10,17 +9,9 @@
 
 namespace lumen {
 
-void PoseSystem::load(const std::filesystem::path& p_content_dir, const std::filesystem::path& p_assets_dir)
-{
-    clear();
-    anims.load(p_content_dir, p_assets_dir);
-}
-
 void PoseSystem::clear()
 {
-    anims.clear();
     bindings.clear();
-    _proxies.clear();
     _world.clear();
     _consumers.clear();
     geometry_version = UINT64_MAX;
@@ -45,7 +36,6 @@ const PoseSystem::Binding* PoseSystem::_binding(const Renderer& p_renderer, uint
 
 void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt, DynamicsMode p_mode)
 {
-    anims.tick(p_dt);
     _mode = p_mode;
     _view = relevance_view(p_renderer.main_view.camera);
     _view.shadow = normalize(EnvironmentSettings::SUN_DIRECTION);
@@ -54,7 +44,6 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt, 
     });
     if (geometry_version != p_renderer.geometry.version || skeleton_version != p_renderer.skeletons.version) {
         bindings.clear();
-        anims.unbind();
         geometry_version = p_renderer.geometry.version;
         skeleton_version = p_renderer.skeletons.version;
     }
@@ -86,11 +75,10 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt, 
     });
     for (Entity e : dynamic) r_world.add<DynamicsComponent>(e);
 
-    _frame++;
     _gather_consumers(r_world, p_renderer);
     _build_world(r_world, p_renderer);
 
-    r_world.view<ModelComponent, PoseComponent, DynamicsComponent>(Exclude<StaticTag, DisabledTag, CharacterStateComponent>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent& r_pose, DynamicsComponent& r_dynamics) {
+    r_world.view<ModelComponent, PoseComponent, DynamicsComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent& r_pose, DynamicsComponent& r_dynamics) {
         if (r_pose.skin.empty()) return;
         uint32_t mesh_index, slot_base;
         p_renderer.models.lookup(p_model.model, mesh_index, slot_base);
@@ -101,49 +89,7 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer, float p_dt, 
         _local = skeleton->skeleton.rest;
         _global = skeleton->rest_global;
         const mat4 model = r_world.world_matrix(p_entity);
-        _simulate(r_dynamics.dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], model, _mesh_radius(p_renderer, mesh_index, model), p_dt, r_world.physics, _body_of(r_world, p_entity), p_entity.index, r_pose);
-    });
-
-    r_world.view<ModelComponent, PoseComponent, CharacterStateComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const ModelComponent& p_model, PoseComponent& r_pose, CharacterStateComponent& r_state) {
-        if (r_pose.skin.empty()) return;
-        const LLocomotion* locomotion = anims.locomotion(r_state.character.asset);
-        if (!locomotion) return;
-        uint32_t mesh_index, slot_base;
-        p_renderer.models.lookup(p_model.model, mesh_index, slot_base);
-        const LMeshRig* rig = p_renderer.geometry.rig(mesh_index);
-        const Binding* binding = _binding(p_renderer, mesh_index);
-        const SkeletonCache::Entry* skeleton = rig ? p_renderer.skeletons.get(rig->skeleton) : nullptr;
-        if (!binding || !skeleton) return;
-        const uint32_t joints = skeleton->skeleton.joint_count();
-        CharacterRagdoll& ragdoll = r_state.character.ragdoll;
-        ragdoll.bind(*locomotion, skeleton->skeleton);
-        if (ragdoll.state == RagdollState::ACTIVE && ragdoll.snapshot.size() == joints) {
-            _local = ragdoll.snapshot;
-            ragdoll.apply_pose(skeleton->skeleton, _local.data(), _global);
-            ragdoll.record(_local.data(), _global, p_dt);
-        } else {
-            anims.skeleton = &skeleton->skeleton;
-            r_state.character.action.bind(anims, skeleton->skeleton);
-            _local = skeleton->skeleton.rest;
-            const bool posed = character_pose(*locomotion, r_state.character, anims, evaluator, skeleton->skeleton, p_dt, _local.data());
-            if (posed && ragdoll.state == RagdollState::GETTING_UP) {
-                ragdoll.apply_get_up(anims, joints, p_dt, _local.data());
-                r_state.character.ik.started = false;
-            }
-            anims.skeleton = nullptr;
-            if (!posed) return;
-            character_foot_ik(*locomotion, r_state.character, skeleton->skeleton, _local.data(), _global);
-            _global.resize(joints);
-            skeleton->skeleton.globals(_local.data(), _global.data());
-            ragdoll.record(_local.data(), _global, p_dt);
-        }
-
-        const mat4 model = r_world.world_matrix(p_entity);
-        if (!_consumers.empty()) _record_proxy(p_entity, *locomotion, skeleton->skeleton, r_state.character.asset, model, r_state.character.model_yaw);
-        if (DynamicsComponent* dynamics = r_world.try_get<DynamicsComponent>(p_entity)) {
-            _simulate(dynamics->dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], model, _mesh_radius(p_renderer, mesh_index, model), p_dt, r_world.physics, Body{ locomotion, r_state.character.asset, r_state.character.model_yaw }, p_entity.index, r_pose);
-        }
-        else rig_skin(_global, *rig, binding->map, r_pose.skin);
+        _simulate(r_dynamics.dynamics, skeleton->skeleton, *rig, binding->map, p_renderer.geometry.mesh_guids[mesh_index], model, _mesh_radius(p_renderer, mesh_index, model), p_dt, r_world.physics, p_entity.index, r_pose);
     });
 }
 
@@ -196,56 +142,12 @@ void PoseSystem::_gather_consumers(Scene& r_world, const Renderer& p_renderer)
     });
 }
 
-void PoseSystem::_record_proxy(Entity p_entity, const LLocomotion& p_locomotion, const LSkeleton& p_skeleton, Guid p_asset, const mat4& p_model, float p_model_yaw)
-{
-    if (_global.size() != p_skeleton.joint_count()) return;
-    Proxy& proxy = _proxies[p_entity.index];
-    const uint64_t key = hash_combine(hash_combine(p_skeleton.guid.value, p_asset.value), skeleton_version);
-    if (proxy.key != key || proxy.generation != p_entity.generation) {
-        proxy.key = key;
-        proxy.generation = p_entity.generation;
-        proxy.body.bind(p_locomotion, p_skeleton);
-    }
-    if (!proxy.body.valid) return;
-    vec3 a[RAGDOLL_PART_COUNT], b[RAGDOLL_PART_COUNT];
-    proxy.body.capsules(_global, p_model, p_model_yaw, a, b, proxy.radius);
-    const mat4 inv = inverse(p_model);
-    for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) {
-        proxy.a[i] = vec3(inv * vec4(a[i], 1.0f));
-        proxy.b[i] = vec3(inv * vec4(b[i], 1.0f));
-    }
-    proxy.frame = _frame;
-}
-
 void PoseSystem::_build_world(Scene& r_world, const Renderer& p_renderer)
 {
-    static constexpr float DEFAULT_RADIUS = 0.3f;
-    static constexpr float DEFAULT_HEIGHT = 1.8f;
-    static constexpr uint64_t PROXY_KEEP_FRAMES = 120;
     _world.clear();
-    std::erase_if(_proxies, [&](const auto& p_item) { return p_item.second.frame + PROXY_KEEP_FRAMES < _frame; });
     if (_consumers.empty()) return;
 
-    r_world.view<CharacterStateComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const CharacterStateComponent&) {
-        const mat4 model = r_world.world_matrix(p_entity);
-        const CharacterComponent* body = r_world.try_get<CharacterComponent>(p_entity);
-        const float scale = _max_scale(model);
-        const float radius = (body ? body->radius : DEFAULT_RADIUS) * scale;
-        const float height = std::max((body ? body->height : DEFAULT_HEIGHT) * scale, 2.0f * radius);
-        const vec3 base = vec3(model[3]);
-        if (!_touches(base + vec3(0.0f, height * 0.5f, 0.0f), height)) return;
-        _world.begin(p_entity.index);
-        const auto it = _proxies.find(p_entity.index);
-        if (it != _proxies.end() && it->second.generation == p_entity.generation && it->second.frame + 1 >= _frame && it->second.body.valid) {
-            const Proxy& proxy = it->second;
-            for (uint32_t i = 0; i < RAGDOLL_PART_COUNT; i++) _world.capsule(vec3(model * vec4(proxy.a[i], 1.0f)), vec3(model * vec4(proxy.b[i], 1.0f)), proxy.radius[i] * scale);
-        } else {
-            _world.capsule(base + vec3(0.0f, radius, 0.0f), base + vec3(0.0f, height - radius, 0.0f), radius);
-        }
-        _world.end();
-    });
-
-    r_world.view<CollisionComponent>(Exclude<DisabledTag, CharacterStateComponent>{}, [&](Entity p_entity, const CollisionComponent& p_collision) {
+    r_world.view<CollisionComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const CollisionComponent& p_collision) {
         if (p_collision.motion == PhysicsMotion::STATIC || p_collision.trigger) return;
         const mat4 m = r_world.world_matrix(p_entity);
         const float scale = _max_scale(m);
@@ -304,11 +206,10 @@ float PoseSystem::_mesh_radius(const Renderer& p_renderer, uint32_t p_mesh_index
     return mesh->bounds_sphere.w * scale;
 }
 
-void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_radius, float p_dt, const PhysicsSettings& p_settings, const Body& p_body, uint32_t p_owner, PoseComponent& r_pose)
+void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_skeleton, const LMeshRig& p_rig, const std::vector<int32_t>& p_map, Guid p_mesh, const mat4& p_model, float p_radius, float p_dt, const PhysicsSettings& p_settings, uint32_t p_owner, PoseComponent& r_pose)
 {
-    static const LLocomotion DEFAULT_BODY;
-    const uint64_t key = hash_combine(hash_combine(hash_combine(p_mesh.value, p_rig.skeleton.value), skeleton_version ^ (geometry_version << 1)), p_body.asset.value);
-    r_dynamics.bind(key, p_skeleton, p_rig, p_body.names ? *p_body.names : DEFAULT_BODY);
+    const uint64_t key = hash_combine(hash_combine(p_mesh.value, p_rig.skeleton.value), skeleton_version ^ (geometry_version << 1));
+    r_dynamics.bind(key, p_skeleton, p_rig);
 
     const bool enabled_chains = p_settings.chains && _mode != DynamicsMode::REST;
     const bool enabled_cloth = p_settings.cloth && _mode != DynamicsMode::REST;
@@ -335,7 +236,7 @@ void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_ske
     }
 
     if (active && (enabled_chains || enabled_cloth)) {
-        r_dynamics.update_colliders(p_skeleton, _global, p_model, p_body.model_yaw);
+        r_dynamics.update_colliders(p_skeleton, _global, p_model);
         if (!_world.sources.empty()) {
             const float reach = dynamics_reach(p_skeleton);
             r_dynamics.gather_world(_world, p_owner, vec3(p_model[3]), 2.0f * p_radius + reach, reach);
@@ -346,13 +247,6 @@ void PoseSystem::_simulate(CharacterDynamics& r_dynamics, const LSkeleton& p_ske
     rig_skin(_global, p_rig, p_map, r_pose.skin);
     r_dynamics.simulate_cloth(p_skeleton, p_rig, p_model, dt, p_settings.gravity, enabled_cloth, r_pose.skin);
     r_dynamics.finish(p_model);
-}
-
-PoseSystem::Body PoseSystem::_body_of(const Scene& p_world, Entity p_entity)
-{
-    const CharacterComponent* body = p_world.try_get<CharacterComponent>(p_entity);
-    if (!body) return {};
-    return Body{ anims.locomotion(body->locomotion), body->locomotion, body->model_yaw };
 }
 
 }

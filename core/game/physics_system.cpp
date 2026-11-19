@@ -146,8 +146,8 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
     std::vector<SyncItem>& items = _items;
     items.clear();
     const auto gather = [&](Entity p_entity, const TransformComponent&, const CollisionComponent& p_collision) { items.push_back({ p_entity, p_collision }); };
-    if (full) r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag, CharacterComponent>{}, gather);
-    else r_world.view<TransformComponent, CollisionComponent>(Exclude<StaticTag, DisabledTag, CharacterComponent>{}, gather);
+    if (full) r_world.view<TransformComponent, CollisionComponent>(Exclude<DisabledTag>{}, gather);
+    else r_world.view<TransformComponent, CollisionComponent>(Exclude<StaticTag, DisabledTag>{}, gather);
 
     bool static_failed = false;
     if (full) _statics.clear();

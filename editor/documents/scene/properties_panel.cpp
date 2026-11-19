@@ -391,32 +391,8 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
                 loco->controller = (CharacterController)controller;
                 changed = true;
             }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Player gets the input and the camera in play. AI stands still until NPC behaviour exists.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Player gets the input and the camera in play.");
             _live("%s", ll ? CONTROLLERS[(int)ll->controller] : "-");
-            _name("Locomotion");
-            changed |= asset_field(ctx, "", "###locomotion_asset", loco->locomotion, AssetType::LOCOMOTION);
-            _live("-");
-            _name("Height");
-            changed |= ImGui::DragFloat("##height", &loco->height, 0.01f, 0.5f, 4.0f, "%.2f m");
-            _live_float(ll != nullptr, ll ? ll->height : 0.0f, " m");
-            _name("Crouch Height");
-            changed |= ImGui::DragFloat("##crouch_height", &loco->crouch_height, 0.01f, 0.3f, loco->height, "%.2f m");
-            _live_float(ll != nullptr, ll ? ll->crouch_height : 0.0f, " m");
-            _name("Radius");
-            changed |= ImGui::DragFloat("##radius", &loco->radius, 0.005f, 0.05f, 1.0f, "%.2f m");
-            _live_float(ll != nullptr, ll ? ll->radius : 0.0f, " m");
-            _name("Max Step Height");
-            changed |= ImGui::DragFloat("##max_step", &loco->max_step_height, 0.005f, 0.0f, 1.0f, "%.2f m");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Tallest ledge or stair the character walks up without jumping");
-            _live_float(ll != nullptr, ll ? ll->max_step_height : 0.0f, " m");
-            _name("Max Slope");
-            changed |= ImGui::DragFloat("##max_slope", &loco->max_slope, 0.5f, 1.0f, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Steepest slope the character can walk up. Steeper ground makes it slide.");
-            _live_float(ll != nullptr, ll ? ll->max_slope : 0.0f, " deg");
-            _name("Model Yaw");
-            changed |= ImGui::DragFloat("##model_yaw", &loco->model_yaw, 1.0f, -180.0f, 180.0f, "%.0f deg");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turn this if the model faces the wrong way in game");
-            _live_float(ll != nullptr, ll ? ll->model_yaw : 0.0f, " deg");
             if (changed) world.touch(e);
         }
         if (remove) world.deferred_remove<CharacterComponent>(e);
@@ -432,20 +408,13 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Distance");
             changed |= ImGui::DragFloat("##orbit_distance", &orbit->distance, 0.01f, 0.1f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
             _live_float(lo != nullptr, lo ? lo->distance : 0.0f, " m");
-            _name("Aim Distance");
-            changed |= ImGui::DragFloat("##orbit_aim_distance", &orbit->aim_distance, 0.01f, 0.1f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Distance while a character target is aiming");
-            _live_float(lo != nullptr, lo ? lo->aim_distance : 0.0f, " m");
             _name("Shoulder Offset");
             changed |= ImGui::DragFloat("##orbit_shoulder", &orbit->shoulder, 0.01f, -5.0f, 5.0f, "%.2f m");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Sideways offset of the camera. Negative puts it over the left shoulder.");
             _live_float(lo != nullptr, lo ? lo->shoulder : 0.0f, " m");
-            _name("Aim Shoulder Offset");
-            changed |= ImGui::DragFloat("##orbit_aim_shoulder", &orbit->aim_shoulder, 0.01f, -5.0f, 5.0f, "%.2f m");
-            _live_float(lo != nullptr, lo ? lo->aim_shoulder : 0.0f, " m");
             _name("Pivot Height");
             changed |= ImGui::DragFloat("##orbit_pivot", &orbit->pivot_height, 0.01f, -10.0f, 10.0f, "%.2f");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where the camera looks. On a character it's a share of the current stance height (0.9 is near the head). On anything else it's metres above the entity.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where the camera looks, in metres above the entity.");
             _live_float(lo != nullptr, lo ? lo->pivot_height : 0.0f);
             _name("Collision Radius");
             changed |= ImGui::DragFloat("##orbit_radius", &orbit->radius, 0.005f, 0.0f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
@@ -457,10 +426,6 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Pitch Max");
             changed |= ImGui::DragFloat("##orbit_pitch_max", &orbit->pitch_max, 0.5f, orbit->pitch_min, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
             _live_float(lo != nullptr, lo ? lo->pitch_max : 0.0f, " deg");
-            _name("Sprint FOV Boost");
-            changed |= ImGui::DragFloat("##orbit_sprint_fov", &orbit->sprint_fov, 0.1f, 0.0f, 30.0f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Extra field of view while a character target sprints");
-            _live_float(lo != nullptr, lo ? lo->sprint_fov : 0.0f, " deg");
             if (changed) world.touch(e);
         }
         if (remove) world.deferred_remove<OrbitCameraComponent>(e);

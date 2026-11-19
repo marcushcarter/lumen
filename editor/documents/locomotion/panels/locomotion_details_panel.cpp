@@ -131,7 +131,7 @@ static void _tooltip(const char* p_text)
 void LocomotionDetailsPanel::_draw_pad()
 {
     const LLocomotion& c = tab->character;
-    const float limit = std::max({ c.standing.sprint_speed, c.crouching.sprint_speed, 0.1f }) * (1.0f + PAD_MARGIN);
+    const float limit = std::max({ c.standing.sprint_speed, c.crouching.walk_speed, 0.1f }) * (1.0f + PAD_MARGIN);
     const UiStyle& ui = ui_style();
     const float size = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize() * 14.0f);
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -197,7 +197,7 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
 
     if (_category("Preview")) {
         Character& st = tab->state;
-        const float limit = std::max({ c.standing.sprint_speed, c.crouching.sprint_speed, 0.1f }) * (1.0f + PAD_MARGIN);
+        const float limit = std::max({ c.standing.sprint_speed, c.crouching.walk_speed, 0.1f }) * (1.0f + PAD_MARGIN);
         if (_row("Play")) ImGui::Checkbox("##play", &tab->playing);
         if (_row("Speed")) ImGui::SliderFloat("##speed", &tab->preview_speed, 0.0f, limit, "%.2f m/s");
         if (_row("Direction")) ImGui::SliderFloat("##direction", &tab->preview_direction, -180.0f, 180.0f, "%.0f deg");
@@ -253,9 +253,14 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
             _pair(ctx, "Turn 180", st.turns[(uint32_t)TurnClip::LEFT_180], st.turns[(uint32_t)TurnClip::RIGHT_180], AssetType::ANIMATION);
             _pair(ctx, "Rotate", st.rotate_left, st.rotate_right, AssetType::ANIMATION);
             _tooltip("Looping clip played while aiming and the camera is more than 50 degrees to the side");
-            if (_row("Walk Speed")) ImGui::DragFloat("##walk_speed", &st.walk_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
-            if (_row("Run Speed")) ImGui::DragFloat("##run_speed", &st.run_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
-            if (_row("Sprint Speed")) ImGui::DragFloat("##sprint_speed", &st.sprint_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+            if (s == 0) {
+                if (_row("Walk Speed")) ImGui::DragFloat("##walk_speed", &st.walk_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+                if (_row("Run Speed")) ImGui::DragFloat("##run_speed", &st.run_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+                if (_row("Sprint Speed")) ImGui::DragFloat("##sprint_speed", &st.sprint_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+            } else if (_row("Speed")) {
+                ImGui::DragFloat("##walk_speed", &st.walk_speed, 0.01f, 0.1f, 30.0f, "%.2f m/s");
+                st.run_speed = st.sprint_speed = st.walk_speed;
+            }
             if (_row("Acceleration")) ImGui::DragFloat("##acceleration", &st.acceleration, 0.1f, 0.1f, 200.0f, "%.1f m/s2");
             if (_row("Braking")) ImGui::DragFloat("##braking", &st.braking, 0.1f, 0.1f, 200.0f, "%.1f m/s2");
             if (_row("Rotation Rate")) {
@@ -281,6 +286,8 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         }
         _asset(ctx, "Fall", c.fall, AssetType::ANIMATION);
         _asset(ctx, "Fall Fast", c.fall_fast, AssetType::ANIMATION);
+        _asset(ctx, "Fall Low", c.fall_low, AssetType::ANIMATION);
+        _tooltip("Legs reaching for the ground, blended in as the landing gets close");
         if (_row("Fast Fall Speed")) {
             ImGui::DragFloat("##fast_fall_speed", &c.fast_fall_speed, 0.1f, 0.0f, 60.0f, "%.1f m/s");
             _tooltip("Falling faster than this switches to Fall Fast");

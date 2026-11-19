@@ -192,7 +192,7 @@ static void _update_directions(CharacterAnim& r_anim, float p_direction, bool p_
     r_anim.idle = p_snap ? idle : _interp(r_anim.idle, idle, p_dt, CharacterAnim::IDLE_INTERP);
 }
 
-static bool _stance_pose(const CharacterStance& p_stance, CharacterAnim& r_anim, float& r_phase, float p_max_rate, ClipProvider& r_assets, AnimEvaluator& r_evaluator, const LSkeleton& p_skeleton, float p_speed, float p_dt, JointTransform* r_pose)
+static bool _stance_pose(const CharacterStance& p_stance, CharacterAnim& r_anim, float& r_phase, float& r_phase_speed, float p_rush, float p_max_rate, ClipProvider& r_assets, AnimEvaluator& r_evaluator, const LSkeleton& p_skeleton, float p_speed, float p_dt, JointTransform* r_pose)
 {
     const uint32_t joints = p_skeleton.joint_count();
     const float* vb = r_anim.velocity_blend;
@@ -233,7 +233,8 @@ static bool _stance_pose(const CharacterStance& p_stance, CharacterAnim& r_anim,
     if (total > 0.0f) {
         const float speed = animated / total;
         r_anim.play_rate = speed > 0.0f ? std::clamp(p_speed / speed, 0.0f, p_max_rate) : 1.0f;
-        r_phase += p_dt * r_anim.play_rate / (duration / total);
+        r_phase_speed = r_anim.play_rate / (duration / total);
+        r_phase += p_dt * r_phase_speed * p_rush;
         r_phase -= std::floor(r_phase);
     }
 
@@ -782,6 +783,26 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
     const float diagonal = 2.0f * std::min(fb, lr) * CharacterAnim::DIAGONAL_SCALE * (1.0f - an.idle) * (1.0f - an.air_weight);
     const float alpha = p_asset.foot_ik ? ik.alpha : 0.0f;
     if (alpha <= BLEND_MIN_WEIGHT && diagonal <= BLEND_MIN_WEIGHT && !swaying) return;
+    vec3 targets[2] = { vec3(0.0f), vec3(0.0f) };
+    float need = 0.0f;
+    const vec3 travel_flat = inverse(angleAxis(glm::radians(r_character.yaw + r_character.model_yaw), vec3(0.0f, 1.0f, 0.0f))) * vec3(r_character.velocity.x, 0.0f, r_character.velocity.z);
+    const bool travelling = length(travel_flat) > FootIK::TRAIL_MIN_SPEED;
+    const vec3 travel_dir = travelling ? normalize(travel_flat) : vec3(0.0f);
+    for (int i = 0; i < 2; i++) {
+        const vec3 a = vec3(r_global[ik.thigh[i]][3]);
+        const vec3 b = vec3(r_global[ik.calf[i]][3]);
+        const vec3 c = vec3(r_global[ik.foot[i]][3]);
+        const vec3 pelvis_position = vec3(r_global[ik.pelvis][3]);
+        const vec3 inward(pelvis_position.x - c.x, 0.0f, pelvis_position.z - c.z);
+        targets[i] = c + ik.offset[i] * alpha + inward * diagonal - sway_shift[i];
+        const float extend = (length(b - a) + length(c - b)) * FootIK::LEG_EXTEND;
+        const vec3 to_target = targets[i] - a;
+        const float across = length(vec3(to_target.x, 0.0f, to_target.z));
+        const float behind = travelling ? -dot(vec3(to_target.x, 0.0f, to_target.z), travel_dir) : 0.0f;
+        const float trail = std::clamp(1.0f - behind / FootIK::TRAIL_FADE, 0.0f, 1.0f);
+        if (across < extend) need = std::max(need, (-to_target.y - std::sqrt(extend * extend - across * across)) * ik.plant_weight[i] * trail);
+    }
+    ik.pelvis_need = -std::min(need, FootIK::MAX_PELVIS_DROP);
     if (ik.pelvis_offset != 0.0f) {
         const int32_t parent = p_skeleton.parents[ik.pelvis];
         const vec3 moved = vec3(r_global[ik.pelvis][3]) + vec3(0.0f, ik.pelvis_offset * alpha, 0.0f);
@@ -789,13 +810,13 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
         _refresh(p_skeleton, r_local, r_global, ik.pelvis);
     }
 
+    const vec3 ahead = angleAxis(glm::radians(-r_character.model_yaw), vec3(0.0f, 1.0f, 0.0f)) * vec3(0.0f, 0.0f, 1.0f);
+    const vec3 lateral = normalize(cross(vec3(0.0f, 1.0f, 0.0f), ahead));
     for (int i = 0; i < 2; i++) {
         const vec3 a = vec3(r_global[ik.thigh[i]][3]);
         const vec3 b = vec3(r_global[ik.calf[i]][3]);
         const vec3 c = vec3(r_global[ik.foot[i]][3]);
-        const vec3 pelvis_position = vec3(r_global[ik.pelvis][3]);
-        const vec3 inward(pelvis_position.x - c.x, 0.0f, pelvis_position.z - c.z);
-        const vec3 target = c + ik.offset[i] * alpha + inward * diagonal - sway_shift[i];
+        const vec3 target = targets[i];
         const float upper = length(b - a);
         const float lower = length(c - b);
         if (upper < 1.0e-4f || lower < 1.0e-4f) continue;
@@ -804,7 +825,10 @@ void character_foot_ik(const LLocomotion& p_asset, Character& r_character, const
         const float reach = std::clamp(length(to_target), std::fabs(upper - lower) + 1.0e-3f, upper + lower - 1.0e-3f);
         const vec3 dir = length(to_target) > 1.0e-5f ? normalize(to_target) : normalize(c - a);
         vec3 bend = (b - a) - dir * dot(b - a, dir);
-        if (length(bend) < 1.0e-5f) bend = cross(dir, vec3(1.0f, 0.0f, 0.0f));
+        bend -= lateral * (dot(bend, lateral) * FootIK::KNEE_LATERAL_CUT);
+        const vec3 pole = ahead - dir * dot(ahead, dir);
+        if (length(pole) > 1.0e-4f) bend += normalize(pole) * FootIK::KNEE_POLE;
+        if (length(bend) < 1.0e-5f) bend = cross(dir, lateral);
         bend = normalize(bend);
         const float cos_a = std::clamp((upper * upper + reach * reach - lower * lower) / (2.0f * upper * reach), -1.0f, 1.0f);
         const vec3 knee = a + dir * (upper * cos_a) + bend * (upper * std::sqrt(std::max(1.0f - cos_a * cos_a, 0.0f)));
@@ -835,6 +859,8 @@ static void _air_start(CharacterAnim& r_anim, SideClip p_clip, bool p_loop, floa
         r_anim.air_current.loop = p_loop;
         return;
     }
+    r_anim.air_frozen = r_anim.air_fade < 1.0f && r_anim.air_previous.clip.valid() && r_anim.air_weight > BLEND_MIN_WEIGHT && !r_anim._air_pose.empty();
+    if (r_anim.air_frozen) r_anim._air_frozen = r_anim._air_pose;
     r_anim.air_previous = r_anim.air_current;
     r_anim.air_current = AirClip{ p_clip.clip, p_clip.mirror, 0.0f, p_rate, p_loop };
     r_anim.air_fade = r_anim.air_previous.clip.valid() ? 0.0f : 1.0f;
@@ -863,7 +889,7 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
     const float speed = r_character.speed;
 
     if (r_character.jumped) {
-        const bool left = (a.stand_phase < 0.5f) != p_asset.flip_feet;
+        const bool left = r_character.jump_foot >= 0 ? r_character.jump_foot == 0 : (a.stand_phase < 0.5f) != p_asset.flip_feet;
         const CharacterStance& stance = p_asset.standing;
         const bool walking = speed <= stance.walk_speed + CharacterAnim::JUMP_WALK_MARGIN;
         const SideClip walk = left ? side_clip(p_asset.jump_walk_left, p_asset.jump_walk_right) : side_clip(p_asset.jump_walk_right, p_asset.jump_walk_left);
@@ -897,16 +923,17 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
             const BoundClip takeoff = r_assets.clip(a.air_current.clip);
             const bool done = !takeoff.valid() || a.air_current.time >= takeoff.clip->duration;
             if (done) {
-                if (r_character.velocity.y > 0.0f && p_asset.jump_loop.valid()) {
+                const bool falling = r_character.velocity.y < -CharacterAnim::FALL_START_SPEED;
+                if (!falling && p_asset.jump_loop.valid()) {
                     a.air_state = AirState::RISE;
                     _air_start(a, SideClip{ p_asset.jump_loop }, true, 1.0f, CharacterAnim::AIR_RISE_FADE);
-                } else if (_fall_clip(p_asset, r_character).valid()) {
+                } else if (falling && _fall_clip(p_asset, r_character).valid()) {
                     a.air_state = AirState::FALL;
                     _air_start(a, _fall_clip(p_asset, r_character), true, 1.0f, CharacterAnim::AIR_FALL_FADE);
                 }
             }
         }
-        if (a.air_state == AirState::RISE && r_character.velocity.y <= 0.0f) {
+        if (a.air_state == AirState::RISE && r_character.velocity.y < -CharacterAnim::FALL_START_SPEED) {
             a.air_state = AirState::FALL;
             _air_start(a, _fall_clip(p_asset, r_character), true, 1.0f, CharacterAnim::AIR_FALL_FADE);
         }
@@ -931,6 +958,14 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
     _air_advance(a.air_previous, r_assets, p_dt);
     a.air_fade = std::min(a.air_fade + p_dt / std::max(a.air_fade_time, 1.0e-3f), 1.0f);
 
+    float low = 0.0f;
+    if (airborne && a.air_state == AirState::FALL && r_character.land_known && p_asset.fall_low.valid()) {
+        const float k = 1.0f - std::clamp(r_character.land_eta / CharacterAnim::FALL_LOW_TIME, 0.0f, 1.0f);
+        low = k * k * (3.0f - 2.0f * k);
+    }
+    a.fall_low_weight = airborne ? _interp(a.fall_low_weight, low, p_dt, CharacterAnim::FALL_LOW_INTERP) : 0.0f;
+    a.fall_low_time = a.fall_low_weight > BLEND_MIN_WEIGHT ? a.fall_low_time + p_dt : 0.0f;
+
     const bool show = a.air_state != AirState::GROUNDED;
     const float air_speed = show ? CharacterAnim::AIR_JUMP_INTERP : (a.land_time >= 0.0f ? CharacterAnim::AIR_LAND_INTERP : CharacterAnim::AIR_INTERP);
     a.air_weight = a.started ? _interp(a.air_weight, show ? 1.0f : 0.0f, p_dt, air_speed) : (show ? 1.0f : 0.0f);
@@ -938,6 +973,67 @@ static void _update_air(const LLocomotion& p_asset, Character& r_character, Clip
         a.air_current = AirClip{};
         a.air_previous = AirClip{};
     }
+}
+
+static float _wrap01(float p_value)
+{
+    return p_value - std::floor(p_value);
+}
+
+static bool _contact_phases(const CharacterStance& p_stance, Character& r_character, ClipProvider& r_assets, AnimEvaluator& r_evaluator, const LSkeleton& p_skeleton, float* r_phases)
+{
+    CharacterAnim& a = r_character.anim;
+    const FootIK& ik = r_character.ik;
+    const LBlendSpace* space = r_assets.blend_space(p_stance.cycles[(uint32_t)CycleDirection::FORWARD]);
+    if (!space || !ik.valid || ik.foot[0] < 0 || ik.foot[1] < 0) return false;
+
+    const float value = _mapped_speed(p_stance, std::max(r_character.speed, p_stance.walk_speed));
+    const vec3 forward = angleAxis(glm::radians(-r_character.model_yaw), vec3(0.0f, 1.0f, 0.0f)) * vec3(0.0f, 0.0f, 1.0f);
+    a._turn_globals.resize(p_skeleton.joint_count());
+    float best[2] = { -1.0e9f, -1.0e9f };
+    for (uint32_t s = 0; s < CharacterAnim::CONTACT_SAMPLES; s++) {
+        const float p = (float)s / (float)CharacterAnim::CONTACT_SAMPLES;
+        a._scratch_pose = p_skeleton.rest;
+        if (!r_evaluator.blend_sample(r_assets, p_skeleton, *space, value, p, a._scratch_pose.data())) return false;
+        p_skeleton.globals(a._scratch_pose.data(), a._turn_globals.data());
+        for (int i = 0; i < 2; i++) {
+            const float along = dot(vec3(a._turn_globals[ik.foot[i]][3]), forward);
+            if (along <= best[i]) continue;
+            best[i] = along;
+            r_phases[i] = p;
+        }
+    }
+    return true;
+}
+
+static void _jump_timing(const LLocomotion& p_asset, Character& r_character, ClipProvider& r_assets, AnimEvaluator& r_evaluator, const LSkeleton& p_skeleton)
+{
+    CharacterAnim& a = r_character.anim;
+    a.jump_rush = 1.0f;
+    if (!r_character.jump_wait) {
+        a.contact_known = false;
+        a.jump_target = -1;
+        return;
+    }
+    if (a.jump_ready >= 0) return;
+    if (!a.contact_known) {
+        a.contact_known = true;
+        a.contact_phase[0] = 0.0f;
+        a.contact_phase[1] = 0.5f;
+        _contact_phases(p_asset.standing, r_character, r_assets, r_evaluator, p_skeleton, a.contact_phase);
+        a.jump_target = -1;
+        const float since[2] = { _wrap01(a.stand_phase - a.contact_phase[0]), _wrap01(a.stand_phase - a.contact_phase[1]) };
+        const int recent = since[0] <= since[1] ? 0 : 1;
+        if (since[recent] <= CharacterAnim::JUMP_RECENT_PHASE) {
+            a.jump_ready = (int8_t)recent;
+            return;
+        }
+        a.jump_target = _wrap01(a.contact_phase[0] - a.stand_phase) <= _wrap01(a.contact_phase[1] - a.stand_phase) ? 0 : 1;
+    }
+    a.jump_distance = _wrap01(a.contact_phase[a.jump_target] - a.stand_phase);
+    const float time = a.stand_phase_speed > 1.0e-3f ? a.jump_distance / a.stand_phase_speed : 0.0f;
+    const float window = std::max(CharacterAnim::JUMP_WAIT_MAX - r_character.jump_wait_time, 0.03f);
+    a.jump_rush = std::clamp(time / window, 1.0f, CharacterAnim::JUMP_RUSH_MAX);
 }
 
 bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProvider& r_assets, AnimEvaluator& r_evaluator, const LSkeleton& p_skeleton, float p_dt, JointTransform* r_pose)
@@ -958,6 +1054,8 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
     if (r_character.pivot) a.pivot_time = CharacterAnim::PIVOT_DURATION;
     a.pivot_time = std::max(a.pivot_time - p_dt, 0.0f);
     _update_air(p_asset, r_character, r_assets, p_dt);
+    _jump_timing(p_asset, r_character, r_assets, r_evaluator, p_skeleton);
+    const float phase_before = a.stand_phase;
     const float balance = std::clamp(std::max(length(r_character.sway) / CharacterRagdoll::SWAY_MAX, r_character.stagger_time > 0.0f ? CharacterAnim::STAGGER_ARM : 0.0f), 0.0f, 1.0f);
     a.balance_arms = a.started ? _interp(a.balance_arms, balance, p_dt, CharacterAnim::BALANCE_INTERP) : balance;
 
@@ -970,9 +1068,10 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
     a.idle_time += p_dt;
     a._stand_pose = p_skeleton.rest;
     a._crouch_pose = p_skeleton.rest;
-    const bool stand = a.crouch_weight < 1.0f - BLEND_MIN_WEIGHT && _stance_pose(p_asset.standing, a, a.stand_phase, CharacterAnim::STANDING_MAX_RATE, r_assets, r_evaluator, p_skeleton, speed, p_dt, a._stand_pose.data());
-    const bool crouch = a.crouch_weight > BLEND_MIN_WEIGHT && _stance_pose(p_asset.crouching, a, a.crouch_phase, CharacterAnim::CROUCHING_MAX_RATE, r_assets, r_evaluator, p_skeleton, speed, p_dt, a._crouch_pose.data());
+    const bool stand = a.crouch_weight < 1.0f - BLEND_MIN_WEIGHT && _stance_pose(p_asset.standing, a, a.stand_phase, a.stand_phase_speed, a.jump_rush, CharacterAnim::STANDING_MAX_RATE, r_assets, r_evaluator, p_skeleton, speed, p_dt, a._stand_pose.data());
+    const bool crouch = a.crouch_weight > BLEND_MIN_WEIGHT && _stance_pose(p_asset.crouching, a, a.crouch_phase, a.crouch_phase_speed, 1.0f, CharacterAnim::CROUCHING_MAX_RATE, r_assets, r_evaluator, p_skeleton, speed, p_dt, a._crouch_pose.data());
     a.started = true;
+    if (r_character.jump_wait && a.jump_ready < 0 && a.jump_target >= 0 && _wrap01(a.stand_phase - phase_before) >= a.jump_distance) a.jump_ready = a.jump_target;
     bool posed = stand || crouch;
     if (stand && crouch) {
         const PoseInput inputs[2] = { { a._stand_pose.data(), 1.0f - a.crouch_weight }, { a._crouch_pose.data(), a.crouch_weight } };
@@ -998,10 +1097,23 @@ bool character_pose(const LLocomotion& p_asset, Character& r_character, ClipProv
             a._air_pose = p_skeleton.rest;
             _sample(current, a.air_current.time, a.air_current.mirror, a, p_skeleton, a._air_pose.data());
             const BoundClip previous = r_assets.clip(a.air_previous.clip);
-            if (a.air_fade < 1.0f && previous.valid() && previous.clip->duration > 0.0f) {
-                a._air_previous_pose = p_skeleton.rest;
-                _sample(previous, a.air_previous.time, a.air_previous.mirror, a, p_skeleton, a._air_previous_pose.data());
-                const PoseInput inputs[2] = { { a._air_previous_pose.data(), 1.0f - a.air_fade }, { a._air_pose.data(), a.air_fade } };
+            const bool frozen = a.air_frozen && a._air_frozen.size() == joints;
+            if (a.air_fade < 1.0f && (frozen || (previous.valid() && previous.clip->duration > 0.0f))) {
+                if (frozen) {
+                    a._air_previous_pose = a._air_frozen;
+                } else {
+                    a._air_previous_pose = p_skeleton.rest;
+                    _sample(previous, a.air_previous.time, a.air_previous.mirror, a, p_skeleton, a._air_previous_pose.data());
+                }
+                const float fade = a.air_fade * a.air_fade * (3.0f - 2.0f * a.air_fade);
+                const PoseInput inputs[2] = { { a._air_previous_pose.data(), 1.0f - fade }, { a._air_pose.data(), fade } };
+                pose_blend(inputs, 2, joints, a._air_pose.data());
+            }
+            const BoundClip low = r_assets.clip(p_asset.fall_low);
+            if (a.fall_low_weight > BLEND_MIN_WEIGHT && low.valid() && low.clip->duration > 0.0f) {
+                a._fall_low_pose = p_skeleton.rest;
+                _sample(low, std::fmod(a.fall_low_time, low.clip->duration), false, a, p_skeleton, a._fall_low_pose.data());
+                const PoseInput inputs[2] = { { a._air_pose.data(), 1.0f - a.fall_low_weight }, { a._fall_low_pose.data(), a.fall_low_weight } };
                 pose_blend(inputs, 2, joints, a._air_pose.data());
             }
             if (posed) _mix(r_pose, a._air_pose.data(), a.air_weight, joints);

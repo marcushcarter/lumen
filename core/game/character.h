@@ -45,11 +45,14 @@ struct CharacterAnim
     static constexpr float LAND_MOVING_WEIGHT = 0.4f;
     static constexpr float LAND_MIN_SPEED = 2.0f;
     static constexpr float AIR_TAKEOFF_FADE = 0.08f;
-    static constexpr float AIR_RISE_FADE = 0.15f;
-    static constexpr float AIR_FALL_FADE = 0.25f;
+    static constexpr float AIR_RISE_FADE = 0.2f;
+    static constexpr float AIR_FALL_FADE = 0.35f;
     static constexpr float AIR_FAST_FADE = 0.35f;
     static constexpr float FALL_GAP = 0.6f;
     static constexpr float FALL_MIN_TIME = 0.25f;
+    static constexpr float FALL_START_SPEED = 2.0f;
+    static constexpr float FALL_LOW_TIME = 0.4f;
+    static constexpr float FALL_LOW_INTERP = 8.0f;
     static constexpr float JUMP_MOVING_SPEED = 1.0f;
     static constexpr float JUMP_WALK_MARGIN = 0.5f;
     static constexpr float JUMP_RATE_MIN = 1.2f;
@@ -95,6 +98,11 @@ struct CharacterAnim
         float weight = 0.0f;
     };
     static constexpr uint32_t TURN_CURVE_SAMPLES = 32;
+    static constexpr uint32_t CONTACT_SAMPLES = 24;
+    static constexpr float JUMP_WAIT_MAX = 0.05f;
+    static constexpr float JUMP_WAIT_LIMIT = 0.1f;
+    static constexpr float JUMP_RUSH_MAX = 4.0f;
+    static constexpr float JUMP_RECENT_PHASE = 0.3f;
     static constexpr uint32_t TURN_JOINT_DEPTH = 2;
     static constexpr float ROTATE_THRESHOLD = 50.0f;
     static constexpr float ROTATE_FALLBACK_SPEED = 90.0f;
@@ -107,6 +115,14 @@ struct CharacterAnim
     float idle_time = 0.0f;
     float stand_phase = 0.0f;
     float crouch_phase = 0.0f;
+    float stand_phase_speed = 0.0f;
+    float crouch_phase_speed = 0.0f;
+    float contact_phase[2] = { 0.0f, 0.5f };
+    bool contact_known = false;
+    int8_t jump_target = -1;
+    int8_t jump_ready = -1;
+    float jump_distance = 0.0f;
+    float jump_rush = 1.0f;
     float play_rate = 0.0f;
     float turn_delay = 0.0f;
     Guid turn_clip;
@@ -158,6 +174,9 @@ struct CharacterAnim
     AirClip air_previous;
     float air_fade = 1.0f;
     float air_fade_time = 0.0f;
+    bool air_frozen = false;
+    float fall_low_time = 0.0f;
+    float fall_low_weight = 0.0f;
     float balance_arms = 0.0f;
     float land_time = -1.0f;
     Guid land_clip;
@@ -170,6 +189,8 @@ struct CharacterAnim
     std::vector<JointTransform> _crouch_pose;
     std::vector<JointTransform> _air_pose;
     std::vector<JointTransform> _air_previous_pose;
+    std::vector<JointTransform> _air_frozen;
+    std::vector<JointTransform> _fall_low_pose;
     std::vector<JointTransform> _land_pose;
     std::vector<JointTransform> _scratch_pose;
     std::vector<mat4> _turn_globals;
@@ -189,16 +210,26 @@ struct FootIK
     static constexpr float MAX_PELVIS_DROP = 0.4f;
     static constexpr float FOOT_SPRING = 18.0f;
     static constexpr float PELVIS_SPRING = 10.0f;
+    static constexpr float LEG_EXTEND = 0.97f;
+    static constexpr float KNEE_LATERAL_CUT = 0.9f;
+    static constexpr float KNEE_POLE = 0.05f;
     static constexpr float TILT_INTERP = 20.0f;
     static constexpr float ALPHA_INTERP = 15.0f;
     static constexpr float PLANT_HEIGHT = 0.04f;
     static constexpr float UNPLANT_HEIGHT = 0.07f;
     static constexpr float FLOOR_RISE = 0.05f;
+    static constexpr float SPEED_FILTER = 25.0f;
+    static constexpr float PLANT_CONFIRM_TIME = 0.04f;
+    static constexpr float PLANT_MIN_TIME = 0.1f;
+    static constexpr float PLANT_WEIGHT_INTERP = 12.0f;
+    static constexpr float TRAIL_MIN_SPEED = 0.5f;
+    static constexpr float TRAIL_FADE = 0.15f;
     static constexpr float PLANT_VERTICAL_SPEED = 0.3f;
     static constexpr float UNPLANT_VERTICAL_SPEED = 0.5f;
     static constexpr float PLANT_SWING_SPEED = 0.3f;
     static constexpr float UNPLANT_SWING_SPEED = 0.6f;
     static constexpr float SWING_DROP_WEIGHT = 0.3f;
+    static constexpr float SWING_DROP_HEIGHT = 0.12f;
     static constexpr float MAX_LOCK_DRIFT = 0.35f;
     static constexpr float LOCK_IN = 25.0f;
     static constexpr float LOCK_OUT = 10.0f;
@@ -209,6 +240,7 @@ struct FootIK
     int32_t calf[2] = { -1, -1 };
     int32_t foot[2] = { -1, -1 };
     int32_t upperarm[2] = { -1, -1 };
+    float pelvis_need = 0.0f;
     int32_t lean[3] = { -1, -1, -1 };
     int32_t neck = -1;
     int32_t head = -1;
@@ -218,6 +250,11 @@ struct FootIK
     float floor_height[2] = { 0.0f, 0.0f };
     float rest_height[2] = { 0.0f, 0.0f };
     bool planted[2] = { false, false };
+    float vertical_speed[2] = { 0.0f, 0.0f };
+    float swing_speed[2] = { 0.0f, 0.0f };
+    float contact_time[2] = { 0.0f, 0.0f };
+    float plant_time[2] = { 0.0f, 0.0f };
+    float plant_weight[2] = { 0.0f, 0.0f };
     bool locked[2] = { false, false };
     vec3 lock_world[2] = { vec3(0.0f), vec3(0.0f) };
     float lock_alpha[2] = { 0.0f, 0.0f };
@@ -305,6 +342,8 @@ struct Character
     float turn_delta = 0.0f;
     float step_offset = 0.0f;
     float step_velocity = 0.0f;
+    vec3 step_shift = vec3(0.0f);
+    vec3 step_shift_velocity = vec3(0.0f);
     float ungrounded_time = 0.0f;
     float look_yaw = 0.0f;
     float look_pitch = 0.0f;
@@ -325,6 +364,9 @@ struct Character
     bool body_low = false;
     bool teleport = false;
     bool jump_flight = false;
+    bool jump_wait = false;
+    float jump_wait_time = 0.0f;
+    int8_t jump_foot = -1;
     bool land_known = false;
     vec3 land_point = vec3(0.0f);
     vec3 land_normal = vec3(0.0f, 1.0f, 0.0f);
@@ -335,6 +377,7 @@ struct Character
     bool sliding = false;
     float steep_time = 0.0f;
     float step_grade = 0.0f;
+    float stair_grade = 0.0f;
     float land_speed = 0.0f;
     float land_brake_time = 0.0f;
     float land_brake_scale = 1.0f;
@@ -350,6 +393,7 @@ struct Character
     CharacterAction action;
 
     float direction() const;
+    vec3 visual_position() const { return position + step_shift + vec3(0.0f, step_offset, 0.0f); }
 };
 
 struct CharacterStateComponent

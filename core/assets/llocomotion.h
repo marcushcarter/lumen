@@ -70,6 +70,7 @@ struct LLocomotion
     Guid fall_fast;
     float fast_fall_speed = 10.0f;
     Guid fall;
+    Guid fall_low;
     Guid land_light;
     Guid land_heavy;
     bool flip_feet = false;

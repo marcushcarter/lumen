@@ -49,7 +49,7 @@ vec3 OrbitCameraSystem::_pivot_target(Scene& p_world) const
     const CharacterComponent* body = p_world.try_get<CharacterComponent>(target);
     if (state && body) {
         const Character& c = state->character;
-        return c.position + ORBIT_UP * (c.step_offset + CharacterSystem::_stance_height(c, *body) * cam.pivot_height);
+        return c.visual_position() + ORBIT_UP * (CharacterSystem::_stance_height(c, *body) * cam.pivot_height);
     }
     return p_world.world_transform(target).position + ORBIT_UP * cam.pivot_height;
 }

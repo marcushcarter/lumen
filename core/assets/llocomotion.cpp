@@ -47,11 +47,11 @@ static float _float(const toml::node_view<const toml::node>& p_node, float p_fal
     return (float)p_node.value_or((double)p_fallback);
 }
 
-static void _load_stance(const toml::node_view<const toml::node>& p_node, CharacterStance& r_stance)
+static void _load_stance(const toml::node_view<const toml::node>& p_node, CharacterStance& r_stance, bool p_single_speed)
 {
     r_stance.walk_speed = _float(p_node["walk_speed"], r_stance.walk_speed);
-    r_stance.run_speed = _float(p_node["run_speed"], r_stance.run_speed);
-    r_stance.sprint_speed = _float(p_node["sprint_speed"], r_stance.sprint_speed);
+    r_stance.run_speed = p_single_speed ? r_stance.walk_speed : _float(p_node["run_speed"], r_stance.run_speed);
+    r_stance.sprint_speed = p_single_speed ? r_stance.walk_speed : _float(p_node["sprint_speed"], r_stance.sprint_speed);
     r_stance.acceleration = _float(p_node["acceleration"], r_stance.acceleration);
     r_stance.braking = _float(p_node["braking"], r_stance.braking);
     r_stance.rotation_rate = _float(p_node["rotation_rate"], r_stance.rotation_rate);
@@ -62,12 +62,10 @@ static void _load_stance(const toml::node_view<const toml::node>& p_node, Charac
     r_stance.rotate_right = _guid(p_node["rotate_right"]);
 }
 
-static toml::table _save_stance(const CharacterStance& p_stance)
+static toml::table _save_stance(const CharacterStance& p_stance, bool p_single_speed)
 {
     toml::table t{
         { "walk_speed", (double)p_stance.walk_speed },
-        { "run_speed", (double)p_stance.run_speed },
-        { "sprint_speed", (double)p_stance.sprint_speed },
         { "acceleration", (double)p_stance.acceleration },
         { "braking", (double)p_stance.braking },
         { "rotation_rate", (double)p_stance.rotation_rate },
@@ -77,6 +75,10 @@ static toml::table _save_stance(const CharacterStance& p_stance)
     for (uint32_t i = 0; i < TURN_CLIP_COUNT; i++) t.insert_or_assign(TURN_KEYS[i], _guid_text(p_stance.turns[i]));
     t.insert_or_assign("rotate_left", _guid_text(p_stance.rotate_left));
     t.insert_or_assign("rotate_right", _guid_text(p_stance.rotate_right));
+    if (!p_single_speed) {
+        t.insert_or_assign("run_speed", (double)p_stance.run_speed);
+        t.insert_or_assign("sprint_speed", (double)p_stance.sprint_speed);
+    }
     return t;
 }
 
@@ -94,8 +96,8 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
     *this = LLocomotion{};
     guid = _guid(asset["guid"]);
     auto section = root[root.contains(asset_type_section(AssetType::LOCOMOTION)) ? asset_type_section(AssetType::LOCOMOTION) : std::string_view("character")];
-    _load_stance(section["standing"], standing);
-    _load_stance(section["crouching"], crouching);
+    _load_stance(section["standing"], standing, false);
+    _load_stance(section["crouching"], crouching, true);
     jump_speed = _float(section["jump_speed"], jump_speed);
     air_control = _float(section["air_control"], air_control);
     jump_standing = _guid(section["jump_standing"]);
@@ -107,6 +109,7 @@ Error LLocomotion::load(const std::filesystem::path& p_path)
     fall_fast = _guid(section["fall_fast"]);
     fast_fall_speed = _float(section["fast_fall_speed"], fast_fall_speed);
     fall = _guid(section["fall"]);
+    fall_low = _guid(section["fall_low"]);
     land_light = _guid(section["land_light"]);
     land_heavy = _guid(section["land_heavy"]);
     flip_feet = section["flip_feet"].value_or(flip_feet);
@@ -159,8 +162,8 @@ Error LLocomotion::save(const std::filesystem::path& p_path) const
             { "guid", _guid_text(guid) },
             { "type", static_cast<int64_t>(AssetType::LOCOMOTION) } }},
         { std::string(asset_type_section(AssetType::LOCOMOTION)), toml::table{
-            { "standing", _save_stance(standing) },
-            { "crouching", _save_stance(crouching) },
+            { "standing", _save_stance(standing, false) },
+            { "crouching", _save_stance(crouching, true) },
             { "jump_speed", (double)jump_speed },
             { "air_control", (double)air_control },
             { "jump_standing", _guid_text(jump_standing) },
@@ -172,6 +175,7 @@ Error LLocomotion::save(const std::filesystem::path& p_path) const
             { "fall_fast", _guid_text(fall_fast) },
             { "fast_fall_speed", (double)fast_fall_speed },
             { "fall", _guid_text(fall) },
+            { "fall_low", _guid_text(fall_low) },
             { "land_light", _guid_text(land_light) },
             { "land_heavy", _guid_text(land_heavy) },
             { "flip_feet", flip_feet },

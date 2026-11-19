@@ -140,13 +140,15 @@ void CharacterSystem::_move(Character& r_character, const CharacterComponent& p_
     }
 
     const bool was_grounded = r_character.grounded;
+    const bool was_supported = was_grounded || r_character.on_steep;
     const float impact = -r_character.velocity.y;
-    const float old_y = r_character.position.y;
+    const vec3 old_position = r_character.position;
+    const float old_y = old_position.y;
     PhysicsCharacterMove move;
     move.velocity = r_character.velocity;
     pw->set_character_max_slope(r_character.body, std::clamp(p_body.max_slope, MIN_SLOPE_DEGREES, MAX_SLOPE_DEGREES));
     move.step_up = was_grounded ? p_body.max_step_height : 0.0f;
-    move.stick_down = was_grounded && r_character.velocity.y <= 0.0f ? std::max(p_body.max_step_height, STICK_DOWN) : 0.0f;
+    move.stick_down = was_supported && r_character.velocity.y <= 0.0f ? std::max(p_body.max_step_height, STICK_DOWN) : 0.0f;
     PhysicsCharacterResult result;
     if (!pw->move_character(r_character.body, move, p_dt, result)) return;
 
@@ -158,10 +160,28 @@ void CharacterSystem::_move(Character& r_character, const CharacterComponent& p_
     r_character.ground_normal = result.on_ground || result.on_steep_ground ? result.ground_normal : vec3(0.0f, 1.0f, 0.0f);
     r_character.velocity.y = r_character.grounded ? 0.0f : result.velocity.y;
 
-    if (was_grounded && r_character.grounded) {
+    if (was_supported && (r_character.grounded || r_character.on_steep)) {
         const float dy = r_character.position.y - old_y;
-        const float slope = length(vec3(r_character.velocity.x, 0.0f, r_character.velocity.z)) * p_dt * STEP_SLOPE_ALLOWANCE + STEP_VISUAL_MIN;
-        if (std::fabs(dy) > slope) r_character.step_offset -= dy - std::copysign(slope, dy);
+        const float slope = length(vec3(move.velocity.x, 0.0f, move.velocity.z)) * p_dt * STEP_SLOPE_ALLOWANCE + STEP_VISUAL_MIN;
+        if (std::fabs(dy) > slope && r_character.grounded) {
+            r_character.velocity.x = move.velocity.x;
+            r_character.velocity.z = move.velocity.z;
+            const vec3 wanted(move.velocity.x, 0.0f, move.velocity.z);
+            const float wanted_speed = length(wanted);
+            if (dy > 0.0f && wanted_speed > 0.1f) {
+                const vec3 along = wanted / wanted_speed;
+                const vec3 moved = r_character.position - old_position;
+                const float excess = dot(vec3(moved.x, 0.0f, moved.z), along) - wanted_speed * p_dt;
+                if (std::fabs(excess) > STEP_SHIFT_MIN) r_character.step_shift -= along * excess;
+                const float shift = length(r_character.step_shift);
+                if (shift > p_body.radius) r_character.step_shift *= p_body.radius / shift;
+            }
+        }
+        const float limit = p_body.max_step_height;
+        PhysicsHit below;
+        const bool edge = std::fabs(dy) > 1.0e-5f && pw->raycast(r_character.position + UP * (limit + STEP_EDGE_ABOVE), -UP, limit * 2.0f + STEP_EDGE_ABOVE, below) && below.normal.y >= STEP_EDGE_FLAT && std::fabs(r_character.position.y - below.position.y) > STEP_EDGE_GAP;
+        if (edge) r_character.step_offset -= dy;
+        else if (std::fabs(dy) > slope) r_character.step_offset -= dy - std::copysign(slope, dy);
         r_character.step_offset = std::clamp(r_character.step_offset, -p_body.max_step_height, p_body.max_step_height);
     }
     if (!was_grounded && (r_character.grounded || r_character.on_steep)) r_character.land_speed = impact;
@@ -255,21 +275,26 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
         for (int k = 1; k <= 2 && climbable; k++) {
             const vec3 probe = c.position + along * (STEP_GRADE_AHEAD * 0.5f * (float)k);
             PhysicsHit hit;
-            climbable = grade_world->raycast(probe + UP * top, -UP, top + limit, hit) && hit.normal.y >= walkable && hit.position.y - previous <= limit;
+            climbable = grade_world->raycast(probe + UP * top, -UP, top + limit * 2.0f, hit) && hit.normal.y >= walkable && std::fabs(hit.position.y - previous) <= limit;
             if (climbable) previous = hit.position.y;
         }
-        if (climbable && previous > c.position.y) step_grade = glm::degrees(std::atan2(previous - c.position.y, STEP_GRADE_AHEAD));
+        if (climbable) step_grade = glm::degrees(std::atan2(previous - c.position.y, STEP_GRADE_AHEAD));
     }
     c.step_grade = _interp(c.step_grade, step_grade, p_dt, STEP_GRADE_INTERP);
+    float stair_grade = 0.0f;
     if (c.grounded && c.has_input) {
         const vec3 along = normalize(wish);
         const vec3 n = c.ground_normal;
-        const float grade = std::max(glm::degrees(std::atan2(-(along.x * n.x + along.z * n.z), std::max(n.y, 0.05f))), c.step_grade);
+        const float surface = glm::degrees(std::atan2(-(along.x * n.x + along.z * n.z), std::max(n.y, 0.05f)));
+        stair_grade = step_grade >= 0.0f ? std::max(step_grade - std::max(surface, 0.0f), 0.0f) : std::min(step_grade - std::min(surface, 0.0f), 0.0f);
+        const float grade = std::max(surface, c.step_grade);
         if (grade > SLOPE_SLOW_START) slope_scale = glm::mix(1.0f, SLOPE_MIN_SPEED, std::clamp((grade - SLOPE_SLOW_START) / std::max(steepest - SLOPE_SLOW_START, 1.0f), 0.0f, 1.0f));
         slope_sprint = grade <= SLOPE_SPRINT_MAX;
     }
+    c.stair_grade = _interp(c.stair_grade, stair_grade, p_dt, STEP_GRADE_INTERP);
     Gait allowed = want;
     if (want == Gait::SPRINTING && (c.stance != Stance::STANDING || aiming || !can_sprint || !slope_sprint)) allowed = Gait::RUNNING;
+    if (c.stance == Stance::CROUCHING) allowed = Gait::WALKING;
     const float max_speed = (allowed == Gait::WALKING ? stance.walk_speed : (allowed == Gait::RUNNING ? stance.run_speed : stance.sprint_speed)) * slope_scale;
 
     const vec3 previous_velocity = c.velocity;
@@ -316,9 +341,17 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
     c.stagger_time = std::max(c.stagger_time - p_dt, 0.0f);
     const float rate = (length(target) > length(flat) ? stance.acceleration : braking) * control * stagger;
     c.land_brake_time = std::max(c.land_brake_time - p_dt, 0.0f);
-    const vec3 delta = target - flat;
+    vec3 base = flat;
+    const float base_speed = length(flat);
+    if (c.grounded && c.has_input && base_speed > 0.1f && !c.action.active()) {
+        const vec3 dir = normalize(wish);
+        const float k = std::clamp((dot(flat / base_speed, dir) - TURN_REVERSE_DOT) / -TURN_REVERSE_DOT, 0.0f, 1.0f);
+        const float amount = std::clamp(p_dt * TURN_FRICTION * stagger, 0.0f, 1.0f) * k * k * (3.0f - 2.0f * k);
+        base -= (base - dir * base_speed) * amount;
+    }
+    const vec3 delta = target - base;
     const float step = rate * p_dt;
-    const vec3 next = length(delta) <= step ? target : flat + normalize(delta) * step;
+    const vec3 next = length(delta) <= step ? target : base + normalize(delta) * step;
     c.velocity.x = next.x;
     c.velocity.z = next.z;
     if (c.action.active() && c.action.duration > 0.0f) {
@@ -356,15 +389,33 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
         }
     }
 
+    auto jump = [&](int8_t p_foot) {
+        c.velocity.y = p_asset.jump_speed;
+        c.grounded = false;
+        c.jumped = true;
+        c.jump_flight = true;
+        c.jump_foot = p_foot;
+        c.in_air_yaw = c.speed > 1.0f ? c.velocity_yaw : c.yaw;
+    };
     if (p_input.jump && c.grounded && !c.action.controlling()) {
         if (c.stance == Stance::CROUCHING) {
             c.stance = Stance::STANDING;
-        } else {
-            c.velocity.y = p_asset.jump_speed;
-            c.grounded = false;
-            c.jumped = true;
-            c.jump_flight = true;
-            c.in_air_yaw = c.speed > 1.0f ? c.velocity_yaw : c.yaw;
+        } else if (c.speed < CharacterAnim::JUMP_MOVING_SPEED) {
+            jump(-1);
+        } else if (!c.jump_wait) {
+            c.jump_wait = true;
+            c.jump_wait_time = 0.0f;
+            c.anim.jump_ready = -1;
+            c.anim.contact_known = false;
+        }
+    }
+    if (c.jump_wait) {
+        c.jump_wait_time += p_dt;
+        if (!c.grounded || c.action.controlling() || c.stance != Stance::STANDING) {
+            c.jump_wait = false;
+        } else if (c.anim.jump_ready >= 0 || c.jump_wait_time >= CharacterAnim::JUMP_WAIT_LIMIT) {
+            c.jump_wait = false;
+            jump(c.anim.jump_ready);
         }
     }
     if (!c.grounded) c.velocity.y -= _gravity * p_dt;
@@ -459,14 +510,29 @@ void CharacterSystem::_simulate(Character& r_character, const LLocomotion& p_ass
     c.speed = length(vec3(c.velocity.x, 0.0f, c.velocity.z));
     c.moving = c.speed > 0.01f;
     if (c.moving) c.velocity_yaw = character_yaw_of(vec3(c.velocity.x, 0.0f, c.velocity.z));
-    if (c.speed > stance.run_speed + GAIT_MARGIN) c.gait = allowed == Gait::SPRINTING ? Gait::SPRINTING : Gait::RUNNING;
+    if (c.stance == Stance::CROUCHING) c.gait = Gait::WALKING;
+    else if (c.speed > stance.run_speed + GAIT_MARGIN) c.gait = allowed == Gait::SPRINTING ? Gait::SPRINTING : Gait::RUNNING;
     else if (c.speed >= stance.walk_speed + GAIT_MARGIN) c.gait = Gait::RUNNING;
     else c.gait = Gait::WALKING;
 
     _sync_shape(c, p_body);
     if (c.stagger_time <= 0.0f && !c.action.controlling()) _rotate(c, stance, p_dt);
     c.turn_delta = 0.0f;
-    _spring(c.step_offset, c.step_velocity, 0.0f, STEP_SPRING, p_dt);
+    const auto stiffness = [](float p_distance, float p_range) {
+        const float k = std::clamp(p_distance / p_range, 0.0f, 1.0f);
+        return glm::mix(STEP_SPRING_SLOW, STEP_SPRING_FAST, k * k * (3.0f - 2.0f * k));
+    };
+    const float offset_before = c.step_offset;
+    const bool on_stairs = c.grounded && c.moving && std::fabs(c.stair_grade) > STEP_RAMP_MIN_GRADE;
+    const float lift = on_stairs ? std::clamp(std::tan(glm::radians(c.stair_grade)) * STEP_RAMP_LEAD, -p_body.max_step_height * 0.5f, p_body.max_step_height * 0.5f) : 0.0f;
+    _spring(c.step_offset, c.step_velocity, lift, stiffness(std::fabs(c.step_offset - lift), STEP_SPRING_RANGE), p_dt);
+    if (c.grounded && c.moving && std::fabs(c.step_grade) > STEP_RAMP_MIN_GRADE) {
+        const float climb = c.speed * std::tan(glm::radians(std::fabs(c.step_grade))) * STEP_RAMP_MARGIN;
+        c.step_offset = std::clamp(c.step_offset, offset_before - climb * p_dt, offset_before + climb * p_dt);
+        c.step_velocity = std::clamp(c.step_velocity, -climb, climb);
+    }
+    _spring(c.step_shift.x, c.step_shift_velocity.x, 0.0f, STEP_SHIFT_SPRING, p_dt);
+    _spring(c.step_shift.z, c.step_shift_velocity.z, 0.0f, STEP_SHIFT_SPRING, p_dt);
     const float kill_y = physics && physics->has_floor() ? physics->world_floor - FLOOR_MARGIN : c.spawn_position.y - RESPAWN_DROP;
     if (c.position.y < kill_y) respawn(c);
 }
@@ -507,7 +573,7 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
     if (getting_up) ik_weight = std::clamp((getting.get_up_time / std::max(getting.get_up_duration, 1.0e-3f) - CharacterRagdoll::GET_UP_IK_START) / CharacterRagdoll::GET_UP_IK_SPAN, 0.0f, 1.0f);
     ik.alpha = _interp(ik.alpha, active ? ik_weight : 0.0f, p_dt, FootIK::ALPHA_INTERP);
     const quat rotation = angleAxis(glm::radians(r_character.yaw + model_yaw), UP);
-    const vec3 root = r_character.position + UP * r_character.step_offset;
+    const vec3 root = r_character.visual_position();
     const vec3 forward = character_forward(r_character.yaw);
 
     r_character.dynamic_foot = -1;
@@ -535,16 +601,30 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
         const vec3 flat_delta(delta.x, 0.0f, delta.z);
         const float swing = travelling ? dot(flat_delta, travel) : length(flat_delta);
         const vec3 foot = root + rotation * ik.model[i];
-        if (ik.planted[i]) ik.planted[i] = height < FootIK::UNPLANT_HEIGHT && std::fabs(delta.y) < FootIK::UNPLANT_VERTICAL_SPEED && swing < FootIK::UNPLANT_SWING_SPEED;
-        else ik.planted[i] = height < FootIK::PLANT_HEIGHT && std::fabs(delta.y) < FootIK::PLANT_VERTICAL_SPEED && swing < FootIK::PLANT_SWING_SPEED;
+        ik.vertical_speed[i] = ik.started ? _interp(ik.vertical_speed[i], delta.y, p_dt, FootIK::SPEED_FILTER) : 0.0f;
+        ik.swing_speed[i] = ik.started ? _interp(ik.swing_speed[i], swing, p_dt, FootIK::SPEED_FILTER) : 0.0f;
+        const float vertical = std::fabs(ik.vertical_speed[i]);
+        if (ik.planted[i]) {
+            ik.plant_time[i] += p_dt;
+            const bool lifting = vertical >= FootIK::UNPLANT_VERTICAL_SPEED || ik.swing_speed[i] >= FootIK::UNPLANT_SWING_SPEED;
+            if (height >= FootIK::UNPLANT_HEIGHT || (lifting && ik.plant_time[i] >= FootIK::PLANT_MIN_TIME)) {
+                ik.planted[i] = false;
+                ik.contact_time[i] = 0.0f;
+            }
+        } else {
+            const bool contact = height < FootIK::PLANT_HEIGHT && vertical < FootIK::PLANT_VERTICAL_SPEED && ik.swing_speed[i] < FootIK::PLANT_SWING_SPEED;
+            ik.contact_time[i] = contact ? ik.contact_time[i] + p_dt : 0.0f;
+            if (ik.contact_time[i] >= FootIK::PLANT_CONFIRM_TIME || !ik.started) {
+                ik.planted[i] = contact || !ik.started;
+                ik.plant_time[i] = 0.0f;
+            }
+        }
 
         float target = 0.0f;
         quat tilt(1.0f, 0.0f, 0.0f, 0.0f);
         PhysicsHit heel;
         if (active && _ground_at(foot, root.y + FootIK::TRACE_ABOVE, walkable, heel)) {
             target = std::clamp(heel.position.y - root.y, -FootIK::MAX_DROP, FootIK::MAX_RAISE);
-            const vec3 side = normalize(vec3(heel.normal.x, 0.0f, heel.normal.z) - forward * dot(vec3(heel.normal.x, 0.0f, heel.normal.z), forward) + vec3(0.0f, heel.normal.y, 0.0f));
-            tilt = normalize(quat(1.0f + dot(UP, side), cross(UP, side).x, cross(UP, side).y, cross(UP, side).z));
             PhysicsHit ball;
             if (_ground_at(foot + forward * FootIK::BALL_DISTANCE, root.y + FootIK::TRACE_ABOVE, walkable, ball)) {
                 const float rise = ball.position.y - heel.position.y;
@@ -553,7 +633,8 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
                     tilt = angleAxis(glm::radians(pitch), character_right(r_character.yaw)) * tilt;
                 }
             }
-            if (!ik.planted[i] && target < 0.0f) target *= FootIK::SWING_DROP_WEIGHT;
+            const float swing_target = target > 0.0f ? std::max(target - height, 0.0f) : target * glm::mix(1.0f, FootIK::SWING_DROP_WEIGHT, std::clamp(height / FootIK::SWING_DROP_HEIGHT, 0.0f, 1.0f));
+            target = glm::mix(swing_target, target, ik.plant_weight[i]);
         }
         if (!ik.started) ik.height_offset[i] = target;
         _spring(ik.height_offset[i], ik.height_velocity[i], target, FootIK::FOOT_SPRING, p_dt);
@@ -588,6 +669,7 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
             ik.lock_alpha[i] = 0.0f;
             ik.slide[i] = _interp(ik.slide[i], vec3(0.0f), p_dt, FootIK::LOCK_OUT);
         }
+        ik.plant_weight[i] = ik.started ? _interp(ik.plant_weight[i], ik.planted[i] ? 1.0f : 0.0f, p_dt, FootIK::PLANT_WEIGHT_INTERP) : (ik.planted[i] ? 1.0f : 0.0f);
         ik.world_offset[i] = UP * ik.height_offset[i] + ik.slide[i];
         if (active && _debug) {
             DebugDraw& draw = debug_draw();
@@ -599,8 +681,7 @@ void CharacterSystem::_update_foot_ik(Character& r_character, const LLocomotion&
         }
     }
 
-    const float pelvis = active ? std::max(std::min(ik.height_offset[0], ik.height_offset[1]), -FootIK::MAX_PELVIS_DROP) : 0.0f;
-    _spring(ik.pelvis_offset, ik.pelvis_velocity, std::min(pelvis, 0.0f), FootIK::PELVIS_SPRING, p_dt);
+    _spring(ik.pelvis_offset, ik.pelvis_velocity, active ? ik.pelvis_need : 0.0f, FootIK::PELVIS_SPRING, p_dt);
     if (active && _debug && std::fabs(ik.pelvis_offset) > 0.005f) {
         const vec3 hip = root + UP * 0.9f;
         debug_draw().arrow(hip, hip + UP * ik.pelvis_offset, DebugDraw::Style{ .color = DebugDraw::ORANGE });
@@ -855,6 +936,7 @@ void CharacterSystem::_update_ragdoll(Character& r_character, const LLocomotion&
     r_character.moving = false;
     r_character.step_offset = 0.0f;
     r_character.step_velocity = 0.0f;
+    r_character.step_shift = r_character.step_shift_velocity = vec3(0.0f);
 
     float speed = 0.0f;
     for (const vec3& v : rag.velocities) speed += length(v);
@@ -915,6 +997,7 @@ void CharacterSystem::_end_ragdoll(Character& r_character, const LLocomotion& p_
     r_character.ground_gap = -1.0f;
     r_character.step_offset = 0.0f;
     r_character.step_velocity = 0.0f;
+    r_character.step_shift = r_character.step_shift_velocity = vec3(0.0f);
     r_character.lean_lr = r_character.lean_fb = 0.0f;
     r_character.target_yaw = r_character.in_air_yaw = r_character.velocity_yaw = r_character.aim_yaw = r_character.yaw;
     r_character.teleport = true;
@@ -1088,7 +1171,7 @@ void CharacterSystem::update(GameSession& r_session, float p_dt)
         }
 
         const TransformComponent current = world.world_transform(e);
-        const mat4 m = translate(mat4(1.0f), c.position + UP * c.step_offset) * mat4_cast(angleAxis(glm::radians(c.yaw + body->model_yaw), UP)) * scale(mat4(1.0f), current.scale);
+        const mat4 m = translate(mat4(1.0f), c.visual_position()) * mat4_cast(angleAxis(glm::radians(c.yaw + body->model_yaw), UP)) * scale(mat4(1.0f), current.scale);
         world.set_world_matrix(e, m);
         rag.matrix = m;
         if (rag.state == RagdollState::ACTIVE) {

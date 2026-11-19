@@ -16,9 +16,19 @@ struct CharacterSystem : GameSystem
 {
     static constexpr float SKIN = 0.02f;
     static constexpr float SPAWN_LIFT = 0.05f;
-    static constexpr float STEP_SPRING = 15.0f;
+    static constexpr float STEP_SPRING_SLOW = 7.0f;
+    static constexpr float STEP_SPRING_FAST = 20.0f;
+    static constexpr float STEP_SPRING_RANGE = 0.15f;
+    static constexpr float STEP_SHIFT_SPRING = 8.0f;
+    static constexpr float STEP_SHIFT_MIN = 0.01f;
+    static constexpr float STEP_RAMP_MIN_GRADE = 5.0f;
+    static constexpr float STEP_RAMP_MARGIN = 1.7f;
+    static constexpr float STEP_RAMP_LEAD = 0.15f;
     static constexpr float STEP_SLOPE_ALLOWANCE = 1.2f;
     static constexpr float STEP_VISUAL_MIN = 0.01f;
+    static constexpr float STEP_EDGE_ABOVE = 0.1f;
+    static constexpr float STEP_EDGE_FLAT = 0.95f;
+    static constexpr float STEP_EDGE_GAP = 0.02f;
     static constexpr float STICK_DOWN = 0.5f;
     static constexpr float MIN_SLOPE_DEGREES = 1.0f;
     static constexpr float MAX_SLOPE_DEGREES = 89.0f;
@@ -58,6 +68,8 @@ struct CharacterSystem : GameSystem
     static constexpr float SLOPE_SLOW_START = 15.0f;
     static constexpr float SLOPE_MIN_SPEED = 0.5f;
     static constexpr float SLOPE_SPRINT_MAX = 28.0f;
+    static constexpr float TURN_FRICTION = 6.0f;
+    static constexpr float TURN_REVERSE_DOT = -0.5f;
     static constexpr float STEP_GRADE_AHEAD = 0.55f;
     static constexpr float STEP_GRADE_ABOVE = 0.1f;
     static constexpr float STEP_GRADE_INTERP = 6.0f;
@@ -74,7 +86,7 @@ struct CharacterSystem : GameSystem
     static constexpr float STAND_HEADROOM = 1.4f;
     static constexpr float STAND_HEAD_RADIUS = 0.2f;
     static constexpr float LAND_BRAKE_INPUT = 0.5f;
-    static constexpr float LAND_BRAKE_IDLE = 3.0f;
+    static constexpr float LAND_BRAKE_IDLE = 0.5f;
 
     static constexpr float IMPACT_PROBE_RADIUS = 0.12f;
     static constexpr float IMPACT_REACH = 0.15f;

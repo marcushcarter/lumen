@@ -10,16 +10,10 @@ struct GameInput
     static constexpr float MOUSE_SENSITIVITY = 0.12f;
     static constexpr float STICK_LOOK_RATE = 180.0f;
     static constexpr float STICK_DEADZONE = 0.15f;
-    static constexpr float SHIFT_HOLD = 0.2f;
-    static constexpr float RUN_RESET = 0.5f;
 
     vec2 move = vec2(0.0f);
     vec2 look = vec2(0.0f);
     bool sprint = false;
-    bool walk = false;
-    bool run_toggle = false;
-    float shift_time = 0.0f;
-    float still_time = 0.0f;
     bool aim = false;
     bool jump = false;
     bool crouch_toggle = false;

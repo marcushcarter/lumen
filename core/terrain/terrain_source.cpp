@@ -62,19 +62,6 @@ void TerrainSource::close()
     tiles.clear();
 }
 
-void terrain_instances(const Scene& p_world, std::vector<TerrainInstance>& r_out)
-{
-    r_out.clear();
-    p_world.view<TransformComponent, TerrainComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const TerrainComponent& p_terrain) {
-        if (p_terrain.terrain.valid()) r_out.push_back({ (uint64_t)Scene::_to_id(p_entity), p_terrain.terrain, vec3(p_world.world_matrix(p_entity)[3]) });
-    });
-    std::sort(r_out.begin(), r_out.end(), [](const TerrainInstance& a, const TerrainInstance& b) { return a.key < b.key; });
-    static size_t warned = 0;
-    if (r_out.size() > TERRAIN_MAX_INSTANCES && r_out.size() != warned) log_write("Terrain: %zu terrain components in the scene, only the first %u are used.", r_out.size(), TERRAIN_MAX_INSTANCES);
-    warned = r_out.size();
-    if (r_out.size() > TERRAIN_MAX_INSTANCES) r_out.resize(TERRAIN_MAX_INSTANCES);
-}
-
 vec3 TerrainSource::origin() const
 {
     return vec3(-0.5f * (float)(header.samples_x - 1) * header.spacing, 0.0f, -0.5f * (float)(header.samples_y - 1) * header.spacing);

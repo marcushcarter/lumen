@@ -33,20 +33,7 @@ struct TerrainCache
         float distance = 0.0f;
     };
 
-    struct Terrain {
-        uint64_t key = 0;
-        vec3 position = vec3(0.0f);
-        vec3 origin = vec3(0.0f);
-        TerrainSource source;
-        std::vector<Tile> tiles;
-        uint32_t tile_base = 0;
-        uint32_t coarse_word = 0;
-        bool coarse_pending = true;
-        float ranges[TERRAIN_LEVELS] = {};
-    };
-
     struct Request {
-        uint32_t terrain = 0;
         uint32_t tile = 0;
         uint32_t lod = 0;
         std::vector<uint16_t> samples;
@@ -65,17 +52,17 @@ struct TerrainCache
         VkDeviceSize size;
     };
 
-    struct TileRef {
-        uint32_t terrain;
-        uint32_t tile;
-    };
-
     drivers::DeviceDriverVulkan* dd = nullptr;
     uint32_t frame_count = 1;
     std::unordered_map<uint64_t, std::filesystem::path> paths;
 
-    std::vector<TerrainInstance> _instances;
-    std::vector<Terrain> terrains;
+    Guid guid;
+    Guid _requested;
+    TerrainSource source;
+    std::vector<Tile> tiles;
+    vec3 origin = vec3(0.0f);
+    float ranges[TERRAIN_LEVELS] = {};
+    bool coarse_pending = true;
     std::vector<uint32_t> free_fine;
     std::vector<uint32_t> free_small;
     std::vector<Retired> retired;
@@ -84,9 +71,9 @@ struct TerrainCache
     std::vector<Upload> uploads;
     std::vector<TerrainPatch> patches;
     std::vector<TerrainTileGpu> tile_table;
-    std::vector<TileRef> _order;
-    std::vector<TerrainUniform> _uniforms;
+    std::vector<uint32_t> _order;
     uint64_t signature = 0;
+    uint64_t _activations = 0;
     float height_lo = 0.0f;
     float height_hi = 0.0f;
     uint32_t patch_count = 0;
@@ -104,6 +91,7 @@ struct TerrainCache
     std::vector<drivers::DeviceDriverVulkan::Buffer> patch_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> tile_buffers;
     std::vector<drivers::DeviceDriverVulkan::Buffer> uniform_buffers;
+    TerrainUniform _uniform{};
     drivers::DeviceDriverVulkan::Buffer quarter_indices;
 
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
@@ -113,22 +101,21 @@ struct TerrainCache
     void register_path(Guid p_guid, const std::filesystem::path& p_path);
     void reload(Guid p_guid, const std::filesystem::path& p_path);
 
-    void update(const std::vector<TerrainInstance>& p_terrains, const CameraUniform& p_camera, uint64_t p_frame_number, uint32_t p_slot);
+    void update(Guid p_terrain, const CameraUniform& p_camera, uint64_t p_frame_number, uint32_t p_slot);
     bool active() const { return frame_active && patch_count > 0; }
+    bool loaded() const { return source.valid(); }
 
-    bool _same_set(const std::vector<TerrainInstance>& p_terrains) const;
-    void _activate(const std::vector<TerrainInstance>& p_terrains);
+    void _activate(Guid p_terrain);
     void _deactivate();
-    void _place(const std::vector<TerrainInstance>& p_terrains);
     void _plan_streaming(const vec3& p_camera);
     void _receive(uint64_t p_frame_number);
     bool _alloc_slot(uint32_t p_lod, uint64_t p_frame_number, uint32_t& r_slot);
     void _release_slot(uint32_t p_slot, uint64_t p_frame_number);
     bool _stage(const void* p_data, VkDeviceSize p_bytes, VkDeviceSize p_dst);
     void _select(const CameraUniform& p_camera);
-    bool _select_node(const CameraUniform& p_camera, uint32_t p_terrain, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, bool p_root);
-    void _emit(uint32_t p_terrain, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, uint32_t p_quarter);
-    void _node_box(const Terrain& p_terrain, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, vec3& r_min, vec3& r_max) const;
+    bool _select_node(const CameraUniform& p_camera, uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, bool p_root);
+    void _emit(uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, uint32_t p_quarter);
+    void _node_box(uint32_t p_tile, uint32_t p_level, uint32_t p_i, uint32_t p_j, vec3& r_min, vec3& r_max) const;
     VkDeviceSize _slot_word(uint32_t p_slot) const;
 };
 

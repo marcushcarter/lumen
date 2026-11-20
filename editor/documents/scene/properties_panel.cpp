@@ -118,7 +118,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const Scene* live = live_on ? &ctx.play->runtime : nullptr;
 
     const Entity selected = ctx.selection->primary();
-    const bool has_target = ctx.selection->environment || ctx.selection->shadows || ctx.selection->physics || world.valid(selected);
+    const bool has_target = ctx.selection->environment || ctx.selection->shadows || ctx.selection->physics || ctx.selection->terrain || world.valid(selected);
     const float inset = ui_category_inset();
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
@@ -188,12 +188,25 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         return;
     }
 
+    if (ctx.selection->terrain) {
+        if (_section("Terrain")) {
+            _name("Terrain");
+            asset_field(ctx, "", "###scene_terrain", world.terrain.terrain, AssetType::TERRAIN);
+            const AssetRegistry::Entry* entry = live && ctx.assets ? ctx.assets->find(live->terrain.terrain) : nullptr;
+            if (entry) _live("%s", entry->name.c_str());
+            else _live("-");
+        }
+        _section_end();
+        ImGui::EndChild();
+        ui_field_pop_style();
+        return;
+    }
+
     if (ctx.selection->environment) {
-        EnvironmentSettings& env = world.environment;
         if (_section("Scene Info")) {
-            _name("Exposure EV100");
-            ImGui::DragFloat("##ev100", &env.manual_ev100, 0.05f, -6.0f, 18.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(live != nullptr, live ? live->environment.manual_ev100 : 0.0f);
+            _name("Exposure");
+            ImGui::TextDisabled("%.2f (fixed)", EnvironmentSettings::EXPOSURE);
+            _live("-");
         }
         _section_end();
         ImGui::EndChild();
@@ -355,21 +368,13 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             const AssetRegistry::Entry* entry = lm && ctx.assets ? ctx.assets->find(lm->model) : nullptr;
             if (entry) _live("%s", entry->name.c_str());
             else _live("-");
-        }
-        if (remove) world.deferred_remove<ModelComponent>(e);
-    }
-
-    if (TerrainComponent* terrain = world.try_get<TerrainComponent>(e)) {
-        bool remove = false;
-        if (_section("Terrain", &remove, nullptr)) {
-            _name("Terrain");
-            if (asset_field(ctx, "", "###terrain_field", terrain->terrain, AssetType::TERRAIN)) world.touch(e);
-            const TerrainComponent* lt = has_live ? live->try_get<TerrainComponent>(le) : nullptr;
-            const AssetRegistry::Entry* entry = lt && ctx.assets ? ctx.assets->find(lt->terrain) : nullptr;
-            if (entry) _live("%s", entry->name.c_str());
+            _name("Tint");
+            if (ImGui::ColorEdit4("##model_tint", &model->tint.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar)) world.touch(e);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Multiplies the material colour. White leaves it unchanged.");
+            if (lm) _live("%.2f, %.2f, %.2f", lm->tint.x, lm->tint.y, lm->tint.z);
             else _live("-");
         }
-        if (remove) world.deferred_remove<TerrainComponent>(e);
+        if (remove) world.deferred_remove<ModelComponent>(e);
     }
 
     if (CharacterComponent* loco = world.try_get<CharacterComponent>(e)) {

@@ -69,7 +69,14 @@ struct Instance
     uint32_t slot_base;
     uint32_t skin_id = SKIN_NONE;
     uint32_t flags = 0;
+    uint32_t tint = 0xFFFFFFFFu;
 };
+
+inline uint32_t instance_tint(const vec4& p_tint)
+{
+    const vec4 c = glm::clamp(p_tint, vec4(0.0f), vec4(1.0f)) * 255.0f + 0.5f;
+    return (uint32_t)c.x | ((uint32_t)c.y << 8) | ((uint32_t)c.z << 16) | ((uint32_t)c.w << 24);
+}
 
 struct SkinInstance
 {
@@ -172,7 +179,7 @@ struct TerrainUniform
     uint64_t tile_table;
     uint64_t patches;
     uint32_t coarse_base;
-    uint32_t count;
+    uint32_t _pad;
 };
 static_assert(sizeof(TerrainUniform) == 176, "TerrainUniform layout changed");
 

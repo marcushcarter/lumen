@@ -43,9 +43,8 @@ void AssetDocument::_create_preview()
 
 void AssetDocument::_update_orbit()
 {
-    if (viewport.looking) orbit.rotate(viewport.look_delta.x, viewport.look_delta.y);
-    if (viewport.look_zoom != 0.0f) orbit.zoom(viewport.look_zoom);
-    if (viewport.pan_delta.x != 0.0f || viewport.pan_delta.y != 0.0f) orbit.pan(viewport.pan_delta.x, viewport.pan_delta.y, viewport.view_size.y);
+    orbit.control(viewport.camera_input, viewport.view_size.y, ImGui::GetIO().DeltaTime);
+    viewport.camera_input = {};
 }
 
 void AssetDocument::_refresh_title()

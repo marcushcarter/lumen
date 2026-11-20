@@ -19,7 +19,7 @@
 #include <editor/documents/document_manager.h>
 #include <editor/documents/scene/editor_selection.h>
 #include <editor/workspace/workspace.h>
-#include <editor/viewport/editor_camera.h>
+#include <editor/viewport/orbit_camera.h>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -66,7 +66,7 @@ struct EditorApplication : Application
 
     toml::table _project_state_default;
 
-    EditorCamera editor_camera;
+    OrbitCamera editor_camera;
 
     EditorContext& _context();
 
@@ -101,6 +101,7 @@ struct EditorApplication : Application
     void _apply_theme();
 
     void _play_start();
+    void _keep_editor_view();
     void on_simulate(float p_dt) override;
     Scene& simulated_scene() override { return play.active() ? play.runtime : scene; }
     void update_camera(float p_dt) override;

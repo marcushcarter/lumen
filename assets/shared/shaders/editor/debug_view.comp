@@ -69,8 +69,7 @@ vec3 pixel_world(ivec2 coord, ivec2 size) {
 }
 
 vec2 terrain_sample_coord(TerrainPatch tp, ivec2 coord, ivec2 size) {
-    TerrainBuffer t = terrain_at(pc.terrain, terrain_patch_terrain(tp));
-    return (pixel_world(coord, size).xz - t.origin_spacing.xz) / t.origin_spacing.w;
+    return (pixel_world(coord, size).xz - pc.terrain.origin_spacing.xz) / pc.terrain.origin_spacing.w;
 }
 
 float patch_shade(TerrainPatch tp) {
@@ -215,7 +214,7 @@ void main() {
                 if (pc.op == OP_TERRAIN_LOD) {
                     color = level_color(tp.packed & 15u) * patch_shade(tp);
                 } else {
-                    TerrainBuffer t = terrain_at(pc.terrain, terrain_patch_terrain(tp));
+                    TerrainBuffer t = pc.terrain;
                     const uint lod = t.tile_table.data[tp.tile].lod;
                     const uvec2 tile = uvec2(tp.tile % t.tiles_x, tp.tile / t.tiles_x);
                     const float shade = ((tile.x + tile.y) & 1u) == 0u ? 1.0 : 0.78;
@@ -229,6 +228,9 @@ void main() {
         if (n > 2.0) t = 0.28 + (1.0 - 0.28) * (1.0 - exp2(-(n - 2.0) * 0.25));
         else if (n > 0.0) t = mix(0.12, 0.28, (n - 1.0) / max(2.0 - 1.0, 1.0));
         color = n > 0.0 ? color_map_heat(t) : vec3(0.0);
+    } else if (pc.op == OP_BASE_COLOR) {
+        color = vec3(0);
+        if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) color = srgb_to_linear(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb);
     } else if (pc.op == OP_WORLD_NORMAL) {
         color = vec3(0);
         float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;

@@ -172,7 +172,14 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
             body.hash = hash;
             if (!_build(r_world, item.entity, item.collision, matrix, body)) continue;
             body.seen = true;
-            if (body.motion == PhysicsMotion::DYNAMIC) _update_freeze(body);
+            if (body.motion == PhysicsMotion::DYNAMIC) {
+                if (const InitialVelocityComponent* v = r_world.try_get<InitialVelocityComponent>(item.entity)) {
+                    physics.set_linear_velocity(body.id, v->linear);
+                    physics.set_angular_velocity(body.id, v->angular);
+                    r_world.remove<InitialVelocityComponent>(item.entity);
+                }
+                _update_freeze(body);
+            }
             bodies.emplace(k, body);
             optimize_pending = true;
             floor_dirty = true;
@@ -331,15 +338,14 @@ void PhysicsSystem::_update_floor()
 void PhysicsSystem::_sync_terrain(GameSession& r_session)
 {
     const Scene& world = *r_session.world;
-    terrain_instances(world, _terrains);
-    _terrain_paths.clear();
-    for (const TerrainInstance& t : _terrains) _terrain_paths.push_back(project ? project->content_path(t.guid) : std::filesystem::path());
+    const Guid terrain_guid = world.terrain.terrain;
+    const std::filesystem::path terrain_path = terrain_guid.valid() && project ? project->content_path(terrain_guid) : std::filesystem::path();
     _anchors.clear();
     _anchors.push_back(r_session.camera.position);
     world.view<TransformComponent, CharacterComponent>([&](Entity p_entity, const TransformComponent&, const CharacterComponent&) {
         _anchors.push_back(vec3(world.world_matrix(p_entity)[3]));
     });
-    terrain.update(physics, _terrains, _terrain_paths, _anchors);
+    terrain.update(physics, terrain_guid, terrain_path, _anchors);
 }
 
 void PhysicsSystem::update(GameSession& r_session, float p_dt)

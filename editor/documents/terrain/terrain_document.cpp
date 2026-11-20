@@ -38,14 +38,7 @@ Error TerrainDocument::create(EditorContext& ctx)
 
 static void _preview_terrain(Scene& r_preview, Guid p_guid)
 {
-    Entity found = ENTITY_NULL;
-    r_preview.view<TerrainComponent>([&](Entity p_entity, const TerrainComponent&) { found = p_entity; });
-    if (found == ENTITY_NULL) {
-        if (!p_guid.valid()) return;
-        found = r_preview.create();
-        r_preview.add<TransformComponent>(found);
-    }
-    r_preview.add<TerrainComponent>(found, { p_guid });
+    r_preview.terrain.terrain = p_guid;
 }
 
 void TerrainDocument::_frame_terrain(EditorContext& ctx)

@@ -8,6 +8,7 @@
 #include "common/camera.glsl"
 #include "common/direct_light.glsl"
 #include "common/gbuffer.glsl"
+#include "common/color.glsl"
 #include "common/shading_tiles.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -40,6 +41,7 @@ layout(push_constant, scalar) uniform Push {
     uint shadow_sampler_index;
     uint cascade_index[2];
     uint point_sampler_index;
+    uint albedo_index;
     HeightfieldInfo heightfield;
 } pc;
 
@@ -60,24 +62,42 @@ const uint SHADOW_MAP_NONE = 0xFFFFFFFFu;
 
 const float PI = 3.14159265359;
 const float HDR_MAX = 60000.0;
-const vec3 ALBEDO = vec3(1.0);
 
-const float SKY_NITS = 8000.0;
-const vec3 SKY_ZENITH = vec3(0.32, 0.48, 0.78);
-const vec3 SKY_HORIZON = vec3(0.68, 0.73, 0.80);
-const vec3 SKY_GROUND = vec3(0.36, 0.37, 0.39);
+const vec3 SKY_ZENITH = vec3(0.22, 0.42, 0.78);
+const vec3 SKY_HORIZON = vec3(0.78, 0.84, 0.90);
+const vec3 SKY_GROUND = vec3(0.45, 0.47, 0.48);
+const vec3 SUN_COLOR = vec3(3.2, 2.95, 2.6);
+const float SKY_GRADIENT = 0.55;
+const float SKY_GROUND_FADE = 4.0;
+const float SKY_SCALE = 1.15;
+const float SUN_GLOW_WIDE = 0.06;
+const float SUN_GLOW_TIGHT = 0.25;
+const float SUN_DISC = 8.0;
+const vec3 AMBIENT_DOWN = vec3(0.30, 0.28, 0.25);
+const vec3 AMBIENT_UP = vec3(0.42, 0.55, 0.72);
+const float AMBIENT_STRENGTH = 0.55;
 
 layout(constant_id = 0) const uint TILE_TYPE = SHADING_TILE_MIXED;
 
 vec3 sky_radiance(vec3 p_dir) {
     const float y = p_dir.y;
-    const vec3 c = y >= 0.0 ? mix(SKY_HORIZON, SKY_ZENITH, pow(y, 0.6)) : mix(SKY_HORIZON, SKY_GROUND, pow(min(-y * 4.0, 1.0), 0.5));
-    return c * SKY_NITS;
+    vec3 c = y >= 0.0 ? mix(SKY_HORIZON, SKY_ZENITH, pow(y, SKY_GRADIENT)) : mix(SKY_HORIZON, SKY_GROUND, pow(min(-y * SKY_GROUND_FADE, 1.0), 0.5));
+    const float s = max(dot(p_dir, -pc.direct_light.direction), 0.0);
+    const float s2 = s * s;
+    const float s6 = s2 * s2 * s2;
+    float s64 = s2 * s2;
+    s64 *= s64;
+    s64 *= s64;
+    s64 *= s64;
+    s64 *= s64;
+    c += SUN_COLOR * (SUN_GLOW_WIDE * s6 + SUN_GLOW_TIGHT * s64);
+    c *= SKY_SCALE;
+    if (s >= cos(pc.direct_light.angular_radius)) c += SUN_COLOR * SUN_DISC;
+    return c;
 }
 
 vec3 sky_ambient(vec3 p_n) {
-    const vec3 up = mix(SKY_HORIZON, SKY_ZENITH, 0.6);
-    return mix(SKY_GROUND, up, p_n.y * 0.5 + 0.5) * SKY_NITS;
+    return mix(AMBIENT_DOWN, AMBIENT_UP, p_n.y * 0.5 + 0.5) * AMBIENT_STRENGTH;
 }
 
 bool player_shadow_covers(ivec2 p_pixel) {
@@ -220,6 +240,7 @@ void main() {
     }
 
     vec3 n = gbuffer_decode_normal(texelFetch(u_textures[pc.normal_index], p, 0).rg);
+    const vec3 albedo = srgb_to_linear(texelFetch(u_textures[pc.albedo_index], p, 0).rgb);
 
     const float n_dot_l = clamp(dot(n, -pc.direct_light.direction), 0.0, 1.0);
     float shadow = 1.0;
@@ -231,8 +252,8 @@ void main() {
         shadow = min(shadow, sun_shadow(world, n));
         if (shadow > 0.0) shadow = min(shadow, heightfield_shadow(world, n));
     }
-    vec3 direct = ALBEDO / PI * pc.direct_light.illuminance * n_dot_l * shadow;
-    vec3 ambient = ALBEDO * sky_ambient(n);
+    vec3 direct = albedo / PI * pc.direct_light.illuminance * n_dot_l * shadow;
+    vec3 ambient = albedo * sky_ambient(n);
 
     vec3 color = (direct + ambient) * pc.camera.pre_exposure;
     imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(min(color, vec3(HDR_MAX)), 1.0));

@@ -14,9 +14,8 @@ namespace lumen {
 
 void PreviewViewport::release()
 {
-    cursor_lock.end();
-    looking = false;
-    panning = false;
+    drag.release();
+    camera_input = {};
     shape_gizmo.reset();
 }
 
@@ -25,7 +24,7 @@ bool PreviewViewport::edit_shape(EditorContext& ctx, const ShapeEdit& p_shape, b
     r_changed = false;
     if (!ctx.renderer || view_size.x < 2.0f || view_size.y < 2.0f) return false;
     const ImGuiIO& io = ImGui::GetIO();
-    const bool input_ok = hovered && !looking && ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
+    const bool input_ok = hovered && !drag.active() && ImGui::IsMousePosValid() && !io.AppFocusLost && !io.WantTextInput;
     const TransformGizmo::Frame frame = ShapeGizmo::frame(ctx.renderer->main_view.camera, view_min, view_size);
     return shape_gizmo.update(frame, mat4(1.0f), false, input_ok, p_shape, r_changed);
 }
@@ -50,27 +49,6 @@ int32_t PreviewViewport::pick_point(EditorContext& ctx, const glm::vec3* p_point
         best = (int32_t)i;
     }
     return best;
-}
-
-void PreviewViewport::_update_look(bool p_start, ImVec2 p_center)
-{
-    look_delta = ImVec2(0.0f, 0.0f);
-    if (!looking && p_start) {
-        looking = true;
-        _look_press = ImGui::GetMousePos();
-        _look_travel = 0.0f;
-        cursor_lock.begin();
-    }
-    if (!looking) return;
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-        looking = false;
-        if (_look_travel > LOOK_CLICK_SLOP) cursor_lock.end(p_center.x - _look_press.x, p_center.y - _look_press.y);
-        else cursor_lock.end();
-        return;
-    }
-    cursor_lock.take_delta(look_delta.x, look_delta.y);
-    _look_travel += std::fabs(look_delta.x) + std::fabs(look_delta.y);
-    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 }
 
 void PreviewViewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
@@ -112,15 +90,10 @@ void PreviewViewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     hovered = ImGui::IsItemHovered();
     view_min = p_min;
     view_size = size;
-    const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Right) && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE;
-    picked = ImGui::IsItemClicked(ImGuiMouseButton_Left) && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE;
+    const bool gizmo_idle = shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE;
+    picked = ImGui::IsItemClicked(ImGuiMouseButton_Left) && gizmo_idle;
     pick_pos = ImGui::GetMousePos();
-
-    look_zoom = hovered ? ImGui::GetIO().MouseWheel : 0.0f;
-    if (hovered && !looking && ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) panning = true;
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle)) panning = false;
-    pan_delta = panning ? ImGui::GetIO().MouseDelta : ImVec2(0.0f, 0.0f);
-    _update_look(clicked, ImVec2(ImFloor(p_min.x + size.x * 0.5f), ImFloor(p_min.y + size.y * 0.5f)));
+    camera_input = drag.update(hovered, gizmo_idle);
 }
 
 }

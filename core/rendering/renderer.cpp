@@ -603,11 +603,13 @@ static void _player_lod_fit(FrameData& r_frame)
     r_frame.player_lod_density = scale * std::exp2(std::ceil(std::log2(density) * PLAYER_LOD_STEPS) / PLAYER_LOD_STEPS);
 }
 
-static void _static_add(StaticInstances& r_static, const LMesh& p_mesh, uint32_t p_mesh_index, uint32_t p_entity, uint32_t p_slot_base, const mat4& p_model)
+static void _static_add(StaticInstances& r_static, const LMesh& p_mesh, uint32_t p_mesh_index, uint32_t p_entity, uint32_t p_slot_base, const mat4& p_model, const vec4& p_tint)
 {
     vec3 lo, hi;
     _world_box(p_mesh, p_model, lo, hi);
-    r_static.instances.push_back(Instance{ p_mesh_index, (uint32_t)r_static.transforms.size(), p_entity, p_slot_base });
+    Instance instance{ p_mesh_index, (uint32_t)r_static.transforms.size(), p_entity, p_slot_base };
+    instance.tint = instance_tint(p_tint);
+    r_static.instances.push_back(instance);
     r_static.transforms.push_back(Transform{ p_model, p_model });
     r_static.cluster_counts.push_back(p_mesh.cluster_count);
     r_static.bounds_min.push_back(lo);
@@ -678,7 +680,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
             if (!mesh) return;
             const mat4 model = p_world.world_matrix(p_entity);
             if (!_model_sane(model)) return;
-            _static_add(static_insts, *mesh, mesh_index, p_entity.index, slot_base, model);
+            _static_add(static_insts, *mesh, mesh_index, p_entity.index, slot_base, model, p_model.tint);
         });
         static_insts.bvh.build(static_insts.bounds_min, static_insts.bounds_max);
         static_insts.world_version = p_world.static_version;
@@ -707,6 +709,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         cache.prev_mtx = model;
         cache.frame = frame_number;
         Instance instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base };
+        instance.tint = instance_tint(p_model.tint);
         const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
         if (pose && geometry.joint_boxes(cache.mesh_index)) instance.skin_id = _skin_add(frame, cache, continuous, *pose, geometry, cache.mesh_index);
         if (character_is_player(p_world, p_entity)) {
@@ -777,19 +780,16 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
 
     // Environment.
     {
-        const EnvironmentSettings& env = p_world.environment;
         frame.direct_light.direction = normalize(EnvironmentSettings::SUN_DIRECTION);
         frame.direct_light.angular_radius = EnvironmentSettings::SUN_ANGULAR_RADIUS;
-        frame.direct_light.illuminance = vec3(EnvironmentSettings::SUN_ILLUMINANCE_LUX);
-        frame.camera.pre_exposure = 1.0f / (1.2f * std::exp2(env.manual_ev100));
+        frame.direct_light.illuminance = EnvironmentSettings::SUN_COLOR * glm::pi<float>();
+        frame.camera.pre_exposure = EnvironmentSettings::EXPOSURE;
     }
     _player_lod_fit(frame);
     _player_shadow_fit(frame, width, height, p_world.shadows.player_shadow);
     _sun_cascade_fit(frame, camera, p_world.shadows, frame_number);
     if (&r_view == &main_view) {
-        std::vector<TerrainInstance> terrains;
-        terrain_instances(p_world, terrains);
-        terrain.update(terrains, frame.camera, frame_number, current_frame);
+        terrain.update(p_world.terrain.terrain, frame.camera, frame_number, current_frame);
         terrain.owner = &frame;
     }
 

@@ -59,8 +59,6 @@ struct PhysicsSystem : GameSystem
     CollisionCache collision;
     TerrainCollision terrain;
     std::vector<vec3> _anchors;
-    std::vector<TerrainInstance> _terrains;
-    std::vector<std::filesystem::path> _terrain_paths;
     std::vector<SyncItem> _items;
     std::vector<StaticItem> _statics;
     RelevanceView _view;

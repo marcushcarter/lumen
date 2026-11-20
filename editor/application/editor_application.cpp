@@ -1,3 +1,4 @@
+#include <editor/assets/builtin_shapes.h>
 #include <editor/application/editor_application.h>
 #include <core/io/embedded_resource.h>
 #include <core/io/file_io.h>
@@ -33,6 +34,10 @@
 #include <windows.h>
 
 namespace lumen {
+
+static constexpr float SCENE_CAMERA_MIN_DISTANCE = 0.05f;
+static constexpr float SCENE_CAMERA_MAX_DISTANCE = 20000.0f;
+static constexpr float SCENE_CAMERA_DISTANCE = 5.0f;
 
 Error EditorApplication::on_init()
 {
@@ -100,6 +105,9 @@ Error EditorApplication::on_init()
     _ctx.documents = &documents;
     _ctx.selection = &selection;
     _ctx.main_selection = &selection;
+    editor_camera.min_distance = SCENE_CAMERA_MIN_DISTANCE;
+    editor_camera.max_distance = SCENE_CAMERA_MAX_DISTANCE;
+    editor_camera.distance = SCENE_CAMERA_DISTANCE;
     _ctx.editor_camera = &editor_camera;
     _ctx.frame_stats = &frame_stats;
     _ctx.settings = &settings;
@@ -131,10 +139,31 @@ Error EditorApplication::on_init()
         if (play.active()) play.stop();
         else _play_start();
     };
+    _ctx.pie_play = [this] {
+        if (!play.active()) {
+            _play_start();
+            return;
+        }
+        if (!play.simulating) return;
+        play.simulating = false;
+        _keep_editor_view();
+    };
+    _ctx.pie_simulate = [this] {
+        if (!play.active()) {
+            _play_start();
+            play.simulating = play.active();
+            return;
+        }
+        if (play.simulating) return;
+        editor_camera.place(play.session.camera);
+        play.simulating = true;
+    };
+    _ctx.pie_is_simulating = [this] { return play.active() && play.simulating; };
     _ctx.pie_is_paused = [this] { return play.editing(); };
     _ctx.pie_toggle_pause = [this] {
-        if (play.playing()) editor_camera.place(play.session.camera);
+        if (play.game()) editor_camera.place(play.session.camera);
         play.toggle();
+        _keep_editor_view();
     };
     _ctx.pie_step = [this] { play.step(); };
     _ctx.pie_is_scaled = [this] { return play.scaled; };
@@ -142,6 +171,7 @@ Error EditorApplication::on_init()
         const bool back_to_pause = play.scaled && play.scaled_from_pause;
         play.set_scaled(!play.scaled);
         if (back_to_pause && play.editing()) editor_camera.place(play.session.camera);
+        _keep_editor_view();
     };
     _ctx.run_is_running = [this](const std::filesystem::path& p_root) { return run.is_running_for(p_root); };
     _ctx.run_toggle = [this](const std::filesystem::path& p_root) {
@@ -198,6 +228,7 @@ void EditorApplication::on_simulate(float p_dt)
     }
     Viewport& viewport = workspace.scene.viewport;
     play.session.input.read(viewport.game_captured, vec2(viewport.game_look.x, viewport.game_look.y), p_dt);
+    if (play.simulating) play.session.camera = editor_camera.camera;
     viewport.game_look = ImVec2(0.0f, 0.0f);
     play.update(p_dt);
 }
@@ -373,6 +404,7 @@ Error EditorApplication::open_project(const std::filesystem::path& p_root)
         _clear_loading_marker();
     }
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    builtin_shapes_prepare(project, renderer);
     session_project = project.root;
 
     AssetImportTracker::clear_staging(project);
@@ -986,22 +1018,20 @@ EditorContext& EditorApplication::_context()
     return _ctx;
 }
 
+void EditorApplication::_keep_editor_view()
+{
+    if (!play.game()) return;
+    bool game_camera = false;
+    play.runtime.view<OrbitCameraComponent>(Exclude<DisabledTag>{}, [&](Entity, const OrbitCameraComponent&) { game_camera = true; });
+    if (!game_camera) play.session.camera = editor_camera.camera;
+}
+
 void EditorApplication::update_camera(float p_dt)
 {
     Viewport& viewport = workspace.scene.viewport;
-    EditorCamera::Input input;
-    input.flying = viewport.flying && !play.playing();
-    if (input.flying) {
-        input.look = vec2(viewport.fly_look.x, viewport.fly_look.y);
-        input.wheel = viewport.fly_wheel;
-        input.move.x = (ImGui::IsKeyDown(ImGuiKey_D) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(ImGuiKey_A) ? 1.0f : 0.0f);
-        input.move.y = (ImGui::IsKeyDown(ImGuiKey_E) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(ImGuiKey_Q) ? 1.0f : 0.0f);
-        input.move.z = (ImGui::IsKeyDown(ImGuiKey_W) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(ImGuiKey_S) ? 1.0f : 0.0f);
-        input.fast = ImGui::IsKeyDown(ImGuiMod_Shift);
-    }
-    viewport.fly_look = ImVec2(0.0f, 0.0f);
-    viewport.fly_wheel = 0.0f;
-    editor_camera.update(input, p_dt);
+    if (!play.game()) editor_camera.control(viewport.camera_input, viewport.camera_view_height, p_dt);
+    viewport.camera_input = {};
+    editor_camera.update();
 }
 
 bool EditorApplication::renders_scene() const
@@ -1016,7 +1046,7 @@ const Camera& EditorApplication::active_camera() const
     if (const EditorDocument* w = workspace.active_document) {
         if (const Camera* c = w->preview_camera()) return *c;
     }
-    if (!workspace.scene.active_template() && play.playing()) return play.session.camera;
+    if (!workspace.scene.active_template() && play.game()) return play.session.camera;
     return editor_camera.camera;
 }
 

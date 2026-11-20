@@ -10,10 +10,11 @@ using namespace glm;
 struct EnvironmentSettings
 {
     static constexpr vec3 SUN_DIRECTION = vec3(-0.6f, -0.35f, -0.7f);
-    static constexpr float SUN_ILLUMINANCE_LUX = 128000.0f;
+    static constexpr vec3 SUN_COLOR = vec3(3.2f, 2.95f, 2.6f);
     static constexpr float SUN_ANGULAR_RADIUS = 0.0046525f;
+    static constexpr float EXPOSURE = 0.5f;
 
-    float manual_ev100 = 15.0f;
+    bool operator==(const EnvironmentSettings&) const = default;
 };
 
 struct ShadowSettings
@@ -31,6 +32,13 @@ struct PhysicsSettings
     float gravity = 9.81f;
 
     bool operator==(const PhysicsSettings&) const = default;
+};
+
+struct TerrainSettings
+{
+    Guid terrain;
+
+    bool operator==(const TerrainSettings&) const = default;
 };
 
 }

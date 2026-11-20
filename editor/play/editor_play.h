@@ -23,6 +23,8 @@ struct EditorPlay
     EnvironmentSettings _environment;
     ShadowSettings _shadows;
     PhysicsSettings _physics;
+    TerrainSettings _terrain;
+    bool simulating = false;
     bool step_pending = false;
     bool scaled = false;
     bool scaled_from_pause = false;
@@ -35,6 +37,7 @@ struct EditorPlay
     bool active() const { return session.active(); }
     bool playing() const { return session.playing(); }
     bool editing() const { return session.paused(); }
+    bool game() const { return playing() && !simulating; }
 
     void start(Scene& r_authored, Guid p_world, const Camera& p_camera);
     void stop();

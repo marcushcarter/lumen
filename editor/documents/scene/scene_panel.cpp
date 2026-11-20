@@ -403,7 +403,8 @@ void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
         return clicked;
     };
     if (row("##shadows", ICON_FA_CIRCLE_HALF_STROKE, "Shadows", selection.shadows, false)) selection.select_shadows();
-    if (row("##physics", ICON_FA_ATOM, "Physics", selection.physics, true)) selection.select_physics();
+    if (row("##physics", ICON_FA_ATOM, "Physics", selection.physics, false)) selection.select_physics();
+    if (row("##terrain", ICON_FA_MOUNTAIN, "Terrain", selection.terrain, true)) selection.select_terrain();
 }
 
 void ScenePanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)

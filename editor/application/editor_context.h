@@ -27,7 +27,7 @@ struct TextureViewer;
 struct ImportDialog;
 struct ReferencesDialog;
 struct ThumbnailCache;
-struct EditorCamera;
+struct OrbitCamera;
 struct FrameStats;
 
 struct EditorContext
@@ -48,7 +48,7 @@ struct EditorContext
     DocumentManager* documents = nullptr;
     EditorSelection* selection = nullptr;
     EditorSelection* main_selection = nullptr;
-    EditorCamera* editor_camera = nullptr;
+    OrbitCamera* editor_camera = nullptr;
     const FrameStats* frame_stats = nullptr;
 
     EditorRenderPath* render_path = nullptr;
@@ -74,6 +74,9 @@ struct EditorContext
     EditorPlay* play = nullptr;
     std::function<bool()> pie_is_playing;
     std::function<void()> pie_toggle_play;
+    std::function<void()> pie_play;
+    std::function<void()> pie_simulate;
+    std::function<bool()> pie_is_simulating;
     std::function<bool()> pie_is_paused;
     std::function<void()> pie_toggle_pause;
     std::function<void()> pie_step;

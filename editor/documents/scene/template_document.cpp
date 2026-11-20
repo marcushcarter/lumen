@@ -140,11 +140,7 @@ bool TemplateDocument::frame(EditorContext& ctx)
     const vec3 center = (lo + hi) * 0.5f;
     const float radius = std::max(length(hi - lo) * 0.5f, 0.1f);
     const vec3 dir = normalize(vec3(0.6f, 0.45f, 0.65f));
-    Camera cam;
-    cam.position = center + dir * (radius * 2.5f);
-    cam.rotation = glm::quatLookAt(-dir, vec3(0.0f, 1.0f, 0.0f));
-    camera.place(cam);
-    camera.speed = std::clamp(radius * 2.0f, EditorCamera::MIN_SPEED, EditorCamera::MAX_SPEED);
+    camera.look_from(center + dir * (radius * 2.5f), center);
     return true;
 }
 

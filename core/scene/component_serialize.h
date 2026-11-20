@@ -11,7 +11,7 @@ void serialize(Archive& a, ModelComponent& r_c);
 void serialize(Archive& a, CollisionComponent& r_c);
 void serialize(Archive& a, CharacterComponent& r_c);
 void serialize(Archive& a, OrbitCameraComponent& r_c);
-void serialize(Archive& a, TerrainComponent& r_c);
+void serialize(Archive& a, TerrainSettings& r_c);
 void serialize(Archive& a, ParentComponent& r_c);
 void serialize(Archive& a, TemplateInstanceComponent& r_c);
 void serialize(Archive& a, EnvironmentSettings& r_c);

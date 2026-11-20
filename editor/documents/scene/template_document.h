@@ -3,7 +3,7 @@
 #include <core/scene/scene.h>
 #include <editor/application/editor_context.h>
 #include <editor/documents/scene/editor_selection.h>
-#include <editor/viewport/editor_camera.h>
+#include <editor/viewport/orbit_camera.h>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -20,7 +20,7 @@ struct TemplateDocument
     std::filesystem::path path;
     Scene scene;
     EditorSelection selection;
-    EditorCamera camera;
+    OrbitCamera camera;
     Guid root;
     uint64_t _hash = 0;
     uint64_t _saved_hash = 0;

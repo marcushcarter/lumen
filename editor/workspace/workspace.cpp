@@ -1,3 +1,5 @@
+#include <editor/viewport/viewport.h>
+#include <editor/play/shape_spawner.h>
 #include <editor/workspace/workspace.h>
 #include <core/rendering/renderer.h>
 #include <editor/documents/document_manager.h>
@@ -184,6 +186,7 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
     const bool paused = playing && ctx.pie_is_paused && ctx.pie_is_paused();
     const bool can_play = scene.can_play() && ctx.pie_toggle_play;
+    const bool simulating = playing && ctx.pie_is_simulating && ctx.pie_is_simulating();
 
     ToolGrid g;
     g.origin = p_min;
@@ -210,11 +213,9 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     g.column(g.cell);
     g.separator();
 
-    if (!playing) {
-        if (g.big("##play", ICON_FA_PLAY, can_play ? "Play" : "Open a scene to play", false, can_play, 0)) ctx.pie_toggle_play();
-    } else {
-        if (g.big("##stop", ICON_FA_STOP, "Stop", true, true, 0)) ctx.pie_toggle_play();
-    }
+    if (g.big("##simulate", ICON_FA_ATOM, can_play ? (playing ? "Simulate: hand the view back to the editor camera (Esc)" : "Simulate: run physics with the editor camera") : "Open a scene to simulate", simulating, can_play || playing, 0) && ctx.pie_simulate) ctx.pie_simulate();
+    if (g.big("##play", ICON_FA_PLAY, can_play ? (playing ? "Play: take control of the game" : "Play") : "Open a scene to play", playing && !simulating, can_play || playing, 0) && ctx.pie_play) ctx.pie_play();
+    if (g.big("##stop", ICON_FA_STOP, playing ? "Stop and go back to editing" : "Nothing is running", false, playing, 0) && playing) ctx.pie_toggle_play();
     const bool scaled = playing && ctx.pie_is_scaled && ctx.pie_is_scaled();
     if (g.small(0, "##pause", paused ? ICON_FA_PLAY : ICON_FA_PAUSE, paused ? "Resume" : "Pause and edit", paused, playing && (bool)ctx.pie_toggle_pause, 0, 0)) ctx.pie_toggle_pause();
     if (g.small(0, "##step", ICON_FA_FORWARD_STEP, "Step one frame", false, paused && (bool)ctx.pie_step, 0, 1)) ctx.pie_step();
@@ -240,12 +241,35 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Transform orientation");
     if (ctx.editor_camera) {
         field_at(g.slot(0), field_w);
-        ImGui::DragFloat("##camera_speed", &ctx.editor_camera->speed, 0.1f, EditorCamera::MIN_SPEED, EditorCamera::MAX_SPEED, "%.1f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Camera fly speed");
+        ImGui::DragFloat("##camera_speed", &ctx.editor_camera->speed, 0.01f, OrbitCamera::MIN_SPEED, OrbitCamera::MAX_SPEED, "%.2fx", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Camera move speed (WASD, Q, E)");
     }
+    g.column(field_w);
+    g.separator();
+
+    ViewportView& view = viewport_view();
+    const float action_w = ImFloor(ImGui::CalcTextSize("Spawn Shapes").x + ImGui::GetFrameHeight() * 1.5f);
+    field_at(g.slot(0), action_w);
+    if (ImGui::BeginCombo("##viewport_action", view_action_name(view.action))) {
+        for (int i = 0; i < (int)ViewAction::COUNT; i++) {
+            if (ImGui::Selectable(view_action_name((ViewAction)i), (int)view.action == i)) view.action = (ViewAction)i;
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("What left click does in the viewport");
+    ImGui::BeginDisabled(view.action != ViewAction::SPAWN);
+    field_at(g.slot(1), action_w);
+    if (ImGui::BeginCombo("##spawn_shape", spawn_shape_name(view.spawn_shape))) {
+        for (int i = 0; i < (int)SpawnShape::COUNT; i++) {
+            if (ImGui::Selectable(spawn_shape_name((SpawnShape)i), (int)view.spawn_shape == i)) view.spawn_shape = (SpawnShape)i;
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Shape to spawn. Left click spawns one, hold Space to keep spawning. Only while simulating or playing.");
+    ImGui::EndDisabled();
     ImGui::PopStyleColor(6);
     ImGui::PopStyleVar();
-    g.column(field_w);
+    g.column(action_w);
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
     ImGui::EndChild();
 }

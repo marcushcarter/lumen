@@ -34,24 +34,13 @@ shared float s_value[THREADS];
 shared uint s_index[THREADS];
 shared float s_even[THREADS];
 
-float height_at(TerrainBuffer p_base, vec2 p_xz) {
-    float best = pc.height_min;
-    const uint count = p_base.count;
-    for (uint i = 0u; i < count; i++) {
-        TerrainBuffer t = terrain_at(p_base, i);
-        const vec2 s = (p_xz - t.origin_spacing.xz) / t.origin_spacing.w;
-        const vec2 limit = vec2(t.samples_x - 1u, t.samples_y - 1u);
-        if (any(lessThan(s, vec2(0.0))) || any(greaterThan(s, limit))) continue;
-        float h;
-        if (pc.coarse != 0u) {
-            h = terrain_level_height(t, terrain_tile_at(t, s), TERRAIN_COARSE_LEVEL, s);
-        } else {
-            float unused;
-            h = terrain_height(t, s, unused);
-        }
-        best = max(best, h);
-    }
-    return best;
+float height_at(TerrainBuffer t, vec2 p_xz) {
+    const vec2 s = (p_xz - t.origin_spacing.xz) / t.origin_spacing.w;
+    const vec2 limit = vec2(t.samples_x - 1u, t.samples_y - 1u);
+    if (any(lessThan(s, vec2(0.0))) || any(greaterThan(s, limit))) return pc.height_min;
+    if (pc.coarse != 0u) return max(pc.height_min, terrain_level_height(t, terrain_tile_at(t, s), TERRAIN_COARSE_LEVEL, s));
+    float unused;
+    return max(pc.height_min, terrain_height(t, s, unused));
 }
 
 void take(inout float r_value, inout uint r_index, float p_value, uint p_index) {

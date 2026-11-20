@@ -468,7 +468,10 @@ static constexpr float HEIGHT_FIELD_ERROR = 0.005f;
 
 PhysicsHeightField PhysicsWorld::build_height_field(const float* p_samples, uint32_t p_count, const vec3& p_offset, const vec3& p_scale)
 {
-    JPH::HeightFieldShapeSettings settings(p_samples, to_jph(p_offset), to_jph(p_scale), p_count);
+    const uint32_t padded = (p_count + HEIGHT_FIELD_BLOCK - 1) / HEIGHT_FIELD_BLOCK * HEIGHT_FIELD_BLOCK;
+    std::vector<float> samples((size_t)padded * padded, HEIGHT_FIELD_HOLE);
+    for (uint32_t y = 0; y < p_count; y++) std::copy(p_samples + (size_t)y * p_count, p_samples + (size_t)(y + 1) * p_count, samples.begin() + (size_t)y * padded);
+    JPH::HeightFieldShapeSettings settings(samples.data(), to_jph(p_offset), to_jph(p_scale), padded);
     settings.mBlockSize = HEIGHT_FIELD_BLOCK;
     settings.mBitsPerSample = settings.CalculateBitsPerSampleForError(HEIGHT_FIELD_ERROR);
     JPH::Shape::ShapeResult result = settings.Create();
@@ -585,6 +588,12 @@ void PhysicsWorld::set_linear_velocity(PhysicsBodyId p_body, const vec3& p_veloc
 {
     if (!impl || !p_body.valid()) return;
     impl->bodies().SetLinearVelocity(to_jph(p_body), to_jph(p_velocity));
+}
+
+void PhysicsWorld::set_angular_velocity(PhysicsBodyId p_body, const vec3& p_velocity)
+{
+    if (!impl || !p_body.valid()) return;
+    impl->bodies().SetAngularVelocity(to_jph(p_body), to_jph(p_velocity));
 }
 
 vec3 PhysicsWorld::get_linear_velocity(PhysicsBodyId p_body) const

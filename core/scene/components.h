@@ -27,6 +27,7 @@ struct TransformComponent
 struct ModelComponent
 {
     Guid model;
+    vec4 tint = vec4(1.0f);
 };
 
 struct PoseComponent
@@ -64,6 +65,12 @@ struct CollisionComponent
 
 enum class CharacterController : uint8_t { NONE, PLAYER, AI };
 
+struct InitialVelocityComponent
+{
+    vec3 linear = vec3(0.0f);
+    vec3 angular = vec3(0.0f);
+};
+
 struct CharacterComponent
 {
     CharacterController controller = CharacterController::NONE;
@@ -77,11 +84,6 @@ struct OrbitCameraComponent
     float radius = 0.2f;
     float pitch_min = -70.0f;
     float pitch_max = 60.0f;
-};
-
-struct TerrainComponent
-{
-    Guid terrain;
 };
 
 struct ParentComponent

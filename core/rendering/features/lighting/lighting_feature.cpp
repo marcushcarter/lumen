@@ -18,6 +18,7 @@ void LightingFeature::_create_lighting_pass()
         b.create_image("SceneColor", ci);
         b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_image("G_Normal", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("G_Albedo", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.read_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         b.read_buffer("Camera", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
         b.read_buffer("DirectLight", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
@@ -34,12 +35,13 @@ void LightingFeature::_create_lighting_pass()
     lighting_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto* depth = cl.graph->image("G_Depth");
         auto* normal = cl.graph->image("G_Normal");
+        auto* albedo = cl.graph->image("G_Albedo");
         auto* camera = cl.graph->buffer("Camera");
         auto* direct_light = cl.graph->buffer("DirectLight");
         auto* tiles = cl.graph->buffer("ShadingTiles");
         auto* out = cl.graph->image("SceneColor");
         auto* player_shadow = cl.graph->image("PlayerShadow");
-        if (!depth || !normal || !camera || !direct_light || !tiles || !out) return;
+        if (!depth || !normal || !albedo || !camera || !direct_light || !tiles || !out) return;
 
         struct Push {
             VkDeviceAddress camera_addr;
@@ -54,6 +56,7 @@ void LightingFeature::_create_lighting_pass()
             uint32_t shadow_sampler_index;
             uint32_t cascade_index[SUN_CASCADE_COUNT];
             uint32_t point_sampler_index;
+            uint32_t albedo_index;
             VkDeviceAddress heightfield_info_addr;
         } pc{};
         auto* heightfield_info = cl.graph->buffer("SunHeightfieldInfo");
@@ -67,6 +70,7 @@ void LightingFeature::_create_lighting_pass()
         pc.direct_light_addr = direct_light->device_address;
         pc.depth_index = depth->bindless_sampled;
         pc.normal_index = normal->bindless_sampled;
+        pc.albedo_index = albedo->bindless_sampled;
         pc.out_slot = out->bindless_storage;
         pc.width = out->extent.width;
         pc.height = out->extent.height;

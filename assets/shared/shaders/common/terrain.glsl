@@ -12,7 +12,6 @@ const uint TERRAIN_COARSE_STEP = 16u;
 const uint TERRAIN_LEVELS = 5u;
 const uint TERRAIN_LOD_NONE = 0xFFFFFFFFu;
 const uint TERRAIN_QUARTER_QUADS = 8u;
-const uint TERRAIN_UNIFORM_SIZE = 176u;
 
 struct TerrainPatch {
     uint origin_x;
@@ -46,20 +45,8 @@ layout(buffer_reference, scalar) buffer TerrainBuffer {
     TerrainTileBuffer tile_table;
     TerrainPatchBuffer patches;
     uint coarse_base;
-    uint count;
+    uint _pad;
 };
-
-TerrainBuffer terrain_at(TerrainBuffer p_base, uint p_index) {
-    uvec2 a = uvec2(p_base);
-    uint carry;
-    a.x = uaddCarry(a.x, p_index * TERRAIN_UNIFORM_SIZE, carry);
-    a.y += carry;
-    return TerrainBuffer(a);
-}
-
-uint terrain_patch_terrain(TerrainPatch p_patch) {
-    return (p_patch.packed >> 8u) & 15u;
-}
 
 float terrain_u16(TerrainHeightBuffer p_heights, uint p_word_base, uint p_index) {
     const uint w = p_heights.data[p_word_base + (p_index >> 1u)];

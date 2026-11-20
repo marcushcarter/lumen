@@ -22,7 +22,7 @@ void SceneDocument::_close_all(EditorContext& ctx)
     for (auto& c : _closing) c.second->unload();
     _closing.clear();
     viewport.cursor_lock.end();
-    viewport.flying = false;
+    viewport.camera_drag.release();
     for (auto& t : templates) t->unload();
     templates.clear();
     active = SCENE;
@@ -111,7 +111,7 @@ void SceneDocument::_load(EditorContext& ctx, Guid p_scene)
 
 void SceneDocument::_place_camera(EditorContext& ctx)
 {
-    EditorCamera* cam = ctx.editor_camera;
+    OrbitCamera* cam = ctx.editor_camera;
     if (!cam) return;
     Scene& world = *ctx.main_scene;
     Entity player = ENTITY_NULL;
@@ -129,10 +129,7 @@ void SceneDocument::_place_camera(EditorContext& ctx)
         facing = dot(facing, facing) > 1e-6f ? normalize(facing) : vec3(0.0f, 0.0f, 1.0f);
         position = target - facing * PLAYER_DISTANCE + vec3(0.0f, PLAYER_RISE, 0.0f);
     }
-    const vec3 dir = normalize(target - position);
-    cam->position = position;
-    cam->yaw = std::atan2(dir.x, dir.z);
-    cam->pitch = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
+    cam->look_from(position, target);
     scene_camera = *cam;
     if (ctx.renderer) ctx.renderer->camera_cut();
 }
@@ -162,7 +159,7 @@ void SceneDocument::activate(EditorContext& ctx, int32_t p_index)
     if (p_index >= (int32_t)templates.size()) p_index = SCENE;
     if (p_index == active) return;
     if (p_index != SCENE && ctx.play && ctx.play->active() && ctx.pie_toggle_play) ctx.pie_toggle_play();
-    EditorCamera* cam = ctx.editor_camera;
+    OrbitCamera* cam = ctx.editor_camera;
     if (cam) {
         if (TemplateDocument* out = active_template()) out->camera = *cam;
         else scene_camera = *cam;

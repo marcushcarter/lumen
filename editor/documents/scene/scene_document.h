@@ -4,7 +4,7 @@
 #include <editor/documents/scene/properties_panel.h>
 #include <editor/documents/scene/scene_panel.h>
 #include <editor/documents/scene/template_document.h>
-#include <editor/viewport/editor_camera.h>
+#include <editor/viewport/orbit_camera.h>
 #include <editor/viewport/viewport.h>
 #include <filesystem>
 #include <memory>
@@ -33,7 +33,7 @@ struct SceneDocument
     std::vector<std::unique_ptr<TemplateDocument>> templates;
     std::vector<std::pair<uint32_t, std::unique_ptr<TemplateDocument>>> _closing;
     int32_t active = SCENE;
-    EditorCamera scene_camera;
+    OrbitCamera scene_camera;
 
     const std::filesystem::path* _path(EditorContext& ctx) const;
     bool _confirm_discard(EditorContext& ctx, int32_t p_index, const wchar_t* p_body, const wchar_t* p_save);

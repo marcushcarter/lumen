@@ -10,18 +10,6 @@ namespace lumen {
 
 using namespace glm;
 
-static constexpr uint32_t TERRAIN_MAX_INSTANCES = 8;
-
-struct TerrainInstance
-{
-    uint64_t key = 0;
-    Guid guid;
-    vec3 position = vec3(0.0f);
-};
-
-struct Scene;
-void terrain_instances(const Scene& p_world, std::vector<TerrainInstance>& r_out);
-
 struct TerrainSource
 {
     static constexpr uint32_t NO_TILE = 0xFFFFFFFFu;

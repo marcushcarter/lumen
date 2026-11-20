@@ -16,7 +16,7 @@ const uint QUARTER_ROW = TERRAIN_QUARTER_QUADS + 1u;
 
 void main() {
     const TerrainPatch tp = pc.terrain.patches.data[gl_InstanceIndex];
-    TerrainBuffer t = terrain_at(pc.terrain, terrain_patch_terrain(tp));
+    TerrainBuffer t = pc.terrain;
     const uint level = tp.packed & 15u;
     const uint quarter = (tp.packed >> 4u) & 3u;
     const uint vi = uint(gl_VertexIndex);

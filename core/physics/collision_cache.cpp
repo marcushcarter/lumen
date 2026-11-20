@@ -45,13 +45,15 @@ static JPH::RefConst<JPH::Shape> _place(JPH::RefConst<JPH::Shape> p_shape, const
     return _result(settings.Create(), "placed");
 }
 
+static constexpr float HULL_CONVEX_RADIUS = 0.02f;
+
 static JPH::RefConst<JPH::Shape> _build_part(const LCollision& p_collision, const LCollisionPart& p_part)
 {
     if (p_part.kind() == CollisionType::HULL) {
         JPH::Array<JPH::Vec3> points;
         points.reserve(p_part.vertex_count);
         for (uint32_t v = p_part.vertex_first; v < p_part.vertex_first + p_part.vertex_count; v++) points.push_back(jolt::to_jph(p_collision.vertices[v]));
-        JPH::ConvexHullShapeSettings settings(points);
+        JPH::ConvexHullShapeSettings settings(points, HULL_CONVEX_RADIUS);
         return _result(settings.Create(), "hull part");
     }
     JPH::VertexList vertices;
@@ -109,7 +111,7 @@ static JPH::RefConst<JPH::Shape> _build(const LCollision& p_collision)
             JPH::Array<JPH::Vec3> points;
             points.reserve(p_collision.vertices.size());
             for (const vec3& v : p_collision.vertices) points.push_back(jolt::to_jph(v));
-            JPH::ConvexHullShapeSettings settings(points);
+            JPH::ConvexHullShapeSettings settings(points, HULL_CONVEX_RADIUS);
             return _result(settings.Create(), "hull");
         }
         case CollisionType::BOX: {

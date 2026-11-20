@@ -975,6 +975,12 @@ void GeometryFeature::_create_material_resolve_pass()
         normal_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         b.create_image("G_Normal", normal_ci);
 
+        drivers::DeviceDriverVulkan::ImageCreateInfo albedo_ci{};
+        albedo_ci.name = "G_Albedo";
+        albedo_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        albedo_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        b.create_image("G_Albedo", albedo_ci);
+
         drivers::DeviceDriverVulkan::ImageCreateInfo motion_ci{};
         motion_ci.name = "G_Motion";
         motion_ci.format = VK_FORMAT_R16G16_SFLOAT;
@@ -1002,11 +1008,13 @@ void GeometryFeature::_create_material_resolve_pass()
         b.write_buffer("ShadingTiles", VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
         b.write_image("G_Normal", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        b.write_image("G_Albedo", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         b.write_image("G_Motion", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
     material_resolve_pass.execute = [this](RenderGraph::CommandList& cl) {
         auto vis = cl.graph->image("G_Visibility");
         auto normal = cl.graph->image("G_Normal");
+        auto albedo = cl.graph->image("G_Albedo");
         auto motion = cl.graph->image("G_Motion");
         auto camera = cl.graph->buffer("Camera");
         auto geometry = cl.graph->buffer("Geometry");
@@ -1038,6 +1046,7 @@ void GeometryFeature::_create_material_resolve_pass()
             uint32_t width;
             uint32_t height;
             uint32_t flags;
+            uint32_t albedo_slot;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -1051,6 +1060,7 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.depth_index = depth ? depth->bindless_sampled : 0u;
         pc.normal_slot = normal->bindless_storage;
         pc.motion_slot = motion->bindless_storage;
+        pc.albedo_slot = albedo->bindless_storage;
         pc.width = vis->extent.width;
         pc.height = vis->extent.height;
         const RenderGraph::ImageResource* motion_res = cl.graph->image_resource("G_Motion");

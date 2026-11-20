@@ -19,6 +19,7 @@ void serialize(Archive& a, TransformComponent& r_c)
 void serialize(Archive& a, ModelComponent& r_c)
 {
     a.field("model", r_c.model);
+    a.field("tint", r_c.tint);
 }
 
 void serialize(Archive& a, CharacterComponent& r_c)
@@ -85,7 +86,8 @@ void serialize(Archive& a, TemplateInstanceComponent& r_c)
 
 void serialize(Archive& a, EnvironmentSettings& r_c)
 {
-    a.field("manual_ev100", r_c.manual_ev100);
+    (void)a;
+    (void)r_c;
 }
 
 void serialize(Archive& a, ShadowSettings& r_c)
@@ -101,7 +103,7 @@ void serialize(Archive& a, PhysicsSettings& r_c)
     a.field("gravity", r_c.gravity);
 }
 
-void serialize(Archive& a, TerrainComponent& r_c)
+void serialize(Archive& a, TerrainSettings& r_c)
 {
     a.field("terrain", r_c.terrain);
 }

@@ -3,6 +3,8 @@
 #include <core/game/entity_debug.h>
 #include <editor/viewport/transform_gizmo.h>
 #include <editor/viewport/shape_gizmo.h>
+#include <editor/viewport/orbit_camera.h>
+#include <editor/play/shape_spawner.h>
 #include <editor/application/editor_context.h>
 #include <core/scene/scene.h>
 #include <drivers/windows/cursor_lock_win32.h>
@@ -16,6 +18,7 @@ namespace lumen {
 struct EditorPlay;
 
 enum class ViewOverlay : uint8_t { NONE, COLLISION, BONES, DEBUG_LINES, BUOYANCY, COUNT };
+enum class ViewAction : uint8_t { GIZMO, SPAWN, COUNT };
 
 struct ViewportView
 {
@@ -23,7 +26,11 @@ struct ViewportView
     int debug_view = 0;
     bool culling_paused = false;
     bool stats = false;
+    ViewAction action = ViewAction::GIZMO;
+    SpawnShape spawn_shape = SpawnShape::RANDOM;
 };
+
+const char* view_action_name(ViewAction p_action);
 
 const char* view_overlay_name(ViewOverlay p_overlay);
 uint32_t view_overlay_kinds(ViewOverlay p_overlay);
@@ -45,9 +52,10 @@ struct Viewport
 
     bool gizmo_world = true;
     bool popup_open_last_frame = false;
-    bool flying = false;
-    ImVec2 fly_look = ImVec2(0.0f, 0.0f);
-    float fly_wheel = 0.0f;
+    ShapeSpawner spawner;
+    OrbitDrag camera_drag;
+    OrbitCamera::Input camera_input;
+    float camera_view_height = 0.0f;
     bool game_captured = false;
     ImVec2 game_look = ImVec2(0.0f, 0.0f);
 
@@ -66,12 +74,12 @@ struct Viewport
     void _finish_drop(EditorContext& ctx, float p_depth, bool p_hit);
 
     void _submit_debug_draw(EditorContext& ctx, bool p_live);
+    void _spawn_at_mouse(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
     void _draw_cull_frustum(EditorContext& ctx);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     static void draw_bar(ImVec2 p_min, ImVec2 p_max, bool p_overlay = true);
     static void draw_stats(EditorContext& ctx, ImVec2 p_pos);
     void _draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
-    void _update_fly(bool p_start);
     void _asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
 
     static void draw_options_menu(EditorContext& ctx);

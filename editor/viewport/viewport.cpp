@@ -370,7 +370,8 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     const UiStyle& ui = ui_style();
     const ViewportView& view = viewport_view();
     const bool live = play && play->active();
-    const bool playing = play && play->playing();
+    const bool playing = play && play->game();
+    const bool spawn_mode = live && !playing && view.action == ViewAction::SPAWN;
 
     uint32_t picked = PickFeature::NONE;
     float picked_depth = 0.0f;
@@ -434,20 +435,19 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 p_end(p_pos.x + p_size.x, p_pos.y + p_size.y);
     ImGui::SetCursorScreenPos(p_pos);
-    ImGui::InvisibleButton("##scene_image", p_size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    ImGui::InvisibleButton("##scene_image", p_size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
     const bool image_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
     const bool image_hovered = ImGui::IsItemHovered();
-    const bool fly_click = !playing && ImGui::IsItemClicked(ImGuiMouseButton_Right);
     if (set) dl->AddImage((ImTextureID)set, p_pos, p_end, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
     else dl->AddRectFilled(p_pos, p_end, ui.color.viewport_back);
 
     const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-    const bool gizmo_hot = !playing && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
-    if (playing) {
+    const bool gizmo_hot = !playing && !spawn_mode && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
+    if (playing || spawn_mode) {
         gizmo.reset();
         shape_gizmo.reset();
     }
-    const bool pick_click = !playing && !gizmo_hot && image_clicked;
+    const bool pick_click = !playing && !spawn_mode && !gizmo_hot && image_clicked;
     const bool game_click = playing && image_clicked;
     const ImVec2 mouse = ImGui::GetMousePos();
     if (!playing) _asset_drop(ctx, p_pos, p_size);
@@ -461,7 +461,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (game_captured && playing && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         game_captured = false;
         cursor_lock.end();
-        if (ctx.pie_toggle_pause) ctx.pie_toggle_pause();
+        if (ctx.pie_simulate) ctx.pie_simulate();
     }
     if (game_captured && !playing) {
         game_captured = false;
@@ -475,7 +475,24 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         game_look.y += dy;
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
-    _update_fly(fly_click && gizmo.active == TransformGizmo::Handle::NONE && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame);
+    if (spawn_mode && !popup_open_last_frame && image_hovered) {
+        const bool typing = ImGui::GetIO().WantTextInput;
+        bool spawn = image_clicked;
+        if (!typing && ImGui::IsKeyDown(ImGuiKey_Space)) {
+            spawner.repeat_timer -= ImGui::GetIO().DeltaTime;
+            if (ImGui::IsKeyPressed(ImGuiKey_Space, false) || spawner.repeat_timer <= 0.0f) spawn = true;
+        }
+        if (spawn) {
+            spawner.repeat_timer = ShapeSpawner::REPEAT_SECONDS;
+            _spawn_at_mouse(ctx, p_pos, p_size);
+        }
+    }
+
+    const bool camera_ok = !playing && !game_captured && gizmo.active == TransformGizmo::Handle::NONE && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame;
+    if (playing) camera_drag.release();
+    camera_input = playing ? OrbitCamera::Input{} : camera_drag.update(image_hovered, camera_ok);
+    if (!camera_ok && !camera_drag.active()) camera_input.keys = false;
+    camera_view_height = p_size.y;
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) {
@@ -485,6 +502,30 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         ctx.renderer->terrain.freeze = view.culling_paused;
         ctx.render_path->debug.view = (uint32_t)std::clamp(view.debug_view, 0, DEBUG_VIEW_COUNT - 1);
     }
+}
+
+const char* view_action_name(ViewAction p_action)
+{
+    static constexpr const char* NAMES[] = { "Gizmo", "Spawn Shapes" };
+    static_assert(std::size(NAMES) == (size_t)ViewAction::COUNT);
+    return NAMES[std::min((size_t)p_action, std::size(NAMES) - 1)];
+}
+
+void Viewport::_spawn_at_mouse(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+{
+    if (!ctx.play || !ctx.play->active() || !ctx.renderer || p_size.x < 1.0f || p_size.y < 1.0f) return;
+    const Camera& cam = ctx.renderer->main_view.camera;
+    const ImVec2 mouse = ImGui::GetMousePos();
+    const float u = std::clamp((mouse.x - p_pos.x) / p_size.x, 0.0f, 1.0f);
+    const float v = std::clamp((mouse.y - p_pos.y) / p_size.y, 0.0f, 1.0f);
+    const float tan_half = std::tan(cam.fov_y * 0.5f);
+    const float aspect = p_size.x / p_size.y;
+    const vec3 dir = normalize(cam.forward() + cam.right() * ((u * 2.0f - 1.0f) * tan_half * aspect) + cam.up() * ((1.0f - v * 2.0f) * tan_half));
+    vec3 ground = cam.position + dir * ShapeSpawner::MISS_DISTANCE;
+    const PhysicsWorld& physics = ctx.play->physics_system.physics;
+    PhysicsHit hit;
+    if (physics.initialized() && physics.raycast(cam.position, dir, cam.far_z, hit)) ground = hit.position;
+    spawner.spawn(ctx.play->runtime, viewport_view().spawn_shape, ground);
 }
 
 void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
@@ -526,27 +567,6 @@ void Viewport::_finish_drop(EditorContext& ctx, float p_depth, bool p_hit)
     const vec3 position = drop.origin + drop.direction * distance;
     if (drop.is_template) editor_spawn_template(ctx, drop.guid, ENTITY_NULL, &position);
     else editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, drop.guid, &position);
-}
-
-void Viewport::_update_fly(bool p_start)
-{
-    if (!flying && p_start && !game_captured) {
-        flying = true;
-        cursor_lock.begin();
-    }
-    if (!flying) return;
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) || (play && play->playing())) {
-        flying = false;
-        cursor_lock.end();
-        return;
-    }
-    float dx = 0.0f;
-    float dy = 0.0f;
-    cursor_lock.take_delta(dx, dy);
-    fly_look.x += dx;
-    fly_look.y += dy;
-    fly_wheel += ImGui::GetIO().MouseWheel;
-    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 }
 
 void Viewport::draw_options_menu(EditorContext& ctx)

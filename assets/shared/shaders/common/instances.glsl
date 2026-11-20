@@ -14,6 +14,7 @@ struct Instance {
     uint slot_base;
     uint skin_id;
     uint flags;
+    uint tint;
 };
 
 struct SkinInstance {

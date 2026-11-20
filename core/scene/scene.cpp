@@ -22,10 +22,10 @@ Error Scene::initialize()
     component_register_saved<TransformComponent>("Transform", "transform");
     component_register_saved<ModelComponent>("Model", "model");
     component_register<PoseComponent>("Pose", false);
+    component_register<InitialVelocityComponent>("Initial Velocity", false);
     component_register_saved<CollisionComponent>("Collision", "collision");
     component_register_saved<CharacterComponent>("Character", "character");
     component_register_saved<OrbitCameraComponent>("Orbit Camera", "orbit_camera");
-    component_register_saved<TerrainComponent>("Terrain", "terrain");
     component_register_saved<TemplateInstanceComponent>("Template", "template", false);
     component_register<TemplatePartComponent>("Template Part", false);
     component_register_saved<StaticTag>("Static", "static", false);
@@ -67,6 +67,7 @@ void Scene::unload()
     environment = {};
     shadows = {};
     physics = {};
+    terrain = {};
     if (track_changes) changed_all = true;
     static_version++;
     structure_version++;

@@ -30,7 +30,7 @@
 
 namespace lumen {
 
-static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Debug Lines", "Everything" };
+static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Debug Lines", "Buoyancy" };
 static_assert(std::size(VIEW_OVERLAY_NAMES) == (size_t)ViewOverlay::COUNT);
 static constexpr uint32_t EDITOR_LINE_MASK = (uint32_t)DebugCategory::GENERAL | (uint32_t)DebugCategory::COLLISION | (uint32_t)DebugCategory::BONES;
 
@@ -141,14 +141,13 @@ uint32_t view_overlay_kinds(ViewOverlay p_overlay)
     switch (p_overlay) {
         case ViewOverlay::COLLISION: return ENTITY_DEBUG_COLLISION;
         case ViewOverlay::BONES: return ENTITY_DEBUG_BONES;
-        case ViewOverlay::EVERYTHING: return ENTITY_DEBUG_COLLISION | ENTITY_DEBUG_BONES;
         default: return 0;
     }
 }
 
 bool view_overlay_lines(ViewOverlay p_overlay)
 {
-    return p_overlay == ViewOverlay::DEBUG_LINES || p_overlay == ViewOverlay::EVERYTHING;
+    return p_overlay == ViewOverlay::DEBUG_LINES;
 }
 
 void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
@@ -156,6 +155,7 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
     const ViewportView& view = viewport_view();
     if (view.culling_paused) _draw_cull_frustum(ctx);
     debug_entities.clear();
+    if (p_live && view.overlay == ViewOverlay::BUOYANCY) play->physics_system.physics.debug_draw_buoyancy(debug_draw());
     if (!ctx.renderer) return;
     const Scene* scene = p_live ? &play->runtime : ctx.scene;
     if (!scene) return;

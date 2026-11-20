@@ -92,6 +92,7 @@ struct PhysicsSystem : GameSystem
     void _sync_terrain(GameSession& r_session);
     void _update_floor();
     bool has_floor() const { return world_floor < FLT_MAX; }
+    void _snapshot_previous();
     void _write_back(Scene& r_world, uint32_t p_steps);
     void _clear();
 };

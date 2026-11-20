@@ -111,11 +111,12 @@ struct Scene
     void set_world_matrix(Entity p_entity, const mat4& p_world);
     bool valid(Entity p_entity) const { return p_entity.index != Entity::INVALID_INDEX && registry.valid(_to_id(p_entity)); }
     bool has_children(Entity p_entity) const;
+    bool has_static_descendant(Entity p_entity) const;
     bool is_folder(Entity p_entity) const;
     void touch(Entity p_entity) {
         if (!valid(p_entity)) return;
         _record(p_entity);
-        if (_is_static(p_entity) || has_children(p_entity)) static_version++;
+        if (_is_static(p_entity) || has_static_descendant(p_entity)) static_version++;
     }
 
     /*****************/

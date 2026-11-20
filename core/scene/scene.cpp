@@ -157,6 +157,21 @@ bool Scene::has_children(Entity p_entity) const
     return false;
 }
 
+bool Scene::has_static_descendant(Entity p_entity) const
+{
+    std::vector<Entity> pending;
+    std::vector<Entity> kids;
+    children(p_entity, pending);
+    while (!pending.empty()) {
+        const Entity e = pending.back();
+        pending.pop_back();
+        if (_is_static(e)) return true;
+        children(e, kids);
+        pending.insert(pending.end(), kids.begin(), kids.end());
+    }
+    return false;
+}
+
 void Scene::children(Entity p_entity, std::vector<Entity>& r_children) const
 {
     r_children.clear();

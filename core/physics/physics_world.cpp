@@ -22,10 +22,13 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/CompoundShape.h>
+#include <Jolt/Physics/Collision/CollidePointResult.h>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 
 namespace lumen {
 
@@ -38,6 +41,7 @@ struct PhysicsWorld::Impl
     std::vector<JPH::Ref<JPH::CharacterVirtual>> characters;
     std::vector<JPH::Ref<JPH::Ragdoll>> ragdolls;
     uint32_t ragdoll_group = 0;
+    std::unordered_map<uint32_t, BuoyancyBody> buoyancy;
 
     JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
     const JPH::BodyInterface& bodies() const { return system.GetBodyInterface(); }
@@ -369,6 +373,59 @@ void PhysicsWorld::shutdown()
     accumulator = 0.0f;
 }
 
+static void _buoyancy_leaf(const JPH::Shape* p_shape, JPH::Mat44Arg p_transform, uint32_t p_grid, BuoyancyBody& r_body)
+{
+    const JPH::AABox bounds = p_shape->GetLocalBounds();
+    const vec3 center = to_glm(bounds.GetCenter());
+    const vec3 ext = to_glm(bounds.GetExtent());
+    const size_t first = r_body.samples.size();
+    const float n = (float)p_grid;
+    for (uint32_t i = 0; i < p_grid; i++) {
+        for (uint32_t j = 0; j < p_grid; j++) {
+            for (uint32_t k = 0; k < p_grid; k++) {
+                const vec3 cell = (vec3((float)i, (float)j, (float)k) + 0.5f) / n * 2.0f - 1.0f;
+                const JPH::Vec3 p = to_jph(center + ext * cell);
+                JPH::AnyHitCollisionCollector<JPH::CollidePointCollector> hit;
+                p_shape->CollidePoint(p, JPH::SubShapeIDCreator(), hit);
+                if (!hit.HadHit()) continue;
+                BuoyancySample s;
+                s.local = to_glm(p_transform * p);
+                r_body.samples.push_back(s);
+            }
+        }
+    }
+    if (r_body.samples.size() == first) {
+        BuoyancySample s;
+        s.local = to_glm(p_transform.GetTranslation());
+        r_body.samples.push_back(s);
+    }
+    const float volume = std::max(p_shape->GetVolume(), 0.0f);
+    const float each = volume / (float)(r_body.samples.size() - first);
+    const float radius = std::max(0.5f * std::cbrt(each), MIN_SHAPE_SIZE);
+    for (size_t i = first; i < r_body.samples.size(); i++) {
+        r_body.samples[i].volume = each;
+        r_body.samples[i].radius = radius;
+    }
+    r_body.total_volume += volume;
+}
+
+static void _buoyancy_gather(const JPH::Shape* p_shape, JPH::Mat44Arg p_transform, uint32_t p_grid, BuoyancyBody& r_body)
+{
+    if (p_shape->GetType() == JPH::EShapeType::Compound) {
+        const JPH::CompoundShape* compound = static_cast<const JPH::CompoundShape*>(p_shape);
+        for (const JPH::CompoundShape::SubShape& sub : compound->GetSubShapes()) {
+            _buoyancy_gather(sub.mShape, p_transform * JPH::Mat44::sRotationTranslation(sub.GetRotation(), sub.GetPositionCOM()), p_grid, r_body);
+        }
+        return;
+    }
+    if (p_shape->GetSubType() == JPH::EShapeSubType::RotatedTranslated) {
+        const JPH::RotatedTranslatedShape* rt = static_cast<const JPH::RotatedTranslatedShape*>(p_shape);
+        _buoyancy_gather(rt->GetInnerShape(), p_transform * JPH::Mat44::sRotation(rt->GetRotation()), p_grid, r_body);
+        return;
+    }
+    _buoyancy_leaf(p_shape, p_transform, p_grid, r_body);
+}
+
 PhysicsBodyId PhysicsWorld::create_body(const PhysicsBodyDesc& p_desc)
 {
     if (!impl) return {};
@@ -397,7 +454,13 @@ PhysicsBodyId PhysicsWorld::create_body(const PhysicsBodyDesc& p_desc)
         log_write("Physics: body limit reached.");
         return {};
     }
-    return to_lumen(id);
+    const PhysicsBodyId body = to_lumen(id);
+    if (p_desc.motion == PhysicsMotion::DYNAMIC && !p_desc.sensor) {
+        BuoyancyBody& b = impl->buoyancy[body.value];
+        b = {};
+        _buoyancy_gather(shape.GetPtr(), JPH::Mat44::sIdentity(), std::max(buoyancy_grid, 1u), b);
+    }
+    return body;
 }
 
 static constexpr uint32_t HEIGHT_FIELD_BLOCK = 4;
@@ -443,6 +506,7 @@ void PhysicsWorld::destroy_body(PhysicsBodyId p_body)
     if (!impl || !p_body.valid()) return;
     JPH::BodyInterface& bi = impl->bodies();
     const JPH::BodyID id = to_jph(p_body);
+    impl->buoyancy.erase(p_body.value);
     if (!bi.IsAdded(id)) return;
     bi.RemoveBody(id);
     bi.DestroyBody(id);
@@ -453,6 +517,7 @@ void PhysicsWorld::destroy_all_bodies()
     if (!impl) return;
     destroy_all_ragdolls();
     destroy_all_characters();
+    impl->buoyancy.clear();
     JPH::BodyIDVector ids;
     impl->system.GetBodies(ids);
     if (ids.empty()) return;
@@ -559,21 +624,28 @@ void PhysicsWorld::step_fixed()
 {
     if (!impl) return;
     _steps++;
+    if (buoyancy_forces && water) _apply_buoyancy();
     const JPH::EPhysicsUpdateError err = impl->system.Update(FIXED_DT, 1, impl->temp.get(), jolt::jobs());
     if (err != JPH::EPhysicsUpdateError::None) log_write("Physics: update reported error flags 0x%x.", (unsigned)err);
 }
 
-uint32_t PhysicsWorld::update(float p_dt)
+uint32_t PhysicsWorld::advance(float p_dt)
 {
     if (!impl || p_dt <= 0.0f) return 0;
     accumulator += p_dt;
     uint32_t steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_UPDATE) {
-        step_fixed();
         accumulator -= FIXED_DT;
         steps++;
     }
     if (steps == MAX_STEPS_PER_UPDATE) accumulator = std::min(accumulator, FIXED_DT);
+    return steps;
+}
+
+uint32_t PhysicsWorld::update(float p_dt)
+{
+    const uint32_t steps = advance(p_dt);
+    for (uint32_t i = 0; i < steps; i++) step_fixed();
     return steps;
 }
 
@@ -694,6 +766,94 @@ void PhysicsWorld::debug_draw(DebugDraw& r_draw, const vec3& p_camera_position) 
     (void)r_draw;
     (void)p_camera_position;
 #endif
+}
+
+const BuoyancyBody* PhysicsWorld::buoyancy(PhysicsBodyId p_body) const
+{
+    if (!impl || !p_body.valid()) return nullptr;
+    const auto it = impl->buoyancy.find(p_body.value);
+    return it != impl->buoyancy.end() ? &it->second : nullptr;
+}
+
+static void _buoyancy_refresh(BuoyancyBody& r_body, const JPH::RMat44& p_com, const WaterQuery* p_water)
+{
+    for (BuoyancySample& s : r_body.samples) {
+        s.world = to_glm(p_com * to_jph(s.local));
+        float surface = 0.0f;
+        vec2 flow(0.0f);
+        if (!p_water || !p_water->sample(s.world.x, s.world.z, surface, flow)) {
+            s.submerged = -1.0f;
+            continue;
+        }
+        s.submerged = std::clamp((surface - (s.world.y - s.radius)) / (2.0f * s.radius), 0.0f, 1.0f);
+    }
+}
+
+void PhysicsWorld::update_buoyancy() const
+{
+    if (!impl) return;
+    const JPH::BodyLockInterface& locks = impl->system.GetBodyLockInterface();
+    for (auto& [value, b] : impl->buoyancy) {
+        JPH::BodyLockRead lock(locks, to_jph(PhysicsBodyId{ value }));
+        if (!lock.Succeeded()) continue;
+        _buoyancy_refresh(b, lock.GetBody().GetCenterOfMassTransform(), water);
+    }
+}
+
+void PhysicsWorld::_apply_buoyancy()
+{
+    if (!impl) return;
+    const JPH::BodyLockInterface& locks = impl->system.GetBodyLockInterface();
+    const float g = std::abs(impl->system.GetGravity().GetY());
+    const float dt = FIXED_DT;
+    for (auto& [value, b] : impl->buoyancy) {
+        JPH::BodyLockWrite lock(locks, to_jph(PhysicsBodyId{ value }));
+        if (!lock.Succeeded()) continue;
+        JPH::Body& body = lock.GetBody();
+        _buoyancy_refresh(b, body.GetCenterOfMassTransform(), water);
+        if (!body.IsDynamic() || !body.IsActive() || b.total_volume <= 0.0f) continue;
+        const float inverse = body.GetMotionProperties()->GetInverseMass();
+        if (inverse <= 0.0f) continue;
+        const float mass = 1.0f / inverse;
+        for (const BuoyancySample& s : b.samples) {
+            if (s.submerged <= 0.0f) continue;
+            float surface = 0.0f;
+            vec2 flow(0.0f);
+            water->sample(s.world.x, s.world.z, surface, flow);
+            const JPH::RVec3 at = to_jph_r(s.world);
+            const vec3 vp = to_glm(body.GetPointVelocity(at));
+            const vec3 rel(flow.x - vp.x, -vp.y, flow.y - vp.z);
+            const float rel_len = length(rel);
+            const vec3 buoy(0.0f, WATER_DENSITY * g * s.volume * s.submerged, 0.0f);
+            const float kd = WATER_DENSITY * s.volume * s.submerged * (1.6f + 1.2f * rel_len) * buoyancy_drag;
+            vec3 drag = rel * (kd * dt);
+            const float limit = 0.8f * mass * s.volume / b.total_volume * rel_len;
+            const float drag_len = length(drag);
+            if (drag_len > limit && drag_len > 0.0f) drag *= limit / drag_len;
+            body.AddImpulse(to_jph(buoy * dt + drag), at);
+        }
+    }
+}
+
+static uint32_t _buoyancy_color(float p_submerged)
+{
+    static constexpr uint32_t DRY = 0xE65933;
+    static const vec3 SHALLOW(0x33, 0xFF, 0xFF);
+    static const vec3 DEEP(0x1A, 0x40, 0xFF);
+    if (p_submerged <= 0.0f) return debug_rgb(DRY);
+    const uvec3 b = uvec3(mix(SHALLOW, DEEP, std::min(p_submerged, 1.0f)) + 0.5f);
+    return debug_rgb((b.x << 16) | (b.y << 8) | b.z);
+}
+
+void PhysicsWorld::debug_draw_buoyancy(DebugDraw& r_draw) const
+{
+    if (!impl) return;
+    update_buoyancy();
+    for (const auto& [value, b] : impl->buoyancy) {
+        for (const BuoyancySample& s : b.samples) {
+            r_draw.square(s.world, BUOYANCY_SQUARE_PX, { .color = _buoyancy_color(s.submerged), .xray = true });
+        }
+    }
 }
 
 }

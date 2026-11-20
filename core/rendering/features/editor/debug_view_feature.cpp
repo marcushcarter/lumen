@@ -129,6 +129,11 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             b.read_buffer("Transforms", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
         }
 
+        if ((d.inputs & DebugViewInputs::TERRAIN) && b.graph->buffer_resource("TerrainHeights")) {
+            b.read_buffer("Terrain", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+            b.read_buffer("TerrainHeights", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
+
         VkAccessFlags2 vp_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
         if (overdraw_active) vp_access |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
         b.write_image("Viewport", VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, vp_access);
@@ -145,6 +150,7 @@ void DebugViewFeature::_create_viewport_resolve_pass()
             VkDeviceAddress instances_addr;
             VkDeviceAddress geometry_addr;
             VkDeviceAddress transforms_addr;
+            VkDeviceAddress terrain_addr;
             uint32_t vis_index;
             uint32_t depth_index;
             uint32_t src_index;
@@ -175,6 +181,9 @@ void DebugViewFeature::_create_viewport_resolve_pass()
         if (d.inputs & DebugViewInputs::GEOMETRY) {
             if (auto* r = cl.graph->buffer("Geometry")) pc.geometry_addr = r->device_address; else pc.op = INVALID_OP;
             if (auto* r = cl.graph->buffer("Transforms")) pc.transforms_addr = r->device_address; else pc.op = INVALID_OP;
+        }
+        if ((d.inputs & DebugViewInputs::TERRAIN) && cl.graph->buffer("TerrainHeights")) {
+            if (auto* r = cl.graph->buffer("Terrain")) pc.terrain_addr = r->device_address;
         }
         uint32_t gx = (out->extent.width + 7) / 8;
         uint32_t gy = (out->extent.height + 7) / 8;

@@ -10,6 +10,10 @@ enum class DebugViewOp : uint32_t {
     OVERDRAW,
     WORLD_NORMAL,
     UV_CHECKER,
+    CLUSTER_STREAMING,
+    TRIANGLES,
+    TERRAIN_STREAMING,
+    TERRAIN_LOD,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -18,6 +22,7 @@ enum class DebugViewInputs : uint32_t {
     VISBUF = 1u << 1,
     DEPTH = 1u << 2,
     GEOMETRY = 1u << 3,
+    TERRAIN = 1u << 4,
 };
 
 constexpr DebugViewInputs operator|(DebugViewInputs a, DebugViewInputs b) { return (DebugViewInputs)((uint32_t)a | (uint32_t)b); }
@@ -41,15 +46,21 @@ struct DebugView
 
 static constexpr DebugViewCategory DV_CAT_CLUSTERS = { ICON_FA_CUBES, "Cluster Visualization" };
 static constexpr DebugViewCategory DV_CAT_GEOMETRY = { ICON_FA_SHAPES, "Geometry Inspection" };
+static constexpr DebugViewCategory DV_CAT_TERRAIN = { ICON_FA_MOUNTAIN, "Terrain" };
 static constexpr DebugViewCategory DV_CAT_BUFFERS = { ICON_FA_LAYER_GROUP, "Buffer Visualization" };
 
 static constexpr DebugView DEBUG_VIEWS[] = {
     { ICON_FA_EYE, "Lit", nullptr, "DisplayColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
 
     { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
+    { nullptr, "Cluster Streaming", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTER_STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
     { nullptr, "Overdraw", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::OVERDRAW, DebugViewInputs::DEPTH },
 
-    { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
+    { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY | DebugViewInputs::TERRAIN },
+    { nullptr, "Triangles", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
+
+    { nullptr, "Terrain Streaming", &DV_CAT_TERRAIN, nullptr, DebugViewOp::TERRAIN_STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
+    { nullptr, "Terrain LOD", &DV_CAT_TERRAIN, nullptr, DebugViewOp::TERRAIN_LOD, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
 
     { nullptr, "Scene Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
 };

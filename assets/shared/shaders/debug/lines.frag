@@ -25,7 +25,7 @@ vec3 to_linear(vec3 p_c) {
 
 void main() {
     const float dist = (v_flags & DEBUG_LINE_FLAG_POINT) != 0u ? length(v_coord) : abs(v_coord.y);
-    float alpha = clamp(v_width + 0.5 - dist, 0.0, 1.0) * v_color.a;
+    float alpha = (v_flags & DEBUG_LINE_FLAG_SQUARE) != 0u ? v_color.a : clamp(v_width + 0.5 - dist, 0.0, 1.0) * v_color.a;
 
     if ((v_flags & DEBUG_LINE_FLAG_XRAY) == 0u) {
         const ivec2 limit = ivec2(pc.depth_size) - 1;

@@ -59,6 +59,14 @@ void DebugDraw::point(const vec3& p_position, float p_radius_px, const Style& p_
     _push(p_position, p_position, p_style.color, flags | FLAG_POINT | (radius << POINT_RADIUS_SHIFT), p_style.duration);
 }
 
+void DebugDraw::square(const vec3& p_position, float p_size_px, const Style& p_style)
+{
+    const uint32_t half = (uint32_t)(std::clamp(p_size_px * 0.5f, 0.0f, POINT_RADIUS_MAX) * POINT_RADIUS_STEPS + 0.5f);
+    std::lock_guard lock(mutex);
+    const uint32_t flags = _flags(p_style) & ~(FLAG_WIDTH | (0xFFu << POINT_RADIUS_SHIFT));
+    _push(p_position, p_position, p_style.color, flags | FLAG_POINT | FLAG_SQUARE | (half << POINT_RADIUS_SHIFT), p_style.duration);
+}
+
 void DebugDraw::line(const vec3& p_a, const vec3& p_b, const Style& p_style)
 {
     std::lock_guard lock(mutex);

@@ -288,16 +288,23 @@ void PhysicsSystem::_stream_statics(Scene& r_world, bool p_full)
     }
 }
 
+void PhysicsSystem::_snapshot_previous()
+{
+    for (auto& [k, body] : bodies) {
+        if (body.motion != PhysicsMotion::DYNAMIC) continue;
+        if (!physics.get_transform(body.id, body.prev_position, body.prev_rotation)) {
+            body.prev_position = body.curr_position;
+            body.prev_rotation = body.curr_rotation;
+        }
+    }
+}
+
 void PhysicsSystem::_write_back(Scene& r_world, uint32_t p_steps)
 {
     const float alpha = std::clamp(physics.interpolation_alpha(), 0.0f, 1.0f);
     for (auto& [k, body] : bodies) {
         if (body.motion != PhysicsMotion::DYNAMIC) continue;
-        if (p_steps > 0) {
-            body.prev_position = body.curr_position;
-            body.prev_rotation = body.curr_rotation;
-            if (!physics.get_transform(body.id, body.curr_position, body.curr_rotation)) continue;
-        }
+        if (p_steps > 0 && !physics.get_transform(body.id, body.curr_position, body.curr_rotation)) continue;
         const vec3 position = mix(body.prev_position, body.curr_position, alpha);
         const quat rotation = slerp(body.prev_rotation, body.curr_rotation, alpha);
         const mat4 matrix = translate(mat4(1.0f), position) * mat4_cast(rotation) * glm::scale(mat4(1.0f), body.scale);
@@ -352,7 +359,11 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
         physics.optimize_broadphase();
         optimize_pending = false;
     }
-    const uint32_t steps = physics.update(p_dt);
+    const uint32_t steps = physics.advance(p_dt);
+    for (uint32_t i = 0; i < steps; i++) {
+        if (i + 1 == steps) _snapshot_previous();
+        physics.step_fixed();
+    }
     _write_back(world, steps);
 }
 

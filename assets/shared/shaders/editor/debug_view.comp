@@ -11,6 +11,7 @@
 #include "common/lod.glsl"
 #include "common/visbuffer.glsl"
 #include "common/skinning.glsl"
+#include "common/terrain.glsl"
 #include "editor/debug_palette.glsl"
 #include "editor/debug_op.glsl"
 
@@ -28,6 +29,7 @@ layout(push_constant) uniform Push {
     InstanceBuffer instances;
     GeometryBuffer geometry;
     TransformBuffer transforms;
+    TerrainBuffer terrain;
     uint vis_index;
     uint depth_index;
     uint src_index;
@@ -48,6 +50,65 @@ bool sample_vis(ivec2 coord, out uvec2 v, out uvec2 ref) {
     return true;
 }
 
+bool sample_raw(ivec2 coord, out uint raw) {
+    raw = VIS_EMPTY;
+    if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r == 0.0) return false;
+    raw = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).x;
+    return !vis_is_empty(raw);
+}
+
+bool terrain_valid() {
+    return any(notEqual(uvec2(pc.terrain), uvec2(0u)));
+}
+
+vec3 pixel_world(ivec2 coord, ivec2 size) {
+    const float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
+    const vec2 ndc = (vec2(coord) + 0.5) / vec2(size) * 2.0 - 1.0;
+    const vec4 h = pc.camera.inv_view_proj * vec4(ndc, d, 1.0);
+    return h.xyz / h.w;
+}
+
+vec2 terrain_sample_coord(TerrainPatch tp, ivec2 coord, ivec2 size) {
+    TerrainBuffer t = terrain_at(pc.terrain, terrain_patch_terrain(tp));
+    return (pixel_world(coord, size).xz - t.origin_spacing.xz) / t.origin_spacing.w;
+}
+
+float patch_shade(TerrainPatch tp) {
+    return 0.75 + 0.25 * float(hash2(tp.origin_x, tp.origin_z) & 255u) / 255.0;
+}
+
+const vec3 OTHER_GEOMETRY = vec3(0.04);
+const vec3 STREAM_STATIC = vec3(0.22);
+const vec3 STREAM_OK = vec3(0.25, 0.8, 0.3);
+const vec3 STREAM_WAIT = vec3(1.0, 0.85, 0.15);
+const vec3 STREAM_STARVED = vec3(0.95, 0.12, 0.1);
+const float STREAM_STARVED_OCTAVES = 4.0;
+
+const vec3 LEVEL_COLORS[5] = vec3[5](
+    vec3(0.95, 0.2, 0.15),
+    vec3(1.0, 0.6, 0.1),
+    vec3(0.95, 0.9, 0.2),
+    vec3(0.3, 0.8, 0.35),
+    vec3(0.25, 0.5, 1.0)
+);
+
+const vec3 TERRAIN_RESIDENT_COLORS[4] = vec3[4](
+    vec3(0.25, 0.8, 0.3),
+    vec3(0.7, 0.88, 0.2),
+    vec3(1.0, 0.85, 0.15),
+    vec3(1.0, 0.55, 0.1)
+);
+
+vec3 level_color(uint level) {
+    return srgb_to_linear(LEVEL_COLORS[min(level, 4u)]);
+}
+
+vec3 checker(vec2 uv) {
+    const vec2 cell = floor(uv * 8.0);
+    const float check = mod(cell.x + cell.y, 2.0) == 0.0 ? 1.0 : 0.35;
+    return srgb_to_linear(vec3(fract(uv), 0.25)) * check;
+}
+
 uvec3 triangle_locals(uint cluster, uint tri) {
     const uint lt = pc.geometry.local_triangles.data[pc.geometry.clusters.data[cluster].index_base / 3u + tri];
     return uvec3(lt & 0xFFu, (lt >> 8u) & 0xFFu, (lt >> 16u) & 0xFFu);
@@ -58,8 +119,6 @@ vec3 vertex_local(Instance inst, Mesh mesh, ClusterStreams streams, uint local) 
     if (inst.skin_id != SKIN_NONE) p = skin_point(skin_vertex_rows(pc.camera, pc.geometry, streams, local, pc.camera.skins.data[inst.skin_id].joint_base, SKIN_CURR), p);
     return p;
 }
-
-const float UV_CHECKER_TILES = 8.0;
 
 bool sample_uv(ivec2 coord, ivec2 size, uvec2 v, uvec2 ref, out vec2 r_uv) {
     const Instance inst = pc.instances.data[ref.x];
@@ -99,16 +158,69 @@ void main() {
         color = vec3(0);
         if (sample_vis(coord, v, ref)) color = hash_color(hash2(pc.instances.data[ref.x].mesh_id, ref.y));
     } else if (pc.op == OP_UV_CHECKER) {
-        uvec2 v, ref;
+        uint raw;
         color = vec3(0);
-        if (sample_vis(coord, v, ref)) {
-            vec2 uv;
-            if (sample_uv(coord, size, v, ref, uv)) {
-                const vec2 cell = floor(uv * UV_CHECKER_TILES);
-                const float check = mod(cell.x + cell.y, 2.0) == 0.0 ? 1.0 : 0.35;
-                color = srgb_to_linear(vec3(fract(uv), 0.25)) * check;
+        if (sample_raw(coord, raw)) {
+            if (vis_is_terrain(raw)) {
+                if (terrain_valid()) color = checker(terrain_sample_coord(pc.terrain.patches.data[vis_terrain_patch(raw)], coord, size) / float(TERRAIN_TILE_QUADS));
             } else {
-                color = DEBUG_ERROR_COLOR;
+                const uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(raw)];
+                vec2 uv;
+                color = sample_uv(coord, size, uvec2(raw, vis_triangle(raw)), ref, uv) ? checker(uv) : DEBUG_ERROR_COLOR;
+            }
+        }
+    } else if (pc.op == OP_TRIANGLES) {
+        uint raw;
+        color = vec3(0);
+        if (sample_raw(coord, raw)) {
+            if (vis_is_terrain(raw)) {
+                if (terrain_valid()) {
+                    const TerrainPatch tp = pc.terrain.patches.data[vis_terrain_patch(raw)];
+                    color = hash_color(hash2(hash2(tp.origin_x, tp.origin_z), (tp.packed & 0xFFu) * 256u + vis_triangle(raw)));
+                }
+            } else {
+                const uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(raw)];
+                color = hash_color(hash2(ref.y, vis_triangle(raw)));
+            }
+        }
+    } else if (pc.op == OP_CLUSTER_STREAMING) {
+        uint raw;
+        color = vec3(0);
+        if (sample_raw(coord, raw)) {
+            color = OTHER_GEOMETRY;
+            if (!vis_is_terrain(raw)) {
+                const uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(raw)];
+                const Instance inst = pc.instances.data[ref.x];
+                const Mesh mesh = pc.geometry.meshes.data[inst.mesh_id];
+                const Cluster c = pc.geometry.clusters.data[ref.y];
+                const float shade = 0.8 + 0.2 * float(hash2(inst.mesh_id, ref.y) & 255u) / 255.0;
+                if ((mesh.flags & MESH_FLAG_STREAMED) == 0u) {
+                    color = srgb_to_linear(STREAM_STATIC) * shade;
+                } else {
+                    const mat4 model = pc.transforms.data[inst.transform_id].curr_mtx;
+                    const float err = (inst.flags & INSTANCE_FLAG_PLAYER) != 0u ? 2.0 * LOD_THRESHOLD_PX : lod_self_error_px(pc.geometry, c, model, transform_max_scale(model), pc.camera.position.xyz, pc.px_per_unit);
+                    const bool starved = err > LOD_THRESHOLD_PX && !lod_group_refined(pc.geometry, c.self_group);
+                    const float t = clamp(log2(err / LOD_THRESHOLD_PX) / STREAM_STARVED_OCTAVES, 0.0, 1.0);
+                    color = srgb_to_linear(starved ? mix(STREAM_WAIT, STREAM_STARVED, t) : STREAM_OK) * shade;
+                }
+            }
+        }
+    } else if (pc.op == OP_TERRAIN_STREAMING || pc.op == OP_TERRAIN_LOD) {
+        uint raw;
+        color = vec3(0);
+        if (sample_raw(coord, raw)) {
+            color = OTHER_GEOMETRY;
+            if (vis_is_terrain(raw) && terrain_valid()) {
+                const TerrainPatch tp = pc.terrain.patches.data[vis_terrain_patch(raw)];
+                if (pc.op == OP_TERRAIN_LOD) {
+                    color = level_color(tp.packed & 15u) * patch_shade(tp);
+                } else {
+                    TerrainBuffer t = terrain_at(pc.terrain, terrain_patch_terrain(tp));
+                    const uint lod = t.tile_table.data[tp.tile].lod;
+                    const uvec2 tile = uvec2(tp.tile % t.tiles_x, tp.tile / t.tiles_x);
+                    const float shade = ((tile.x + tile.y) & 1u) == 0u ? 1.0 : 0.78;
+                    color = srgb_to_linear(lod == TERRAIN_LOD_NONE ? STREAM_STARVED : TERRAIN_RESIDENT_COLORS[min(lod, 3u)]) * shade;
+                }
             }
         }
     } else if (pc.op == OP_OVERDRAW) {

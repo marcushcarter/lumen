@@ -1,5 +1,6 @@
 #pragma once
 #include <core/physics/physics_types.h>
+#include <core/physics/buoyancy.h>
 #include <core/base/error.h>
 #include <memory>
 #include <vector>
@@ -36,6 +37,15 @@ struct PhysicsWorld
     const CollisionCache* collision_cache = nullptr;
     uint64_t _steps = 0;
 
+    static constexpr float WATER_DENSITY = 1000.0f;
+    static constexpr uint32_t BUOYANCY_GRID = 4;
+    static constexpr float BUOYANCY_SQUARE_PX = 7.0f;
+    static inline const NoWater NO_WATER;
+    const WaterQuery* water = &NO_WATER;
+    bool buoyancy_forces = false;
+    float buoyancy_drag = 1.0f;
+    uint32_t buoyancy_grid = BUOYANCY_GRID;
+
     PhysicsWorld();
     ~PhysicsWorld();
     PhysicsWorld(const PhysicsWorld&) = delete;
@@ -66,6 +76,7 @@ struct PhysicsWorld
     void set_gravity(const vec3& p_gravity);
     vec3 gravity() const;
 
+    uint32_t advance(float p_dt);
     uint32_t update(float p_dt);
     void step_fixed();
     float interpolation_alpha() const { return accumulator / FIXED_DT; }
@@ -92,6 +103,11 @@ struct PhysicsWorld
     uint64_t steps() const { return _steps; }
 
     void debug_draw(DebugDraw& r_draw, const vec3& p_camera_position) const;
+
+    const BuoyancyBody* buoyancy(PhysicsBodyId p_body) const;
+    void update_buoyancy() const;
+    void _apply_buoyancy();
+    void debug_draw_buoyancy(DebugDraw& r_draw) const;
 };
 
 Error physics_initialize();

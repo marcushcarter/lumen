@@ -36,8 +36,19 @@ void main() {
 
     if ((l.flags & DEBUG_LINE_FLAG_POINT) != 0u) {
         const float radius = float((l.flags >> DEBUG_LINE_POINT_RADIUS_SHIFT) & 0xFFu) / DEBUG_LINE_POINT_RADIUS_STEPS;
-        const float point_extent = radius + DEBUG_LINE_AA_PX;
         const vec2 side = vec2(corner.x * 2.0 - 1.0, corner.y);
+        if ((l.flags & DEBUG_LINE_FLAG_SQUARE) != 0u) {
+            if (pa.w < near_w) {
+                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+                return;
+            }
+            const vec2 center = (floor((pa.xy / pa.w + 1.0) * half_size) + 0.5) / half_size - 1.0;
+            v_coord = side * radius;
+            v_width = radius;
+            gl_Position = vec4((center + side * radius / half_size) * pa.w, pa.z, pa.w);
+            return;
+        }
+        const float point_extent = radius + DEBUG_LINE_AA_PX;
         vec4 q = pa;
         q.xy += side * point_extent / half_size * q.w;
         v_coord = side * point_extent;

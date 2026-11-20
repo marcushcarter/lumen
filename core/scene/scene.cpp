@@ -26,6 +26,7 @@ Error Scene::initialize()
     component_register_saved<CollisionComponent>("Collision", "collision");
     component_register_saved<CharacterComponent>("Character", "character");
     component_register_saved<OrbitCameraComponent>("Orbit Camera", "orbit_camera");
+    component_register_saved<WaterSourceComponent>("Water Source", "water_source");
     component_register_saved<TemplateInstanceComponent>("Template", "template", false);
     component_register<TemplatePartComponent>("Template Part", false);
     component_register_saved<StaticTag>("Static", "static", false);

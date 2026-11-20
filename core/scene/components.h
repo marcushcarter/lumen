@@ -86,6 +86,15 @@ struct OrbitCameraComponent
     float pitch_max = 60.0f;
 };
 
+enum class WaterSourceType : uint8_t { SPRING, LEVEL, COUNT };
+
+struct WaterSourceComponent
+{
+    WaterSourceType type = WaterSourceType::SPRING;
+    vec3 half_extents = vec3(1.0f);
+    float flow = 1.0f;
+};
+
 struct ParentComponent
 {
     Guid parent;

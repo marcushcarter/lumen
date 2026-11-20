@@ -53,18 +53,18 @@ static constexpr DebugViewCategory DV_CAT_BUFFERS = { ICON_FA_LAYER_GROUP, "Buff
 static constexpr DebugView DEBUG_VIEWS[] = {
     { ICON_FA_EYE, "Lit", nullptr, "DisplayColor", DebugViewOp::COPY, DebugViewInputs::SOURCE },
 
-    { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
-    { nullptr, "Cluster Streaming", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTER_STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
-    { nullptr, "Overdraw", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::OVERDRAW, DebugViewInputs::DEPTH },
+    { nullptr, "Base Color", &DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::BASE_COLOR, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
+    { nullptr, "Scene Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
 
     { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY | DebugViewInputs::TERRAIN },
     { nullptr, "Triangles", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
 
+    { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
+    { nullptr, "Cluster Streaming", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTER_STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },
+    { nullptr, "Overdraw", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::OVERDRAW, DebugViewInputs::DEPTH },
+
     { nullptr, "Terrain Streaming", &DV_CAT_TERRAIN, nullptr, DebugViewOp::TERRAIN_STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
     { nullptr, "Terrain LOD", &DV_CAT_TERRAIN, nullptr, DebugViewOp::TERRAIN_LOD, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
-
-    { nullptr, "Base Color", &DV_CAT_BUFFERS, "G_Albedo", DebugViewOp::BASE_COLOR, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
-    { nullptr, "Scene Normal", &DV_CAT_BUFFERS, "G_Normal", DebugViewOp::WORLD_NORMAL, DebugViewInputs::SOURCE | DebugViewInputs::DEPTH },
 };
 static constexpr int DEBUG_VIEW_COUNT = (int)(sizeof(DEBUG_VIEWS) / sizeof(DEBUG_VIEWS[0]));
 

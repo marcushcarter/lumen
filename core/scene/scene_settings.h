@@ -9,7 +9,7 @@ using namespace glm;
 
 struct EnvironmentSettings
 {
-    static constexpr vec3 SUN_DIRECTION = vec3(-0.6f, -0.35f, -0.7f);
+    static constexpr vec3 SUN_DIRECTION = vec3(0.7f, 0.7f, -0.2f);
     static constexpr vec3 SUN_COLOR = vec3(3.2f, 2.95f, 2.6f);
     static constexpr float SUN_ANGULAR_RADIUS = 0.0046525f;
     static constexpr float EXPOSURE = 0.5f;

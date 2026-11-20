@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -430,6 +431,38 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<OrbitCameraComponent>(e);
     }
 
+    const uint32_t water_index = component("water_source");
+    bool revert_water = false;
+    if (WaterSourceComponent* water = world.try_get<WaterSourceComponent>(e)) {
+        bool remove = false;
+        const WaterSourceComponent* lw = has_live ? live->try_get<WaterSourceComponent>(le) : nullptr;
+        if (_section("Water Source", &remove, overridden(water_index) ? &revert_water : nullptr)) {
+            bool changed = false;
+            static constexpr const char* TYPES[] = { "Spring", "Level" };
+            static_assert(std::size(TYPES) == (size_t)WaterSourceType::COUNT);
+            int type = (int)water->type;
+            _name("Type");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("##water_type", &type, TYPES, IM_ARRAYSIZE(TYPES))) {
+                water->type = (WaterSourceType)type;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Spring: adds water inside the box. Level: keeps the box filled to its top, for lakes and the sea.");
+            _live("%s", lw ? TYPES[ImClamp((int)lw->type, 0, (int)WaterSourceType::COUNT - 1)] : "-");
+            _name("Half Extents");
+            if (ImGui::DragFloat3("##water_half_extents", &water->half_extents.x, 0.05f, 0.01f, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp)) changed = true;
+            _live_vec3(lw != nullptr, lw ? lw->half_extents : vec3(0.0f));
+            if (water->type == WaterSourceType::SPRING) {
+                _name("Flow");
+                if (ImGui::DragFloat("##water_flow", &water->flow, 0.05f, 0.0f, 100000.0f, "%.2f m3/s", ImGuiSliderFlags_AlwaysClamp)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Stream 0.05-0.5, creek 1-5, river 20-100, large river 500+");
+                _live_float(lw != nullptr, lw ? lw->flow : 0.0f, " m3/s");
+            }
+            if (changed) world.touch(e);
+        }
+        if (remove) world.deferred_remove<WaterSourceComponent>(e);
+    }
+
     if (CollisionComponent* col = world.try_get<CollisionComponent>(e)) {
         bool remove = false;
         const CollisionComponent* lc = has_live ? live->try_get<CollisionComponent>(le) : nullptr;
@@ -592,6 +625,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_collision) template_revert_component(world, e, *tmpl, collision_index);
     if (tmpl && revert_character) template_revert_component(world, e, *tmpl, character_index);
     if (tmpl && revert_orbit) template_revert_component(world, e, *tmpl, orbit_index);
+    if (tmpl && revert_water) template_revert_component(world, e, *tmpl, water_index);
     if (revert_entity) editor_revert_template(ctx, e);
     if (unpack) editor_unpack_template(ctx, e);
 }

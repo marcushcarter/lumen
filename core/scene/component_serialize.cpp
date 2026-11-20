@@ -39,6 +39,18 @@ void serialize(Archive& a, OrbitCameraComponent& r_c)
     a.field("pitch_max", r_c.pitch_max);
 }
 
+void serialize(Archive& a, WaterSourceComponent& r_c)
+{
+    uint32_t type = (uint32_t)r_c.type;
+    a.field("type", type);
+    a.field("half_extents", r_c.half_extents);
+    a.field("flow", r_c.flow);
+    if (!a.loading) return;
+    r_c.type = type < (uint32_t)WaterSourceType::COUNT ? (WaterSourceType)type : WaterSourceType::SPRING;
+    r_c.half_extents = max(r_c.half_extents, vec3(0.01f));
+    r_c.flow = std::max(r_c.flow, 0.0f);
+}
+
 void serialize(Archive& a, CollisionComponent& r_c)
 {
     uint32_t source = (uint32_t)r_c.source;

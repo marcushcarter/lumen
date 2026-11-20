@@ -30,7 +30,7 @@
 
 namespace lumen {
 
-static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Debug Lines", "Buoyancy" };
+static constexpr const char* VIEW_OVERLAY_NAMES[] = { "None", "Collision", "Bones", "Debug Lines", "Buoyancy", "Water Flow" };
 static_assert(std::size(VIEW_OVERLAY_NAMES) == (size_t)ViewOverlay::COUNT);
 static constexpr uint32_t EDITOR_LINE_MASK = (uint32_t)DebugCategory::GENERAL | (uint32_t)DebugCategory::COLLISION | (uint32_t)DebugCategory::BONES;
 
@@ -96,6 +96,37 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const S
     else r_outline.set_rect(lo, hi);
 }
 
+static constexpr uint32_t WATER_SPRING_COLOR = debug_rgb(0x33FFFF);
+static constexpr uint32_t WATER_LEVEL_COLOR = debug_rgb(0x1A40FF);
+static constexpr float WATER_ARROW_MIN = 1.5f;
+static constexpr float WATER_ARROW_WIDTH = 4.0f;
+static constexpr uint32_t WATER_LEVEL_HATCH = 8;
+
+static void _draw_water_sources(DebugDraw& r_draw, const Scene& p_world)
+{
+    p_world.view<WaterSourceComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const WaterSourceComponent& p_water) {
+        if (!p_world.has<TransformComponent>(p_entity)) return;
+        const mat4 xf = p_world.world_matrix(p_entity);
+        const vec3 he = p_water.half_extents;
+        const auto at = [&](const vec3& p_local) { return vec3(xf * vec4(p_local, 1.0f)); };
+        if (p_water.type == WaterSourceType::LEVEL) {
+            r_draw.box(xf, he, { .color = WATER_LEVEL_COLOR });
+            const DebugDraw::Style top{ .color = WATER_LEVEL_COLOR, .width = 2.0f };
+            for (uint32_t i = 0; i <= WATER_LEVEL_HATCH; i++) {
+                const float t = (float)i / (float)WATER_LEVEL_HATCH * 2.0f - 1.0f;
+                r_draw.line(at(vec3(-he.x, he.y, t * he.z)), at(vec3(he.x, he.y, t * he.z)), top);
+                r_draw.line(at(vec3(t * he.x, he.y, -he.z)), at(vec3(t * he.x, he.y, he.z)), top);
+            }
+            return;
+        }
+        r_draw.box(xf, he, { .color = WATER_SPRING_COLOR });
+        const vec3 base = at(vec3(0.0f));
+        const vec3 top = at(vec3(0.0f, he.y, 0.0f));
+        const float size = std::max(WATER_ARROW_MIN, length(at(vec3(he.x, 0.0f, he.z)) - base));
+        r_draw.arrow(base, vec3(base.x, std::max(top.y, base.y) + size, base.z), { .color = WATER_SPRING_COLOR, .width = WATER_ARROW_WIDTH });
+    });
+}
+
 bool Viewport::_draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok)
 {
     if (!ctx.scene || !ctx.selection || p_size.x < 2.0f || p_size.y < 2.0f) {
@@ -159,6 +190,7 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
     if (!ctx.renderer) return;
     const Scene* scene = p_live ? &play->runtime : ctx.scene;
     if (!scene) return;
+    if (view.overlay == ViewOverlay::WATER_FLOW) _draw_water_sources(debug_draw(), *scene);
 
     if (ctx.selection) {
         std::vector<Entity> sub;

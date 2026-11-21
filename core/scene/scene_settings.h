@@ -45,6 +45,8 @@ struct WaterSettings
 {
     bool simulate = true;
     bool render = true;
+    Guid bake;
+    float bake_time = 120.0f;
     float cell_size = 0.25f;
     uint32_t substeps = 2;
     float sim_radius = 48.0f;

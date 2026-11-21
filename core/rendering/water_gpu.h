@@ -72,6 +72,8 @@ struct WaterGpuFrozen
 struct WaterGpuLink
 {
     static constexpr uint32_t MAX_STEPS = 4;
+    static constexpr uint32_t BAKE_STEPS = 16;
+    static constexpr uint32_t READBACK_TILES = 96;
 
     uint64_t session = 0;
     uint64_t layout = 0;
@@ -94,6 +96,8 @@ struct WaterGpuLink
     WaterGpuFrozen frozen;
     std::vector<WaterGpuItem> items;
     uint32_t steps = 0;
+    uint32_t max_steps = MAX_STEPS;
+    bool collect = false;
     float lod_error = 0.01f;
     float min_quad = 0.25f;
     bool caustics = true;

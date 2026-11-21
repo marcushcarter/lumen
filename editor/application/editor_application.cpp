@@ -93,6 +93,7 @@ Error EditorApplication::on_init()
     _ctx.imgui = &imgui;
     _ctx.git = &git;
     _ctx.renderer = &renderer;
+    renderer.main_view.render_scale = EDITOR_RENDER_SCALE;
     _ctx.project = &project;
     _ctx.scene = &scene;
     _ctx.main_scene = &scene;
@@ -159,6 +160,7 @@ Error EditorApplication::on_init()
         play.simulating = true;
     };
     _ctx.pie_is_simulating = [this] { return play.active() && play.simulating; };
+    _ctx.water_bake = [this] { _water_bake_start(); };
     _ctx.pie_is_paused = [this] { return play.editing(); };
     _ctx.pie_toggle_pause = [this] {
         if (play.game()) editor_camera.place(play.session.camera);
@@ -219,10 +221,86 @@ void EditorApplication::_play_start()
     play.start(scene, workspace.scene.guid, editor_camera.camera);
 }
 
+void EditorApplication::_water_bake_start()
+{
+    if (!project.loaded() || !workspace.scene.has_world() || workspace.scene.active_template()) return;
+    if (play.active()) play.stop();
+    _water_preview_stop();
+    play.physics_system.water.clear();
+    Guid guid = scene.water.bake;
+    const AssetRegistry::Entry* existing = guid.valid() ? assets.find(guid) : nullptr;
+    if (existing && existing->type == AssetType::WATER) {
+        _bake_source = existing->path;
+    } else {
+        guid = Guid::generate();
+        const AssetRegistry::Entry* owner = assets.find(workspace.scene.guid);
+        const std::filesystem::path folder = owner ? owner->path.parent_path() : project.assets_dir;
+        const std::string name = (owner ? owner->name : std::string("Scene")) + "_Water";
+        std::filesystem::path path = folder / (name + ".lwater");
+        for (uint32_t k = 2; std::filesystem::exists(path); k++) path = folder / (name + "_" + std::to_string(k) + ".lwater");
+        _bake_source = path;
+    }
+    _play_start();
+    if (!play.active()) return;
+    play.simulating = true;
+    play.physics_system.water.bake.start(guid, project.content_path(guid), scene.water.bake_time);
+}
+
+void EditorApplication::_water_bake_poll()
+{
+    WaterBake& b = play.physics_system.water.bake;
+    if (b.active() && !play.active()) {
+        b.cancel();
+        log_write("Water: bake cancelled.");
+        return;
+    }
+    if (b.phase == WaterBake::Phase::DONE) {
+        if (b.result.save(_bake_source) == Error::OK) {
+            scene.water.bake = b.guid;
+            assets.request_rebuild();
+        } else {
+            log_write("Water: couldn't save '%s'.", _bake_source.string().c_str());
+        }
+        b.phase = WaterBake::Phase::IDLE;
+        play.stop();
+    } else if (b.phase == WaterBake::Phase::FAILED) {
+        b.phase = WaterBake::Phase::IDLE;
+        play.stop();
+    }
+}
+
+void EditorApplication::_water_preview_stop()
+{
+    if (!_water_preview_on) return;
+    _water_preview.clear();
+    _water_preview_on = false;
+}
+
+void EditorApplication::_water_preview_update(float p_dt)
+{
+    const bool want = project.loaded() && workspace.scene.has_world() && !workspace.scene.active_template() && scene.water.render && scene.water.bake.valid();
+    if (!want) {
+        _water_preview_stop();
+        return;
+    }
+    if (!_water_preview_on) {
+        _water_preview.clear();
+        _water_preview_on = true;
+    }
+    _water_preview.preview(scene.water, project.content_path(scene.water.bake), p_dt);
+    _water_preview.publish(editor_camera.camera.position);
+    renderer.main_view.frame.water = &_water_preview.link;
+}
+
 void EditorApplication::on_simulate(float p_dt)
 {
     renderer.main_view.frame.water = nullptr;
-    if (!play.active()) return;
+    _water_bake_poll();
+    if (!play.active()) {
+        _water_preview_update(p_dt);
+        return;
+    }
+    _water_preview_stop();
     if (!project.loaded() || !workspace.scene.has_world() || workspace.scene.guid != play.scene_guid || workspace.scene.active_template()) {
         play.stop();
         return;
@@ -232,6 +310,11 @@ void EditorApplication::on_simulate(float p_dt)
     if (play.simulating) play.session.camera = editor_camera.camera;
     viewport.game_look = ImVec2(0.0f, 0.0f);
     play.update(p_dt);
+    _water_bake_poll();
+    if (!play.active()) {
+        _water_preview_update(p_dt);
+        return;
+    }
     if (&render_scene() == &play.runtime && play.physics_system.water.enabled) renderer.main_view.frame.water = &play.physics_system.water.link;
 }
 

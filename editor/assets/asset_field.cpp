@@ -33,6 +33,7 @@ ImU32 asset_type_color(AssetType p_type)
         case AssetType::SCENE: return ui.color.asset_scene;
         case AssetType::TERRAIN: return ui.color.asset_terrain;
         case AssetType::TEMPLATE: return ui.color.asset_template;
+        case AssetType::WATER: return ui.color.asset_water;
         default: return ImGui::GetColorU32(ImGuiCol_TextDisabled);
     }
 }
@@ -48,6 +49,7 @@ const char* asset_type_label(AssetType p_type)
         case AssetType::SCENE: return "Scene";
         case AssetType::TERRAIN: return "Terrain";
         case AssetType::TEMPLATE: return "Template";
+        case AssetType::WATER: return "Water Bake";
         default: return "Asset";
     }
 }

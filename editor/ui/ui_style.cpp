@@ -554,6 +554,7 @@ void UiStyle::_build_colors()
     color.asset_overlay = IM_COL32(236, 178, 84, 255);
     color.asset_scene = IM_COL32(122, 156, 240, 255);
     color.asset_terrain = IM_COL32(150, 186, 104, 255);
+    color.asset_water = IM_COL32(86, 156, 214, 255);
     color.asset_template = IM_COL32(92, 196, 214, 255);
 
     color.overlay = ImGui::GetColorU32(ui_hex4_over(0x303030b3, p.VIEWPORT_BACK));

@@ -11,7 +11,7 @@ struct WaterFeature : Feature
     using Buffer = drivers::DeviceDriverVulkan::Buffer;
 
     static constexpr uint32_t LOD_LEVELS = 5;
-    static constexpr uint32_t READBACK_MAX = 96;
+    static constexpr uint32_t READBACK_MAX = WaterGpuLink::READBACK_TILES;
     static constexpr float STEP_DT = 1.0f / 60.0f;
 
     struct Pending {

@@ -25,6 +25,7 @@ const uint P_VELOCITY = 7u;
 const uint P_SOURCES = 8u;
 const uint P_FOAM = 9u;
 const uint P_GATHER = 10u;
+const uint P_DRAIN = 11u;
 const uint FLAG_VORTEX = 1u;
 
 shared uint s_max_h;
@@ -260,6 +261,28 @@ void tile_pass(WaterLevel L) {
         const float out_flux = inv * (max(s_fu[lid.y * 17 + lid.x + 1], 0.0) - min(s_fu[lid.y * 17 + lid.x], 0.0) + max(s_fw[(lid.y + 1) * 16 + lid.x], 0.0) - min(s_fw[lid.y * 16 + lid.x], 0.0));
         const float hh = gp(A_H, c);
         sp(A_SCALE, c, out_flux > hh && out_flux > 0.0 ? hh / out_flux : 1.0);
+        return;
+    }
+    if (pass == P_DRAIN) {
+        if ((fp(c) & CELL_DRAIN) == 0u) return;
+        float sh = 0.0, sb = 0.0;
+        int count = 0;
+        const ivec2 off[4] = ivec2[](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+        for (int q = 0; q < 4; q++) {
+            const int qc = cp(i + off[q].x, j + off[q].y);
+            if (qc < 0 || (fp(qc) & CELL_DRAIN) != 0u) continue;
+            const float qb = gp(A_B, qc);
+            if (qb >= W_WALL_TEST) continue;
+            sh += gp(A_H, qc);
+            sb += qb;
+            count++;
+        }
+        if (count == 0) {
+            sp(A_H, c, 0.0);
+            return;
+        }
+        sp(A_H, c, sh / float(count));
+        sp(A_B, c, sb / float(count));
         return;
     }
     if (pass == P_HEIGHT) {

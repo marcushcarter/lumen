@@ -39,7 +39,12 @@ struct EditorApplication : Application
 
     ProjectManager project_manager;
     AssetImportTracker imports;
+    static constexpr float EDITOR_RENDER_SCALE = 0.75f;
+
     AssetRegistry assets;
+    std::filesystem::path _bake_source;
+    WaterWorld _water_preview;
+    bool _water_preview_on = false;
     EditorSelection selection;
     TextureViewer texture_viewer;
     ImportDialog import_dialog;
@@ -101,6 +106,10 @@ struct EditorApplication : Application
     void _apply_theme();
 
     void _play_start();
+    void _water_bake_start();
+    void _water_bake_poll();
+    void _water_preview_update(float p_dt);
+    void _water_preview_stop();
     void _keep_editor_view();
     void on_simulate(float p_dt) override;
     Scene& simulated_scene() override { return play.active() ? play.runtime : scene; }

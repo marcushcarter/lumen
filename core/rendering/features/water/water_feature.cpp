@@ -67,7 +67,7 @@ struct WaterDrawArgs
     uint32_t vertex_count, instance_count, first_vertex, first_instance;
 };
 
-enum : uint32_t { P_INIT, P_EVENTS, P_GHOST, P_ADVECT, P_CURLFORCE, P_FLUXLIMIT, P_HEIGHT, P_VELOCITY, P_SOURCES, P_FOAM, P_GATHER };
+enum : uint32_t { P_INIT, P_EVENTS, P_GHOST, P_ADVECT, P_CURLFORCE, P_FLUXLIMIT, P_HEIGHT, P_VELOCITY, P_SOURCES, P_FOAM, P_GATHER, P_DRAIN };
 static constexpr uint32_t FLAG_VORTEX = 1;
 
 static constexpr uint32_t BLOCKS = 16;
@@ -234,7 +234,8 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     }
 
     const bool live = capacity > 0 && r_link.tiles_w > 0;
-    const uint32_t steps = live && !r_link.awake.empty() ? std::min(r_link.steps, WaterGpuLink::MAX_STEPS) : 0u;
+    const uint32_t steps = live && !r_link.awake.empty() ? std::min(r_link.steps, std::min(r_link.max_steps, WaterGpuLink::BAKE_STEPS)) : 0u;
+    const bool gathering = live && !r_link.awake.empty() && (steps || r_link.collect);
 
     std::vector<uint32_t> gather;
     Readback& rd = pending[f];
@@ -243,7 +244,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     rd.stats_offset = 0;
     rd.session = r_link.session;
     rd.layout = r_link.layout;
-    if (steps) {
+    if (gathering) {
         const size_t count = r_link.awake.size();
         const size_t take = std::min<size_t>(count, READBACK_MAX);
         const size_t start = count > READBACK_MAX ? readback_cursor % count : 0;
@@ -421,6 +422,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
                 run(P_GHOST, ring, dt);
                 run(P_FLUXLIMIT, awake, dt);
                 run(P_HEIGHT, awake, dt);
+                run(P_DRAIN, awake, dt);
                 run(P_VELOCITY, awake, dt);
                 run(P_SOURCES, sources, dt);
                 run(P_FOAM, awake, dt);
@@ -436,7 +438,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     }
     _all_barrier(cmd);
 
-    if (steps && rd.stats_count) {
+    if (gathering && rd.stats_count) {
         if (!gather.empty()) {
             ctx->dd->command_bind_pipeline(cmd, sim_pipe);
             run(P_GATHER, (uint32_t)gather.size(), 0.0f);

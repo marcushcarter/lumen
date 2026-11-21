@@ -17,6 +17,7 @@ const uint SURFACE_FRESH = 0x8000u;
 
 shared float s_h[SPAN_CELLS];
 shared float s_b[SPAN_CELLS];
+shared uint s_drain[SPAN_CELLS];
 shared vec4 s_samples[SURFACE_SAMPLES];
 shared uint s_mask[SURFACE_MASK_WORDS];
 shared uint s_lo;
@@ -25,13 +26,26 @@ shared uint s_hi;
 float g_wet_level = W_WET;
 
 bool wet_at(int p_k) {
-    return s_h[p_k] > g_wet_level && s_b[p_k] < W_WALL_TEST;
+    return s_h[p_k] > g_wet_level && s_b[p_k] < W_WALL_TEST && s_drain[p_k] == 0u;
 }
 
 vec2 surface_sample(int p_x, int p_y, bool p_was_wet) {
     const int k = (p_y + HALO) * SPAN + p_x + HALO;
     const float hh = s_h[k];
     const float bb = s_b[k];
+    if (s_drain[k] != 0u) {
+        float edge_sum = 0.0;
+        int edge_count = 0;
+        for (int oy = -1; oy <= 1; oy++) {
+            for (int ox = -1; ox <= 1; ox++) {
+                const int q = k + oy * SPAN + ox;
+                if (!wet_at(q)) continue;
+                edge_sum += s_h[q] + s_b[q];
+                edge_count++;
+            }
+        }
+        return edge_count > 0 ? vec2(edge_sum / float(edge_count), SAMPLE_SHORE) : vec2(0.0, SAMPLE_INVALID);
+    }
     if (bb >= W_WALL_TEST) return vec2(0.0, SAMPLE_INVALID);
     if (hh > (p_was_wet ? W_WET * 0.5 : W_WET)) return vec2(hh + bb, SAMPLE_WET);
     float sum = 0.0, weight = 0.0;
@@ -83,6 +97,7 @@ void main() {
         const int c = water_cell_cached(D, base.x + x, base.y + y);
         s_h[k] = dget(D, A_H, c);
         s_b[k] = dget(D, A_B, c);
+        s_drain[k] = c >= 0 ? floatBitsToUint(dget(D, A_FLAGS, c)) & CELL_DRAIN : 0u;
     }
     barrier();
 

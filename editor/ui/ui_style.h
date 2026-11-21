@@ -223,6 +223,7 @@ struct UiStyle
         ImU32 asset_overlay;
         ImU32 asset_scene;
         ImU32 asset_terrain;
+        ImU32 asset_water;
         ImU32 asset_template;
 
         ImU32 overlay;

@@ -124,6 +124,8 @@ void serialize(Archive& a, WaterSettings& r_c)
 {
     a.field("simulate", r_c.simulate);
     a.field("render", r_c.render);
+    a.field("bake", r_c.bake);
+    a.field("bake_time", r_c.bake_time);
     a.field("cell_size", r_c.cell_size);
     a.field("substeps", r_c.substeps);
     a.field("sim_radius", r_c.sim_radius);
@@ -144,6 +146,7 @@ void serialize(Archive& a, WaterSettings& r_c)
     r_c.cell_size = std::clamp(r_c.cell_size, 0.1f, 2.0f);
     r_c.substeps = std::clamp(r_c.substeps, 1u, 8u);
     r_c.sim_radius = std::clamp(r_c.sim_radius, 8.0f, 512.0f);
+    r_c.bake_time = std::clamp(r_c.bake_time, 5.0f, 3600.0f);
     r_c.cfl_limit = std::clamp(r_c.cfl_limit, 0.01f, 0.9f);
     r_c.lod_error = std::clamp(r_c.lod_error, 0.001f, 0.2f);
 }

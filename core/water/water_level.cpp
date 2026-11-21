@@ -6,6 +6,9 @@
 #include <core/scene/components.h>
 #include <core/base/jobs.h>
 #include <core/base/hash.h>
+#include <core/assets/asset_common.h>
+#include <core/assets/lwater.h>
+#include <core/base/error.h>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -55,6 +58,7 @@ void WaterLevel::clear()
     _source_hash = 0;
     stats = {};
     if (_page_file.is_open()) _page_file.close();
+    if (_bake_file.is_open()) _bake_file.close();
     if (!_page_path.empty()) {
         std::error_code ec;
         std::filesystem::remove(_page_path, ec);
@@ -108,7 +112,7 @@ bool WaterLevel::cell_state(ivec2 p_global, float& r_h, float& r_b) const
             if (c >= 0 && tiles[slot_of(lt)].active) {
                 r_h = h[c];
                 r_b = b[c];
-                return r_b < WALL_TEST;
+                return r_b < WALL_TEST && (flags[c] & CELL_DRAIN) == 0u;
             }
         }
     }
@@ -116,8 +120,23 @@ bool WaterLevel::cell_state(ivec2 p_global, float& r_h, float& r_b) const
     if (const FrozenState* s = _frozen_state(p_global, k)) {
         r_h = s->h[k];
         r_b = s->b[k];
-        return r_b < WALL_TEST;
+        return r_b < WALL_TEST && (s->flags[k] & CELL_DRAIN) == 0u;
     }
+    return false;
+}
+
+bool WaterLevel::cell_drain(ivec2 p_global) const
+{
+    if (placed) {
+        const ivec2 l = p_global - origin_cell();
+        const ivec2 lt(floor_div(l.x, TILE), floor_div(l.y, TILE));
+        if (in_interior(lt)) {
+            const int32_t c = at(l.x, l.y);
+            if (c >= 0 && tiles[slot_of(lt)].active) return (flags[c] & CELL_DRAIN) != 0u;
+        }
+    }
+    int32_t k = 0;
+    if (const FrozenState* s = _frozen_state(p_global, k)) return (s->flags[k] & CELL_DRAIN) != 0u;
     return false;
 }
 
@@ -235,6 +254,18 @@ void WaterLevel::_evict(Tile& r_tile, bool p_interior)
 bool WaterLevel::_load_page(Frozen& r_frozen)
 {
     if (r_frozen.state) return true;
+    if (r_frozen.bake_offset != UINT64_MAX) {
+        if (!_bake_file.is_open()) return false;
+        auto state = std::make_unique<FrozenState>();
+        _bake_file.seekg((std::streamoff)r_frozen.bake_offset);
+        _bake_file.read(reinterpret_cast<char*>(state.get()), sizeof(FrozenState));
+        const bool ok = (bool)_bake_file;
+        _bake_file.clear();
+        if (!ok) return false;
+        r_frozen.state = std::move(state);
+        r_frozen.bake_offset = UINT64_MAX;
+        return true;
+    }
     if (r_frozen.page_offset == UINT64_MAX || !_page_file.is_open()) return false;
     r_frozen.state = std::make_unique<FrozenState>();
     _page_file.seekg((std::streamoff)r_frozen.page_offset);
@@ -729,6 +760,53 @@ void WaterLevel::publish()
     for (const SourceCell& c : _sources) gpu->sources.push_back({ H, c.cell, c.value, c.level ? 1.0f : 0.0f, 0.0f });
 }
 
+bool WaterLevel::load_bake(const std::filesystem::path& p_path, std::vector<uint64_t>& r_keys)
+{
+    if (_bake_file.is_open()) _bake_file.close();
+    _bake_file.open(p_path, std::ios::binary);
+    if (!_bake_file) return false;
+    LAssetHeader ah{};
+    _bake_file.read(reinterpret_cast<char*>(&ah), sizeof(ah));
+    LWaterPayloadHeader header{};
+    _bake_file.read(reinterpret_cast<char*>(&header), sizeof(header));
+    if (!_bake_file || ah.magic != BCON_MAGIC || ah.type != AssetType::WATER || header.format_version != LWATER_FORMAT_VERSION) {
+        _bake_file.close();
+        return false;
+    }
+    if (std::abs(header.cell_size - dx) > 1.0e-4f) {
+        log_write("Water: bake '%s' was made with %.2f m cells but the scene uses %.2f m, rebake it.", p_path.string().c_str(), header.cell_size, dx);
+        _bake_file.close();
+        return false;
+    }
+    std::vector<LWaterTileEntry> entries(header.tile_count);
+    _bake_file.seekg((std::streamoff)header.directory_offset);
+    if (!entries.empty()) _bake_file.read(reinterpret_cast<char*>(entries.data()), (std::streamsize)(entries.size() * sizeof(LWaterTileEntry)));
+    if (!_bake_file) {
+        _bake_file.close();
+        return false;
+    }
+    for (const LWaterTileEntry& e : entries) {
+        const uint64_t key = tile_key(ivec2(e.tile_x, e.tile_y));
+        if (frozen.count(key)) continue;
+        Frozen& f = frozen[key];
+        _bake_file.seekg((std::streamoff)e.state_offset);
+        _bake_file.read(reinterpret_cast<char*>(f.surface), sizeof(f.surface));
+        _bake_file.read(reinterpret_cast<char*>(f.mask), sizeof(f.mask));
+        if (!_bake_file) {
+            _bake_file.clear();
+            frozen.erase(key);
+            continue;
+        }
+        f.bed = Bed::READY;
+        f.has_surface = e.has_surface != 0;
+        f.ymin = e.ymin;
+        f.ymax = e.ymax;
+        f.bake_offset = e.state_offset + sizeof(f.surface) + sizeof(f.mask);
+        r_keys.push_back(key);
+    }
+    return true;
+}
+
 void WaterLevel::page_out(float p_distance)
 {
     if (frozen.empty()) return;
@@ -766,6 +844,19 @@ void WaterLevel::page_out(float p_distance)
 vec4 WaterLevel::surface_sample(ivec2 p_global) const
 {
     float hh = 0.0f, bb = 0.0f;
+    if (cell_drain(p_global)) {
+        float edge_sum = 0.0f;
+        int32_t edge_count = 0;
+        for (int32_t oy = -1; oy <= 1; oy++) {
+            for (int32_t ox = -1; ox <= 1; ox++) {
+                float nh = 0.0f, nb = 0.0f;
+                if (!cell_state(p_global + ivec2(ox, oy), nh, nb) || nh <= WET) continue;
+                edge_sum += nh + nb;
+                edge_count++;
+            }
+        }
+        return edge_count ? vec4(edge_sum / (float)edge_count, SAMPLE_SHORE, 0.0f, 0.0f) : vec4(0.0f, SAMPLE_INVALID, 0.0f, 0.0f);
+    }
     if (!cell_state(p_global, hh, bb)) return vec4(0.0f, SAMPLE_INVALID, 0.0f, 0.0f);
     if (hh > WET) {
         vec2 flow(0.0f);

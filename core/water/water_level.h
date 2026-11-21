@@ -94,6 +94,7 @@ struct WaterLevel
         float ymin = 0.0f;
         float ymax = 0.0f;
         uint64_t page_offset = UINT64_MAX;
+        uint64_t bake_offset = UINT64_MAX;
         uint32_t pool = NO_POOL;
     };
 
@@ -142,6 +143,7 @@ struct WaterLevel
     uint64_t _alloc_epoch = 0;
     std::filesystem::path _page_path;
     std::fstream _page_file;
+    std::ifstream _bake_file;
     uint64_t _page_end = 0;
     std::vector<uint64_t> _page_free;
 
@@ -154,6 +156,7 @@ struct WaterLevel
     void publish();
     void page_out(float p_distance);
     void static_changed(const vec3& p_min, const vec3& p_max);
+    bool load_bake(const std::filesystem::path& p_path, std::vector<uint64_t>& r_keys);
 
     bool inside(float p_x, float p_z) const;
     vec4 interior_rect() const;
@@ -168,6 +171,7 @@ struct WaterLevel
     bool in_interior(ivec2 p_local) const { return p_local.x >= 0 && p_local.y >= 0 && p_local.x < tiles_w && p_local.y < tiles_w; }
     int32_t at(int32_t p_i, int32_t p_j) const;
     bool cell_state(ivec2 p_global, float& r_h, float& r_b) const;
+    bool cell_drain(ivec2 p_global) const;
     vec4 surface_sample(ivec2 p_global) const;
     bool surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_mask, float& r_ymin, float& r_ymax) const;
 

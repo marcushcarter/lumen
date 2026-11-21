@@ -283,6 +283,23 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::TextDisabled("-");
             if (ww) _live("%u", (uint32_t)ww->link.items.size());
             else _live("-");
+            _name("Bake");
+            asset_field(ctx, "", "###water_bake", water.bake, AssetType::WATER);
+            const AssetRegistry::Entry* bake_entry = lw && ctx.assets ? ctx.assets->find(lw->bake) : nullptr;
+            if (bake_entry) _live("%s", bake_entry->name.c_str());
+            else _live("-");
+            _name("Bake Time");
+            ImGui::DragFloat("##water_bake_time", &water.bake_time, 1.0f, 5.0f, 3600.0f, "%.0f s", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Simulated seconds the bake runs so rivers and lakes can settle.");
+            _live_float(lw, lw ? lw->bake_time : 0.0f, " s");
+            _name("");
+            const bool baking = ww && ww->bake.active();
+            ImGui::BeginDisabled(baking || !ctx.water_bake);
+            if (ImGui::Button("Bake Water", ImVec2(-FLT_MIN, 0.0f)) && ctx.water_bake) ctx.water_bake();
+            ImGui::EndDisabled();
+            if (baking) _live("%s %.0f%%", ww->bake.collecting() ? "Saving" : "Baking", ww->bake.progress() * 100.0f);
+            else if (ww && !ww->bake.message.empty()) _live("%s", ww->bake.message.c_str());
+            else _live("-");
         }
         _section_end();
         ImGui::EndChild();

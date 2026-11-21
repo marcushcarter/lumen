@@ -96,6 +96,7 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const S
     else r_outline.set_rect(lo, hi);
 }
 
+static constexpr float BUOYANCY_DEBUG_RADIUS = 128.0f;
 static constexpr uint32_t WATER_SPRING_COLOR = debug_rgb(0x33FFFF);
 static constexpr uint32_t WATER_LEVEL_COLOR = debug_rgb(0x1A40FF);
 static constexpr float WATER_ARROW_MIN = 1.5f;
@@ -186,11 +187,14 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
     const ViewportView& view = viewport_view();
     if (view.culling_paused) _draw_cull_frustum(ctx);
     debug_entities.clear();
-    if (p_live && view.overlay == ViewOverlay::BUOYANCY) play->physics_system.physics.debug_draw_buoyancy(debug_draw());
+    if (p_live && view.overlay == ViewOverlay::BUOYANCY) play->physics_system.physics.debug_draw_buoyancy(debug_draw(), play->physics_system.focus, BUOYANCY_DEBUG_RADIUS);
     if (!ctx.renderer) return;
     const Scene* scene = p_live ? &play->runtime : ctx.scene;
     if (!scene) return;
-    if (view.overlay == ViewOverlay::WATER_FLOW) _draw_water_sources(debug_draw(), *scene);
+    if (view.overlay == ViewOverlay::WATER_FLOW) {
+        _draw_water_sources(debug_draw(), *scene);
+        if (p_live) play->physics_system.water.debug_draw_flow(debug_draw());
+    }
 
     if (ctx.selection) {
         std::vector<Entity> sub;
@@ -446,7 +450,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
 
     if (ctx.render_path) {
         GridFeature& grid = ctx.render_path->grid;
-        grid.show_grid = !playing;
+        grid.show_grid = !playing && ctx.template_doc;
         grid.show_axes = !playing;
         const ImVec4 gc = ui_vec4(ui.color.grid);
         const ImVec4 xc = ui_vec4(ui.color.axis_x);

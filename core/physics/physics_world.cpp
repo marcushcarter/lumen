@@ -15,6 +15,7 @@
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
@@ -495,6 +496,7 @@ PhysicsBodyId PhysicsWorld::create_height_field_body(PhysicsHeightField& r_field
     if (!impl || !r_field.shape) return {};
     JPH::BodyCreationSettings settings(static_cast<JPH::Shape*>(r_field.shape), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), JPH::EMotionType::Static, to_jph(PhysicsLayer::STATIC));
     settings.mFriction = p_friction;
+    settings.mUserData = TERRAIN_USER_DATA;
     const JPH::BodyID id = impl->bodies().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
     release_height_field(r_field);
     if (id.IsInvalid()) {
@@ -736,6 +738,19 @@ bool PhysicsWorld::capsule_cast(const vec3& p_origin, const quat& p_rotation, fl
     return _shape_cast(impl->system, &shape, p_origin, p_rotation, p_direction, p_max_distance, r_hit, p_query);
 }
 
+bool PhysicsWorld::overlaps_static_object(const vec3& p_min, const vec3& p_max) const
+{
+    if (!impl) return false;
+    JPH::AllHitCollisionCollector<JPH::CollideShapeBodyCollector> collector;
+    const QueryBroadPhaseFilter bp(physics_layer_bit(PhysicsLayer::STATIC));
+    const QueryObjectFilter ol(physics_layer_bit(PhysicsLayer::STATIC));
+    impl->system.GetBroadPhaseQuery().CollideAABox(JPH::AABox(to_jph(p_min), to_jph(p_max)), collector, bp, ol);
+    for (const JPH::BodyID& id : collector.mHits) {
+        if (impl->bodies().GetUserData(id) != TERRAIN_USER_DATA) return true;
+    }
+    return false;
+}
+
 uint32_t PhysicsWorld::overlap_sphere(const vec3& p_center, float p_radius, std::vector<PhysicsBodyId>& r_bodies, const PhysicsQuery& p_query) const
 {
     r_bodies.clear();
@@ -815,16 +830,32 @@ void PhysicsWorld::_apply_buoyancy()
     const JPH::BodyLockInterface& locks = impl->system.GetBodyLockInterface();
     const float g = std::abs(impl->system.GetGravity().GetY());
     const float dt = FIXED_DT;
+    std::vector<JPH::BodyID> wake;
     for (auto& [value, b] : impl->buoyancy) {
         JPH::BodyLockWrite lock(locks, to_jph(PhysicsBodyId{ value }));
         if (!lock.Succeeded()) continue;
         JPH::Body& body = lock.GetBody();
         _buoyancy_refresh(b, body.GetCenterOfMassTransform(), water);
-        if (!body.IsDynamic() || !body.IsActive() || b.total_volume <= 0.0f) continue;
+        b.splash_timer = std::max(b.splash_timer - dt, 0.0f);
+        if (!body.IsDynamic() || b.total_volume <= 0.0f) continue;
+        float submerged = 0.0f;
+        for (const BuoyancySample& s : b.samples) submerged += std::max(s.submerged, 0.0f) * s.volume;
+        submerged /= b.total_volume;
+        const float previous = b.submerged;
+        b.submerged = submerged;
+        if (!body.IsActive()) {
+            if (std::abs(submerged - previous) > WAKE_SUBMERGED) wake.push_back(body.GetID());
+            continue;
+        }
         const float inverse = body.GetMotionProperties()->GetInverseMass();
         if (inverse <= 0.0f) continue;
         const float mass = 1.0f / inverse;
-        for (const BuoyancySample& s : b.samples) {
+        const bool lod = b.samples.size() >= BUOYANCY_LOD_STRIDE && (b.total_volume < BUOYANCY_LOD_VOLUME || length(to_glm(body.GetCenterOfMassPosition()) - buoyancy_focus) > BUOYANCY_LOD_DISTANCE);
+        const size_t stride = lod ? BUOYANCY_LOD_STRIDE : 1;
+        const float volume_scale = (float)stride;
+        for (size_t si = 0; si < b.samples.size(); si += stride) {
+            BuoyancySample s = b.samples[si];
+            s.volume *= volume_scale;
             if (s.submerged <= 0.0f) continue;
             float surface = 0.0f;
             vec2 flow(0.0f);
@@ -840,8 +871,16 @@ void PhysicsWorld::_apply_buoyancy()
             const float drag_len = length(drag);
             if (drag_len > limit && drag_len > 0.0f) drag *= limit / drag_len;
             body.AddImpulse(to_jph(buoy * dt + drag), at);
+            if (buoyancy_push) water->push(s.world, s.submerged, s.volume, vp, rel);
         }
+        if (!buoyancy_push) continue;
+        const vec3 v = to_glm(body.GetLinearVelocity());
+        if (b.splash_timer > 0.0f || v.y >= -SPLASH_SPEED || submerged <= 0.0f || submerged >= SPLASH_MAX_SUBMERGED) continue;
+        const float strength = std::min(3.0f, -v.y * 0.45f) * std::min(1.0f, std::sqrt(b.total_volume / 0.05f));
+        water->splash(to_glm(body.GetCenterOfMassPosition()), strength, 0.6f + std::cbrt(b.total_volume));
+        b.splash_timer = SPLASH_COOLDOWN;
     }
+    for (const JPH::BodyID id : wake) impl->bodies().ActivateBody(id);
 }
 
 static uint32_t _buoyancy_color(float p_submerged)
@@ -854,12 +893,15 @@ static uint32_t _buoyancy_color(float p_submerged)
     return debug_rgb((b.x << 16) | (b.y << 8) | b.z);
 }
 
-void PhysicsWorld::debug_draw_buoyancy(DebugDraw& r_draw) const
+void PhysicsWorld::debug_draw_buoyancy(DebugDraw& r_draw, const vec3& p_center, float p_radius) const
 {
     if (!impl) return;
     update_buoyancy();
+    const float radius2 = p_radius * p_radius;
     for (const auto& [value, b] : impl->buoyancy) {
         for (const BuoyancySample& s : b.samples) {
+            const vec2 d(s.world.x - p_center.x, s.world.z - p_center.z);
+            if (dot(d, d) > radius2) continue;
             r_draw.square(s.world, BUOYANCY_SQUARE_PX, { .color = _buoyancy_color(s.submerged), .xray = true });
         }
     }

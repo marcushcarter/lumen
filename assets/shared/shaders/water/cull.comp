@@ -1,0 +1,72 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "common/camera.glsl"
+#include "common/hiz.glsl"
+#include "water/items.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    WaterItems items;
+    WaterArgs args;
+    WaterUints list;
+    uint count;
+    uint capacity;
+    float lod_error;
+    float min_quad;
+    vec2 screen;
+    uint hiz_index;
+    uint hiz_mips;
+    uint hiz_enabled;
+} pc;
+
+void main() {
+    const uint idx = gl_GlobalInvocationID.x;
+    if (idx >= pc.count) return;
+    WaterItem it = pc.items.v[idx];
+    float ymin = it.ymin, ymax = it.ymax;
+    if (it.has_bounds != 0u) {
+        ymin = uintBitsToFloat(it.bounds.v[0]);
+        ymax = uintBitsToFloat(it.bounds.v[1]);
+    }
+    if (ymin > ymax) return;
+    const float size = 16.0 * it.spacing;
+    const vec3 bmin = vec3(it.origin.x, ymin - 0.05, it.origin.y);
+    const vec3 bmax = vec3(it.origin.x + size, ymax + 0.05, it.origin.y + size);
+    const vec3 center = 0.5 * (bmin + bmax);
+    const float radius = length(bmax - center);
+    if (frustum_cull_sphere(pc.camera, center, radius)) return;
+    if (pc.hiz_enabled != 0u && hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen, pc.camera.curr_view_proj, mat4(1.0), bmin, bmax - bmin)) return;
+
+    const vec3 eye = pc.camera.position.xyz;
+    const float d = length(clamp(eye, bmin, bmax) - eye);
+    const float target = max(d * pc.lod_error, pc.min_quad);
+    const float q_max = min(64.0, max(size / pc.min_quad, 4.0));
+    const float qf = clamp(size / target, 4.0, q_max);
+    const uint level = min(uint(findMSB(uint(qf))) - 2u, WATER_LOD_LEVELS - 1u);
+
+    uint blocks[16];
+    uint count = 0u;
+    for (uint b = 0u; b < 16u; b++) {
+        const uint bx = b & 3u, by = b >> 2u;
+        bool any = false;
+        for (uint r = 0u; r < 4u && !any; r++) {
+            const uint row = by * 4u + r;
+            const uint word = it.masks.v[row >> 1u];
+            const uint bits = (word >> ((row & 1u) * 16u)) & 0xFFFFu;
+            any = ((bits >> (bx * 4u)) & 0xFu) != 0u;
+        }
+        if (any) blocks[count++] = b;
+    }
+    if (count == 0u) return;
+    const uint first = atomicAdd(pc.args.v[level].instance_count, count);
+    for (uint k = 0u; k < count; k++) {
+        const uint slot = first + k;
+        if (slot < pc.capacity) pc.list.v[level * pc.capacity + slot] = (idx << 4u) | blocks[k];
+    }
+}

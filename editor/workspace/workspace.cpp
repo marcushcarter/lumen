@@ -97,6 +97,10 @@ void Workspace::_sync_documents(EditorContext& ctx)
         found |= d.get() == active_document;
     }
     if (!found) active_document = nullptr;
+    if (scene.focus_request) {
+        scene.focus_request = false;
+        active_document = nullptr;
+    }
 }
 
 void Workspace::_sync_document_panels(EditorContext& ctx)

@@ -120,4 +120,30 @@ void serialize(Archive& a, TerrainSettings& r_c)
     a.field("terrain", r_c.terrain);
 }
 
+void serialize(Archive& a, WaterSettings& r_c)
+{
+    a.field("enabled", r_c.enabled);
+    a.field("cell_size", r_c.cell_size);
+    a.field("substeps", r_c.substeps);
+    a.field("sim_radius", r_c.sim_radius);
+    a.field("lod_error", r_c.lod_error);
+    a.field("manning", r_c.manning);
+    a.field("vorticity", r_c.vorticity);
+    a.field("vortex_min_depth", r_c.vortex_min_depth);
+    a.field("cfl_limit", r_c.cfl_limit);
+    a.field("flux_depth_cap", r_c.flux_depth_cap);
+    a.field("foam_decay", r_c.foam_decay);
+    a.field("foam_gain", r_c.foam_gain);
+    a.field("bed_probe", r_c.bed_probe);
+    a.field("buoyancy", r_c.buoyancy);
+    a.field("drag", r_c.drag);
+    a.field("push_water", r_c.push_water);
+    if (!a.loading) return;
+    r_c.cell_size = std::clamp(r_c.cell_size, 0.1f, 2.0f);
+    r_c.substeps = std::clamp(r_c.substeps, 1u, 8u);
+    r_c.sim_radius = std::clamp(r_c.sim_radius, 8.0f, 512.0f);
+    r_c.cfl_limit = std::clamp(r_c.cfl_limit, 0.01f, 0.9f);
+    r_c.lod_error = std::clamp(r_c.lod_error, 0.001f, 0.2f);
+}
+
 }

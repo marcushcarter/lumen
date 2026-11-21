@@ -141,6 +141,10 @@ void EditorPlay::_sync_environment()
         _terrain = authored->terrain;
         runtime.terrain = authored->terrain;
     }
+    if (authored->water != _water) {
+        _water = authored->water;
+        runtime.water = authored->water;
+    }
     if (std::memcmp(&authored->environment, &_environment, sizeof(EnvironmentSettings)) == 0) return;
     _environment = authored->environment;
     runtime.environment = authored->environment;
@@ -158,6 +162,8 @@ void EditorPlay::_clone()
     runtime.physics = authored->physics;
     _terrain = authored->terrain;
     runtime.terrain = authored->terrain;
+    _water = authored->water;
+    runtime.water = authored->water;
     std::vector<Entity> entities;
     authored->view<EntityIdComponent>([&](Entity p_entity, const EntityIdComponent&) { entities.push_back(p_entity); });
     for (const Entity e : entities) _sync_entity(e);

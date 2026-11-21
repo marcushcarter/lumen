@@ -1,0 +1,37 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/camera.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    uint color_index;
+    uint depth_index;
+    uint out_slot;
+    uint width;
+    uint height;
+} pc;
+
+const float SKY_DISTANCE = 65000.0;
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
+    const vec3 color = texelFetch(u_textures[pc.color_index], p, 0).rgb;
+    const float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
+    float dist = SKY_DISTANCE;
+    if (depth > 0.0) {
+        const vec2 ndc = (vec2(p) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0;
+        const vec4 h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
+        dist = min(distance(h.xyz / h.w, pc.camera.position.xyz), SKY_DISTANCE);
+    }
+    imageStore(u_storage_rgba16f[pc.out_slot], p, vec4(color, dist));
+}

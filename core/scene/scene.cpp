@@ -69,6 +69,7 @@ void Scene::unload()
     shadows = {};
     physics = {};
     terrain = {};
+    water = {};
     if (track_changes) changed_all = true;
     static_version++;
     structure_version++;

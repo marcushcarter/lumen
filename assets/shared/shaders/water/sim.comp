@@ -1,0 +1,352 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "water/grid.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant, scalar) uniform Push {
+    WaterLevel level;
+    uint pass;
+    float dt;
+    uint flags;
+    uint pad;
+} pc;
+
+const uint P_INIT = 0u;
+const uint P_EVENTS = 1u;
+const uint P_GHOST = 2u;
+const uint P_ADVECT = 3u;
+const uint P_CURLFORCE = 4u;
+const uint P_FLUXLIMIT = 5u;
+const uint P_HEIGHT = 6u;
+const uint P_VELOCITY = 7u;
+const uint P_SOURCES = 8u;
+const uint P_FOAM = 9u;
+const uint P_GATHER = 10u;
+const uint FLAG_VORTEX = 1u;
+
+shared uint s_max_h;
+shared float s_curl[18 * 18];
+shared float s_fu[17 * 16];
+shared float s_fw[16 * 17];
+
+WaterData P;
+float g_gravity;
+float g_manning;
+float g_vorticity;
+float g_vortex_min_depth;
+float g_cfl;
+float g_flux_cap;
+float g_foam_decay;
+float g_foam_gain;
+
+int cp(int p_i, int p_j) { return water_cell_cached(P, p_i, p_j); }
+float rp(uint p_a, int p_i, int p_j) { return dget(P, p_a, cp(p_i, p_j)); }
+float gp(uint p_a, int p_c) { return dget(P, p_a, p_c); }
+void sp(uint p_a, int p_c, float p_x) { dput(P, p_a, p_c, p_x); }
+uint fp(int p_c) { return floatBitsToUint(gp(A_FLAGS, p_c)); }
+
+uint flat_index() {
+    return gl_WorkGroupID.x * 256u + gl_LocalInvocationIndex;
+}
+
+float bil_u(float p_x, float p_y) {
+    const int n = P.n;
+    const float x = clamp(p_x, 0.0, float(n));
+    const float y = clamp(p_y, 0.0, float(n - 1));
+    const int i0 = min(int(x), n - 1);
+    const int j0 = min(int(y), n - 2);
+    const float tx = x - float(i0), ty = y - float(j0);
+    return mix(mix(rp(A_U, i0, j0), rp(A_U, i0 + 1, j0), tx), mix(rp(A_U, i0, j0 + 1), rp(A_U, i0 + 1, j0 + 1), tx), ty);
+}
+
+float bil_w(float p_x, float p_y) {
+    const int n = P.n;
+    const float x = clamp(p_x, 0.0, float(n - 1));
+    const float y = clamp(p_y, 0.0, float(n));
+    const int i0 = min(int(x), n - 2);
+    const int j0 = min(int(y), n - 1);
+    const float tx = x - float(i0), ty = y - float(j0);
+    return mix(mix(rp(A_W, i0, j0), rp(A_W, i0 + 1, j0), tx), mix(rp(A_W, i0, j0 + 1), rp(A_W, i0 + 1, j0 + 1), tx), ty);
+}
+
+float bil_cell(uint p_a, float p_x, float p_y) {
+    const int n = P.n;
+    const float x = clamp(p_x, 0.0, float(n - 1));
+    const float y = clamp(p_y, 0.0, float(n - 1));
+    const int i0 = min(int(x), n - 2);
+    const int j0 = min(int(y), n - 2);
+    const float tx = x - float(i0), ty = y - float(j0);
+    return mix(mix(rp(p_a, i0, j0), rp(p_a, i0 + 1, j0), tx), mix(rp(p_a, i0, j0 + 1), rp(p_a, i0 + 1, j0 + 1), tx), ty);
+}
+
+float velocity(float p_v, int p_l, int p_r, float p_dt) {
+    const float hl = gp(A_H, p_l), hr = gp(A_H, p_r);
+    const float bl = gp(A_B, p_l), br = gp(A_B, p_r);
+    const float el = hl + bl, er = hr + br;
+    const bool wl = hl > W_EPS, wr = hr > W_EPS;
+    if ((!wl && !wr) || (!wl && bl > er) || (!wr && br > el)) return 0.0;
+    float v = p_v - g_gravity * p_dt / P.dx * (er - el);
+    const float hf = max(0.5 * (hl + hr), 0.02);
+    v /= 1.0 + p_dt * g_gravity * g_manning * g_manning * abs(v) / (hf * pow(hf, 1.0 / 3.0));
+    const float vmax = g_cfl * P.dx / p_dt;
+    return clamp(v, -vmax, vmax);
+}
+
+void ring_cells(uint p_t, out ivec2 r_ghost, out ivec2 r_inner) {
+    const int n = P.n;
+    const int side = int(p_t) / n;
+    const int k = int(p_t) % n;
+    if (side == 0) { r_ghost = ivec2(-1, k); r_inner = ivec2(0, k); }
+    else if (side == 1) { r_ghost = ivec2(n, k); r_inner = ivec2(n - 1, k); }
+    else if (side == 2) { r_ghost = ivec2(k, -1); r_inner = ivec2(k, 0); }
+    else { r_ghost = ivec2(k, n); r_inner = ivec2(k, n - 1); }
+}
+
+void init_pass(WaterLevel L) {
+    const uint g = gl_WorkGroupID.x;
+    if (g >= L.init_count) return;
+    const uint phys = L.init.v[g];
+    const int c = int((phys << 8u) + gl_LocalInvocationIndex);
+    for (uint a = 0u; a < A_COUNT; a++) sp(a, c, water_default(a));
+    if (gl_LocalInvocationIndex == 0u) L.stats.v[phys] = 0u;
+}
+
+void gather_pass(WaterLevel L) {
+    const uint g = gl_WorkGroupID.x;
+    if (g >= L.gather_count) return;
+    const uint phys = L.gather.v[g];
+    const uint lid = gl_LocalInvocationIndex;
+    const uint base = g * (6u * 256u);
+    const int c = int((phys << 8u) + lid);
+    const uint arrays[6] = uint[](A_H, A_FOAM, A_U, A_W, A_UC, A_WC);
+    for (uint a = 0u; a < 6u; a++) L.readback.v[base + a * 256u + lid] = gp(arrays[a], c);
+}
+
+void flat_pass(WaterLevel L) {
+    const uint t = flat_index();
+    if (pc.pass == P_EVENTS) {
+        if (t >= L.event_count) return;
+        const WaterCell e = L.events.v[t];
+        float x = gp(e.array, int(e.cell));
+        x = x + e.a * (e.b - x) + e.c;
+        if (e.array == A_FOAM) x = clamp(x, 0.0, W_FOAM_MAX);
+        sp(e.array, int(e.cell), x);
+        return;
+    }
+    if (pc.pass == P_SOURCES) {
+        if (t >= L.source_count) return;
+        const WaterCell s = L.sources.v[t];
+        const int c = int(s.cell);
+        if (s.b > 0.5) sp(A_H, c, max(s.a - gp(A_B, c), 0.0));
+        else sp(A_H, c, gp(A_H, c) + s.a * pc.dt);
+        return;
+    }
+    if (pc.pass == P_GHOST) {
+        if (t >= uint(4 * P.n)) return;
+        ivec2 gh, in_c;
+        ring_cells(t, gh, in_c);
+        const int gc = water_cell_global(P, gh.x, gh.y);
+        if (gc < 0 || (fp(gc) & CELL_KNOWN) != 0u) return;
+        const int ic = water_cell_global(P, in_c.x, in_c.y);
+        sp(A_H, gc, gp(A_H, ic));
+        sp(A_B, gc, gp(A_B, ic));
+        return;
+    }
+}
+
+void tile_pass(WaterLevel L) {
+    const uint g = gl_WorkGroupID.x;
+    if (g >= L.awake_count) return;
+    const ivec2 lt = water_unpack(L.awake.v[g]);
+    water_cache_pages(P, lt);
+    const uint phys = s_page[4] & PAGE_PHYS;
+    const ivec2 lid = ivec2(gl_LocalInvocationID.xy);
+    const int i = lt.x * 16 + lid.x;
+    const int j = lt.y * 16 + lid.y;
+    const int n = P.n;
+    const bool ex = lid.x == 15 && (s_page[5] & PAGE_AWAKE) == 0u;
+    const bool ey = lid.y == 15 && (s_page[7] & PAGE_AWAKE) == 0u;
+    const float dt = pc.dt;
+    const float inv = dt / P.dx;
+    const float inv2dx = 0.5 / P.dx;
+    const int c = cp(i, j);
+    const uint pass = pc.pass;
+
+    if (pass == P_ADVECT) {
+        for (int e = 0; e < (ex ? 2 : 1); e++) {
+            const int fi = i + e;
+            const int fc = cp(fi, j);
+            const float uu = gp(A_U, fc);
+            const int il = max(fi - 1, 0), ir = min(fi, n - 1);
+            const float ww = 0.25 * (rp(A_W, il, j) + rp(A_W, ir, j) + rp(A_W, il, j + 1) + rp(A_W, ir, j + 1));
+            sp(A_UT, fc, (uu == 0.0 && ww == 0.0) ? 0.0 : bil_u(float(fi) - uu * inv, float(j) - ww * inv));
+        }
+        for (int e = 0; e < (ey ? 2 : 1); e++) {
+            const int fj = j + e;
+            const int fc = cp(i, fj);
+            const float ww = gp(A_W, fc);
+            const int jl = max(fj - 1, 0), jr = min(fj, n - 1);
+            const float uu = 0.25 * (rp(A_U, i, jl) + rp(A_U, i + 1, jl) + rp(A_U, i, jr) + rp(A_U, i + 1, jr));
+            sp(A_WT, fc, (uu == 0.0 && ww == 0.0) ? 0.0 : bil_w(float(i) - uu * inv, float(fj) - ww * inv));
+        }
+        return;
+    }
+    if (pass == P_CURLFORCE) {
+        for (uint k = gl_LocalInvocationIndex; k < 324u; k += 256u) {
+            const int ci = lt.x * 16 + int(k % 18u) - 1;
+            const int cj = lt.y * 16 + int(k / 18u) - 1;
+            float cu = 0.0;
+            if (ci > 0 && cj > 0 && ci < n - 1 && cj < n - 1 && rp(A_H, ci, cj) >= g_vortex_min_depth) {
+                const float wr = 0.5 * (rp(A_WT, ci + 1, cj) + rp(A_WT, ci + 1, cj + 1));
+                const float wl = 0.5 * (rp(A_WT, ci - 1, cj) + rp(A_WT, ci - 1, cj + 1));
+                const float ut = 0.5 * (rp(A_UT, ci, cj + 1) + rp(A_UT, ci + 1, cj + 1));
+                const float ub = 0.5 * (rp(A_UT, ci, cj - 1) + rp(A_UT, ci + 1, cj - 1));
+                cu = (wr - wl) * inv2dx - (ut - ub) * inv2dx;
+            }
+            s_curl[k] = cu;
+        }
+        barrier();
+        const int k0 = (lid.y + 1) * 18 + lid.x + 1;
+        const float cu = s_curl[k0];
+        sp(A_CURL, c, cu);
+        float fx = 0.0, fz = 0.0;
+        if ((pc.flags & FLAG_VORTEX) != 0u && cu != 0.0 && i > 1 && j > 1 && i < n - 2 && j < n - 2) {
+            const float gx = (abs(s_curl[k0 + 1]) - abs(s_curl[k0 - 1])) * inv2dx;
+            const float gz = (abs(s_curl[k0 + 18]) - abs(s_curl[k0 - 18])) * inv2dx;
+            const float gl = sqrt(gx * gx + gz * gz) + 1.0e-5;
+            fx = g_vorticity * P.dx * (gz / gl) * cu;
+            fz = -g_vorticity * P.dx * (gx / gl) * cu;
+        }
+        sp(A_FX, c, fx);
+        sp(A_FZ, c, fz);
+        return;
+    }
+    if (pass == P_FLUXLIMIT) {
+        const float cap = g_flux_cap * P.dx / (g_gravity * dt);
+        const bool vortex = (pc.flags & FLAG_VORTEX) != 0u;
+        const float k = 0.5 * dt;
+        for (int e = 0; e < (lid.x == 15 ? 2 : 1); e++) {
+            const int fx = lid.x + e;
+            const int fi = i + e;
+            const int fc = cp(fi, j);
+            float v = gp(A_UT, fc);
+            if (vortex) v += k * (rp(A_FX, fi - 1, j) + gp(A_FX, fc));
+            const float depth = v > 0.0 ? rp(A_H, fi - 1, j) : gp(A_H, fc);
+            const float flux = v * min(depth, cap);
+            s_fu[lid.y * 17 + fx] = flux;
+            if (fx < 16 || ex) {
+                sp(A_U, fc, v);
+                sp(A_FLUX_U, fc, flux);
+            }
+        }
+        for (int e = 0; e < (lid.y == 15 ? 2 : 1); e++) {
+            const int fy = lid.y + e;
+            const int fj = j + e;
+            const int fc = cp(i, fj);
+            float v = gp(A_WT, fc);
+            if (vortex) v += k * (rp(A_FZ, i, fj - 1) + gp(A_FZ, fc));
+            const float depth = v > 0.0 ? rp(A_H, i, fj - 1) : gp(A_H, fc);
+            const float flux = v * min(depth, cap);
+            s_fw[fy * 16 + lid.x] = flux;
+            if (fy < 16 || ey) {
+                sp(A_W, fc, v);
+                sp(A_FLUX_W, fc, flux);
+            }
+        }
+        barrier();
+        const float out_flux = inv * (max(s_fu[lid.y * 17 + lid.x + 1], 0.0) - min(s_fu[lid.y * 17 + lid.x], 0.0) + max(s_fw[(lid.y + 1) * 16 + lid.x], 0.0) - min(s_fw[lid.y * 16 + lid.x], 0.0));
+        const float hh = gp(A_H, c);
+        sp(A_SCALE, c, out_flux > hh && out_flux > 0.0 ? hh / out_flux : 1.0);
+        return;
+    }
+    if (pass == P_HEIGHT) {
+        if (gl_LocalInvocationIndex == 0u) s_max_h = 0u;
+        barrier();
+        const int cr = cp(i + 1, j), cl = cp(i - 1, j);
+        const int ct = cp(i, j + 1), cb = cp(i, j - 1);
+        const float sc = gp(A_SCALE, c);
+        const float fr0 = gp(A_FLUX_U, cr), fl0 = gp(A_FLUX_U, c);
+        const float ft0 = gp(A_FLUX_W, ct), fb0 = gp(A_FLUX_W, c);
+        const float fr = fr0 * (fr0 > 0.0 ? sc : gp(A_SCALE, cr));
+        const float fl = fl0 * (fl0 > 0.0 ? gp(A_SCALE, cl) : sc);
+        const float ft = ft0 * (ft0 > 0.0 ? sc : gp(A_SCALE, ct));
+        const float fb = fb0 * (fb0 > 0.0 ? gp(A_SCALE, cb) : sc);
+        float nh = max(gp(A_H, c) - inv * (fr - fl + ft - fb), 0.0);
+        if ((fp(c) & CELL_DRAIN) != 0u) nh = 0.0;
+        sp(A_H, c, nh);
+        sp(A_FOAM_OLD, c, gp(A_FOAM, c));
+        atomicMax(s_max_h, floatBitsToUint(nh));
+        barrier();
+        if (gl_LocalInvocationIndex == 0u) atomicMax(L.stats.v[phys], s_max_h);
+        return;
+    }
+    if (pass == P_VELOCITY) {
+        for (int e = 0; e < (ex ? 2 : 1); e++) {
+            const int fi = i + e;
+            const int fc = cp(fi, j);
+            float v = velocity(gp(A_U, fc), cp(fi - 1, j), fc, dt);
+            if (fi == 0 && (fp(cp(-1, j)) & CELL_KNOWN) == 0u) v = min(v, 0.0);
+            if (fi == n && (fp(cp(n, j)) & CELL_KNOWN) == 0u) v = max(v, 0.0);
+            sp(A_U, fc, v);
+        }
+        for (int e = 0; e < (ey ? 2 : 1); e++) {
+            const int fj = j + e;
+            const int fc = cp(i, fj);
+            float v = velocity(gp(A_W, fc), cp(i, fj - 1), fc, dt);
+            if (fj == 0 && (fp(cp(i, -1)) & CELL_KNOWN) == 0u) v = min(v, 0.0);
+            if (fj == n && (fp(cp(i, n)) & CELL_KNOWN) == 0u) v = max(v, 0.0);
+            sp(A_W, fc, v);
+        }
+        return;
+    }
+    if (pass == P_FOAM) {
+        const float hh = gp(A_H, c);
+        const float ucv = 0.5 * (gp(A_U, c) + rp(A_U, i + 1, j));
+        const float wcv = 0.5 * (gp(A_W, c) + rp(A_W, i, j + 1));
+        sp(A_UC, c, ucv);
+        sp(A_WC, c, wcv);
+        if (hh < W_EPS) {
+            sp(A_FOAM, c, 0.0);
+            return;
+        }
+        float f = bil_cell(A_FOAM_OLD, float(i) - ucv * inv, float(j) - wcv * inv) * exp(-dt * max(g_foam_decay, 0.0));
+        const float speed = sqrt(ucv * ucv + wcv * wcv);
+        float src = max(speed - 2.6, 0.0) * 0.5;
+        if (i > 0 && j > 0 && i < n - 1 && j < n - 1) {
+            const float eta = hh + gp(A_B, c);
+            float e4[4];
+            const ivec2 off[4] = ivec2[](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+            for (int q = 0; q < 4; q++) {
+                const int qc = cp(i + off[q].x, j + off[q].y);
+                const float qh = gp(A_H, qc);
+                e4[q] = qh > W_EPS ? qh + gp(A_B, qc) : eta;
+            }
+            const float slope = sqrt((e4[0] - e4[1]) * (e4[0] - e4[1]) + (e4[2] - e4[3]) * (e4[2] - e4[3])) * inv2dx;
+            src += max(slope - 0.3, 0.0) * 2.0 + max(abs(gp(A_CURL, c)) - 4.0, 0.0) * 0.05;
+        }
+        f += src * dt * g_foam_gain;
+        sp(A_FOAM, c, min(f, W_FOAM_MAX));
+        return;
+    }
+}
+
+void main() {
+    WaterLevel L = pc.level;
+    P = water_data(L);
+    g_gravity = L.gravity;
+    g_manning = max(L.manning, 0.0);
+    g_vorticity = L.vorticity;
+    g_vortex_min_depth = L.vortex_min_depth;
+    g_cfl = L.cfl_limit;
+    g_flux_cap = L.flux_depth_cap;
+    g_foam_decay = L.foam_decay;
+    g_foam_gain = L.foam_gain;
+    const uint pass = pc.pass;
+    if (pass == P_INIT) init_pass(L);
+    else if (pass == P_GATHER) gather_pass(L);
+    else if (pass == P_EVENTS || pass == P_SOURCES || pass == P_GHOST) flat_pass(L);
+    else tile_pass(L);
+}

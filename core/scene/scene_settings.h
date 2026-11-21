@@ -9,7 +9,7 @@ using namespace glm;
 
 struct EnvironmentSettings
 {
-    static constexpr vec3 SUN_DIRECTION = vec3(0.7f, 0.7f, -0.2f);
+    static constexpr vec3 SUN_DIRECTION = vec3(-0.6f, -0.35f, -0.7f);
     static constexpr vec3 SUN_COLOR = vec3(3.2f, 2.95f, 2.6f);
     static constexpr float SUN_ANGULAR_RADIUS = 0.0046525f;
     static constexpr float EXPOSURE = 0.5f;
@@ -39,6 +39,28 @@ struct TerrainSettings
     Guid terrain;
 
     bool operator==(const TerrainSettings&) const = default;
+};
+
+struct WaterSettings
+{
+    bool enabled = true;
+    float cell_size = 0.25f;
+    uint32_t substeps = 2;
+    float sim_radius = 48.0f;
+    float lod_error = 0.001f;
+    float manning = 0.032f;
+    float vorticity = 1.6f;
+    float vortex_min_depth = 0.08f;
+    float cfl_limit = 0.45f;
+    float flux_depth_cap = 1.0f;
+    float foam_decay = 0.9f;
+    float foam_gain = 2.0f;
+    float bed_probe = 10.0f;
+    bool buoyancy = true;
+    float drag = 1.0f;
+    bool push_water = true;
+
+    bool operator==(const WaterSettings&) const = default;
 };
 
 }

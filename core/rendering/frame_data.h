@@ -1,4 +1,5 @@
 #pragma once
+#include <core/rendering/water_gpu.h>
 #include <drivers/vulkan/device_driver_vulkan.h>
 #include <core/rendering/scene_gpu.h>
 #include <core/rendering/debug_draw.h>
@@ -84,6 +85,7 @@ struct FrameData
     CameraUniform camera{};
 
     std::vector<DebugLine> debug_lines;
+    WaterGpuLink* water = nullptr;
 
     struct EntityCache {
         mat4 prev_mtx;

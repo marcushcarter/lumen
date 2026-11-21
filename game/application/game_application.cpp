@@ -144,6 +144,7 @@ void GameApplication::on_simulate(float p_dt)
     }
     session.input.read(mouse_captured, vec2(dx, dy), p_dt);
     session.update(p_dt);
+    renderer.main_view.frame.water = physics_system.water.enabled ? &physics_system.water.link : nullptr;
 }
 
 void GameApplication::update_camera(float )

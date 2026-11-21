@@ -22,6 +22,7 @@ struct SceneFile
     static constexpr const char* KEY_SHADOWS = "shadows";
     static constexpr const char* KEY_PHYSICS = "physics";
     static constexpr const char* KEY_TERRAIN = "terrain";
+    static constexpr const char* KEY_WATER = "water";
     static constexpr const char* KEY_ENTITIES = "entities";
     static constexpr const char* KEY_GUID = "guid";
     static constexpr const char* KEY_TAGS = "tags";

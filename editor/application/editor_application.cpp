@@ -221,6 +221,7 @@ void EditorApplication::_play_start()
 
 void EditorApplication::on_simulate(float p_dt)
 {
+    renderer.main_view.frame.water = nullptr;
     if (!play.active()) return;
     if (!project.loaded() || !workspace.scene.has_world() || workspace.scene.guid != play.scene_guid || workspace.scene.active_template()) {
         play.stop();
@@ -231,6 +232,7 @@ void EditorApplication::on_simulate(float p_dt)
     if (play.simulating) play.session.camera = editor_camera.camera;
     viewport.game_look = ImVec2(0.0f, 0.0f);
     play.update(p_dt);
+    if (&render_scene() == &play.runtime && play.physics_system.water.enabled) renderer.main_view.frame.water = &play.physics_system.water.link;
 }
 
 void EditorApplication::_save_focused()

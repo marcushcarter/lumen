@@ -27,6 +27,7 @@ struct PhysicsHeightField
 struct PhysicsWorld
 {
     static constexpr float HEIGHT_FIELD_HOLE = 3.402823466e+38f;
+    static constexpr uint64_t TERRAIN_USER_DATA = 0xFFFFFFFFFFFFFFFFull;
 
     static constexpr float FIXED_DT = 1.0f / 60.0f;
     static constexpr uint32_t MAX_STEPS_PER_UPDATE = 4;
@@ -40,9 +41,18 @@ struct PhysicsWorld
     static constexpr float WATER_DENSITY = 1000.0f;
     static constexpr uint32_t BUOYANCY_GRID = 4;
     static constexpr float BUOYANCY_SQUARE_PX = 7.0f;
-    static inline const NoWater NO_WATER;
-    const WaterQuery* water = &NO_WATER;
+    static constexpr float SPLASH_SPEED = 2.5f;
+    static constexpr float SPLASH_MAX_SUBMERGED = 0.8f;
+    static constexpr float SPLASH_COOLDOWN = 0.4f;
+    static constexpr float WAKE_SUBMERGED = 0.05f;
+    static inline NoWater NO_WATER;
+    WaterQuery* water = &NO_WATER;
     bool buoyancy_forces = false;
+    bool buoyancy_push = false;
+    vec3 buoyancy_focus = vec3(0.0f);
+    static constexpr size_t BUOYANCY_LOD_STRIDE = 8;
+    static constexpr float BUOYANCY_LOD_VOLUME = 0.05f;
+    static constexpr float BUOYANCY_LOD_DISTANCE = 30.0f;
     float buoyancy_drag = 1.0f;
     uint32_t buoyancy_grid = BUOYANCY_GRID;
 
@@ -85,6 +95,7 @@ struct PhysicsWorld
     bool raycast(const vec3& p_origin, const vec3& p_direction, float p_max_distance, PhysicsHit& r_hit, const PhysicsQuery& p_query = {}) const;
     bool sphere_cast(const vec3& p_origin, float p_radius, const vec3& p_direction, float p_max_distance, PhysicsHit& r_hit, const PhysicsQuery& p_query = {}) const;
     bool capsule_cast(const vec3& p_origin, const quat& p_rotation, float p_half_height, float p_radius, const vec3& p_direction, float p_max_distance, PhysicsHit& r_hit, const PhysicsQuery& p_query = {}) const;
+    bool overlaps_static_object(const vec3& p_min, const vec3& p_max) const;
     uint32_t overlap_sphere(const vec3& p_center, float p_radius, std::vector<PhysicsBodyId>& r_bodies, const PhysicsQuery& p_query = {}) const;
 
 
@@ -108,7 +119,7 @@ struct PhysicsWorld
     const BuoyancyBody* buoyancy(PhysicsBodyId p_body) const;
     void update_buoyancy() const;
     void _apply_buoyancy();
-    void debug_draw_buoyancy(DebugDraw& r_draw) const;
+    void debug_draw_buoyancy(DebugDraw& r_draw, const vec3& p_center, float p_radius) const;
 };
 
 Error physics_initialize();

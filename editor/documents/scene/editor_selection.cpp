@@ -5,13 +5,14 @@ namespace lumen {
 
 void EditorSelection::clear()
 {
-    if (empty() && !environment && !shadows && !physics && !terrain) return;
+    if (empty() && !environment && !shadows && !physics && !terrain && !water) return;
     for (const Entity e : entities) entity_marks[e.index] = 0;
     entities.clear();
     environment = false;
     shadows = false;
     physics = false;
     terrain = false;
+    water = false;
     version++;
 }
 
@@ -49,14 +50,22 @@ void EditorSelection::select_terrain()
     version++;
 }
 
+void EditorSelection::select_water()
+{
+    clear();
+    water = true;
+    version++;
+}
+
 void EditorSelection::add(Entity p_entity)
 {
     if (p_entity == ENTITY_NULL) return;
-    if (environment || shadows || physics || terrain) {
+    if (environment || shadows || physics || terrain || water) {
         environment = false;
         shadows = false;
         physics = false;
         terrain = false;
+        water = false;
         version++;
     }
     if (contains(p_entity)) {

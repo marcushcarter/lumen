@@ -119,7 +119,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const Scene* live = live_on ? &ctx.play->runtime : nullptr;
 
     const Entity selected = ctx.selection->primary();
-    const bool has_target = ctx.selection->environment || ctx.selection->shadows || ctx.selection->physics || ctx.selection->terrain || world.valid(selected);
+    const bool has_target = ctx.selection->environment || ctx.selection->shadows || ctx.selection->physics || ctx.selection->terrain || ctx.selection->water || world.valid(selected);
     const float inset = ui_category_inset();
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
@@ -195,6 +195,85 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             asset_field(ctx, "", "###scene_terrain", world.terrain.terrain, AssetType::TERRAIN);
             const AssetRegistry::Entry* entry = live && ctx.assets ? ctx.assets->find(live->terrain.terrain) : nullptr;
             if (entry) _live("%s", entry->name.c_str());
+            else _live("-");
+        }
+        _section_end();
+        ImGui::EndChild();
+        ui_field_pop_style();
+        return;
+    }
+
+    if (ctx.selection->water) {
+        WaterSettings& water = world.water;
+        const WaterSettings* lw = live ? &live->water : nullptr;
+        const auto on_off = [](bool p_on) { return p_on ? "On" : "Off"; };
+        if (_section("Water Simulation")) {
+            _name("Enabled");
+            _check("##water_enabled", &water.enabled);
+            _live("%s", lw ? on_off(lw->enabled) : "-");
+            _name("Cell Size");
+            ImGui::DragFloat("##water_cell_size", &water.cell_size, 0.01f, 0.1f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Changing this restarts the simulation.");
+            _live_float(lw, lw ? lw->cell_size : 0.0f, " m");
+            _name("Substeps");
+            int substeps = (int)water.substeps;
+            if (ImGui::DragInt("##water_substeps", &substeps, 0.05f, 1, 8, "%d", ImGuiSliderFlags_AlwaysClamp)) water.substeps = (uint32_t)substeps;
+            if (lw) _live("%u", lw->substeps);
+            else _live("-");
+            _name("Sim Radius");
+            ImGui::DragFloat("##water_sim_radius", &water.sim_radius, 0.5f, 8.0f, 512.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The simulation runs this far from the player. Water further out is frozen.");
+            _live_float(lw, lw ? lw->sim_radius : 0.0f, " m");
+            _name("LOD Error");
+            ImGui::DragFloat("##water_lod_error", &water.lod_error, 0.0005f, 0.001f, 0.2f, "%.4f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Surface quad size per metre of distance. Lower is more detailed.");
+            _live_float(lw, lw ? lw->lod_error : 0.0f);
+            _name("Manning");
+            ImGui::DragFloat("##water_manning", &water.manning, 0.001f, 0.0f, 0.2f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->manning : 0.0f);
+            _name("Vorticity");
+            ImGui::DragFloat("##water_vorticity", &water.vorticity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->vorticity : 0.0f);
+            _name("Vortex Min Depth");
+            ImGui::DragFloat("##water_vortex_depth", &water.vortex_min_depth, 0.005f, 0.0f, 2.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->vortex_min_depth : 0.0f, " m");
+            _name("CFL Limit");
+            ImGui::DragFloat("##water_cfl", &water.cfl_limit, 0.005f, 0.01f, 0.9f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->cfl_limit : 0.0f);
+            _name("Flux Depth Cap");
+            ImGui::DragFloat("##water_flux_cap", &water.flux_depth_cap, 0.01f, 0.05f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->flux_depth_cap : 0.0f);
+            _name("Foam Decay");
+            ImGui::DragFloat("##water_foam_decay", &water.foam_decay, 0.01f, 0.0f, 10.0f, "%.2f /s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->foam_decay : 0.0f, " /s");
+            _name("Foam Gain");
+            ImGui::DragFloat("##water_foam_gain", &water.foam_gain, 0.01f, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->foam_gain : 0.0f);
+            _name("Bed Probe Height");
+            ImGui::DragFloat("##water_bed_probe", &water.bed_probe, 0.1f, 0.5f, 200.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far above the terrain the riverbed rays start. Rocks taller than this block water like walls.");
+            _live_float(lw, lw ? lw->bed_probe : 0.0f, " m");
+            _name("Buoyancy");
+            _check("##water_buoyancy", &water.buoyancy);
+            _live("%s", lw ? on_off(lw->buoyancy) : "-");
+            _name("Drag");
+            ImGui::DragFloat("##water_drag", &water.drag, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->drag : 0.0f);
+            _name("Objects Push Water");
+            _check("##water_push", &water.push_water);
+            _live("%s", lw ? on_off(lw->push_water) : "-");
+            const WaterWorld* ww = live ? &ctx.play->physics_system.water : nullptr;
+            _name("Sim Tiles");
+            ImGui::TextDisabled("-");
+            if (ww) _live("%u active", ww->sim.stats.active);
+            else _live("-");
+            _name("Frozen Tiles");
+            ImGui::TextDisabled("-");
+            if (ww) _live("%u (%u on disk)", ww->sim.stats.frozen, ww->sim.stats.paged);
+            else _live("-");
+            _name("Surface Tiles");
+            ImGui::TextDisabled("-");
+            if (ww) _live("%u", (uint32_t)ww->link.items.size());
             else _live("-");
         }
         _section_end();

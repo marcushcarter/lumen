@@ -18,6 +18,8 @@ struct SceneDocument
     static constexpr int32_t SCENE = -1;
     static constexpr double DIRTY_POLL_S = 0.25;
 
+    bool focus_request = false;
+
     Viewport viewport;
     ScenePanel scene_panel;
     PropertiesPanel properties;

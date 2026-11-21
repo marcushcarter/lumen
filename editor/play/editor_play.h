@@ -24,6 +24,7 @@ struct EditorPlay
     ShadowSettings _shadows;
     PhysicsSettings _physics;
     TerrainSettings _terrain;
+    WaterSettings _water;
     bool simulating = false;
     bool step_pending = false;
     bool scaled = false;

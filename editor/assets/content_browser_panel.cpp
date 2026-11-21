@@ -132,10 +132,12 @@ bool ContentBrowserPanel::open_entry(EditorContext& ctx, const std::filesystem::
         case AssetType::TEMPLATE:
             if (!ctx.scene_document) return false;
             ctx.scene_document->open_template(ctx, info.guid, p_path);
+            ctx.scene_document->focus_request = true;
             break;
         case AssetType::SCENE:
             if (!ctx.scene_document) return false;
             ctx.scene_document->open(info.guid);
+            ctx.scene_document->focus_request = true;
             break;
         default: return false;
     }

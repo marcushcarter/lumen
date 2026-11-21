@@ -3,6 +3,7 @@
 #include <core/game/terrain_collision.h>
 #include <core/physics/collision_cache.h>
 #include <core/physics/physics_world.h>
+#include <core/water/water_world.h>
 #include <core/scene/components.h>
 #include <core/scene/scene.h>
 #include <core/scene/relevance.h>
@@ -30,6 +31,8 @@ struct PhysicsSystem : GameSystem
         bool seen = false;
         bool tagged_static = false;
         bool frozen = false;
+        bool drifting = false;
+        float drift_offset = 0.0f;
     };
 
     struct SyncItem {
@@ -52,12 +55,18 @@ struct PhysicsSystem : GameSystem
     static constexpr float STREAM_STEP = 4.0f;
     static constexpr uint32_t STREAM_BUDGET = 64;
     static constexpr float STREAM_FALLBACK_RADIUS = 1.0f;
+    static constexpr float DESPAWN_DEPTH = 10.0f;
+    static constexpr float DRIFT_OFFSET_MIN = -2.0f;
+    static constexpr float DRIFT_OFFSET_MAX = 1.0f;
 
     const Renderer* renderer = nullptr;
     const Project* project = nullptr;
     PhysicsWorld physics;
     CollisionCache collision;
     TerrainCollision terrain;
+    WaterWorld water;
+    vec3 focus = vec3(0.0f);
+    Guid _water_terrain;
     std::vector<vec3> _anchors;
     std::vector<SyncItem> _items;
     std::vector<StaticItem> _statics;
@@ -86,12 +95,16 @@ struct PhysicsSystem : GameSystem
     void _sync(Scene& r_world, float p_dt);
     bool _bounds(const Scene& p_world, Entity p_entity, const CollisionComponent& p_collision, const mat4& p_matrix, vec3& r_center, float& r_radius) const;
     void _update_freeze(Body& r_body);
+    void _static_changed(const Body& p_body);
+    void _update_water(const Scene& p_world);
     void _stream_statics(Scene& r_world, bool p_full);
     void _sync_terrain(GameSession& r_session);
     void _update_floor();
     bool has_floor() const { return world_floor < FLT_MAX; }
     void _snapshot_previous();
     void _write_back(Scene& r_world, uint32_t p_steps);
+    void _despawn_fallen(Scene& r_world);
+    void _drift_frozen(float p_dt);
     void _clear();
 };
 

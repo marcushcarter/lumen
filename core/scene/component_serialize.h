@@ -13,6 +13,7 @@ void serialize(Archive& a, CharacterComponent& r_c);
 void serialize(Archive& a, OrbitCameraComponent& r_c);
 void serialize(Archive& a, WaterSourceComponent& r_c);
 void serialize(Archive& a, TerrainSettings& r_c);
+void serialize(Archive& a, WaterSettings& r_c);
 void serialize(Archive& a, ParentComponent& r_c);
 void serialize(Archive& a, TemplateInstanceComponent& r_c);
 void serialize(Archive& a, EnvironmentSettings& r_c);

@@ -129,6 +129,11 @@ void PhysicsSystem::_clear()
     static_floor = FLT_MAX;
     world_floor = FLT_MAX;
     terrain.clear(physics);
+    water.clear();
+    physics.water = &PhysicsWorld::NO_WATER;
+    physics.buoyancy_forces = false;
+    physics.buoyancy_push = false;
+    _water_terrain = {};
     if (physics.initialized()) physics.destroy_all_bodies();
     bodies.clear();
     collision.clear();
@@ -163,6 +168,7 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
         }
         auto it = bodies.find(k);
         if (it != bodies.end() && (it->second.hash != hash || it->second.tagged_static)) {
+            _static_changed(it->second);
             physics.destroy_body(it->second.id);
             bodies.erase(it);
             it = bodies.end();
@@ -180,6 +186,7 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
                 }
                 _update_freeze(body);
             }
+            _static_changed(body);
             bodies.emplace(k, body);
             optimize_pending = true;
             floor_dirty = true;
@@ -198,7 +205,9 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
         decompose(matrix, position, rotation, scale);
         if (body.motion == PhysicsMotion::KINEMATIC) physics.move_kinematic(body.id, position, rotation, std::max(p_dt, PhysicsWorld::FIXED_DT));
         else {
+            _static_changed(body);
             physics.set_transform(body.id, position, rotation);
+            _static_changed(body);
             floor_dirty = true;
         }
     }
@@ -207,6 +216,7 @@ void PhysicsSystem::_sync(Scene& r_world, float p_dt)
 
     for (auto it = bodies.begin(); it != bodies.end();) {
         if (it->second.seen) { ++it; continue; }
+        _static_changed(it->second);
         physics.destroy_body(it->second.id);
         it = bodies.erase(it);
         floor_dirty = true;
@@ -252,6 +262,35 @@ void PhysicsSystem::_update_freeze(Body& r_body)
     r_body.frozen = frozen;
 }
 
+void PhysicsSystem::_static_changed(const Body& p_body)
+{
+    if (p_body.motion != PhysicsMotion::STATIC || !water.enabled) return;
+    vec3 lo, hi;
+    if (physics.body_bounds(p_body.id, lo, hi)) water.static_changed(lo, hi);
+}
+
+void PhysicsSystem::_update_water(const Scene& p_world)
+{
+    const WaterSettings& s = p_world.water;
+    if (!s.enabled) {
+        if (water.enabled) water.clear();
+        physics.water = &PhysicsWorld::NO_WATER;
+        physics.buoyancy_forces = false;
+        physics.buoyancy_push = false;
+        return;
+    }
+    if (_water_terrain != p_world.terrain.terrain) {
+        water.clear();
+        _water_terrain = p_world.terrain.terrain;
+    }
+    physics.buoyancy_focus = focus;
+    water.prepare(p_world, focus, terrain.valid() ? &terrain.source : nullptr, physics);
+    physics.water = &water;
+    physics.buoyancy_forces = s.buoyancy;
+    physics.buoyancy_drag = s.drag;
+    physics.buoyancy_push = s.push_water;
+}
+
 void PhysicsSystem::_stream_statics(Scene& r_world, bool p_full)
 {
     bool moved = _view.count != _stream_count;
@@ -269,6 +308,7 @@ void PhysicsSystem::_stream_statics(Scene& r_world, bool p_full)
         const bool exists = it != bodies.end();
         const bool want = exists ? distance <= STREAM_UNLOAD : distance <= STREAM_LOAD;
         if (exists && (!want || it->second.hash != s.hash || it->second.source != s.matrix || !it->second.tagged_static)) {
+            _static_changed(it->second);
             physics.destroy_body(it->second.id);
             bodies.erase(it);
             if (!want) continue;
@@ -289,6 +329,7 @@ void PhysicsSystem::_stream_statics(Scene& r_world, bool p_full)
         }
         body.seen = true;
         body.tagged_static = true;
+        _static_changed(body);
         bodies.emplace(k, body);
         budget--;
         if (p_full) optimize_pending = true;
@@ -317,6 +358,44 @@ void PhysicsSystem::_write_back(Scene& r_world, uint32_t p_steps)
         const mat4 matrix = translate(mat4(1.0f), position) * mat4_cast(rotation) * glm::scale(mat4(1.0f), body.scale);
         r_world.set_world_matrix(body.entity, matrix);
         body.source = matrix;
+    }
+}
+
+void PhysicsSystem::_drift_frozen(float p_dt)
+{
+    for (auto& [k, b] : bodies) {
+        if (!b.frozen || b.motion != PhysicsMotion::DYNAMIC) {
+            b.drifting = false;
+            continue;
+        }
+        float surface = 0.0f;
+        vec2 flow(0.0f);
+        if (!physics.water->sample(b.curr_position.x, b.curr_position.z, surface, flow)) continue;
+        if (!b.drifting) {
+            b.drifting = true;
+            b.drift_offset = std::clamp(b.curr_position.y - surface, DRIFT_OFFSET_MIN, DRIFT_OFFSET_MAX);
+        }
+        b.curr_position += vec3(flow.x, 0.0f, flow.y) * p_dt;
+        b.curr_position.y = surface + b.drift_offset;
+        b.prev_position = b.curr_position;
+        physics.set_transform(b.id, b.curr_position, b.curr_rotation);
+    }
+}
+
+void PhysicsSystem::_despawn_fallen(Scene& r_world)
+{
+    if (!has_floor()) return;
+    const float limit = world_floor - DESPAWN_DEPTH;
+    std::vector<uint64_t> fallen;
+    for (const auto& [k, body] : bodies) {
+        if (body.motion == PhysicsMotion::DYNAMIC && !body.frozen && body.curr_position.y < limit) fallen.push_back(k);
+    }
+    for (const uint64_t k : fallen) {
+        const auto it = bodies.find(k);
+        const Entity e = it->second.entity;
+        physics.destroy_body(it->second.id);
+        bodies.erase(it);
+        if (r_world.valid(e)) r_world.destroy_subtree(e);
     }
 }
 
@@ -355,8 +434,14 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
     const vec3 gravity(0.0f, -world.physics.gravity, 0.0f);
     if (physics.gravity() != gravity) physics.set_gravity(gravity);
     _view = relevance_view(r_session.camera);
+    focus = r_session.camera.position;
+    bool player = false;
     world.view<TransformComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&) {
-        if (_view.count < RelevanceView::MAX_POINTS && character_is_player(world, p_entity)) _view.add(vec3(world.world_matrix(p_entity)[3]));
+        if (!character_is_player(world, p_entity)) return;
+        const vec3 p = vec3(world.world_matrix(p_entity)[3]);
+        if (!player) focus = p;
+        player = true;
+        if (_view.count < RelevanceView::MAX_POINTS) _view.add(p);
     });
     _sync(world, p_dt);
     _sync_terrain(r_session);
@@ -365,12 +450,17 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
         physics.optimize_broadphase();
         optimize_pending = false;
     }
+    _update_water(world);
+    if (world.water.enabled) _drift_frozen(p_dt);
     const uint32_t steps = physics.advance(p_dt);
     for (uint32_t i = 0; i < steps; i++) {
         if (i + 1 == steps) _snapshot_previous();
         physics.step_fixed();
+        if (world.water.enabled) water.step();
     }
+    if (world.water.enabled) water.publish(r_session.camera.position);
     _write_back(world, steps);
+    _despawn_fallen(world);
 }
 
 }

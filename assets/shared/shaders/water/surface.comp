@@ -1,0 +1,154 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "water/grid.glsl"
+
+layout(local_size_x = 256) in;
+
+layout(push_constant, scalar) uniform Push {
+    WaterLevel level;
+} pc;
+
+const int HALO = W_EXT_REACH;
+const int SPAN = 16 + 1 + 2 * HALO;
+const int SPAN_CELLS = SPAN * SPAN;
+const uint SURFACE_FRESH = 0x8000u;
+
+shared float s_h[SPAN_CELLS];
+shared float s_b[SPAN_CELLS];
+shared vec4 s_samples[SURFACE_SAMPLES];
+shared uint s_mask[SURFACE_MASK_WORDS];
+shared uint s_lo;
+shared uint s_hi;
+
+float g_wet_level = W_WET;
+
+bool wet_at(int p_k) {
+    return s_h[p_k] > g_wet_level && s_b[p_k] < W_WALL_TEST;
+}
+
+vec2 surface_sample(int p_x, int p_y, bool p_was_wet) {
+    const int k = (p_y + HALO) * SPAN + p_x + HALO;
+    const float hh = s_h[k];
+    const float bb = s_b[k];
+    if (bb >= W_WALL_TEST) return vec2(0.0, SAMPLE_INVALID);
+    if (hh > (p_was_wet ? W_WET * 0.5 : W_WET)) return vec2(hh + bb, SAMPLE_WET);
+    float sum = 0.0, weight = 0.0;
+    float ext_sum = 0.0, ext_weight = 0.0;
+    for (int oy = -HALO; oy <= HALO; oy++) {
+        for (int ox = -HALO; ox <= HALO; ox++) {
+            if (ox == 0 && oy == 0) continue;
+            const int q = k + oy * SPAN + ox;
+            if (!wet_at(q)) continue;
+            const float wt = 1.0 / float(ox * ox + oy * oy);
+            const float eta = s_h[q] + s_b[q];
+            ext_sum += wt * eta;
+            ext_weight += wt;
+            if (abs(ox) <= W_SHORE_REACH && abs(oy) <= W_SHORE_REACH) {
+                sum += wt * eta;
+                weight += wt;
+            }
+        }
+    }
+    if (weight > 0.0) {
+        const float avg = sum / weight;
+        if (bb >= avg - W_SHORE_TOLERANCE) return vec2(avg, SAMPLE_SHORE);
+    }
+    float y = bb - W_HIDE_DEPTH;
+    if (ext_weight > 0.0) y = min(y, ext_sum / ext_weight - W_HIDE_DEPTH);
+    return vec2(y, SAMPLE_HIDDEN);
+}
+
+void main() {
+    WaterLevel L = pc.level;
+    WaterData D = water_data(L);
+    const uint g = gl_WorkGroupID.x;
+    if (g >= L.surface_count) return;
+    const uint entry = L.surface.v[g];
+    const bool fresh = (entry & SURFACE_FRESH) != 0u;
+    const ivec2 lt = water_unpack(entry & ~SURFACE_FRESH);
+    water_cache_pages(D, lt);
+    const uint phys = s_page[4] & PAGE_PHYS;
+    if (phys == PAGE_EMPTY) return;
+    const uint lid = gl_LocalInvocationIndex;
+    if (lid < SURFACE_MASK_WORDS) s_mask[lid] = 0u;
+    if (lid == 0u) {
+        s_lo = 0xFFFFFFFFu;
+        s_hi = 0u;
+    }
+    const ivec2 base = lt * 16 - HALO;
+    for (uint k = lid; k < uint(SPAN_CELLS); k += 256u) {
+        const int x = int(k) % SPAN, y = int(k) / SPAN;
+        const int c = water_cell_cached(D, base.x + x, base.y + y);
+        s_h[k] = dget(D, A_H, c);
+        s_b[k] = dget(D, A_B, c);
+    }
+    barrier();
+
+    const uint pool = phys * SURFACE_SAMPLES;
+    for (uint k = lid; k < SURFACE_SAMPLES; k += 256u) {
+        const int x = int(k % SURFACE_ROW), y = int(k / SURFACE_ROW);
+        const vec4 prev = fresh ? vec4(0.0) : vec4(L.pool.v[(pool + k) * 4u], L.pool.v[(pool + k) * 4u + 1u], L.pool.v[(pool + k) * 4u + 2u], L.pool.v[(pool + k) * 4u + 3u]);
+        const vec2 s = surface_sample(x, y, !fresh && prev.y == SAMPLE_WET);
+        const int c = water_cell_cached(D, lt.x * 16 + x, lt.y * 16 + y);
+        const bool wet = s.y == SAMPLE_WET;
+        vec2 flow = wet ? vec2(dget(D, A_UC, c), dget(D, A_WC, c)) : vec2(0.0);
+        float foam = wet ? min(dget(D, A_FOAM, c), 1.0) : 0.0;
+        float height = s.x;
+        if (!fresh && prev.y != SAMPLE_INVALID && s.y != SAMPLE_INVALID) {
+            height = mix(prev.x, s.x, W_SURFACE_BLEND);
+            flow = mix(unpackHalf2x16(floatBitsToUint(prev.z)), flow, W_SURFACE_BLEND);
+            foam = mix(prev.w, foam, W_SURFACE_BLEND);
+        }
+        s_samples[k] = vec4(height, s.y, uintBitsToFloat(packHalf2x16(flow)), foam);
+    }
+    barrier();
+
+    for (uint k = lid; k < SURFACE_SAMPLES; k += 256u) {
+        vec4 s = s_samples[k];
+        if (s.y == SAMPLE_INVALID) {
+            const int x = int(k % SURFACE_ROW), y = int(k / SURFACE_ROW);
+            float sum = 0.0;
+            int count = 0;
+            for (int oy = -1; oy <= 1; oy++) {
+                for (int ox = -1; ox <= 1; ox++) {
+                    const int nx = x + ox, ny = y + oy;
+                    if (nx < 0 || ny < 0 || nx >= int(SURFACE_ROW) || ny >= int(SURFACE_ROW)) continue;
+                    const vec4 q = s_samples[ny * int(SURFACE_ROW) + nx];
+                    if (q.y == SAMPLE_INVALID) continue;
+                    sum += q.x;
+                    count++;
+                }
+            }
+            s.x = count > 0 ? sum / float(count) - W_HIDE_DEPTH : 0.0;
+        }
+        L.pool.v[(pool + k) * 4u] = s.x;
+        L.pool.v[(pool + k) * 4u + 1u] = s.y;
+        L.pool.v[(pool + k) * 4u + 2u] = s.z;
+        L.pool.v[(pool + k) * 4u + 3u] = s.w;
+    }
+
+    const uint cx = lid % 16u, cy = lid / 16u;
+    bool valid = true, show = false;
+    float lo = 3.4e38, hi = -3.4e38;
+    for (uint k = 0u; k < 4u; k++) {
+        const vec4 s = s_samples[(cy + (k >> 1u)) * SURFACE_ROW + cx + (k & 1u)];
+        valid = valid && s.y != SAMPLE_INVALID;
+        show = show || s.y >= SAMPLE_SHORE;
+        lo = min(lo, s.x);
+        hi = max(hi, s.x);
+    }
+    if (valid && show) {
+        atomicOr(s_mask[lid >> 5u], 1u << (lid & 31u));
+        atomicMin(s_lo, water_sortable(lo));
+        atomicMax(s_hi, water_sortable(hi));
+    }
+    barrier();
+    if (lid < SURFACE_MASK_WORDS) L.masks.v[phys * SURFACE_MASK_WORDS + lid] = s_mask[lid];
+    if (lid == 0u) {
+        const bool any = s_hi != 0u;
+        L.bounds.v[phys * 2u] = floatBitsToUint(any ? water_unsortable(s_lo) : 1.0);
+        L.bounds.v[phys * 2u + 1u] = floatBitsToUint(any ? water_unsortable(s_hi) : -1.0);
+    }
+}

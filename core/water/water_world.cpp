@@ -81,6 +81,7 @@ void WaterWorld::prepare(const Scene& p_world, const vec3& p_focus, const Terrai
     sim.consume_stats(link.stats_layout, link.stats);
     link.stats.clear();
     sim.prepare(p_world, focus, p_terrain, p_physics);
+    link.ripple_center = vec2(p_focus.x, p_focus.z);
     sim.frozen_added.insert(sim.frozen_added.end(), baked.begin(), baked.end());
     _sync_frozen();
     _bake_update();
@@ -154,6 +155,7 @@ bool WaterWorld::_bake_write()
 {
     struct Block {
         vec4 surface[SURFACE_SAMPLES];
+        uint32_t normals[SURFACE_SAMPLES];
         uint32_t mask[SURFACE_MASK_WORDS];
         WaterLevel::FrozenState state;
     };
@@ -169,7 +171,7 @@ bool WaterWorld::_bake_write()
         LWaterTileEntry e{};
         e.tile_x = p_tile.x;
         e.tile_y = p_tile.y;
-        e.has_surface = sim.surface_patch(p_tile * TILE, block->surface, block->mask, e.ymin, e.ymax) ? 1u : 0u;
+        e.has_surface = sim.surface_patch(p_tile * TILE, block->surface, block->normals, block->mask, e.ymin, e.ymax) ? 1u : 0u;
         entries.push_back(e);
         blocks.push_back(std::move(block));
         wet_cells += (float)wet;
@@ -255,6 +257,7 @@ void WaterWorld::preview(const WaterSettings& p_settings, const std::filesystem:
         _bake_layout = sim.layout;
         std::vector<uint64_t> baked;
         if (!p_bake.empty() && !sim.load_bake(p_bake, baked)) log_write("Water: couldn't load bake '%s'.", p_bake.string().c_str());
+        sim.release_bake();
         sim.frozen_added.insert(sim.frozen_added.end(), baked.begin(), baked.end());
     }
     _sync_frozen();
@@ -267,6 +270,7 @@ void WaterWorld::preview(const WaterSettings& p_settings, const std::filesystem:
 void WaterWorld::step()
 {
     link.steps = std::min(link.steps + 1, link.max_steps);
+    link.ripple_steps = std::min(link.ripple_steps + 1, WaterGpuLink::MAX_STEPS);
     link.time += 1.0f / 60.0f;
 }
 
@@ -288,18 +292,19 @@ uint32_t WaterWorld::_pool_alloc()
         link.frozen.capacity = grown;
         link.frozen.layout = ++g_water_counter;
         link.frozen.clear_commands();
-        for (auto& [key, f] : sim.frozen) if (f.pool != WaterLevel::NO_POOL) _pool_upload(f.pool, f.surface, f.mask);
-        for (auto& m : nodes) for (auto& [key, s] : m) if (s.pool != WaterLevel::NO_POOL) _pool_upload(s.pool, s.samples, s.mask);
+        for (auto& [key, f] : sim.frozen) if (f.pool != WaterLevel::NO_POOL) _pool_upload(f.pool, f.surface, f.normals, f.mask);
+        for (auto& m : nodes) for (auto& [key, s] : m) if (s.pool != WaterLevel::NO_POOL) _pool_upload(s.pool, s.samples, s.normals, s.mask);
     }
     const uint32_t p = _pool_free.back();
     _pool_free.pop_back();
     return p;
 }
 
-void WaterWorld::_pool_upload(uint32_t p_slot, const vec4* p_samples, const uint32_t* p_mask)
+void WaterWorld::_pool_upload(uint32_t p_slot, const vec4* p_samples, const uint32_t* p_normals, const uint32_t* p_mask)
 {
     link.frozen.slots.push_back(p_slot);
     link.frozen.samples.insert(link.frozen.samples.end(), p_samples, p_samples + SURFACE_SAMPLES);
+    link.frozen.normals.insert(link.frozen.normals.end(), p_normals, p_normals + SURFACE_SAMPLES);
     link.frozen.masks.insert(link.frozen.masks.end(), p_mask, p_mask + SURFACE_MASK_WORDS);
 }
 
@@ -318,7 +323,7 @@ void WaterWorld::_sync_frozen()
         WaterLevel::Frozen& f = it->second;
         if (f.has_surface) {
             if (f.pool == WaterLevel::NO_POOL) f.pool = _pool_alloc();
-            _pool_upload(f.pool, f.surface, f.mask);
+            _pool_upload(f.pool, f.surface, f.normals, f.mask);
         } else if (f.pool != WaterLevel::NO_POOL) {
             _pool_free.push_back(f.pool);
             f.pool = WaterLevel::NO_POOL;
@@ -345,12 +350,13 @@ void WaterWorld::_sync_frozen()
     }
 }
 
-bool WaterWorld::_child(int32_t p_level, ivec2 p_key, const vec4*& r_samples, const uint32_t*& r_mask, float& r_ymin, float& r_ymax) const
+bool WaterWorld::_child(int32_t p_level, ivec2 p_key, const vec4*& r_samples, const uint32_t*& r_normals, const uint32_t*& r_mask, float& r_ymin, float& r_ymax) const
 {
     if (p_level == 0) {
         const auto it = sim.frozen.find(tile_key(p_key));
         if (it == sim.frozen.end() || !it->second.has_surface) return false;
         r_samples = it->second.surface;
+        r_normals = it->second.normals;
         r_mask = it->second.mask;
         r_ymin = it->second.ymin;
         r_ymax = it->second.ymax;
@@ -359,6 +365,7 @@ bool WaterWorld::_child(int32_t p_level, ivec2 p_key, const vec4*& r_samples, co
     const auto it = nodes[p_level].find(tile_key(p_key));
     if (it == nodes[p_level].end() || !it->second.has) return false;
     r_samples = it->second.samples;
+    r_normals = it->second.normals;
     r_mask = it->second.mask;
     r_ymin = it->second.ymin;
     r_ymax = it->second.ymax;
@@ -373,12 +380,13 @@ void WaterWorld::_rebuild_node(int32_t p_level, uint64_t p_key, Node& r_node)
     std::fill_n(r_node.mask, SURFACE_MASK_WORDS, 0u);
     const ivec2 base = key_tile(p_key) * BRANCH;
     const vec4* samples = nullptr;
+    const uint32_t* normals = nullptr;
     const uint32_t* mask = nullptr;
     float lo = 0.0f, hi = 0.0f;
     bool any = false;
     for (int32_t y = 0; y < BRANCH; y++) {
         for (int32_t x = 0; x < BRANCH; x++) {
-            if (!_child(p_level - 1, base + ivec2(x, y), samples, mask, lo, hi)) continue;
+            if (!_child(p_level - 1, base + ivec2(x, y), samples, normals, mask, lo, hi)) continue;
             any = true;
             r_node.ymin = std::min(r_node.ymin, lo);
             r_node.ymax = std::max(r_node.ymax, hi);
@@ -391,14 +399,19 @@ void WaterWorld::_rebuild_node(int32_t p_level, uint64_t p_key, Node& r_node)
             const ivec2 c(floor_div(g.x, TILE), floor_div(g.y, TILE));
             const ivec2 l = g - c * TILE;
             vec4 s(0.0f, SAMPLE_INVALID, 0.0f, 0.0f);
-            if (_child(p_level - 1, base + c, samples, mask, lo, hi)) s = samples[l.y * SURFACE_ROW + l.x];
+            uint32_t nrm = 0u;
+            if (_child(p_level - 1, base + c, samples, normals, mask, lo, hi)) {
+                s = samples[l.y * SURFACE_ROW + l.x];
+                nrm = normals[l.y * SURFACE_ROW + l.x];
+            }
             r_node.samples[sy * SURFACE_ROW + sx] = s;
+            r_node.normals[sy * SURFACE_ROW + sx] = nrm;
         }
     }
     for (int32_t cy = 0; cy < TILE; cy++) {
         for (int32_t cx = 0; cx < TILE; cx++) {
             const ivec2 c(cx / step, cy / step);
-            if (!_child(p_level - 1, base + c, samples, mask, lo, hi)) continue;
+            if (!_child(p_level - 1, base + c, samples, normals, mask, lo, hi)) continue;
             const ivec2 l = ivec2(cx % step, cy % step) * BRANCH;
             bool on = false;
             for (int32_t y = 0; y < BRANCH && !on; y++) {
@@ -415,7 +428,7 @@ void WaterWorld::_rebuild_node(int32_t p_level, uint64_t p_key, Node& r_node)
     r_node.has = any && r_node.ymin <= r_node.ymax;
     if (!r_node.has) return;
     if (r_node.pool == WaterLevel::NO_POOL) r_node.pool = _pool_alloc();
-    _pool_upload(r_node.pool, r_node.samples, r_node.mask);
+    _pool_upload(r_node.pool, r_node.samples, r_node.normals, r_node.mask);
 }
 
 void WaterWorld::_visit(int32_t p_level, uint64_t p_key, const vec2& p_camera)
@@ -447,7 +460,7 @@ void WaterWorld::publish(const vec3& p_camera)
     sim.publish();
     link.items.clear();
     link.lod_error = std::clamp(settings.lod_error, 0.001f, 0.2f);
-    link.min_quad = sim.dx * 0.5f;
+    link.min_quad = sim.dx;
     link.caustics = settings.caustics;
     if (!enabled || !settings.render) return;
     if (sim.placed) {
@@ -490,12 +503,36 @@ bool WaterWorld::sample(float p_x, float p_z, float& r_surface_y, vec2& r_flow) 
 
 void WaterWorld::push(const vec3& p_point, float p_submerged, float p_volume, const vec3& p_velocity, const vec3& p_relative)
 {
-    if (enabled) sim.push(p_point, p_submerged, p_volume, p_velocity, p_relative);
+    if (!enabled) return;
+    sim.push(p_point, p_submerged, p_volume, p_velocity, p_relative);
+    const float speed = length(p_relative);
+    if (speed > RIPPLE_MIN_SPEED && p_submerged > 0.0f && p_submerged < 1.0f) _ripple(vec2(p_point.x, p_point.z), std::cbrt(std::max(p_volume, 1.0e-4f)), std::min(speed, 3.0f));
 }
 
 void WaterWorld::splash(const vec3& p_point, float p_strength, float p_radius)
 {
-    if (enabled) sim.splash(p_point, p_strength, p_radius);
+    if (!enabled) return;
+    sim.splash(p_point, p_strength, p_radius);
+    _ripple(vec2(p_point.x, p_point.z), p_radius, p_strength * 4.0f);
+}
+
+void WaterWorld::wade(const vec3& p_position, const vec3& p_velocity)
+{
+    if (!enabled) return;
+    const WaterSample q = sim.query(p_position.x, p_position.z);
+    if (!q.valid || q.h <= EPS || p_position.y > q.eta + 0.2f || p_position.y < q.eta - 2.0f) return;
+    _ripple(vec2(p_position.x, p_position.z), WADE_RADIUS, WADE_IDLE + WADE_SPEED_GAIN * length(vec2(p_velocity.x, p_velocity.z)));
+}
+
+void WaterWorld::_ripple(const vec2& p_xz, float p_radius, float p_strength)
+{
+    const vec4 s(p_xz, std::max(p_radius, 0.1f), p_strength);
+    if (link.ripples.size() < WaterGpuLink::MAX_RIPPLES) {
+        link.ripples.push_back(s);
+        return;
+    }
+    auto weakest = std::min_element(link.ripples.begin(), link.ripples.end(), [](const vec4& a, const vec4& b) { return a.w < b.w; });
+    if (weakest->w < s.w) *weakest = s;
 }
 
 }

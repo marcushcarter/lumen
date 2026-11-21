@@ -8,7 +8,7 @@
 
 namespace lumen {
 
-static constexpr uint32_t LWATER_FORMAT_VERSION = 1;
+static constexpr uint32_t LWATER_FORMAT_VERSION = 2;
 
 struct LWaterPayloadHeader
 {

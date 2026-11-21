@@ -11,12 +11,13 @@
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 2) uniform sampler u_samplers[];
 
-layout(location = 0) in vec3 v_normal;
+layout(location = 0) in vec2 v_sample;
 layout(location = 1) in vec3 v_world;
 layout(location = 2) in vec2 v_flow;
 layout(location = 3) in float v_foam;
 layout(location = 4) in float v_depth;
 layout(location = 5) in float v_curl;
+layout(location = 6) flat in uint v_item;
 layout(location = 0) out vec4 o_color;
 
 const float SKY_DISTANCE = 60000.0;
@@ -24,6 +25,16 @@ const float FLOW_PERIOD = 1.6;
 const vec3 ABSORB = vec3(0.62, 0.17, 0.13);
 const vec3 SCATTER = vec3(0.02, 0.10, 0.085);
 const float CAUSTIC_MIN_ATTENUATION = 0.004;
+const float FLOW_STRETCH = 0.6;
+const float FLOW_STRETCH_SPEED = 3.0;
+const float RIPPLE_CALM = 0.04;
+const float RIPPLE_EDGE_TEXELS = 24.0;
+const float RIPPLE_FLOW_FADE_START = 0.8;
+const float RIPPLE_FLOW_FADE_END = 2.5;
+const float RIPPLE_CURL = 0.08;
+const float FOAM_ALBEDO = 0.92;
+const float SHORE_FOAM_OPACITY = 0.55;
+const float FOAM_WISP_FLOOR = 0.25;
 
 vec3 color_heat(float p_t) {
     const float t = clamp(p_t, 0.0, 1.0);
@@ -70,16 +81,24 @@ vec3 fbmd(vec2 p_p, vec2 p_dx, vec2 p_dy) {
     return textureGrad(sampler2D(u_textures[pc.noise_index], u_samplers[pc.noise_sampler]), p_p * inv, p_dx * inv, p_dy * inv).rgb;
 }
 
-vec3 flow_detail(vec2 p_p, vec2 p_vel, float p_freq, vec2 p_dx, vec2 p_dy, bool p_shimmer) {
+mat2 flow_frame(vec2 p_vel) {
+    const float speed = length(p_vel);
+    const vec2 dir = speed > 1.0e-4 ? p_vel / speed : vec2(1.0, 0.0);
+    const float along = 1.0 / (1.0 + FLOW_STRETCH * min(speed, FLOW_STRETCH_SPEED));
+    const mat2 aligned = mat2(dir.x * along, -dir.y, dir.y * along, dir.x);
+    return mat2(1.0) + (aligned - mat2(1.0)) * smoothstep(0.1, 0.6, speed);
+}
+
+vec3 flow_detail(vec2 p_p, vec2 p_vel, float p_freq, vec2 p_dx, vec2 p_dy, bool p_shimmer, mat2 p_frame) {
     const float t = pc.time / FLOW_PERIOD;
     const float p0 = fract(t), p1 = fract(t + 0.5);
     const float16_t w0 = float16_t(1.0 - abs(1.0 - 2.0 * p0));
-    const vec2 gx = p_dx * p_freq, gy = p_dy * p_freq;
-    const f16vec3 a = f16vec3(fbmd((p_p - p_vel * p0 * FLOW_PERIOD) * p_freq, gx, gy));
-    const f16vec3 b = f16vec3(fbmd((p_p - p_vel * p1 * FLOW_PERIOD) * p_freq + 0.37, gx, gy));
+    const vec2 gx = p_frame * p_dx * p_freq, gy = p_frame * p_dy * p_freq;
+    const f16vec3 a = f16vec3(fbmd(p_frame * (p_p - p_vel * p0 * FLOW_PERIOD) * p_freq, gx, gy));
+    const f16vec3 b = f16vec3(fbmd(p_frame * (p_p - p_vel * p1 * FLOW_PERIOD) * p_freq + 0.37, gx, gy));
     f16vec3 s = mix(b, a, w0);
-    if (p_shimmer) s += f16vec3(fbmd(p_p * p_freq * 0.7 + vec2(pc.time * 0.13, -pc.time * 0.09), gx * 0.7, gy * 0.7)) * float16_t(0.35);
-    return vec3(s);
+    if (p_shimmer) s += f16vec3(fbmd(p_frame * p_p * p_freq * 0.7 + vec2(pc.time * 0.13, -pc.time * 0.09), gx * 0.7, gy * 0.7)) * float16_t(0.35);
+    return vec3(s.x, transpose(p_frame) * vec2(s.yz));
 }
 
 vec3 sky_color(vec3 p_d, vec3 p_sun_dir, vec3 p_sun_col) {
@@ -88,8 +107,38 @@ vec3 sky_color(vec3 p_d, vec3 p_sun_dir, vec3 p_sun_col) {
     vec3 c = mix(hor, vec3(0.22, 0.42, 0.78), pow(t, 0.55));
     if (p_d.y < 0.0) c = mix(hor, vec3(0.45, 0.47, 0.48), clamp(-p_d.y * 3.0, 0.0, 1.0));
     const float s = max(dot(p_d, p_sun_dir), 0.0);
-    c += p_sun_col * (0.06 * pow(s, 6.0) + 0.25 * pow(s, 64.0));
+    const float s2 = s * s, s4 = s2 * s2, s8 = s4 * s4, s16 = s8 * s8, s32 = s16 * s16;
+    c += p_sun_col * (0.06 * s2 * s4 + 0.25 * s32 * s32);
     return c * 1.15;
+}
+
+vec2 sample_gradient(WaterItem p_it, uint p_index) {
+    return unpackHalf2x16(floatBitsToUint(p_it.samples.v[SURFACE_SAMPLES * 4u + p_index]));
+}
+
+vec3 surface_normal() {
+    WaterItem it = pc.items.v[v_item];
+    const vec2 s = clamp(v_sample, vec2(0.0), vec2(16.0));
+    const ivec2 i0 = min(ivec2(s), ivec2(15));
+    const vec2 t = s - vec2(i0);
+    const uint b = uint(i0.y) * SURFACE_ROW + uint(i0.x);
+    const vec2 g = mix(mix(sample_gradient(it, b), sample_gradient(it, b + 1u), t.x), mix(sample_gradient(it, b + SURFACE_ROW), sample_gradient(it, b + SURFACE_ROW + 1u), t.x), t.y);
+    return normalize(vec3(-g.x, 1.0, -g.y));
+}
+
+vec2 ripple_gradient(vec2 p_xz, float p_speed) {
+    if (pc.ripple_index == 0xFFFFFFFFu) return vec2(0.0);
+    const float half_extent = (float(pc.ripple_size) * 0.5 - RIPPLE_EDGE_TEXELS) * pc.ripple_cell;
+    const vec2 rel = abs(p_xz - pc.ripple_center);
+    if (max(rel.x, rel.y) > half_extent) return vec2(0.0);
+    const float inv = 1.0 / (pc.ripple_cell * float(pc.ripple_size));
+    const vec2 uv = p_xz * inv;
+    const float step_uv = 1.0 / float(pc.ripple_size);
+    const float l = textureLod(sampler2D(u_textures[pc.ripple_index], u_samplers[pc.noise_sampler]), uv - vec2(step_uv, 0.0), 0.0).r;
+    const float r = textureLod(sampler2D(u_textures[pc.ripple_index], u_samplers[pc.noise_sampler]), uv + vec2(step_uv, 0.0), 0.0).r;
+    const float d = textureLod(sampler2D(u_textures[pc.ripple_index], u_samplers[pc.noise_sampler]), uv - vec2(0.0, step_uv), 0.0).r;
+    const float u = textureLod(sampler2D(u_textures[pc.ripple_index], u_samplers[pc.noise_sampler]), uv + vec2(0.0, step_uv), 0.0).r;
+    return vec2(r - l, u - d) / (2.0 * pc.ripple_cell) * (1.0 - smoothstep(RIPPLE_FLOW_FADE_START, RIPPLE_FLOW_FADE_END, p_speed));
 }
 
 vec4 backdrop(vec2 p_px) {
@@ -106,13 +155,16 @@ void main() {
     const float speed = length(v_flow);
     const float foam_amt = clamp(v_foam, 0.0, 1.0);
 
+    const vec2 ripple = ripple_gradient(v_world.xz, length(v_flow));
+    const vec3 base_n = normalize(surface_normal() + vec3(-ripple.x, 0.0, -ripple.y));
     const vec2 dpx = dFdx(v_world.xz);
     const vec2 dpy = dFdy(v_world.xz);
-    const vec3 det = flow_detail(v_world.xz, v_flow, 1.7, dpx, dpy, true);
-    const vec3 det2 = flow_detail(v_world.xz * 2.7 + 11.0, v_flow, 1.7, dpx * 2.7, dpy * 2.7, false);
+    const mat2 frame = flow_frame(v_flow);
+    const vec3 det = flow_detail(v_world.xz, v_flow, 1.7, dpx, dpy, true, frame);
+    const vec3 det2 = flow_detail(v_world.xz * 2.7 + 11.0, v_flow, 1.7, dpx * 2.7, dpy * 2.7, false, frame);
     const f16vec2 g = f16vec2(det.yz) + f16vec2(det2.yz) * float16_t(0.5);
-    const float16_t strength = float16_t(0.10 + 0.22 * clamp(speed / 2.5, 0.0, 1.0) + 0.25 * foam_amt);
-    const vec3 n = vec3(normalize(f16vec3(normalize(v_normal)) + f16vec3(-g.x, 0.0, -g.y) * strength));
+    const float16_t strength = float16_t(RIPPLE_CALM + 0.22 * clamp(speed / 2.5, 0.0, 1.0) + 0.25 * foam_amt + RIPPLE_CURL * clamp(abs(v_curl) / 3.0, 0.0, 1.0));
+    const vec3 n = vec3(normalize(f16vec3(base_n) + f16vec3(-g.x, 0.0, -g.y) * strength));
 
     const vec3 v = normalize(cam - v_world);
     const float16_t ndv = float16_t(max(dot(n, v), 0.0));
@@ -124,12 +176,14 @@ void main() {
     r.y = abs(r.y);
     vec3 refl = sky_color(r, sun_dir, sun_col);
     const float sd = max(dot(r, sun_dir), 0.0);
-    refl += sun_col * (pow(sd, 900.0) * 18.0 + pow(sd, 90.0) * 0.6);
+    const float sd90 = pow(sd, 90.0);
+    const float sd180 = sd90 * sd90, sd360 = sd180 * sd180, sd720 = sd360 * sd360;
+    refl += sun_col * (sd720 * sd180 * 18.0 + sd90 * 0.6);
 
     const vec4 b0 = backdrop(gl_FragCoord.xy);
     const float thick0 = b0.a >= SKY_DISTANCE ? 1.0 : max(b0.a - wdist, 0.0);
     const vec2 offset = n.xz * 0.045 * clamp(thick0, 0.0, 1.0) * vec2(float(pc.width), float(pc.height));
-    vec4 b1 = backdrop(gl_FragCoord.xy + offset);
+    vec4 b1 = dot(offset, offset) >= 0.25 ? backdrop(gl_FragCoord.xy + offset) : b0;
     if (b1.a < wdist) b1 = b0;
     const bool sky = b1.a >= SKY_DISTANCE;
     const float thick = sky ? 50.0 : max(b1.a - wdist, 0.0);
@@ -166,14 +220,17 @@ void main() {
     }
 
     if (foam_amt >= 0.02 || thick < 0.10) {
-        const float fn = flow_detail(v_world.xz * 1.3 + 5.0, v_flow, 2.3, dpx * 1.3, dpy * 1.3, false).x;
-        const float fn2 = flow_detail(v_world.xz * 4.0 - 3.0, v_flow, 2.0, dpx * 4.0, dpy * 4.0, false).x;
+        const float fn = flow_detail(v_world.xz * 1.3 + 5.0, v_flow, 2.3, dpx * 1.3, dpy * 1.3, false, frame).x;
+        const float fn2 = flow_detail(v_world.xz * 4.0 - 3.0, v_flow, 2.0, dpx * 4.0, dpy * 4.0, false, frame).x;
         const float nz = fn * 0.7 + fn2 * 0.45;
         float fm = smoothstep(0.62 - 0.5 * foam_amt, 0.78 - 0.45 * foam_amt, nz) * smoothstep(0.02, 0.35, foam_amt);
         const float shore = 1.0 - smoothstep(0.0, 0.10, thick);
-        fm = max(fm, shore * smoothstep(0.45, 0.75, nz) * 0.55);
-        const vec3 foam_col = vec3(0.92) * (sun_col * max(dot(normalize(v_normal), sun_dir), 0.0) + vec3(0.42, 0.52, 0.62));
-        col = mix(col, foam_col * exposure, clamp(fm, 0.0, 1.0));
+        fm = max(fm, shore * smoothstep(0.45, 0.75, nz) * SHORE_FOAM_OPACITY);
+        const vec3 foam_col = vec3(FOAM_ALBEDO) * (sun_col * max(dot(base_n, sun_dir), 0.0) + vec3(0.42, 0.52, 0.62));
+        const float lace = smoothstep(0.55, 0.95, 1.0 - abs(fn2 * 2.0 - 1.0));
+        const float agitation = smoothstep(0.35, 0.9, foam_amt);
+        const float density = mix(FOAM_WISP_FLOOR + (1.0 - FOAM_WISP_FLOOR) * lace, 1.0, agitation);
+        col = mix(col, foam_col * exposure, clamp(fm, 0.0, 1.0) * density);
     }
 
     col = mix(bg, col, smoothstep(0.0, 0.05, thick));

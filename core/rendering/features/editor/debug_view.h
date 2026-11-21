@@ -17,6 +17,7 @@ enum class DebugViewOp : uint32_t {
     BASE_COLOR,
     DEPTH,
     WATER_CONTEXT,
+    DEPTH_NORMAL,
 };
 
 enum class DebugViewInputs : uint32_t {
@@ -63,6 +64,7 @@ static constexpr DebugView DEBUG_VIEWS[] = {
 
     { nullptr, "UV Checker", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::UV_CHECKER, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY | DebugViewInputs::TERRAIN },
     { nullptr, "Triangles", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::TRIANGLES, DebugViewInputs::VISBUF | DebugViewInputs::TERRAIN },
+    { nullptr, "Depth Normal", &DV_CAT_GEOMETRY, nullptr, DebugViewOp::DEPTH_NORMAL, DebugViewInputs::DEPTH },
 
     { nullptr, "Clusters", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTERS, DebugViewInputs::VISBUF },
     { nullptr, "Cluster Streaming", &DV_CAT_CLUSTERS, nullptr, DebugViewOp::CLUSTER_STREAMING, DebugViewInputs::VISBUF | DebugViewInputs::GEOMETRY },

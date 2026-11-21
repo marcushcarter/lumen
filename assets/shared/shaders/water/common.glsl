@@ -85,11 +85,14 @@ const uint PAGE_AWAKE = 1u << 31;
 
 const float W_EPS = 0.004;
 const float W_WET = 0.01;
+const float W_SURFACE_WET = 0.004;
 const float W_WALL = 1.0e6;
 const float W_WALL_TEST = 0.5e6;
 const float W_FOAM_MAX = 1.5;
 const float W_SHORE_TOLERANCE = 0.02;
 const float W_HIDE_DEPTH = 0.08;
+const float W_FALL_SLOPE = 2.0;
+const float W_FALL_MIN = 0.3;
 const int W_SHORE_REACH = 2;
 const int W_EXT_REACH = 4;
 const float W_SURFACE_BLEND = 0.35;
@@ -101,6 +104,7 @@ const float SAMPLE_WET = 3.0;
 
 const uint SURFACE_ROW = 17u;
 const uint SURFACE_SAMPLES = 289u;
+const uint SURFACE_SLOT_FLOATS = SURFACE_SAMPLES * 5u;
 const uint SURFACE_MASK_WORDS = 8u;
 
 int water_wrap(int p_a, int p_m) {

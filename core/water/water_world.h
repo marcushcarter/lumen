@@ -36,6 +36,10 @@ struct WaterWorld : WaterQuery
     static constexpr float BAKE_MARGIN = 8.0f;
     static constexpr float BAKE_RADIUS_MAX = 2048.0f;
     static constexpr uint32_t BAKE_LAG_FRAMES = 6;
+    static constexpr float RIPPLE_MIN_SPEED = 0.05f;
+    static constexpr float WADE_RADIUS = 0.35f;
+    static constexpr float WADE_IDLE = 0.15f;
+    static constexpr float WADE_SPEED_GAIN = 0.8f;
     static constexpr float BUOYANCY_MIN_DEPTH = 0.02f;
     static constexpr int32_t BRANCH = 4;
     static constexpr int32_t TREE_LEVELS = 3;
@@ -45,6 +49,7 @@ struct WaterWorld : WaterQuery
 
     struct Node {
         vec4 samples[water::SURFACE_SAMPLES];
+        uint32_t normals[water::SURFACE_SAMPLES] = {};
         uint32_t mask[water::SURFACE_MASK_WORDS] = {};
         float ymin = 0.0f;
         float ymax = 0.0f;
@@ -81,13 +86,15 @@ struct WaterWorld : WaterQuery
     bool sample(float p_x, float p_z, float& r_surface_y, vec2& r_flow) const override;
     void push(const vec3& p_point, float p_submerged, float p_volume, const vec3& p_velocity, const vec3& p_relative) override;
     void splash(const vec3& p_point, float p_strength, float p_radius) override;
+    void wade(const vec3& p_position, const vec3& p_velocity);
+    void _ripple(const vec2& p_xz, float p_radius, float p_strength);
 
     uint32_t _pool_alloc();
-    void _pool_upload(uint32_t p_slot, const vec4* p_samples, const uint32_t* p_mask);
+    void _pool_upload(uint32_t p_slot, const vec4* p_samples, const uint32_t* p_normals, const uint32_t* p_mask);
     void _pool_reset();
     void _sync_frozen();
     void _rebuild_node(int32_t p_level, uint64_t p_key, Node& r_node);
-    bool _child(int32_t p_level, ivec2 p_key, const vec4*& r_samples, const uint32_t*& r_mask, float& r_ymin, float& r_ymax) const;
+    bool _child(int32_t p_level, ivec2 p_key, const vec4*& r_samples, const uint32_t*& r_normals, const uint32_t*& r_mask, float& r_ymin, float& r_ymax) const;
     void _visit(int32_t p_level, uint64_t p_key, const vec2& p_camera);
     void _bake_update();
     bool _bake_write();

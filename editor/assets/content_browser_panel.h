@@ -4,7 +4,9 @@
 #include <editor/assets/asset_registry.h>
 #include <editor/layout/panel.h>
 #include <IconsFontAwesome6.h>
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -61,6 +63,8 @@ struct ContentBrowserPanel : Panel
     AssetDragPayload drag_payload;
 
     bool delete_requested = false;
+    std::shared_ptr<std::atomic<uint32_t>> _deleting = std::make_shared<std::atomic<uint32_t>>(0u);
+    bool _delete_refresh = false;
     std::filesystem::path rename_target;
     char rename_buf[256] = {};
     bool rename_focus = false;
@@ -105,7 +109,8 @@ struct ContentBrowserPanel : Panel
     void _move_selection(const std::filesystem::path& p_dst);
     void _drop_target(const std::filesystem::path& p_dst);
     void _drop_accept(const std::filesystem::path& p_dst);
-    void _delete_content(EditorContext& ctx, const std::filesystem::path& p_asset);
+    void _delete_content(EditorContext& ctx, const std::filesystem::path& p_asset, std::vector<std::filesystem::path>& r_files);
+    void _delete_files(std::vector<std::filesystem::path> p_files);
     void _delete_asset(EditorContext& ctx, const std::filesystem::path& p_path);
     void _delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder);
     void _delete_folders_only();

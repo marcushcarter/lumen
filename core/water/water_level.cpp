@@ -355,7 +355,7 @@ void WaterLevel::_recenter(ivec2 p_origin_tile)
         auto it = frozen.find(key);
         if (it == frozen.end()) continue;
         Frozen& f = it->second;
-        f.has_surface = surface_patch(key_tile(key) * TILE, f.surface, f.mask, f.ymin, f.ymax);
+        f.has_surface = surface_patch(key_tile(key) * TILE, f.surface, f.normals, f.mask, f.ymin, f.ymax);
     }
     for (const Change& c : changes) {
         Tile& t = tiles[c.slot];
@@ -791,6 +791,7 @@ bool WaterLevel::load_bake(const std::filesystem::path& p_path, std::vector<uint
         Frozen& f = frozen[key];
         _bake_file.seekg((std::streamoff)e.state_offset);
         _bake_file.read(reinterpret_cast<char*>(f.surface), sizeof(f.surface));
+        _bake_file.read(reinterpret_cast<char*>(f.normals), sizeof(f.normals));
         _bake_file.read(reinterpret_cast<char*>(f.mask), sizeof(f.mask));
         if (!_bake_file) {
             _bake_file.clear();
@@ -801,7 +802,7 @@ bool WaterLevel::load_bake(const std::filesystem::path& p_path, std::vector<uint
         f.has_surface = e.has_surface != 0;
         f.ymin = e.ymin;
         f.ymax = e.ymax;
-        f.bake_offset = e.state_offset + sizeof(f.surface) + sizeof(f.mask);
+        f.bake_offset = e.state_offset + sizeof(f.surface) + sizeof(f.normals) + sizeof(f.mask);
         r_keys.push_back(key);
     }
     return true;
@@ -850,7 +851,7 @@ vec4 WaterLevel::surface_sample(ivec2 p_global) const
         for (int32_t oy = -1; oy <= 1; oy++) {
             for (int32_t ox = -1; ox <= 1; ox++) {
                 float nh = 0.0f, nb = 0.0f;
-                if (!cell_state(p_global + ivec2(ox, oy), nh, nb) || nh <= WET) continue;
+                if (!cell_state(p_global + ivec2(ox, oy), nh, nb) || nh <= SURFACE_WET) continue;
                 edge_sum += nh + nb;
                 edge_count++;
             }
@@ -858,7 +859,7 @@ vec4 WaterLevel::surface_sample(ivec2 p_global) const
         return edge_count ? vec4(edge_sum / (float)edge_count, SAMPLE_SHORE, 0.0f, 0.0f) : vec4(0.0f, SAMPLE_INVALID, 0.0f, 0.0f);
     }
     if (!cell_state(p_global, hh, bb)) return vec4(0.0f, SAMPLE_INVALID, 0.0f, 0.0f);
-    if (hh > WET) {
+    if (hh > SURFACE_WET) {
         vec2 flow(0.0f);
         float fm = 0.0f;
         const ivec2 l = p_global - origin_cell();
@@ -885,7 +886,7 @@ vec4 WaterLevel::surface_sample(ivec2 p_global) const
         for (int32_t ox = -EXT_REACH; ox <= EXT_REACH; ox++) {
             if (ox == 0 && oy == 0) continue;
             float nh = 0.0f, nb = 0.0f;
-            if (!cell_state(p_global + ivec2(ox, oy), nh, nb) || nh <= WET) continue;
+            if (!cell_state(p_global + ivec2(ox, oy), nh, nb) || nh <= SURFACE_WET) continue;
             const float wt = 1.0f / (float)(ox * ox + oy * oy);
             ext_sum += wt * (nh + nb);
             ext_weight += wt;
@@ -904,7 +905,7 @@ vec4 WaterLevel::surface_sample(ivec2 p_global) const
     return vec4(y, SAMPLE_HIDDEN, 0.0f, 0.0f);
 }
 
-bool WaterLevel::surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_mask, float& r_ymin, float& r_ymax) const
+bool WaterLevel::surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_normals, uint32_t* r_mask, float& r_ymin, float& r_ymax) const
 {
     bool any = false;
     for (int32_t y = 0; y < SURFACE_ROW; y++) {
@@ -914,6 +915,7 @@ bool WaterLevel::surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_mask
             any = any || s.y >= SAMPLE_WET;
         }
     }
+    const float fall_drop = std::max(FALL_MIN, FALL_SLOPE * dx);
     for (int32_t k = 0; k < SURFACE_SAMPLES; k++) {
         if (r_samples[k].y != SAMPLE_INVALID) continue;
         const int32_t x = k % SURFACE_ROW, y = k / SURFACE_ROW;
@@ -931,18 +933,32 @@ bool WaterLevel::surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_mask
         }
         r_samples[k].x = count ? sum / (float)count - HIDE_DEPTH : 0.0f;
     }
+    for (int32_t k = 0; k < SURFACE_SAMPLES; k++) {
+        const ivec2 at_cell = p_global + ivec2(k % SURFACE_ROW, k / SURFACE_ROW);
+        const float center = r_samples[k].x;
+        const auto neighbour = [&](ivec2 p_offset) {
+            float nh = 0.0f, nb = 0.0f;
+            return cell_state(at_cell + p_offset, nh, nb) && nh > SURFACE_WET ? nh + nb : center;
+        };
+        const vec2 grad((neighbour(ivec2(1, 0)) - neighbour(ivec2(-1, 0))) / (2.0f * dx), (neighbour(ivec2(0, 1)) - neighbour(ivec2(0, -1))) / (2.0f * dx));
+        r_normals[k] = glm::packHalf2x16(grad);
+    }
     std::fill_n(r_mask, SURFACE_MASK_WORDS, 0u);
     r_ymin = FLT_MAX;
     r_ymax = -FLT_MAX;
     for (int32_t cy = 0; cy < TILE; cy++) {
         for (int32_t cx = 0; cx < TILE; cx++) {
             bool valid = true, show = false;
+            float wet_lo = FLT_MAX, wet_hi = -FLT_MAX;
             for (int32_t k = 0; k < 4; k++) {
                 const vec4 s = r_samples[(cy + (k >> 1)) * SURFACE_ROW + cx + (k & 1)];
                 valid = valid && s.y != SAMPLE_INVALID;
                 show = show || s.y >= SAMPLE_SHORE;
+                if (s.y < SAMPLE_WET) continue;
+                wet_lo = std::min(wet_lo, s.x);
+                wet_hi = std::max(wet_hi, s.x);
             }
-            if (!valid || !show) continue;
+            if (!valid || !show || wet_hi - wet_lo > fall_drop) continue;
             const int32_t c = cy * TILE + cx;
             r_mask[c >> 5] |= 1u << (c & 31);
             for (int32_t k = 0; k < 4; k++) {

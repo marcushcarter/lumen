@@ -89,6 +89,7 @@ struct WaterLevel
         std::unique_ptr<FrozenState> state;
         Bed bed = Bed::READY;
         vec4 surface[water::SURFACE_SAMPLES];
+        uint32_t normals[water::SURFACE_SAMPLES] = {};
         uint32_t mask[water::SURFACE_MASK_WORDS] = {};
         bool has_surface = false;
         float ymin = 0.0f;
@@ -157,6 +158,7 @@ struct WaterLevel
     void page_out(float p_distance);
     void static_changed(const vec3& p_min, const vec3& p_max);
     bool load_bake(const std::filesystem::path& p_path, std::vector<uint64_t>& r_keys);
+    void release_bake() { if (_bake_file.is_open()) _bake_file.close(); }
 
     bool inside(float p_x, float p_z) const;
     vec4 interior_rect() const;
@@ -173,7 +175,7 @@ struct WaterLevel
     bool cell_state(ivec2 p_global, float& r_h, float& r_b) const;
     bool cell_drain(ivec2 p_global) const;
     vec4 surface_sample(ivec2 p_global) const;
-    bool surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_mask, float& r_ymin, float& r_ymax) const;
+    bool surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_normals, uint32_t* r_mask, float& r_ymin, float& r_ymax) const;
 
     uint32_t _alloc();
     void _release(uint32_t p_phys);

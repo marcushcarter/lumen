@@ -1,0 +1,62 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 1, rgba16f) uniform image2D u_storage_rgba16f[];
+
+layout(buffer_reference, scalar) readonly buffer RippleSources { vec4 v[]; };
+
+layout(push_constant, scalar) uniform Push {
+    RippleSources sources;
+    uint in_slot;
+    uint out_slot;
+    int size;
+    float cell;
+    ivec2 old_origin;
+    ivec2 new_origin;
+    uint source_count;
+    float c2;
+    float damping;
+    float gain;
+} pc;
+
+const float SPONGE_TEXELS = 24.0;
+
+ivec2 wrap_texel(ivec2 p_t) {
+    return (p_t % pc.size + pc.size) % pc.size;
+}
+
+ivec2 world_texel(ivec2 p_t, ivec2 p_origin) {
+    return p_origin + wrap_texel(p_t - p_origin);
+}
+
+void main() {
+    const ivec2 t = ivec2(gl_GlobalInvocationID.xy);
+    if (t.x >= pc.size || t.y >= pc.size) return;
+    const ivec2 w = world_texel(t, pc.new_origin);
+    if (any(notEqual(w, world_texel(t, pc.old_origin)))) {
+        imageStore(u_storage_rgba16f[pc.out_slot], t, vec4(0.0));
+        return;
+    }
+    const vec2 cur = imageLoad(u_storage_rgba16f[pc.in_slot], t).rg;
+    const float l = imageLoad(u_storage_rgba16f[pc.in_slot], wrap_texel(t + ivec2(-1, 0))).r;
+    const float r = imageLoad(u_storage_rgba16f[pc.in_slot], wrap_texel(t + ivec2(1, 0))).r;
+    const float d = imageLoad(u_storage_rgba16f[pc.in_slot], wrap_texel(t + ivec2(0, -1))).r;
+    const float u = imageLoad(u_storage_rgba16f[pc.in_slot], wrap_texel(t + ivec2(0, 1))).r;
+    float h = (2.0 * cur.x - cur.y + pc.c2 * (l + r + d + u - 4.0 * cur.x)) * pc.damping;
+    const vec2 world = (vec2(w) + 0.5) * pc.cell;
+    for (uint k = 0u; k < pc.source_count; k++) {
+        const vec4 s = pc.sources.v[k];
+        const vec2 delta = world - s.xy;
+        const float r2 = s.z * s.z;
+        const float d2 = dot(delta, delta);
+        if (d2 < 9.0 * r2) h += s.w * pc.gain * exp(-d2 / r2);
+    }
+    const ivec2 e = min(w - pc.new_origin, pc.new_origin + ivec2(pc.size - 1) - w);
+    h *= smoothstep(0.0, SPONGE_TEXELS, float(min(e.x, e.y)));
+    h = clamp(h, -0.5, 0.5);
+    imageStore(u_storage_rgba16f[pc.out_slot], t, vec4(h, cur.x, 0.0, 0.0));
+}

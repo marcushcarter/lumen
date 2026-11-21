@@ -13,5 +13,6 @@ const uint OP_TERRAIN_LOD = 8u;
 const uint OP_BASE_COLOR = 9u;
 const uint OP_DEPTH = 10u;
 const uint OP_WATER_CONTEXT = 11u;
+const uint OP_DEPTH_NORMAL = 12u;
 
 #endif

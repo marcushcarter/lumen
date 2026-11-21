@@ -17,6 +17,11 @@ struct WaterFeature : Feature
     static constexpr uint32_t NOISE_MIPS = 10;
     static constexpr float NOISE_DOMAIN = 16.0f;
     static constexpr float BACKDROP_MARGIN = 0.045f;
+    static constexpr int32_t RIPPLE_SIZE = 512;
+    static constexpr float RIPPLE_CELL = 0.06f;
+    static constexpr float RIPPLE_SPEED = 1.2f;
+    static constexpr float RIPPLE_DAMPING = 0.985f;
+    static constexpr float RIPPLE_GAIN = 0.004f;
 
     struct Pending {
         uint64_t session = 0;
@@ -53,6 +58,13 @@ struct WaterFeature : Feature
     drivers::DeviceDriverVulkan::Sampler noise_sampler;
     bool _noise_ready = false;
     Buffer rect;
+    drivers::DeviceDriverVulkan::Pipeline ripple_pipe;
+    drivers::DeviceDriverVulkan::Image ripple[2];
+    VkImageLayout _ripple_layout[2] = { VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_UNDEFINED };
+    uint32_t _ripple_cur = 0;
+    ivec2 _ripple_origin = ivec2(INT32_MIN / 4);
+    bool _ripple_valid = false;
+    vec2 _ripple_center = vec2(0.0f);
 
     uint64_t layout = 0;
     uint32_t capacity = 0;
@@ -96,6 +108,8 @@ struct WaterFeature : Feature
     void _record(RenderGraph::CommandList& cl, WaterGpuLink& r_link);
     void _create_passes();
     void _generate_noise(RenderGraph::CommandList& cl);
+    void _ripple_transition(VkCommandBuffer p_cmd, uint32_t p_index, VkImageLayout p_layout);
+    void _run_ripples(RenderGraph::CommandList& cl, const WaterGpuLink& p_link, VkDeviceAddress p_sources);
     void _draw_setup(RenderGraph::Builder& b);
     void _draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_mode);
     void add_debug(RenderGraph& g, uint32_t p_mode);

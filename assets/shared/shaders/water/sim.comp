@@ -145,17 +145,17 @@ void flat_pass(WaterLevel L) {
         else sp(A_H, c, gp(A_H, c) + s.a * pc.dt);
         return;
     }
-    if (pc.pass == P_GHOST) {
-        if (t >= uint(4 * P.n)) return;
-        ivec2 gh, in_c;
-        ring_cells(t, gh, in_c);
-        const int gc = water_cell_global(P, gh.x, gh.y);
-        if (gc < 0 || (fp(gc) & CELL_KNOWN) != 0u) return;
-        const int ic = water_cell_global(P, in_c.x, in_c.y);
-        sp(A_H, gc, gp(A_H, ic));
-        sp(A_B, gc, gp(A_B, ic));
-        return;
-    }
+}
+
+void ghost_cell(uint p_t) {
+    if (p_t >= uint(4 * P.n)) return;
+    ivec2 gh, in_c;
+    ring_cells(p_t, gh, in_c);
+    const int gc = water_cell_global(P, gh.x, gh.y);
+    if (gc < 0 || (fp(gc) & CELL_KNOWN) != 0u) return;
+    const int ic = water_cell_global(P, in_c.x, in_c.y);
+    sp(A_H, gc, gp(A_H, ic));
+    sp(A_B, gc, gp(A_B, ic));
 }
 
 void tile_pass(WaterLevel L) {
@@ -370,6 +370,8 @@ void main() {
     const uint pass = pc.pass;
     if (pass == P_INIT) init_pass(L);
     else if (pass == P_GATHER) gather_pass(L);
-    else if (pass == P_EVENTS || pass == P_SOURCES || pass == P_GHOST) flat_pass(L);
+    else if (pass == P_EVENTS || pass == P_SOURCES) flat_pass(L);
+    else if (pass == P_GHOST) ghost_cell(flat_index());
+    else if (pass == P_ADVECT && gl_WorkGroupID.x >= L.awake_count) ghost_cell((gl_WorkGroupID.x - L.awake_count) * 256u + gl_LocalInvocationIndex);
     else tile_pass(L);
 }

@@ -4,12 +4,13 @@
 
 #include "water/draw.glsl"
 
-layout(location = 0) out vec3 v_normal;
+layout(location = 0) out vec2 v_sample;
 layout(location = 1) out vec3 v_world;
 layout(location = 2) out vec2 v_flow;
 layout(location = 3) out float v_foam;
 layout(location = 4) out float v_depth;
 layout(location = 5) out float v_curl;
+layout(location = 6) flat out uint v_item;
 
 const vec2 CORNERS[6] = vec2[](vec2(0.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 1.0));
 
@@ -96,7 +97,8 @@ void main() {
         for (uint r = 0u; r < span && !visible; r++) visible = cell_row_visible(it, c0.y + r, c0.x, span);
     }
     if (!visible) {
-        v_normal = vec3(0.0, 1.0, 0.0);
+        v_sample = vec2(0.0);
+        v_item = 0u;
         v_world = vec3(0.0);
         v_flow = vec2(0.0);
         v_foam = 0.0;
@@ -118,10 +120,8 @@ void main() {
         s = mix(s, coarse, k);
     }
     const float y = height_at(it, s);
-    const float e = 0.5;
-    const float hx = height_at(it, s + vec2(e, 0.0)) - height_at(it, s - vec2(e, 0.0));
-    const float hz = height_at(it, s + vec2(0.0, e)) - height_at(it, s - vec2(0.0, e));
-    v_normal = normalize(vec3(-hx, 2.0 * e * it.spacing, -hz));
+    v_sample = s;
+    v_item = entry >> 4u;
 
     const vec2 xz = it.origin + s * it.spacing;
     v_world = vec3(xz.x, y, xz.y);

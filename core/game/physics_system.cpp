@@ -452,6 +452,12 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
         optimize_pending = false;
     }
     _update_water(world);
+    if (player && world.water.active() && p_dt > 0.0f) {
+        const vec3 velocity = _player_prev_valid ? (focus - _player_prev) / p_dt : vec3(0.0f);
+        water.wade(focus, velocity);
+    }
+    _player_prev = focus;
+    _player_prev_valid = player;
     if (world.water.active()) _drift_frozen(p_dt);
     const uint32_t steps = physics.advance(p_dt);
     for (uint32_t i = 0; i < steps; i++) {

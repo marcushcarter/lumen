@@ -26,11 +26,14 @@ static constexpr uint32_t PAGE_AWAKE = 1u << 31;
 
 static constexpr float EPS = 0.004f;
 static constexpr float WET = 0.01f;
+static constexpr float SURFACE_WET = 0.004f;
 static constexpr float WALL = 1.0e6f;
 static constexpr float WALL_TEST = 0.5e6f;
 static constexpr float FOAM_MAX = 1.5f;
 static constexpr float SHORE_TOLERANCE = 0.02f;
 static constexpr float HIDE_DEPTH = 0.08f;
+static constexpr float FALL_SLOPE = 2.0f;
+static constexpr float FALL_MIN = 0.3f;
 static constexpr int32_t SHORE_REACH = 2;
 static constexpr int32_t EXT_REACH = 4;
 static constexpr uint32_t SURFACE_FRESH = 0x8000u;

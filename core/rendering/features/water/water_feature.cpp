@@ -56,6 +56,10 @@ struct WaterDrawPush
     uint32_t debug_mode;
     uint32_t noise_index;
     uint32_t noise_sampler;
+    uint32_t ripple_index;
+    int32_t ripple_size;
+    float ripple_cell;
+    float ripple_center[2];
 };
 
 struct WaterBackdropPush
@@ -63,6 +67,18 @@ struct WaterBackdropPush
     VkDeviceAddress camera, rect;
     uint32_t color_index, depth_index, out_slot, width, height, mode;
     uint32_t margin_x, margin_y;
+};
+
+struct WaterRipplePush
+{
+    VkDeviceAddress sources;
+    uint32_t in_slot, out_slot;
+    int32_t size;
+    float cell;
+    int32_t old_origin[2];
+    int32_t new_origin[2];
+    uint32_t source_count;
+    float c2, damping, gain;
 };
 
 struct WaterNoisePush
@@ -85,6 +101,8 @@ static constexpr uint32_t FLAG_VORTEX = 1;
 static constexpr uint32_t BLOCKS = 16;
 static constexpr VkDeviceSize TILE_BYTES = TILE_CELLS * sizeof(float);
 static constexpr VkDeviceSize SAMPLE_BYTES = SURFACE_SAMPLES * sizeof(vec4);
+static constexpr VkDeviceSize NORMAL_BYTES = SURFACE_SAMPLES * sizeof(uint32_t);
+static constexpr VkDeviceSize SLOT_BYTES = SAMPLE_BYTES + NORMAL_BYTES;
 static constexpr VkDeviceSize MASK_BYTES = SURFACE_MASK_WORDS * sizeof(uint32_t);
 static constexpr VkDeviceSize READBACK_ENTRY = WaterGpuResult::ARRAYS * TILE_BYTES;
 
@@ -182,7 +200,7 @@ void WaterFeature::_ensure_sim(VkCommandBuffer p_cmd, const WaterGpuLink& p_link
     state = wide;
     state16 = half;
     stats = st;
-    pool = _device_buffer((VkDeviceSize)cap * SAMPLE_BYTES, 0, "WaterPool");
+    pool = _device_buffer((VkDeviceSize)cap * SLOT_BYTES, 0, "WaterPool");
     masks = _device_buffer((VkDeviceSize)cap * MASK_BYTES, 0, "WaterMasks");
     bounds = _device_buffer((VkDeviceSize)cap * 2 * sizeof(uint32_t), 0, "WaterBounds");
     capacity = cap;
@@ -240,7 +258,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
         frozen_layout = r_link.frozen.layout;
         frozen_capacity = r_link.frozen.capacity;
         if (frozen_capacity) {
-            frozen_pool = _device_buffer((VkDeviceSize)frozen_capacity * SAMPLE_BYTES, 0, "WaterFrozenPool");
+            frozen_pool = _device_buffer((VkDeviceSize)frozen_capacity * SLOT_BYTES, 0, "WaterFrozenPool");
             frozen_masks = _device_buffer((VkDeviceSize)frozen_capacity * MASK_BYTES, 0, "WaterFrozenMasks");
         }
     }
@@ -282,7 +300,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
 
     const VkDeviceSize host_bytes = 4096 + sizeof(WaterLevelInfo) + r_link.items.size() * sizeof(WaterItemGpu)
         + (r_link.page.size() + r_link.awake.size() + r_link.init.size() + r_link.surface.size() + gather.size()) * sizeof(uint32_t)
-        + (r_link.sources.size() + r_link.events.size()) * sizeof(WaterGpuCell);
+        + (r_link.sources.size() + r_link.events.size()) * sizeof(WaterGpuCell) + r_link.ripples.size() * sizeof(vec4);
     Buffer& hb = host[f];
     if (ctx->dd->buffer_ensure_capacity(hb, host_bytes) != Error::OK || !hb.mapped) {
         rd.tiles.clear();
@@ -335,11 +353,11 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
         WaterItemGpu g{};
         if (it.kind == WaterGpuItem::FROZEN) {
             if (!frozen_pool.buffer || it.slot >= frozen_capacity) continue;
-            g.samples = frozen_pool.device_address + (VkDeviceAddress)it.slot * SAMPLE_BYTES;
+            g.samples = frozen_pool.device_address + (VkDeviceAddress)it.slot * SLOT_BYTES;
             g.masks = frozen_masks.device_address + (VkDeviceAddress)it.slot * MASK_BYTES;
         } else {
             if (!live || it.slot >= capacity) continue;
-            g.samples = pool.device_address + (VkDeviceAddress)it.slot * SAMPLE_BYTES;
+            g.samples = pool.device_address + (VkDeviceAddress)it.slot * SLOT_BYTES;
             g.masks = masks.device_address + (VkDeviceAddress)it.slot * MASK_BYTES;
             g.bounds = bounds.device_address + (VkDeviceAddress)it.slot * 2 * sizeof(uint32_t);
             g.has_bounds = 1;
@@ -352,6 +370,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
         items.push_back(g);
     }
     _items_addr = hw.put(items.data(), items.size());
+    const VkDeviceAddress ripple_sources = hw.put(r_link.ripples.data(), r_link.ripples.size());
     ctx->dd->buffer_flush(hb, 0, hw.offset);
 
     if (steps) vkCmdFillBuffer(cmd, stats.buffer, 0, VK_WHOLE_SIZE, 0u);
@@ -373,7 +392,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     }
 
     Buffer& sb = staging[f];
-    const VkDeviceSize staging_bytes = 16 + r_link.blob.size() * sizeof(float) + r_link.frozen.samples.size() * sizeof(vec4) + r_link.frozen.masks.size() * sizeof(uint32_t);
+    const VkDeviceSize staging_bytes = 16 + r_link.blob.size() * sizeof(float) + r_link.frozen.samples.size() * sizeof(vec4) + (r_link.frozen.masks.size() + r_link.frozen.normals.size()) * sizeof(uint32_t);
     if (ctx->dd->buffer_ensure_capacity(sb, staging_bytes) == Error::OK && sb.mapped) {
         uint8_t* dst = (uint8_t*)sb.mapped;
         VkDeviceSize at = 0;
@@ -404,10 +423,14 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
             const VkDeviceSize mask_base = at;
             std::memcpy(dst + at, fz.masks.data(), fz.masks.size() * sizeof(uint32_t));
             at += fz.masks.size() * sizeof(uint32_t);
+            const VkDeviceSize normal_base = at;
+            std::memcpy(dst + at, fz.normals.data(), fz.normals.size() * sizeof(uint32_t));
+            at += fz.normals.size() * sizeof(uint32_t);
             std::vector<VkBufferCopy> samples, mregions;
             for (size_t k = 0; k < fz.slots.size(); k++) {
                 if (fz.slots[k] >= frozen_capacity) continue;
-                samples.push_back({ sample_base + k * SAMPLE_BYTES, (VkDeviceSize)fz.slots[k] * SAMPLE_BYTES, SAMPLE_BYTES });
+                samples.push_back({ sample_base + k * SAMPLE_BYTES, (VkDeviceSize)fz.slots[k] * SLOT_BYTES, SAMPLE_BYTES });
+                samples.push_back({ normal_base + k * NORMAL_BYTES, (VkDeviceSize)fz.slots[k] * SLOT_BYTES + SAMPLE_BYTES, NORMAL_BYTES });
                 mregions.push_back({ mask_base + k * MASK_BYTES, (VkDeviceSize)fz.slots[k] * MASK_BYTES, MASK_BYTES });
             }
             if (!samples.empty()) {
@@ -429,9 +452,8 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
         run(P_EVENTS, groups256(r_link.events.size()), 0.0f);
         for (uint32_t s = 0; s < steps; s++) {
             for (uint32_t k = 0; k < sub; k++) {
-                run(P_ADVECT, awake, dt);
+                run(P_ADVECT, awake + ring, dt);
                 run(P_CURLFORCE, awake, dt);
-                run(P_GHOST, ring, dt);
                 run(P_FLUXLIMIT, awake, dt);
                 run(P_HEIGHT, awake, dt);
                 run(P_DRAIN, awake, dt);
@@ -441,6 +463,8 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
             }
         }
     }
+
+    _run_ripples(cl, r_link, ripple_sources);
 
     if (live && !r_link.surface.empty()) {
         ctx->dd->command_bind_pipeline(cmd, surface_pipe);
@@ -503,6 +527,63 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     ctx->dd->command_bind_push_constants(cmd, sizeof(cp), &cp);
     cl.dispatch("Water Cull", (_item_count + 63) / 64, 1, 1);
     _barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+}
+
+void WaterFeature::_ripple_transition(VkCommandBuffer p_cmd, uint32_t p_index, VkImageLayout p_layout)
+{
+    if (_ripple_layout[p_index] == p_layout) return;
+    VkImageMemoryBarrier2 ib{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    ib.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    ib.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    ib.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    ib.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    ib.oldLayout = _ripple_layout[p_index];
+    ib.newLayout = p_layout;
+    ib.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    ib.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    ib.image = ripple[p_index].image;
+    ib.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &ib;
+    vkCmdPipelineBarrier2(p_cmd, &dep);
+    _ripple_layout[p_index] = p_layout;
+}
+
+void WaterFeature::_run_ripples(RenderGraph::CommandList& cl, const WaterGpuLink& p_link, VkDeviceAddress p_sources)
+{
+    const uint32_t steps = std::min(p_link.ripple_steps, WaterGpuLink::MAX_STEPS);
+    if (!steps || !ripple[0].image || !ripple[1].image) return;
+    VkCommandBuffer cmd = cl.cmd;
+    _ripple_transition(cmd, 0, VK_IMAGE_LAYOUT_GENERAL);
+    _ripple_transition(cmd, 1, VK_IMAGE_LAYOUT_GENERAL);
+    const ivec2 origin = ivec2(glm::floor(p_link.ripple_center / RIPPLE_CELL)) - ivec2(RIPPLE_SIZE / 2);
+    const float courant = RIPPLE_SPEED * STEP_DT / RIPPLE_CELL;
+    ctx->dd->command_bind_pipeline(cmd, ripple_pipe);
+    for (uint32_t s = 0; s < steps; s++) {
+        WaterRipplePush pc{};
+        pc.sources = p_sources;
+        pc.in_slot = ripple[_ripple_cur].bindless_storage;
+        pc.out_slot = ripple[1 - _ripple_cur].bindless_storage;
+        pc.size = RIPPLE_SIZE;
+        pc.cell = RIPPLE_CELL;
+        pc.old_origin[0] = _ripple_origin.x;
+        pc.old_origin[1] = _ripple_origin.y;
+        pc.new_origin[0] = origin.x;
+        pc.new_origin[1] = origin.y;
+        pc.source_count = s == 0 ? (uint32_t)std::min<size_t>(p_link.ripples.size(), WaterGpuLink::MAX_RIPPLES) : 0u;
+        pc.c2 = courant * courant;
+        pc.damping = RIPPLE_DAMPING;
+        pc.gain = RIPPLE_GAIN * (float)steps;
+        ctx->dd->command_bind_push_constants(cmd, sizeof(pc), &pc);
+        cl.dispatch("Water Ripple", RIPPLE_SIZE / 8, RIPPLE_SIZE / 8, 1);
+        _compute_barrier(cmd);
+        _ripple_origin = origin;
+        _ripple_cur = 1 - _ripple_cur;
+    }
+    _ripple_center = vec2(origin) * RIPPLE_CELL + vec2((float)(RIPPLE_SIZE / 2) * RIPPLE_CELL);
+    _ripple_transition(cmd, _ripple_cur, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    _ripple_valid = true;
 }
 
 void WaterFeature::_generate_noise(RenderGraph::CommandList& cl)
@@ -574,6 +655,7 @@ void WaterFeature::_create_passes()
         _record(cl, *link);
         link->clear_commands();
         link->steps = 0;
+        link->ripple_steps = 0;
     };
 
     backdrop_pass.name = "WaterBackdrop";
@@ -664,6 +746,11 @@ void WaterFeature::_draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_
     pc.debug_mode = p_debug_mode;
     pc.noise_index = noise.bindless_sampled;
     pc.noise_sampler = noise_sampler.bindless_sampler;
+    pc.ripple_index = _ripple_valid ? ripple[_ripple_cur].bindless_sampled : UINT32_MAX;
+    pc.ripple_size = RIPPLE_SIZE;
+    pc.ripple_cell = RIPPLE_CELL;
+    pc.ripple_center[0] = _ripple_center.x;
+    pc.ripple_center[1] = _ripple_center.y;
     cl.dd->command_render_set_viewport(cl.cmd, {{ {0, 0}, depth->extent }});
     cl.dd->command_render_set_scissor(cl.cmd, {{ {0, 0}, depth->extent }});
     cl.dd->command_bind_pipeline(cl.cmd, p_debug_mode ? debug_pipe : draw_pipe);
@@ -724,6 +811,23 @@ Error WaterFeature::create_resources()
     noise_sampler = ctx->dd->sampler_create(noise_sampler_ci);
     LUMEN_ERR_FAIL_COND_V(!noise_sampler.sampler, Error::FAILED);
     _noise_ready = false;
+    for (uint32_t k = 0; k < 2; k++) {
+        drivers::DeviceDriverVulkan::ImageCreateInfo ripple_ci{};
+        ripple_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        ripple_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        ripple_ci.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        ripple_ci.sizing = drivers::DeviceDriverVulkan::ImageCreateInfo::Sizing::FIXED;
+        ripple_ci.fixed_width = RIPPLE_SIZE;
+        ripple_ci.fixed_height = RIPPLE_SIZE;
+        ripple_ci.pool = ctx->dd->image_persistent_pool;
+        ripple_ci.name = "water_ripple";
+        ripple[k] = ctx->dd->image_create_dedicated(ripple_ci, { (uint32_t)RIPPLE_SIZE, (uint32_t)RIPPLE_SIZE });
+        LUMEN_ERR_FAIL_COND_V(!ripple[k].image, Error::FAILED);
+        _ripple_layout[k] = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    _ripple_cur = 0;
+    _ripple_origin = ivec2(INT32_MIN / 4);
+    _ripple_valid = false;
     _create_passes();
     return Error::OK;
 }
@@ -735,6 +839,7 @@ Error WaterFeature::create_pipelines()
     cull_pipe = _compute_pipeline(L"SHADERS_WATER_CULL_COMP", "water/cull.comp");
     backdrop_pipe = _compute_pipeline(L"SHADERS_WATER_BACKDROP_COMP", "water/backdrop.comp");
     noise_pipe = _compute_pipeline(L"SHADERS_WATER_NOISE_COMP", "water/noise.comp");
+    ripple_pipe = _compute_pipeline(L"SHADERS_WATER_RIPPLE_COMP", "water/ripple.comp");
 
     VkRenderPass rp = ctx->graph->acquire_render_pass(draw_pass);
     EmbeddedResource::Blob vs_blob = EmbeddedResource::load(L"SHADERS_WATER_SURFACE_VERT");
@@ -771,6 +876,13 @@ void WaterFeature::destroy_resources()
     ctx->dd->pipeline_free(cull_pipe);
     ctx->dd->pipeline_free(backdrop_pipe);
     ctx->dd->pipeline_free(noise_pipe);
+    ctx->dd->pipeline_free(ripple_pipe);
+    for (uint32_t k = 0; k < 2; k++) {
+        if (ripple[k].image) ctx->dd->image_free(ripple[k]);
+        ripple[k] = {};
+        _ripple_layout[k] = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    _ripple_valid = false;
     if (noise.image) ctx->dd->image_free(noise);
     noise = {};
     ctx->dd->sampler_free(noise_sampler);

@@ -2,6 +2,7 @@
 #include <core/assets/lmaterial.h>
 #include <core/assets/lmodel.h>
 #include <core/assets/lterrain.h>
+#include <core/base/jobs.h>
 #include <core/assets/lscene.h>
 #include <core/base/strings.h>
 #include <core/scene/scene_file.h>
@@ -587,6 +588,10 @@ void ContentBrowserPanel::draw_contents(EditorContext& ctx)
         delete_requested = false;
         _delete_now(ctx);
     }
+    if (_delete_refresh && _deleting->load() == 0u) {
+        _delete_refresh = false;
+        request_refresh();
+    }
     if (!cancel_request.empty()) {
         ctx.imports->cancel(cancel_request);
         cancel_request.clear();
@@ -721,7 +726,7 @@ void ContentBrowserPanel::_drop_accept(const std::filesystem::path& p_dst)
     }
 }
 
-void ContentBrowserPanel::_delete_content(EditorContext& ctx, const std::filesystem::path& p_asset)
+void ContentBrowserPanel::_delete_content(EditorContext& ctx, const std::filesystem::path& p_asset, std::vector<std::filesystem::path>& r_files)
 {
     AssetInfo info = read_asset_info(p_asset);
     if (!info.valid()) return;
@@ -734,25 +739,45 @@ void ContentBrowserPanel::_delete_content(EditorContext& ctx, const std::filesys
             default: break;
         }
     }
-    ctx.project->remove_content(info.guid);
+    r_files.push_back(ctx.project->content_path(info.guid));
+}
+
+void ContentBrowserPanel::_delete_files(std::vector<std::filesystem::path> p_files)
+{
+    if (p_files.empty()) return;
+    _deleting->fetch_add(1u);
+    _delete_refresh = true;
+    job_system().run_background_owned([files = std::move(p_files), counter = _deleting]() {
+        for (const std::filesystem::path& f : files) {
+            Paths::remove_to_recycle(f);
+            std::error_code ec;
+            const std::filesystem::path parent = f.parent_path();
+            if (f.extension() == ".bin" && std::filesystem::is_directory(parent, ec) && std::filesystem::is_empty(parent, ec) && !ec) std::filesystem::remove(parent, ec);
+        }
+        counter->fetch_sub(1u);
+    }, nullptr, "Delete Assets");
 }
 
 void ContentBrowserPanel::_delete_asset(EditorContext& ctx, const std::filesystem::path& p_path)
 {
-    _delete_content(ctx, p_path);
-    Paths::remove_to_recycle(p_path);
+    std::vector<std::filesystem::path> files;
+    _delete_content(ctx, p_path, files);
+    files.push_back(p_path);
+    _delete_files(std::move(files));
 }
 
 void ContentBrowserPanel::_delete_folder(EditorContext& ctx, const std::filesystem::path& p_folder)
 {
     std::error_code ec;
+    std::vector<std::filesystem::path> files;
     for (auto it = std::filesystem::recursive_directory_iterator(p_folder, ec); it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lanim") _delete_content(ctx, it->path());
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lanim" || ext == ".lterrain" || ext == ".lwater") _delete_content(ctx, it->path(), files);
     }
-    Paths::remove_to_recycle(p_folder);
+    files.push_back(p_folder);
+    _delete_files(std::move(files));
 }
 
 void ContentBrowserPanel::_delete_folders_only()

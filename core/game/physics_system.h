@@ -67,6 +67,8 @@ struct PhysicsSystem : GameSystem
     WaterWorld water;
     vec3 focus = vec3(0.0f);
     Guid _water_terrain;
+    vec3 _player_prev = vec3(0.0f);
+    bool _player_prev_valid = false;
     std::vector<vec3> _anchors;
     std::vector<SyncItem> _items;
     std::vector<StaticItem> _statics;

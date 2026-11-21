@@ -23,7 +23,7 @@ shared uint s_mask[SURFACE_MASK_WORDS];
 shared uint s_lo;
 shared uint s_hi;
 
-float g_wet_level = W_WET;
+float g_wet_level = W_SURFACE_WET;
 
 bool wet_at(int p_k) {
     return s_h[p_k] > g_wet_level && s_b[p_k] < W_WALL_TEST && s_drain[p_k] == 0u;
@@ -47,7 +47,7 @@ vec2 surface_sample(int p_x, int p_y, bool p_was_wet) {
         return edge_count > 0 ? vec2(edge_sum / float(edge_count), SAMPLE_SHORE) : vec2(0.0, SAMPLE_INVALID);
     }
     if (bb >= W_WALL_TEST) return vec2(0.0, SAMPLE_INVALID);
-    if (hh > (p_was_wet ? W_WET * 0.5 : W_WET)) return vec2(hh + bb, SAMPLE_WET);
+    if (hh > (p_was_wet ? W_SURFACE_WET * 0.5 : W_SURFACE_WET)) return vec2(hh + bb, SAMPLE_WET);
     float sum = 0.0, weight = 0.0;
     float ext_sum = 0.0, ext_weight = 0.0;
     for (int oy = -HALO; oy <= HALO; oy++) {
@@ -72,6 +72,10 @@ vec2 surface_sample(int p_x, int p_y, bool p_was_wet) {
     float y = bb - W_HIDE_DEPTH;
     if (ext_weight > 0.0) y = min(y, ext_sum / ext_weight - W_HIDE_DEPTH);
     return vec2(y, SAMPLE_HIDDEN);
+}
+
+float neighbour_eta(int p_k, float p_center) {
+    return s_h[p_k] > W_SURFACE_WET && s_b[p_k] < W_WALL_TEST && s_drain[p_k] == 0u ? s_h[p_k] + s_b[p_k] : p_center;
 }
 
 void main() {
@@ -101,10 +105,10 @@ void main() {
     }
     barrier();
 
-    const uint pool = phys * SURFACE_SAMPLES;
+    const uint pool = phys * SURFACE_SLOT_FLOATS;
     for (uint k = lid; k < SURFACE_SAMPLES; k += 256u) {
         const int x = int(k % SURFACE_ROW), y = int(k / SURFACE_ROW);
-        const vec4 prev = fresh ? vec4(0.0) : vec4(L.pool.v[(pool + k) * 4u], L.pool.v[(pool + k) * 4u + 1u], L.pool.v[(pool + k) * 4u + 2u], L.pool.v[(pool + k) * 4u + 3u]);
+        const vec4 prev = fresh ? vec4(0.0) : vec4(L.pool.v[pool + k * 4u], L.pool.v[pool + k * 4u + 1u], L.pool.v[pool + k * 4u + 2u], L.pool.v[pool + k * 4u + 3u]);
         const vec2 s = surface_sample(x, y, !fresh && prev.y >= SAMPLE_WET);
         const int c = water_cell_cached(D, lt.x * 16 + x, lt.y * 16 + y);
         const bool wet = s.y == SAMPLE_WET;
@@ -139,23 +143,33 @@ void main() {
             }
             s.x = count > 0 ? sum / float(count) - W_HIDE_DEPTH : 0.0;
         }
-        L.pool.v[(pool + k) * 4u] = s.x;
-        L.pool.v[(pool + k) * 4u + 1u] = s.y;
-        L.pool.v[(pool + k) * 4u + 2u] = s.z;
-        L.pool.v[(pool + k) * 4u + 3u] = s.w;
+        L.pool.v[pool + k * 4u] = s.x;
+        L.pool.v[pool + k * 4u + 1u] = s.y;
+        L.pool.v[pool + k * 4u + 2u] = s.z;
+        L.pool.v[pool + k * 4u + 3u] = s.w;
+        const int x = int(k % SURFACE_ROW), y = int(k / SURFACE_ROW);
+        const int kc = (y + HALO) * SPAN + x + HALO;
+        const vec2 grad = vec2(neighbour_eta(kc + 1, s.x) - neighbour_eta(kc - 1, s.x), neighbour_eta(kc + SPAN, s.x) - neighbour_eta(kc - SPAN, s.x)) / (2.0 * L.dx);
+        L.pool.v[pool + SURFACE_SAMPLES * 4u + k] = uintBitsToFloat(packHalf2x16(grad));
     }
 
     const uint cx = lid % 16u, cy = lid / 16u;
     bool valid = true, show = false;
     float lo = 3.4e38, hi = -3.4e38;
+    float wet_lo = 3.4e38, wet_hi = -3.4e38;
     for (uint k = 0u; k < 4u; k++) {
         const vec4 s = s_samples[(cy + (k >> 1u)) * SURFACE_ROW + cx + (k & 1u)];
         valid = valid && s.y != SAMPLE_INVALID;
         show = show || s.y >= SAMPLE_SHORE;
         lo = min(lo, s.x);
         hi = max(hi, s.x);
+        if (s.y >= SAMPLE_WET) {
+            wet_lo = min(wet_lo, s.x);
+            wet_hi = max(wet_hi, s.x);
+        }
     }
-    if (valid && show) {
+    const bool falls = wet_hi - wet_lo > max(W_FALL_MIN, W_FALL_SLOPE * L.dx);
+    if (valid && show && !falls) {
         atomicOr(s_mask[lid >> 5u], 1u << (lid & 31u));
         atomicMin(s_lo, water_sortable(lo));
         atomicMax(s_hi, water_sortable(hi));

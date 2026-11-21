@@ -64,9 +64,10 @@ struct WaterGpuFrozen
     uint32_t capacity = 0;
     std::vector<uint32_t> slots;
     std::vector<vec4> samples;
+    std::vector<uint32_t> normals;
     std::vector<uint32_t> masks;
 
-    void clear_commands() { slots.clear(); samples.clear(); masks.clear(); }
+    void clear_commands() { slots.clear(); samples.clear(); normals.clear(); masks.clear(); }
 };
 
 struct WaterGpuLink
@@ -74,6 +75,7 @@ struct WaterGpuLink
     static constexpr uint32_t MAX_STEPS = 4;
     static constexpr uint32_t BAKE_STEPS = 16;
     static constexpr uint32_t READBACK_TILES = 96;
+    static constexpr uint32_t MAX_RIPPLES = 32;
 
     uint64_t session = 0;
     uint64_t layout = 0;
@@ -98,6 +100,9 @@ struct WaterGpuLink
     uint32_t steps = 0;
     uint32_t max_steps = MAX_STEPS;
     bool collect = false;
+    uint32_t ripple_steps = 0;
+    vec2 ripple_center = vec2(0.0f);
+    std::vector<vec4> ripples;
     float lod_error = 0.01f;
     float min_quad = 0.25f;
     bool caustics = true;
@@ -107,7 +112,7 @@ struct WaterGpuLink
     uint64_t stats_layout = 0;
     std::vector<float> stats;
 
-    void clear_commands() { init.clear(); uploads.clear(); blob.clear(); events.clear(); frozen.clear_commands(); }
+    void clear_commands() { init.clear(); uploads.clear(); blob.clear(); events.clear(); ripples.clear(); frozen.clear_commands(); }
 };
 
 }

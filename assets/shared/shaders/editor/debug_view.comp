@@ -234,6 +234,21 @@ void main() {
     } else if (pc.op == OP_DEPTH) {
         color = vec3(0);
         if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) color = vec3(exp(-distance(pixel_world(coord, size), pc.camera.position.xyz) / 70.0));
+    } else if (pc.op == OP_DEPTH_NORMAL) {
+        color = vec3(0);
+        if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) {
+            const ivec2 hi = size - 1;
+            const vec3 p = pixel_world(coord, size);
+            const vec3 xa = pixel_world(min(coord + ivec2(1, 0), hi), size) - p;
+            const vec3 xb = p - pixel_world(max(coord - ivec2(1, 0), ivec2(0)), size);
+            const vec3 ya = pixel_world(min(coord + ivec2(0, 1), hi), size) - p;
+            const vec3 yb = p - pixel_world(max(coord - ivec2(0, 1), ivec2(0)), size);
+            const vec3 dx = dot(xa, xa) < dot(xb, xb) ? xa : xb;
+            const vec3 dy = dot(ya, ya) < dot(yb, yb) ? ya : yb;
+            vec3 n = normalize(cross(dy, dx));
+            if (dot(n, pc.camera.position.xyz - p) < 0.0) n = -n;
+            color = srgb_to_linear(n * 0.5 + 0.5);
+        }
     } else if (pc.op == OP_WATER_CONTEXT) {
         color = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0 ? OTHER_GEOMETRY : vec3(0);
     } else if (pc.op == OP_WORLD_NORMAL) {

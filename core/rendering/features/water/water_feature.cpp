@@ -52,6 +52,8 @@ struct WaterDrawPush
     float lod_error;
     float time;
     uint32_t backdrop_index, width, height;
+    uint32_t flags;
+    uint32_t debug_mode;
 };
 
 struct WaterBackdropPush
@@ -478,6 +480,7 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     cp.hiz_mips = hiz ? hiz->mip_levels : 0;
     cp.hiz_enabled = hiz && depth ? 1u : 0u;
     _lod_error = r_link.lod_error;
+    _caustics = r_link.caustics;
     _time = r_link.time;
     ctx->dd->command_bind_pipeline(cmd, cull_pipe);
     ctx->dd->command_bind_push_constants(cmd, sizeof(cp), &cp);
@@ -555,37 +558,62 @@ void WaterFeature::_create_passes()
 
     draw_pass.name = "WaterSurface";
     draw_pass.category = PASS_CATEGORY_RASTER;
-    draw_pass.setup = [](RenderGraph::Builder& b) {
-        b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
-        b.read_buffer("DirectLight", VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-        b.read_image("WaterBackdrop", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    draw_pass.setup = [this](RenderGraph::Builder& b) {
         b.color_attachment("SceneColor", VK_ATTACHMENT_LOAD_OP_LOAD);
-        b.depth_attachment("G_Depth", VK_ATTACHMENT_LOAD_OP_LOAD);
+        _draw_setup(b);
     };
-    draw_pass.execute = [this](RenderGraph::CommandList& cl) {
-        if (!_item_count || !list.buffer) return;
-        auto* out = cl.graph->image("SceneColor");
-        auto* camera = cl.graph->buffer("Camera");
-        auto* light = cl.graph->buffer("DirectLight");
-        auto* backdrop = cl.graph->image("WaterBackdrop");
-        if (!out || !camera || !light || !backdrop) return;
-        WaterDrawPush pc{};
-        pc.camera = camera->device_address;
-        pc.items = _items_addr;
-        pc.list = list.device_address;
-        pc.light = light->device_address;
-        pc.capacity = _draw_capacity;
-        pc.lod_error = _lod_error;
-        pc.time = _time;
-        pc.backdrop_index = backdrop->bindless_sampled;
-        pc.width = backdrop->extent.width;
-        pc.height = backdrop->extent.height;
-        cl.dd->command_render_set_viewport(cl.cmd, {{ {0, 0}, out->extent }});
-        cl.dd->command_render_set_scissor(cl.cmd, {{ {0, 0}, out->extent }});
-        cl.dd->command_bind_pipeline(cl.cmd, draw_pipe);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dd->command_render_draw_indirect(cl.cmd, args, 0, LOD_LEVELS, sizeof(WaterDrawArgs));
+    draw_pass.execute = [this](RenderGraph::CommandList& cl) { _draw_execute(cl, 0); };
+
+    debug_pass.name = "WaterDebug";
+    debug_pass.category = PASS_CATEGORY_EDITOR;
+    debug_pass.setup = [this](RenderGraph::Builder& b) {
+        b.color_attachment("Viewport", VK_ATTACHMENT_LOAD_OP_LOAD);
+        _draw_setup(b);
     };
+    debug_pass.execute = [this](RenderGraph::CommandList& cl) { _draw_execute(cl, _debug_mode); };
+}
+
+void WaterFeature::_draw_setup(RenderGraph::Builder& b)
+{
+    b.depth_attachment("G_Depth", VK_ATTACHMENT_LOAD_OP_LOAD);
+    b.read_buffer("Camera", VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_UNIFORM_READ_BIT);
+    b.read_buffer("DirectLight", VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+    if (b.graph->image_resource("WaterBackdrop")) b.read_image("WaterBackdrop", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
+void WaterFeature::_draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_mode)
+{
+    if (!_item_count || !list.buffer) return;
+    auto* camera = cl.graph->buffer("Camera");
+    auto* light = cl.graph->buffer("DirectLight");
+    auto* backdrop = cl.graph->image("WaterBackdrop");
+    auto* depth = cl.graph->image("G_Depth");
+    if (!camera || !light || !backdrop || !depth) return;
+    WaterDrawPush pc{};
+    pc.camera = camera->device_address;
+    pc.items = _items_addr;
+    pc.list = list.device_address;
+    pc.light = light->device_address;
+    pc.capacity = _draw_capacity;
+    pc.lod_error = _lod_error;
+    pc.time = _time;
+    pc.backdrop_index = backdrop->bindless_sampled;
+    pc.width = backdrop->extent.width;
+    pc.height = backdrop->extent.height;
+    pc.flags = _caustics ? 1u : 0u;
+    pc.debug_mode = p_debug_mode;
+    cl.dd->command_render_set_viewport(cl.cmd, {{ {0, 0}, depth->extent }});
+    cl.dd->command_render_set_scissor(cl.cmd, {{ {0, 0}, depth->extent }});
+    cl.dd->command_bind_pipeline(cl.cmd, p_debug_mode ? debug_pipe : draw_pipe);
+    cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+    cl.dd->command_render_draw_indirect(cl.cmd, args, 0, LOD_LEVELS, sizeof(WaterDrawArgs));
+}
+
+void WaterFeature::add_debug(RenderGraph& g, uint32_t p_mode)
+{
+    if (!_built || !p_mode || !g.image_resource("Viewport")) return;
+    _debug_mode = p_mode;
+    g.add(&debug_pass);
 }
 
 Error WaterFeature::create_resources()
@@ -641,6 +669,11 @@ Error WaterFeature::create_pipelines()
     ci.blend_modes = { drivers::DeviceDriverVulkan::BlendMode::NONE };
     ci.name = "water/surface";
     draw_pipe = ctx->dd->graphics_pipeline_create(ci);
+    ctx->graph->declare_image_format("Viewport", VK_FORMAT_R16G16B16A16_SFLOAT);
+    ci.render_pass = ctx->graph->acquire_render_pass(debug_pass);
+    ci.depth_write = false;
+    ci.name = "water/surface_debug";
+    debug_pipe = ctx->dd->graphics_pipeline_create(ci);
     ctx->dd->shader_free(vs);
     ctx->dd->shader_free(fs);
     return Error::OK;
@@ -653,6 +686,7 @@ void WaterFeature::destroy_resources()
     ctx->dd->pipeline_free(cull_pipe);
     ctx->dd->pipeline_free(backdrop_pipe);
     ctx->dd->pipeline_free(draw_pipe);
+    ctx->dd->pipeline_free(debug_pipe);
     _reset_sim();
     layout = 0;
     _retire(frozen_pool);
@@ -675,11 +709,13 @@ void WaterFeature::destroy_resources()
 
 void WaterFeature::build(RenderGraph& g)
 {
+    _built = false;
     if (host.empty() || !ctx->frame || !ctx->frame->water) return;
     if (!g.image_resource("G_Depth") || !g.image_resource("SceneColor")) return;
     g.add(&sim_pass);
     g.add(&backdrop_pass);
     g.add(&draw_pass);
+    _built = true;
 }
 
 }

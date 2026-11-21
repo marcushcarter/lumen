@@ -154,7 +154,7 @@ void main() {
         color = texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb;
     } else if (pc.op == OP_CLUSTERS) {
         uvec2 v, ref;
-        color = vec3(0);
+        color = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0 ? OTHER_GEOMETRY : vec3(0);
         if (sample_vis(coord, v, ref)) color = hash_color(hash2(pc.instances.data[ref.x].mesh_id, ref.y));
     } else if (pc.op == OP_UV_CHECKER) {
         uint raw;
@@ -231,6 +231,11 @@ void main() {
     } else if (pc.op == OP_BASE_COLOR) {
         color = vec3(0);
         if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) color = srgb_to_linear(texelFetch(u_textures[nonuniformEXT(pc.src_index)], coord, 0).rgb);
+    } else if (pc.op == OP_DEPTH) {
+        color = vec3(0);
+        if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0) color = vec3(exp(-distance(pixel_world(coord, size), pc.camera.position.xyz) / 70.0));
+    } else if (pc.op == OP_WATER_CONTEXT) {
+        color = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r != 0.0 ? OTHER_GEOMETRY : vec3(0);
     } else if (pc.op == OP_WORLD_NORMAL) {
         color = vec3(0);
         float d = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;

@@ -90,18 +90,19 @@ void main() {
     for (uint k = lid; k < SURFACE_SAMPLES; k += 256u) {
         const int x = int(k % SURFACE_ROW), y = int(k / SURFACE_ROW);
         const vec4 prev = fresh ? vec4(0.0) : vec4(L.pool.v[(pool + k) * 4u], L.pool.v[(pool + k) * 4u + 1u], L.pool.v[(pool + k) * 4u + 2u], L.pool.v[(pool + k) * 4u + 3u]);
-        const vec2 s = surface_sample(x, y, !fresh && prev.y == SAMPLE_WET);
+        const vec2 s = surface_sample(x, y, !fresh && prev.y >= SAMPLE_WET);
         const int c = water_cell_cached(D, lt.x * 16 + x, lt.y * 16 + y);
         const bool wet = s.y == SAMPLE_WET;
         vec2 flow = wet ? vec2(dget(D, A_UC, c), dget(D, A_WC, c)) : vec2(0.0);
-        float foam = wet ? min(dget(D, A_FOAM, c), 1.0) : 0.0;
+        vec2 foam_curl = wet ? vec2(min(dget(D, A_FOAM, c), 1.0), dget(D, A_CURL, c)) : vec2(0.0);
         float height = s.x;
         if (!fresh && prev.y != SAMPLE_INVALID && s.y != SAMPLE_INVALID) {
             height = mix(prev.x, s.x, W_SURFACE_BLEND);
             flow = mix(unpackHalf2x16(floatBitsToUint(prev.z)), flow, W_SURFACE_BLEND);
-            foam = mix(prev.w, foam, W_SURFACE_BLEND);
+            foam_curl = mix(unpackHalf2x16(floatBitsToUint(prev.w)), foam_curl, W_SURFACE_BLEND);
         }
-        s_samples[k] = vec4(height, s.y, uintBitsToFloat(packHalf2x16(flow)), foam);
+        const float state = wet ? SAMPLE_WET + s_h[(y + HALO) * SPAN + x + HALO] : s.y;
+        s_samples[k] = vec4(height, state, uintBitsToFloat(packHalf2x16(flow)), uintBitsToFloat(packHalf2x16(foam_curl)));
     }
     barrier();
 

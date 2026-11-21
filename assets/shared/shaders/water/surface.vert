@@ -8,6 +8,8 @@ layout(location = 0) out vec3 v_normal;
 layout(location = 1) out vec3 v_world;
 layout(location = 2) out vec2 v_flow;
 layout(location = 3) out float v_foam;
+layout(location = 4) out float v_depth;
+layout(location = 5) out float v_curl;
 
 const vec2 CORNERS[6] = vec2[](vec2(0.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 1.0));
 
@@ -40,16 +42,28 @@ vec2 flow_at(WaterItem p_it, vec2 p_s) {
     return mix(mix(f00, f10, t.x), mix(f01, f11, t.x), t.y);
 }
 
-float foam_at(WaterItem p_it, vec2 p_s) {
+vec2 foam_curl_at(WaterItem p_it, vec2 p_s) {
     const vec2 s = clamp(p_s, vec2(0.0), vec2(16.0));
     const ivec2 i0 = min(ivec2(s), ivec2(15));
     const vec2 t = s - vec2(i0);
     const uint b = uint(i0.y) * SURFACE_ROW + uint(i0.x);
-    const float a00 = p_it.samples.v[b * 4u + 3u];
-    const float a10 = p_it.samples.v[(b + 1u) * 4u + 3u];
-    const float a01 = p_it.samples.v[(b + SURFACE_ROW) * 4u + 3u];
-    const float a11 = p_it.samples.v[(b + SURFACE_ROW + 1u) * 4u + 3u];
+    const vec2 a00 = unpackHalf2x16(floatBitsToUint(sample_at(p_it, b).w));
+    const vec2 a10 = unpackHalf2x16(floatBitsToUint(sample_at(p_it, b + 1u).w));
+    const vec2 a01 = unpackHalf2x16(floatBitsToUint(sample_at(p_it, b + SURFACE_ROW).w));
+    const vec2 a11 = unpackHalf2x16(floatBitsToUint(sample_at(p_it, b + SURFACE_ROW + 1u).w));
     return mix(mix(a00, a10, t.x), mix(a01, a11, t.x), t.y);
+}
+
+float depth_at(WaterItem p_it, vec2 p_s) {
+    const vec2 s = clamp(p_s, vec2(0.0), vec2(16.0));
+    const ivec2 i0 = min(ivec2(s), ivec2(15));
+    const vec2 t = s - vec2(i0);
+    const uint b = uint(i0.y) * SURFACE_ROW + uint(i0.x);
+    const float d00 = max(sample_at(p_it, b).y - SAMPLE_WET, 0.0);
+    const float d10 = max(sample_at(p_it, b + 1u).y - SAMPLE_WET, 0.0);
+    const float d01 = max(sample_at(p_it, b + SURFACE_ROW).y - SAMPLE_WET, 0.0);
+    const float d11 = max(sample_at(p_it, b + SURFACE_ROW + 1u).y - SAMPLE_WET, 0.0);
+    return mix(mix(d00, d10, t.x), mix(d01, d11, t.x), t.y);
 }
 
 bool cell_row_visible(WaterItem p_it, uint p_row, uint p_c0, uint p_count) {
@@ -86,6 +100,8 @@ void main() {
         v_world = vec3(0.0);
         v_flow = vec2(0.0);
         v_foam = 0.0;
+        v_depth = 0.0;
+        v_curl = 0.0;
         gl_Position = vec4(0.0);
         return;
     }
@@ -110,6 +126,9 @@ void main() {
     const vec2 xz = it.origin + s * it.spacing;
     v_world = vec3(xz.x, y, xz.y);
     v_flow = flow_at(it, s);
-    v_foam = foam_at(it, s);
+    const vec2 fc = foam_curl_at(it, s);
+    v_foam = fc.x;
+    v_curl = fc.y;
+    v_depth = depth_at(it, s);
     gl_Position = pc.camera.curr_view_proj * vec4(xz.x, y, xz.y, 1.0);
 }

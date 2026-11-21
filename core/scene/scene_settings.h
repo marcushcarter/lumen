@@ -43,7 +43,8 @@ struct TerrainSettings
 
 struct WaterSettings
 {
-    bool enabled = true;
+    bool simulate = true;
+    bool render = true;
     float cell_size = 0.25f;
     uint32_t substeps = 2;
     float sim_radius = 48.0f;
@@ -56,9 +57,12 @@ struct WaterSettings
     float foam_decay = 0.9f;
     float foam_gain = 2.0f;
     float bed_probe = 10.0f;
+    bool caustics = true;
     bool buoyancy = true;
     float drag = 1.0f;
     bool push_water = true;
+
+    bool active() const { return simulate || render; }
 
     bool operator==(const WaterSettings&) const = default;
 };

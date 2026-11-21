@@ -5,6 +5,7 @@
 #extension GL_EXT_samplerless_texture_functions : require
 
 #include "water/draw.glsl"
+#include "common/color.glsl"
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 
@@ -12,6 +13,8 @@ layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec3 v_world;
 layout(location = 2) in vec2 v_flow;
 layout(location = 3) in float v_foam;
+layout(location = 4) in float v_depth;
+layout(location = 5) in float v_curl;
 layout(location = 0) out vec4 o_color;
 
 const float SKY_DISTANCE = 60000.0;
@@ -23,6 +26,41 @@ float hash12(vec2 p_p) {
     vec3 p3 = fract(vec3(p_p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
     return fract((p3.x + p3.y) * p3.z);
+}
+
+vec3 color_heat(float p_t) {
+    const float t = clamp(p_t, 0.0, 1.0);
+    return srgb_to_linear(clamp(vec3(1.5 - abs(4.0 * t - 3.0), 1.5 - abs(4.0 * t - 2.0), 1.5 - abs(4.0 * t - 1.0)), 0.0, 1.0));
+}
+
+vec2 hash22(vec2 p_p) {
+    const vec2 p = vec2(dot(p_p, vec2(127.1, 311.7)), dot(p_p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+}
+
+float voro(vec2 p_p, float p_t) {
+    const vec2 i = floor(p_p), f = fract(p_p);
+    float d1 = 8.0, d2 = 8.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            const vec2 g = vec2(x, y);
+            const vec2 o = 0.5 + 0.42 * sin(p_t + 6.2831 * hash22(i + g));
+            const float d = length(g + o - f);
+            if (d < d1) {
+                d2 = d1;
+                d1 = d;
+            } else if (d < d2) {
+                d2 = d;
+            }
+        }
+    }
+    return d2 - d1;
+}
+
+float caustic(vec2 p_p, float p_t) {
+    const float a = voro(p_p, p_t);
+    const float b = voro(p_p * 1.6 + 3.1, p_t * 1.3 + 1.0);
+    return pow(1.0 - smoothstep(0.0, 0.22, a), 2.5) * 0.8 + pow(1.0 - smoothstep(0.0, 0.18, b), 2.5) * 0.45;
 }
 
 vec3 noised(vec2 p_x) {
@@ -104,14 +142,40 @@ void main() {
     const vec2 offset = n.xz * 0.045 * clamp(thick0, 0.0, 1.0) * vec2(float(pc.width), float(pc.height));
     vec4 b1 = backdrop(gl_FragCoord.xy + offset);
     if (b1.a < wdist) b1 = b0;
-    const float thick = b1.a >= SKY_DISTANCE ? 50.0 : max(b1.a - wdist, 0.0);
-    const vec3 bg = b1.rgb;
+    const bool sky = b1.a >= SKY_DISTANCE;
+    const float thick = sky ? 50.0 : max(b1.a - wdist, 0.0);
+    vec3 bg = b1.rgb;
+    const bool caustics_on = (pc.flags & WATER_FLAG_CAUSTICS) != 0u;
+    float caustic_term = 0.0;
+    if (!sky && (caustics_on || pc.debug_mode == WATER_DEBUG_CAUSTICS)) {
+        const vec3 bed = cam + (v_world - cam) * (b1.a / max(wdist, 1.0e-3));
+        const float d = v_world.y - bed.y;
+        if (d > 0.0) {
+            const float c = caustic(bed.xz * 1.15 - vec2(0.0, pc.time * 0.35), pc.time * 1.4);
+            const float att = exp(-d * 0.7) * smoothstep(0.0, 0.15, d);
+            caustic_term = c * att;
+            if (caustics_on) bg += bg * caustic_term * 0.45;
+        }
+    }
 
     const vec3 trans = exp(-ABSORB * thick * 1.4);
     vec3 scatter = SCATTER * (sun_col * max(sun_dir.y, 0.0) + vec3(0.4, 0.5, 0.6));
     scatter *= 1.0 + 1.5 * foam_amt;
     const vec3 refr = bg * trans + scatter * exposure * (1.0 - trans);
     vec3 col = mix(refr, refl * exposure, fresnel);
+
+    if (pc.debug_mode != WATER_DEBUG_NONE) {
+        vec3 dc = vec3(0.0);
+        if (pc.debug_mode == WATER_DEBUG_CAUSTICS) dc = vec3(caustic_term);
+        else if (pc.debug_mode == WATER_DEBUG_DEPTH) dc = color_heat(v_depth / 1.5);
+        else if (pc.debug_mode == WATER_DEBUG_SPEED) dc = color_heat(speed / 4.0);
+        else if (pc.debug_mode == WATER_DEBUG_FOAM) dc = vec3(foam_amt);
+        else if (pc.debug_mode == WATER_DEBUG_CURL) dc = srgb_to_linear(v_curl > 0.0 ? vec3(1.0, 0.25, 0.1) * clamp(v_curl / 3.0, 0.0, 1.0) : vec3(0.1, 0.35, 1.0) * clamp(-v_curl / 3.0, 0.0, 1.0));
+        else if (pc.debug_mode == WATER_DEBUG_FRESNEL) dc = vec3(fresnel);
+        else if (pc.debug_mode == WATER_DEBUG_THICKNESS) dc = color_heat(thick / 2.0);
+        o_color = vec4(dc, 1.0);
+        return;
+    }
 
     const float fn = flow_detail(v_world.xz * 1.3 + 5.0, v_flow, 2.3).x;
     const float fn2 = flow_detail(v_world.xz * 4.0 - 3.0, v_flow, 2.0).x;

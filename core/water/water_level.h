@@ -160,7 +160,7 @@ struct WaterLevel
     WaterSample query(float p_x, float p_z) const;
     void push(const vec3& p_point, float p_submerged, float p_volume, const vec3& p_velocity, const vec3& p_relative);
     void splash(const vec3& p_point, float p_strength, float p_radius);
-    void debug_draw_flow(DebugDraw& r_draw, const vec4* p_skip) const;
+    void debug_draw_flow(DebugDraw& r_draw, const vec4* p_skip, const vec3& p_eye) const;
 
     ivec2 origin_cell() const { return origin_tile * water::TILE; }
     int32_t slot_of(ivec2 p_local) const { return water::wrap(origin_tile.y + p_local.y, slots) * slots + water::wrap(origin_tile.x + p_local.x, slots); }

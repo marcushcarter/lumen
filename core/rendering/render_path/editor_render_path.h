@@ -21,6 +21,7 @@ struct EditorRenderPath : SceneRenderPath
         SceneRenderPath::_register_features();
         ui.viewport = "Viewport";
         ui.viewport_fallback = "DisplayColor";
+        debug.water = &water;
         features.push_back(&debug);
         features.push_back(&grid);
         features.push_back(&lines);

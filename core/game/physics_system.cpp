@@ -272,7 +272,7 @@ void PhysicsSystem::_static_changed(const Body& p_body)
 void PhysicsSystem::_update_water(const Scene& p_world)
 {
     const WaterSettings& s = p_world.water;
-    if (!s.enabled) {
+    if (!s.active()) {
         if (water.enabled) water.clear();
         physics.water = &PhysicsWorld::NO_WATER;
         physics.buoyancy_forces = false;
@@ -451,14 +451,14 @@ void PhysicsSystem::update(GameSession& r_session, float p_dt)
         optimize_pending = false;
     }
     _update_water(world);
-    if (world.water.enabled) _drift_frozen(p_dt);
+    if (world.water.active()) _drift_frozen(p_dt);
     const uint32_t steps = physics.advance(p_dt);
     for (uint32_t i = 0; i < steps; i++) {
         if (i + 1 == steps) _snapshot_previous();
         physics.step_fixed();
-        if (world.water.enabled) water.step();
+        if (world.water.simulate) water.step();
     }
-    if (world.water.enabled) water.publish(r_session.camera.position);
+    if (world.water.active()) water.publish(r_session.camera.position);
     _write_back(world, steps);
     _despawn_fallen(world);
 }

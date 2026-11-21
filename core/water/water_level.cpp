@@ -782,10 +782,12 @@ vec4 WaterLevel::surface_sample(ivec2 p_global) const
                 fm = s->foam[k];
             }
         }
-        const uint32_t packed = glm::packHalf2x16(flow);
-        float bits = 0.0f;
-        std::memcpy(&bits, &packed, sizeof(bits));
-        return vec4(hh + bb, SAMPLE_WET, bits, std::min(fm, 1.0f));
+        const uint32_t packed_flow = glm::packHalf2x16(flow);
+        const uint32_t packed_foam = glm::packHalf2x16(vec2(std::min(fm, 1.0f), 0.0f));
+        float flow_bits = 0.0f, foam_bits = 0.0f;
+        std::memcpy(&flow_bits, &packed_flow, sizeof(flow_bits));
+        std::memcpy(&foam_bits, &packed_foam, sizeof(foam_bits));
+        return vec4(hh + bb, SAMPLE_WET + hh, flow_bits, foam_bits);
     }
     float sum = 0.0f, weight = 0.0f, ext_sum = 0.0f, ext_weight = 0.0f;
     for (int32_t oy = -EXT_REACH; oy <= EXT_REACH; oy++) {
@@ -818,7 +820,7 @@ bool WaterLevel::surface_patch(ivec2 p_global, vec4* r_samples, uint32_t* r_mask
         for (int32_t x = 0; x < SURFACE_ROW; x++) {
             const vec4 s = surface_sample(p_global + ivec2(x, y));
             r_samples[y * SURFACE_ROW + x] = s;
-            any = any || s.y == SAMPLE_WET;
+            any = any || s.y >= SAMPLE_WET;
         }
     }
     for (int32_t k = 0; k < SURFACE_SAMPLES; k++) {
@@ -969,7 +971,7 @@ static uint32_t _flow_color(float p_speed, float p_foam)
     return debug_rgb((c.x << 16) | (c.y << 8) | c.z);
 }
 
-void WaterLevel::debug_draw_flow(DebugDraw& r_draw, const vec4* p_skip) const
+void WaterLevel::debug_draw_flow(DebugDraw& r_draw, const vec4* p_skip, const vec3& p_eye) const
 {
     if (!placed) return;
     const int32_t every = std::max(1, (int32_t)std::lround(ARROW_SPACING / dx));
@@ -988,7 +990,7 @@ void WaterLevel::debug_draw_flow(DebugDraw& r_draw, const vec4* p_skip) const
             return;
         }
         const float len = std::min(speed * ARROW_TIME, spacing * 1.8f);
-        r_draw.arrow(p, p + vec3(p_v.x, 0.0f, p_v.y) / speed * len, { .color = color });
+        r_draw.arrow_facing(p, p + vec3(p_v.x, 0.0f, p_v.y) / speed * len, p_eye, { .color = color });
     };
     for (int32_t y = 0; y < tiles_w; y++) {
         for (int32_t x = 0; x < tiles_w; x++) {

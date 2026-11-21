@@ -43,7 +43,7 @@ struct WaterWorld : WaterQuery
     void step();
     void publish(const vec3& p_camera);
     void static_changed(const vec3& p_min, const vec3& p_max);
-    void debug_draw_flow(DebugDraw& r_draw) const;
+    void debug_draw_flow(DebugDraw& r_draw, const vec3& p_eye) const;
 
     WaterSample query(float p_x, float p_z) const;
     bool sample(float p_x, float p_z, float& r_surface_y, vec2& r_flow) const override;

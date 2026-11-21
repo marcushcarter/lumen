@@ -11,5 +11,7 @@ const uint OP_TRIANGLES = 6u;
 const uint OP_TERRAIN_STREAMING = 7u;
 const uint OP_TERRAIN_LOD = 8u;
 const uint OP_BASE_COLOR = 9u;
+const uint OP_DEPTH = 10u;
+const uint OP_WATER_CONTEXT = 11u;
 
 #endif

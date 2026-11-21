@@ -154,6 +154,26 @@ void DebugDraw::arrow(const vec3& p_from, const vec3& p_to, const Style& p_style
     _push(p_to, base - v * spread, p_style.color, flags, p_style.duration);
 }
 
+void DebugDraw::arrow_facing(const vec3& p_from, const vec3& p_to, const vec3& p_eye, const Style& p_style)
+{
+    const vec3 axis = p_to - p_from;
+    const float len = length(axis);
+    const uint32_t flags = _flags(p_style);
+    std::lock_guard lock(mutex);
+    _push(p_from, p_to, p_style.color, flags, p_style.duration);
+    if (len < 1e-6f) return;
+    const vec3 d = axis / len;
+    vec3 side = cross(d, p_to - p_eye);
+    const float side_len = length(side);
+    if (side_len < 1e-6f) return;
+    side /= side_len;
+    const float head = len * 0.2f;
+    const vec3 base = p_to - d * head;
+    const float spread = head * 0.4f;
+    _push(p_to, base + side * spread, p_style.color, flags, p_style.duration);
+    _push(p_to, base - side * spread, p_style.color, flags, p_style.duration);
+}
+
 void DebugDraw::axes(const mat4& p_transform, float p_size, const Style& p_style)
 {
     const vec3 o(p_transform[3]);

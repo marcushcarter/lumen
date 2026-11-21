@@ -37,11 +37,13 @@ struct WaterFeature : Feature
     RenderGraph::Pass sim_pass;
     RenderGraph::Pass backdrop_pass;
     RenderGraph::Pass draw_pass;
+    RenderGraph::Pass debug_pass;
     drivers::DeviceDriverVulkan::Pipeline sim_pipe;
     drivers::DeviceDriverVulkan::Pipeline surface_pipe;
     drivers::DeviceDriverVulkan::Pipeline cull_pipe;
     drivers::DeviceDriverVulkan::Pipeline backdrop_pipe;
     drivers::DeviceDriverVulkan::Pipeline draw_pipe;
+    drivers::DeviceDriverVulkan::Pipeline debug_pipe;
 
     uint64_t layout = 0;
     uint32_t capacity = 0;
@@ -72,6 +74,9 @@ struct WaterFeature : Feature
     uint32_t _draw_capacity = 0;
     float _lod_error = 0.01f;
     float _time = 0.0f;
+    bool _caustics = true;
+    bool _built = false;
+    uint32_t _debug_mode = 0;
 
     Buffer _device_buffer(VkDeviceSize p_size, VkBufferUsageFlags p_usage, const char* p_name);
     void _retire(Buffer& r_buffer);
@@ -81,6 +86,9 @@ struct WaterFeature : Feature
     void _parse_readback(uint32_t p_frame, WaterGpuLink& r_link);
     void _record(RenderGraph::CommandList& cl, WaterGpuLink& r_link);
     void _create_passes();
+    void _draw_setup(RenderGraph::Builder& b);
+    void _draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_mode);
+    void add_debug(RenderGraph& g, uint32_t p_mode);
 
     Error create_resources() override;
     Error create_pipelines() override;

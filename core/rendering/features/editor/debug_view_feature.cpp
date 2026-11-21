@@ -6,6 +6,7 @@
 #include <core/rendering/scene_gpu.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/io/embedded_resource.h>
+#include <core/rendering/features/water/water_feature.h>
 
 namespace lumen {
 
@@ -265,6 +266,7 @@ void DebugViewFeature::build(RenderGraph& g)
     const DebugView& d = DEBUG_VIEWS[pass_view];
     if (d.op == DebugViewOp::COPY && d.image && std::string_view(d.image) == "DisplayColor") return;
     g.add(&viewport_resolve_pass);
+    if (water && d.water) water->add_debug(g, d.water);
 };
 
 }

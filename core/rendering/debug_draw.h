@@ -79,6 +79,7 @@ struct DebugDraw
     void sphere(const vec3& p_center, float p_radius, const Style& p_style = {});
     void capsule(const vec3& p_a, const vec3& p_b, float p_radius, const Style& p_style = {});
     void arrow(const vec3& p_from, const vec3& p_to, const Style& p_style = {});
+    void arrow_facing(const vec3& p_from, const vec3& p_to, const vec3& p_eye, const Style& p_style = {});
     void axes(const mat4& p_transform, float p_size, const Style& p_style = {});
 
     void consume(std::vector<DebugLine>& r_out, float p_dt);

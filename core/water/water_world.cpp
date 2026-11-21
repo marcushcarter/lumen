@@ -244,7 +244,8 @@ void WaterWorld::publish(const vec3& p_camera)
     link.items.clear();
     link.lod_error = std::clamp(settings.lod_error, 0.001f, 0.2f);
     link.min_quad = sim.dx * 0.5f;
-    if (!enabled || !sim.placed) return;
+    link.caustics = settings.caustics;
+    if (!enabled || !sim.placed || !settings.render) return;
     for (int32_t y = 0; y < sim.tiles_w; y++) {
         for (int32_t x = 0; x < sim.tiles_w; x++) {
             const WaterLevel::Tile& t = sim.tiles[sim.slot_of(ivec2(x, y))];
@@ -261,9 +262,9 @@ void WaterWorld::static_changed(const vec3& p_min, const vec3& p_max)
     sim.static_changed(p_min, p_max);
 }
 
-void WaterWorld::debug_draw_flow(DebugDraw& r_draw) const
+void WaterWorld::debug_draw_flow(DebugDraw& r_draw, const vec3& p_eye) const
 {
-    if (enabled) sim.debug_draw_flow(r_draw, nullptr);
+    if (enabled) sim.debug_draw_flow(r_draw, nullptr, p_eye);
 }
 
 WaterSample WaterWorld::query(float p_x, float p_z) const

@@ -193,7 +193,7 @@ void Viewport::_submit_debug_draw(EditorContext& ctx, bool p_live)
     if (!scene) return;
     if (view.overlay == ViewOverlay::WATER_FLOW) {
         _draw_water_sources(debug_draw(), *scene);
-        if (p_live) play->physics_system.water.debug_draw_flow(debug_draw());
+        if (p_live) play->physics_system.water.debug_draw_flow(debug_draw(), ctx.renderer->main_view.camera.position);
     }
 
     if (ctx.selection) {

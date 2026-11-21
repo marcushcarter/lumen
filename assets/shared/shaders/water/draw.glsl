@@ -19,6 +19,18 @@ layout(push_constant, scalar) uniform Push {
     uint backdrop_index;
     uint width;
     uint height;
+    uint flags;
+    uint debug_mode;
 } pc;
+
+const uint WATER_FLAG_CAUSTICS = 1u;
+const uint WATER_DEBUG_NONE = 0u;
+const uint WATER_DEBUG_CAUSTICS = 1u;
+const uint WATER_DEBUG_DEPTH = 2u;
+const uint WATER_DEBUG_SPEED = 3u;
+const uint WATER_DEBUG_FOAM = 4u;
+const uint WATER_DEBUG_CURL = 5u;
+const uint WATER_DEBUG_FRESNEL = 6u;
+const uint WATER_DEBUG_THICKNESS = 7u;
 
 #endif

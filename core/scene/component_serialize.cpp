@@ -122,7 +122,8 @@ void serialize(Archive& a, TerrainSettings& r_c)
 
 void serialize(Archive& a, WaterSettings& r_c)
 {
-    a.field("enabled", r_c.enabled);
+    a.field("simulate", r_c.simulate);
+    a.field("render", r_c.render);
     a.field("cell_size", r_c.cell_size);
     a.field("substeps", r_c.substeps);
     a.field("sim_radius", r_c.sim_radius);
@@ -135,6 +136,7 @@ void serialize(Archive& a, WaterSettings& r_c)
     a.field("foam_decay", r_c.foam_decay);
     a.field("foam_gain", r_c.foam_gain);
     a.field("bed_probe", r_c.bed_probe);
+    a.field("caustics", r_c.caustics);
     a.field("buoyancy", r_c.buoyancy);
     a.field("drag", r_c.drag);
     a.field("push_water", r_c.push_water);

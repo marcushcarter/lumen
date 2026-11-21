@@ -96,6 +96,7 @@ struct WaterGpuLink
     uint32_t steps = 0;
     float lod_error = 0.01f;
     float min_quad = 0.25f;
+    bool caustics = true;
     float time = 0.0f;
 
     std::vector<WaterGpuResult> results;

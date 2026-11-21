@@ -208,9 +208,14 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         const WaterSettings* lw = live ? &live->water : nullptr;
         const auto on_off = [](bool p_on) { return p_on ? "On" : "Off"; };
         if (_section("Water Simulation")) {
-            _name("Enabled");
-            _check("##water_enabled", &water.enabled);
-            _live("%s", lw ? on_off(lw->enabled) : "-");
+            _name("Simulation");
+            _check("##water_simulate", &water.simulate);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Off freezes the water where it is. Buoyancy still works.");
+            _live("%s", lw ? on_off(lw->simulate) : "-");
+            _name("Rendering");
+            _check("##water_render", &water.render);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Off hides the water. The simulation keeps running.");
+            _live("%s", lw ? on_off(lw->render) : "-");
             _name("Cell Size");
             ImGui::DragFloat("##water_cell_size", &water.cell_size, 0.01f, 0.1f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Changing this restarts the simulation.");
@@ -253,6 +258,9 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::DragFloat("##water_bed_probe", &water.bed_probe, 0.1f, 0.5f, 200.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far above the terrain the riverbed rays start. Rocks taller than this block water like walls.");
             _live_float(lw, lw ? lw->bed_probe : 0.0f, " m");
+            _name("Caustics");
+            _check("##water_caustics", &water.caustics);
+            _live("%s", lw ? on_off(lw->caustics) : "-");
             _name("Buoyancy");
             _check("##water_buoyancy", &water.buoyancy);
             _live("%s", lw ? on_off(lw->buoyancy) : "-");

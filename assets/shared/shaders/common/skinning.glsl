@@ -32,7 +32,7 @@ layout(buffer_reference, scalar, buffer_reference_align = 16) buffer SkinCacheBu
     SkinNormalBuffer normals;
 };
 
-SkinRows skin_blend_from(readonly JointBuffer p_joint_rows, uint p_joint_base, uvec4 p_joints, vec4 p_weights, uint p_frame) {
+SkinRows skin_blend_from(JointBuffer p_joint_rows, uint p_joint_base, uvec4 p_joints, vec4 p_weights, uint p_frame) {
     SkinRows s;
     s.r0 = vec4(0.0);
     s.r1 = vec4(0.0);
@@ -48,7 +48,8 @@ SkinRows skin_blend_from(readonly JointBuffer p_joint_rows, uint p_joint_base, u
 }
 
 SkinRows skin_blend(CameraBuffer p_camera, uint p_joint_base, uvec4 p_joints, vec4 p_weights, uint p_frame) {
-    return skin_blend_from(p_camera.joints, p_joint_base, p_joints, p_weights, p_frame);
+    JointBuffer b = p_camera.joints;
+    return skin_blend_from(b, p_joint_base, p_joints, p_weights, p_frame);
 }
 
 SkinRows skin_vertex_rows(CameraBuffer p_camera, GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local, uint p_joint_base, uint p_frame) {

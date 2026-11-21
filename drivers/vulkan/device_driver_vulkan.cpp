@@ -360,6 +360,7 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     VkPhysicalDeviceVulkan13Features features_1_3{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
     features_1_3.dynamicRendering = VK_TRUE;
     features_1_3.synchronization2 = VK_TRUE;
+    features_1_3.shaderDemoteToHelperInvocation = VK_TRUE;
     features_1_3.subgroupSizeControl = capabilities.subgroup.size_control;
     features_1_3.computeFullSubgroups = capabilities.subgroup.compute_full;
     features_1_3.pNext = create_info_next;

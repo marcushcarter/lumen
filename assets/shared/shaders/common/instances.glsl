@@ -32,7 +32,7 @@ struct Transform {
 layout(buffer_reference, scalar) readonly buffer InstanceBuffer { Instance data[]; };
 layout(buffer_reference, scalar) readonly buffer TransformBuffer { Transform data[]; };
 layout(buffer_reference, scalar) readonly buffer SkinInstanceBuffer { SkinInstance data[]; };
-layout(buffer_reference, scalar, buffer_reference_align = 16) readonly buffer JointBuffer { vec4 data[]; };
+layout(buffer_reference, scalar, buffer_reference_align = 16) buffer JointBuffer { vec4 data[]; };
 
 float transform_max_scale(mat4 m) {
     return max(length(m[0].xyz), max(length(m[1].xyz), length(m[2].xyz)));

@@ -528,6 +528,18 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (playing) camera_drag.release();
     camera_input = playing ? OrbitCamera::Input{} : camera_drag.update(image_hovered, camera_ok);
     if (!camera_ok && !camera_drag.active()) camera_input.keys = false;
+    if (!game_captured) {
+        if (camera_drag.active() && !cursor_lock.active) cursor_lock.begin();
+        if (!camera_drag.active() && cursor_lock.active) cursor_lock.end();
+        if (cursor_lock.active) {
+            float dx = 0.0f;
+            float dy = 0.0f;
+            cursor_lock.take_delta(dx, dy);
+            if (camera_drag.rotating) camera_input.rotate = glm::vec2(dx, dy);
+            if (camera_drag.panning) camera_input.pan = glm::vec2(dx, dy);
+            ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+        }
+    }
     camera_view_height = p_size.y;
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 

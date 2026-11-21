@@ -76,7 +76,7 @@ struct ClusterStreams {
 
 layout(buffer_reference, scalar) readonly buffer MeshBuffer { Mesh data[]; };
 layout(buffer_reference, scalar) readonly buffer UintBuffer { uint data[]; };
-layout(buffer_reference, scalar) readonly buffer StreamBuffer { uint data[]; };
+layout(buffer_reference, scalar) buffer StreamBuffer { uint data[]; };
 layout(buffer_reference, scalar, buffer_reference_align = 16) readonly buffer ClusterStreamsBuffer { ClusterStreams data[]; };
 layout(buffer_reference, scalar) readonly buffer ClusterBoundsBuffer { uvec3 data[]; };
 
@@ -135,20 +135,23 @@ const uint STREAM_WEIGHT_BITS = 8u;
 const float STREAM_GRID_SCALE = 1.0 / 65535.0;
 const float STREAM_NORMAL_SCALE = 2.0 / 4095.0;
 
-uvec3 stream_window(readonly StreamBuffer p_stream, uint p_word) {
+uvec3 stream_window(StreamBuffer p_stream, uint p_word) {
     return uvec3(p_stream.data[p_word], p_stream.data[p_word + 1u], p_stream.data[p_word + 2u]);
 }
 
 uvec3 positions_window(GeometryBuffer p_geometry, uint p_word) {
-    return stream_window(p_geometry.positions, p_word);
+    StreamBuffer b = p_geometry.positions;
+    return stream_window(b, p_word);
 }
 
 uvec3 attributes_window(GeometryBuffer p_geometry, uint p_word) {
-    return stream_window(p_geometry.attributes, p_word);
+    StreamBuffer b = p_geometry.attributes;
+    return stream_window(b, p_word);
 }
 
 uvec3 skin_window(GeometryBuffer p_geometry, uint p_word) {
-    return stream_window(p_geometry.skin, p_word);
+    StreamBuffer b = p_geometry.skin;
+    return stream_window(b, p_word);
 }
 
 uint window_bits(uvec3 p_window, uint p_offset, uint p_count) {
@@ -170,7 +173,7 @@ uint cluster_vertex_count(ClusterStreams p_streams) {
     return p_streams.pos_lo_z_count >> 16u;
 }
 
-vec3 stream_position_from(readonly StreamBuffer p_positions, ClusterStreams p_streams, uint p_local, vec3 p_pos_min, vec3 p_pos_extent) {
+vec3 stream_position_from(StreamBuffer p_positions, ClusterStreams p_streams, uint p_local, vec3 p_pos_min, vec3 p_pos_extent) {
     const uint bx = p_streams.bits & 31u;
     const uint by = (p_streams.bits >> 5u) & 31u;
     const uint bz = (p_streams.bits >> 10u) & 31u;
@@ -183,7 +186,8 @@ vec3 stream_position_from(readonly StreamBuffer p_positions, ClusterStreams p_st
 }
 
 vec3 stream_position(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local, vec3 p_pos_min, vec3 p_pos_extent) {
-    return stream_position_from(p_geometry.positions, p_streams, p_local, p_pos_min, p_pos_extent);
+    StreamBuffer b = p_geometry.positions;
+    return stream_position_from(b, p_streams, p_local, p_pos_min, p_pos_extent);
 }
 
 uint stream_attribute_bit(ClusterStreams p_streams, uint p_local) {
@@ -192,7 +196,7 @@ uint stream_attribute_bit(ClusterStreams p_streams, uint p_local) {
     return p_local * (2u * STREAM_NORMAL_BITS + bu + bv);
 }
 
-vec2 stream_normal_oct_from(readonly StreamBuffer p_attributes, ClusterStreams p_streams, uint p_local) {
+vec2 stream_normal_oct_from(StreamBuffer p_attributes, ClusterStreams p_streams, uint p_local) {
     const uint bit = stream_attribute_bit(p_streams, p_local);
     const uint o = bit & 31u;
     const uint word = p_streams.attrib + (bit >> 5u);
@@ -204,7 +208,8 @@ vec2 stream_normal_oct_from(readonly StreamBuffer p_attributes, ClusterStreams p
 }
 
 vec2 stream_normal_oct(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local) {
-    return stream_normal_oct_from(p_geometry.attributes, p_streams, p_local);
+    StreamBuffer b = p_geometry.attributes;
+    return stream_normal_oct_from(b, p_streams, p_local);
 }
 
 vec2 stream_uv(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local, vec2 p_uv_min, vec2 p_uv_extent) {
@@ -217,7 +222,7 @@ vec2 stream_uv(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local
     return p_uv_min + vec2(q) * STREAM_GRID_SCALE * p_uv_extent;
 }
 
-void stream_skin_from(readonly StreamBuffer p_skin, ClusterStreams p_streams, uint p_local, out uvec4 r_joints, out vec4 r_weights) {
+void stream_skin_from(StreamBuffer p_skin, ClusterStreams p_streams, uint p_local, out uvec4 r_joints, out vec4 r_weights) {
     const uint influences = p_streams.skin_format & 7u;
     const uint joint_bits = (p_streams.skin_format >> 3u) & 15u;
     const uint joint_lo = (p_streams.skin_format >> 8u) & 0xFFu;
@@ -242,7 +247,8 @@ void stream_skin_from(readonly StreamBuffer p_skin, ClusterStreams p_streams, ui
 }
 
 void stream_skin(GeometryBuffer p_geometry, ClusterStreams p_streams, uint p_local, out uvec4 r_joints, out vec4 r_weights) {
-    stream_skin_from(p_geometry.skin, p_streams, p_local, r_joints, r_weights);
+    StreamBuffer b = p_geometry.skin;
+    stream_skin_from(b, p_streams, p_local, r_joints, r_weights);
 }
 
 bool ray_barycentrics(vec3 p_dir, vec3 p_0, vec3 p_1, vec3 p_2, out vec3 r_bary) {

@@ -50,7 +50,7 @@ struct WaterSettings
     float cell_size = 0.25f;
     uint32_t substeps = 2;
     float sim_radius = 48.0f;
-    float lod_error = 0.001f;
+    float lod_error = 0.003f;
     float manning = 0.032f;
     float vorticity = 1.6f;
     float vortex_min_depth = 0.08f;

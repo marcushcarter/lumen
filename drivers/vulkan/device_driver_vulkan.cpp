@@ -318,6 +318,7 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.descriptorBindingVariableDescriptorCount, FAILED, "GPU lacks descriptorBindingVariableDescriptorCount.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.shaderSampledImageArrayNonUniformIndexing, FAILED, "GPU lacks shaderSampledImageArrayNonUniformIndexing.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.shaderStorageImageArrayNonUniformIndexing, FAILED, "GPU lacks shaderStorageImageArrayNonUniformIndexing.");
+    LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.shaderFloat16, FAILED, "GPU lacks shaderFloat16, required for 16-bit water shading.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.scalarBlockLayout, FAILED, "GPU lacks scalarBlockLayout, required for POD SSBO struct layout.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.storageBuffer8BitAccess, FAILED, "GPU lacks storageBuffer8BitAccess, required for 8-bit skin data.");
     LUMEN_ERR_FAIL_COND_V_MSG(!supported_1_2.drawIndirectCount, FAILED, "GPU lacks drawIndirectCount, required for GPU-driven indirect-count draws.");
@@ -368,6 +369,7 @@ Error DeviceDriverVulkan::_initialize_device(const std::vector<VkDeviceQueueCrea
 
     VkPhysicalDeviceVulkan12Features features_1_2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     features_1_2.descriptorIndexing = VK_TRUE;
+    features_1_2.shaderFloat16 = VK_TRUE;
     features_1_2.runtimeDescriptorArray = VK_TRUE;
     features_1_2.bufferDeviceAddress = VK_TRUE;
     features_1_2.descriptorBindingPartiallyBound = VK_TRUE;

@@ -15,6 +15,7 @@ layout(push_constant, scalar) uniform Push {
     WaterItems items;
     WaterArgs args;
     WaterUints list;
+    WaterUints rect;
     uint count;
     uint capacity;
     float lod_error;
@@ -42,6 +43,31 @@ void main() {
     const float radius = length(bmax - center);
     if (frustum_cull_sphere(pc.camera, center, radius)) return;
     if (pc.hiz_enabled != 0u && hiz_occluded_box(pc.hiz_index, pc.hiz_mips, pc.screen, pc.camera.curr_view_proj, mat4(1.0), bmin, bmax - bmin)) return;
+    {
+        vec2 lo = vec2(1.0e30), hi = vec2(-1.0e30);
+        bool behind = false;
+        for (uint c = 0u; c < 8u; c++) {
+            const vec3 corner = vec3((c & 1u) != 0u ? bmax.x : bmin.x, (c & 2u) != 0u ? bmax.y : bmin.y, (c & 4u) != 0u ? bmax.z : bmin.z);
+            const vec4 h = pc.camera.curr_view_proj * vec4(corner, 1.0);
+            if (h.w <= 1.0e-4) {
+                behind = true;
+                break;
+            }
+            const vec2 px = (h.xy / h.w * 0.5 + 0.5) * pc.screen;
+            lo = min(lo, px);
+            hi = max(hi, px);
+        }
+        if (behind) {
+            lo = vec2(0.0);
+            hi = pc.screen - 1.0;
+        }
+        lo = clamp(lo, vec2(0.0), pc.screen - 1.0);
+        hi = clamp(hi, vec2(0.0), pc.screen - 1.0);
+        atomicMin(pc.rect.v[0], uint(lo.x));
+        atomicMin(pc.rect.v[1], uint(lo.y));
+        atomicMax(pc.rect.v[2], uint(hi.x));
+        atomicMax(pc.rect.v[3], uint(hi.y));
+    }
 
     const vec3 eye = pc.camera.position.xyz;
     const float d = length(clamp(eye, bmin, bmax) - eye);

@@ -1,0 +1,51 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
+
+layout(push_constant) uniform Push {
+    uint out_slot;
+    uint size;
+    float domain;
+} pc;
+
+const int OCTAVES = 4;
+
+float hash_wrapped(vec2 p_i, float p_period) {
+    const vec2 i = mod(p_i, p_period);
+    vec3 p3 = fract(vec3(i.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+vec3 noised(vec2 p_x, float p_period) {
+    const vec2 i = floor(p_x), f = fract(p_x);
+    const vec2 u = f * f * (3.0 - 2.0 * f);
+    const vec2 du = 6.0 * f * (1.0 - f);
+    const float a = hash_wrapped(i, p_period);
+    const float b = hash_wrapped(i + vec2(1, 0), p_period);
+    const float c = hash_wrapped(i + vec2(0, 1), p_period);
+    const float d = hash_wrapped(i + vec2(1, 1), p_period);
+    return vec3(a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y, du * (vec2(b - a, c - a) + (a - b - c + d) * u.yx));
+}
+
+void main() {
+    const uvec2 px = gl_GlobalInvocationID.xy;
+    if (px.x >= pc.size || px.y >= pc.size) return;
+    const vec2 p = (vec2(px) + 0.5) / float(pc.size) * pc.domain;
+    const float texels_per_unit = float(pc.size) / pc.domain;
+    vec3 s = vec3(0.0);
+    float a = 0.5;
+    float freq = 1.0;
+    for (int k = 0; k < OCTAVES; k++) {
+        const float w = clamp(texels_per_unit / freq * 0.5 - 1.0, 0.0, 1.0);
+        const vec2 offset = vec2(float(k) * 17.0, float(k) * 31.0);
+        const vec3 n = noised(p * freq + offset, pc.domain * freq);
+        s += a * vec3(mix(0.5, n.x, w), n.yz * freq * w);
+        freq *= 2.0;
+        a *= 0.5;
+    }
+    imageStore(u_storage_rgba16f[pc.out_slot], ivec2(px), vec4(s, 1.0));
+}

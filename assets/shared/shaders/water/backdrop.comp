@@ -11,19 +11,50 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_storage_rgba16f[];
 
+layout(buffer_reference, scalar) buffer RectBuffer { uint v[]; };
+
 layout(push_constant, scalar) uniform Push {
     CameraBuffer camera;
+    RectBuffer rect;
     uint color_index;
     uint depth_index;
     uint out_slot;
     uint width;
     uint height;
+    uint mode;
+    uint margin_x;
+    uint margin_y;
 } pc;
 
 const float SKY_DISTANCE = 65000.0;
 
+void rect_args() {
+    if (gl_LocalInvocationIndex != 0u) return;
+    RectBuffer r = pc.rect;
+    if (r.v[2] < r.v[0] || r.v[3] < r.v[1]) {
+        r.v[4] = 0u;
+        r.v[5] = 0u;
+        r.v[6] = 0u;
+        return;
+    }
+    const uint x0 = r.v[0] > pc.margin_x ? r.v[0] - pc.margin_x : 0u;
+    const uint y0 = r.v[1] > pc.margin_y ? r.v[1] - pc.margin_y : 0u;
+    const uint x1 = min(r.v[2] + pc.margin_x, pc.width - 1u);
+    const uint y1 = min(r.v[3] + pc.margin_y, pc.height - 1u);
+    r.v[0] = x0;
+    r.v[1] = y0;
+    r.v[4] = (x1 - x0 + 8u) / 8u;
+    r.v[5] = (y1 - y0 + 8u) / 8u;
+    r.v[6] = 1u;
+}
+
 void main() {
-    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (pc.mode == 0u) {
+        rect_args();
+        return;
+    }
+    RectBuffer r = pc.rect;
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy) + ivec2(int(r.v[0]), int(r.v[1]));
     if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
     const vec3 color = texelFetch(u_textures[pc.color_index], p, 0).rgb;
     const float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;

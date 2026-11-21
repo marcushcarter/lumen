@@ -21,7 +21,11 @@ layout(push_constant, scalar) uniform Push {
     uint height;
     uint flags;
     uint debug_mode;
+    uint noise_index;
+    uint noise_sampler;
 } pc;
+
+const float WATER_NOISE_DOMAIN = 16.0;
 
 const uint WATER_FLAG_CAUSTICS = 1u;
 const uint WATER_DEBUG_NONE = 0u;

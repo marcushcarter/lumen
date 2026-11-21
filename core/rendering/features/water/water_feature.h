@@ -13,6 +13,10 @@ struct WaterFeature : Feature
     static constexpr uint32_t LOD_LEVELS = 5;
     static constexpr uint32_t READBACK_MAX = WaterGpuLink::READBACK_TILES;
     static constexpr float STEP_DT = 1.0f / 60.0f;
+    static constexpr uint32_t NOISE_SIZE = 512;
+    static constexpr uint32_t NOISE_MIPS = 10;
+    static constexpr float NOISE_DOMAIN = 16.0f;
+    static constexpr float BACKDROP_MARGIN = 0.045f;
 
     struct Pending {
         uint64_t session = 0;
@@ -44,6 +48,11 @@ struct WaterFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline backdrop_pipe;
     drivers::DeviceDriverVulkan::Pipeline draw_pipe;
     drivers::DeviceDriverVulkan::Pipeline debug_pipe;
+    drivers::DeviceDriverVulkan::Pipeline noise_pipe;
+    drivers::DeviceDriverVulkan::Image noise;
+    drivers::DeviceDriverVulkan::Sampler noise_sampler;
+    bool _noise_ready = false;
+    Buffer rect;
 
     uint64_t layout = 0;
     uint32_t capacity = 0;
@@ -86,6 +95,7 @@ struct WaterFeature : Feature
     void _parse_readback(uint32_t p_frame, WaterGpuLink& r_link);
     void _record(RenderGraph::CommandList& cl, WaterGpuLink& r_link);
     void _create_passes();
+    void _generate_noise(RenderGraph::CommandList& cl);
     void _draw_setup(RenderGraph::Builder& b);
     void _draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_mode);
     void add_debug(RenderGraph& g, uint32_t p_mode);

@@ -179,77 +179,91 @@ void OutlineFeature::_create_outline_pass()
         if (pass_mask) b.read_image("SelectionMask", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         b.write_image(editor_overlay_target(*b.graph), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
-    outline_pass.execute = [this](RenderGraph::CommandList& cl) {
-        auto* vis = cl.graph->image("G_Visibility");
-        auto* depth = cl.graph->image("G_Depth");
-        auto* refs = cl.graph->buffer("ClusterRefs");
-        auto* instances = cl.graph->buffer("Instances");
-        auto* mask = cl.graph->buffer("SelectionWords");
-        auto* out = cl.graph->image(editor_overlay_target(*cl.graph));
-        if (!vis || !depth || !refs || !instances || !mask || !out) return;
-
-        struct Push {
-            VkDeviceAddress cluster_refs_addr;
-            VkDeviceAddress instances_addr;
-            VkDeviceAddress mask_addr;
-            float color[4];
-            uint32_t vis_index;
-            uint32_t depth_index;
-            uint32_t out_slot;
-            int32_t radius;
-            uint32_t rect[4];
-            uint32_t size[2];
-            uint32_t vis_size[2];
-            uint32_t hover;
-            uint32_t hover_pixel[2];
-            uint32_t terrain;
-            uint32_t mask_index;
-            uint32_t mask_size[2];
-            float hidden_alpha;
-        } pc{};
-        static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
-
-        const VkExtent2D extent = out->extent;
-        const float pad = (float)std::clamp(radius, 1, 8) + 1.0f;
-        const float x0 = std::floor(pass_rect_min.x * (float)extent.width - pad);
-        const float y0 = std::floor(pass_rect_min.y * (float)extent.height - pad);
-        const float x1 = std::ceil(pass_rect_max.x * (float)extent.width + pad);
-        const float y1 = std::ceil(pass_rect_max.y * (float)extent.height + pad);
-        pc.rect[0] = (uint32_t)std::clamp(x0, 0.0f, (float)extent.width);
-        pc.rect[1] = (uint32_t)std::clamp(y0, 0.0f, (float)extent.height);
-        pc.rect[2] = (uint32_t)std::clamp(x1, 0.0f, (float)extent.width);
-        pc.rect[3] = (uint32_t)std::clamp(y1, 0.0f, (float)extent.height);
-        if (!(pc.rect[2] > pc.rect[0] && pc.rect[3] > pc.rect[1])) return;
-        pc.cluster_refs_addr = refs->device_address;
-        pc.instances_addr = instances->device_address;
-        pc.mask_addr = mask->device_address;
-        const glm::vec4 c = pass_hover ? hover_color : color;
-        pc.color[0] = c.r;
-        pc.color[1] = c.g;
-        pc.color[2] = c.b;
-        pc.color[3] = c.a;
-        pc.hover = pass_hover ? 1u : 0u;
-        pc.terrain = terrain && !pass_hover ? 1u : 0u;
-        auto* mask_image = pass_mask ? cl.graph->image("SelectionMask") : nullptr;
-        pc.mask_index = mask_image ? mask_image->bindless_sampled : 0xFFFFFFFFu;
-        pc.mask_size[0] = mask_image ? mask_image->extent.width : 0u;
-        pc.mask_size[1] = mask_image ? mask_image->extent.height : 0u;
-        pc.hidden_alpha = hidden_alpha;
-        pc.hover_pixel[0] = std::min((uint32_t)(std::clamp(pass_hover_uv.x, 0.0f, 1.0f) * (float)vis->extent.width), vis->extent.width - 1);
-        pc.hover_pixel[1] = std::min((uint32_t)(std::clamp(pass_hover_uv.y, 0.0f, 1.0f) * (float)vis->extent.height), vis->extent.height - 1);
-        pc.vis_index = vis->bindless_sampled;
-        pc.depth_index = depth->bindless_sampled;
-        pc.out_slot = out->bindless_storage;
-        pc.radius = std::clamp(radius, 1, 8);
-        pc.size[0] = extent.width;
-        pc.size[1] = extent.height;
-        pc.vis_size[0] = vis->extent.width;
-        pc.vis_size[1] = vis->extent.height;
-
-        cl.dd->command_bind_pipeline(cl.cmd, outline_pipe);
-        cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Selection outline", (pc.rect[2] - pc.rect[0] + 7) / 8, (pc.rect[3] - pc.rect[1] + 7) / 8);
+    outline_pass.execute = [this](RenderGraph::CommandList& cl) { _dispatch(cl, false); };
+    hover_pass.name = "HoverOutline";
+    hover_pass.category = PASS_CATEGORY_EDITOR;
+    hover_pass.setup = [](RenderGraph::Builder& b) {
+        b.read_image("G_Visibility", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_image("G_Depth", VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        b.read_buffer("ClusterRefs", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer("Instances", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.read_buffer("SelectionWords", VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        b.write_image(editor_overlay_target(*b.graph), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     };
+    hover_pass.execute = [this](RenderGraph::CommandList& cl) { _dispatch(cl, true); };
+}
+
+void OutlineFeature::_dispatch(RenderGraph::CommandList& cl, bool p_hover)
+{
+    auto* vis = cl.graph->image("G_Visibility");
+    auto* depth = cl.graph->image("G_Depth");
+    auto* refs = cl.graph->buffer("ClusterRefs");
+    auto* instances = cl.graph->buffer("Instances");
+    auto* mask = cl.graph->buffer("SelectionWords");
+    auto* out = cl.graph->image(editor_overlay_target(*cl.graph));
+    if (!vis || !depth || !refs || !instances || !mask || !out) return;
+
+    struct Push {
+        VkDeviceAddress cluster_refs_addr;
+        VkDeviceAddress instances_addr;
+        VkDeviceAddress mask_addr;
+        float color[4];
+        uint32_t vis_index;
+        uint32_t depth_index;
+        uint32_t out_slot;
+        int32_t radius;
+        uint32_t rect[4];
+        uint32_t size[2];
+        uint32_t vis_size[2];
+        uint32_t hover;
+        uint32_t hover_pixel[2];
+        uint32_t mask_index;
+        uint32_t mask_size[2];
+        float hidden_alpha;
+    } pc{};
+    static_assert(sizeof(Push) <= drivers::DeviceDriverVulkan::BindlessHeap::PUSH_CONSTANT_SIZE);
+
+    const VkExtent2D extent = out->extent;
+    const float pad = (float)std::clamp(radius, 1, 8) + 1.0f;
+    const glm::vec2 rect_lo = p_hover ? glm::vec2(0.0f) : pass_rect_min;
+    const glm::vec2 rect_hi = p_hover ? glm::vec2(1.0f) : pass_rect_max;
+    const float x0 = std::floor(rect_lo.x * (float)extent.width - pad);
+    const float y0 = std::floor(rect_lo.y * (float)extent.height - pad);
+    const float x1 = std::ceil(rect_hi.x * (float)extent.width + pad);
+    const float y1 = std::ceil(rect_hi.y * (float)extent.height + pad);
+    pc.rect[0] = (uint32_t)std::clamp(x0, 0.0f, (float)extent.width);
+    pc.rect[1] = (uint32_t)std::clamp(y0, 0.0f, (float)extent.height);
+    pc.rect[2] = (uint32_t)std::clamp(x1, 0.0f, (float)extent.width);
+    pc.rect[3] = (uint32_t)std::clamp(y1, 0.0f, (float)extent.height);
+    if (!(pc.rect[2] > pc.rect[0] && pc.rect[3] > pc.rect[1])) return;
+    pc.cluster_refs_addr = refs->device_address;
+    pc.instances_addr = instances->device_address;
+    pc.mask_addr = mask->device_address;
+    const glm::vec4 c = p_hover ? hover_color : color;
+    pc.color[0] = c.r;
+    pc.color[1] = c.g;
+    pc.color[2] = c.b;
+    pc.color[3] = c.a;
+    pc.hover = p_hover ? 1u : 0u;
+    auto* mask_image = pass_mask && !p_hover ? cl.graph->image("SelectionMask") : nullptr;
+    pc.mask_index = mask_image ? mask_image->bindless_sampled : 0xFFFFFFFFu;
+    pc.mask_size[0] = mask_image ? mask_image->extent.width : 0u;
+    pc.mask_size[1] = mask_image ? mask_image->extent.height : 0u;
+    pc.hidden_alpha = hidden_alpha;
+    pc.hover_pixel[0] = std::min((uint32_t)(std::clamp(pass_hover_uv.x, 0.0f, 1.0f) * (float)vis->extent.width), vis->extent.width - 1);
+    pc.hover_pixel[1] = std::min((uint32_t)(std::clamp(pass_hover_uv.y, 0.0f, 1.0f) * (float)vis->extent.height), vis->extent.height - 1);
+    pc.vis_index = vis->bindless_sampled;
+    pc.depth_index = depth->bindless_sampled;
+    pc.out_slot = out->bindless_storage;
+    pc.radius = std::clamp(radius, 1, 8);
+    pc.size[0] = extent.width;
+    pc.size[1] = extent.height;
+    pc.vis_size[0] = vis->extent.width;
+    pc.vis_size[1] = vis->extent.height;
+
+    cl.dd->command_bind_pipeline(cl.cmd, outline_pipe);
+    cl.dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+    cl.dispatch(p_hover ? "Hover outline" : "Selection outline", (pc.rect[2] - pc.rect[0] + 7) / 8, (pc.rect[3] - pc.rect[1] + 7) / 8);
 }
 
 Error OutlineFeature::create_resources()
@@ -326,9 +340,10 @@ void OutlineFeature::destroy_resources()
 void OutlineFeature::build(RenderGraph& g)
 {
     if (mask_buffers.empty()) return;
-    const bool any_selected = selected_count != 0 || terrain;
-    const bool hovering = !any_selected && hover;
-    if (!hovering && (!any_selected || rect_max.x <= rect_min.x || rect_max.y <= rect_min.y)) return;
+    const bool any_selected = selected_count != 0;
+    const bool hovering = hover;
+    const bool outlining = any_selected && rect_max.x > rect_min.x && rect_max.y > rect_min.y;
+    if (!hovering && !outlining) return;
     if (!editor_overlay_target(g) || !g.image_resource("G_Visibility") || !g.image_resource("G_Depth") || !g.buffer_resource("ClusterRefs") || !g.buffer_resource("Instances")) return;
 
     const uint32_t slot = g.current_frame;
@@ -354,7 +369,7 @@ void OutlineFeature::build(RenderGraph& g)
         slot_version[slot] = version;
     }
     pass_mask = false;
-    if (!hovering && selected_count != 0 && !terrain && !mask_slots.empty() && ctx->frame && ctx->geometry) {
+    if (outlining && !mask_slots.empty() && ctx->frame && ctx->geometry) {
         MaskSlot& ms = mask_slots[slot % mask_slots.size()];
         _gather_mask(ms);
         if (mask_count != 0) {
@@ -367,13 +382,13 @@ void OutlineFeature::build(RenderGraph& g)
             g.add(&mask_draw_pass);
         }
     }
-    pass_hover = hovering;
     pass_hover_uv = hover_uv;
-    pass_rect_min = hovering ? glm::vec2(0.0f) : rect_min;
-    pass_rect_max = hovering ? glm::vec2(1.0f) : rect_max;
+    pass_rect_min = rect_min;
+    pass_rect_max = rect_max;
 
     g.import_buffer("SelectionWords", &buf, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-    g.add(&outline_pass);
+    if (hovering) g.add(&hover_pass);
+    if (outlining) g.add(&outline_pass);
 }
 
 }

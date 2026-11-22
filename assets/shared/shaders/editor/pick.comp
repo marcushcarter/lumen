@@ -26,7 +26,6 @@ layout(push_constant) uniform Push {
 } pc;
 
 const uint PICK_NONE = 0xFFFFFFFFu;
-const uint PICK_TERRAIN = 0xFFFFFFFEu;
 
 void main() {
     ivec2 coord = ivec2(pc.x, pc.y);
@@ -34,9 +33,7 @@ void main() {
     float depth = texelFetch(u_textures[nonuniformEXT(pc.depth_index)], coord, 0).r;
     if (depth != 0.0) {
         uint v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], coord, 0).x;
-        if (vis_is_terrain(v)) {
-            entity = PICK_TERRAIN;
-        } else {
+        if (!vis_is_terrain(v)) {
             uvec2 ref = pc.cluster_refs.data[vis_cluster_ref(v)];
             entity = pc.instances.data[ref.x].entity_id;
         }

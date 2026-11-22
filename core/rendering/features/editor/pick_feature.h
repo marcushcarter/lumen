@@ -8,7 +8,6 @@ namespace lumen {
 struct PickFeature : Feature
 {
     static constexpr uint32_t NONE = 0xFFFFFFFF;
-    static constexpr uint32_t TERRAIN = 0xFFFFFFFE;
 
     RenderGraph::Pass pick_pass;
     drivers::DeviceDriverVulkan::Pipeline pick_pipe;

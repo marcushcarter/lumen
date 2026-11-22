@@ -433,16 +433,12 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (drop.active && (pick_ready || ++drop.frames > DROP_TIMEOUT_FRAMES)) _finish_drop(ctx, picked_depth, pick_ready);
     else if (pick_ready) {
         Scene& world = *ctx.scene;
-        if (picked == PickFeature::TERRAIN) {
-            ctx.selection->select_terrain();
-        } else {
-            Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
-            const Entity root = template_root_of(world, e);
-            const Entity primary = ctx.selection->primary();
-            if (root != ENTITY_NULL && primary != e && primary != root && template_root_of(world, primary) != root) e = root;
-            ctx.selection->clear();
-            if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
-        }
+        Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
+        const Entity root = template_root_of(world, e);
+        const Entity primary = ctx.selection->primary();
+        if (root != ENTITY_NULL && primary != e && primary != root && template_root_of(world, primary) != root) e = root;
+        ctx.selection->clear();
+        if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
     }
 
     const bool outline_on = !playing && !sim_mode;
@@ -461,8 +457,6 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
             ctx.render_path->outline.source_version = ctx.selection->version;
         }
     }
-    if (ctx.render_path) ctx.render_path->outline.terrain = outline_on && ctx.selection && ctx.selection->terrain;
-    if (outline_on && ctx.render_path && ctx.selection && ctx.selection->terrain) ctx.render_path->outline.set_rect(vec2(0.0f), vec2(1.0f));
     if (outline_on && ctx.render_path && ctx.scene && ctx.selection && !ctx.selection->entities.empty()) {
         if (live) _outline_rect(ctx, ctx.render_path->outline, play->runtime, _view_selection);
         else _outline_rect(ctx, ctx.render_path->outline, *ctx.scene, ctx.selection->entities);
@@ -559,9 +553,8 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     }
     camera_view_height = p_size.y;
     if (ctx.render_path) {
-        const bool nothing_selected = !ctx.selection || (ctx.selection->entities.empty() && !ctx.selection->terrain);
         const bool mouse_free = !ImGui::IsAnyMouseDown() && !camera_drag.active() && !cursor_lock.active;
-        const bool hover_on = outline_on && nothing_selected && image_hovered && mouse_free && !sim_mode && !gizmo_hot && !popup_open_last_frame && !drop.active;
+        const bool hover_on = outline_on && image_hovered && mouse_free && !sim_mode && !gizmo_hot && !popup_open_last_frame && !drop.active;
         ctx.render_path->outline.set_hover(hover_on, vec2((mouse.x - p_pos.x) / p_size.x, 1.0f - (mouse.y - p_pos.y) / p_size.y));
     }
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);

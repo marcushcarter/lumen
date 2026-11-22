@@ -11,7 +11,6 @@
 const int TILE = 8;
 const int MAX_RADIUS = 8;
 const int MAX_SIDE = TILE + 2 * MAX_RADIUS;
-const uint TERRAIN_ID = 0xFFFFFFFFu;
 
 layout(local_size_x = TILE, local_size_y = TILE) in;
 
@@ -35,7 +34,6 @@ layout(push_constant, scalar) uniform Push {
     uvec2 vis_size;
     uint hover;
     uvec2 hover_pixel;
-    uint terrain;
     uint mask_index;
     uvec2 mask_size;
     float hidden_alpha;
@@ -48,8 +46,7 @@ shared uint s_hover;
 uint entity_at(ivec2 p_vis_pixel) {
     if (texelFetch(u_textures[nonuniformEXT(pc.depth_index)], p_vis_pixel, 0).r == 0.0) return 0u;
     const uint v = texelFetch(u_textures_uint[nonuniformEXT(pc.vis_index)], p_vis_pixel, 0).r;
-    if (vis_is_empty(v)) return 0u;
-    if (vis_is_terrain(v)) return TERRAIN_ID;
+    if (vis_is_empty(v) || vis_is_terrain(v)) return 0u;
     return pc.instances.data[pc.cluster_refs.data[vis_cluster_ref(v)].x].entity_id + 1u;
 }
 
@@ -66,13 +63,17 @@ uint mask_state(ivec2 p_pixel) {
     return sd > md * MASK_HIDDEN_RATIO ? MASK_HIDDEN : MASK_VISIBLE;
 }
 
+bool is_selected(uint p_id) {
+    if (p_id == 0u) return false;
+    return selection_contains(pc.mask, p_id - 1u);
+}
+
 uint selected_id(ivec2 p_pixel) {
     if (pc.mask_index != 0xFFFFFFFFu) return mask_state(p_pixel);
     const ivec2 sp = ivec2((vec2(p_pixel) + 0.5) * vec2(pc.vis_size) / vec2(pc.size));
     const uint id = entity_at(sp);
     if (id == 0u) return 0u;
     if (pc.hover != 0u) return id == s_hover ? id : 0u;
-    if (id == TERRAIN_ID) return pc.terrain != 0u ? id : 0u;
     return selection_contains(pc.mask, id - 1u) ? id : 0u;
 }
 
@@ -86,6 +87,7 @@ void main() {
     if (gl_LocalInvocationIndex == 0u) {
         s_any = 0u;
         s_hover = pc.hover != 0u ? entity_at(ivec2(pc.hover_pixel)) : 0u;
+        if (is_selected(s_hover)) s_hover = 0u;
     }
     barrier();
     if (pc.hover != 0u && s_hover == 0u) return;
@@ -106,6 +108,7 @@ void main() {
 
     const ivec2 l = ivec2(gl_LocalInvocationID.xy) + r;
     const uint self_id = s_ids[l.y * side + l.x];
+    if (pc.hover != 0u && is_selected(entity_at(ivec2((vec2(p) + 0.5) * vec2(pc.vis_size) / vec2(pc.size))))) return;
     if (pc.mask_index != 0xFFFFFFFFu) {
         if (self_id != 0u) return;
         int best_visible = 0x7FFFFFFF;

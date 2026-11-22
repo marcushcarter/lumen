@@ -40,7 +40,6 @@ struct OutlineFeature : Feature
 
     std::vector<uint32_t> words;
     uint32_t selected_count = 0;
-    bool terrain = false;
     uint64_t version = 0;
     uint64_t source_version = UINT64_MAX;
 
@@ -57,7 +56,6 @@ struct OutlineFeature : Feature
 
     bool hover = false;
     glm::vec2 hover_uv = glm::vec2(0.0f);
-    bool pass_hover = false;
     glm::vec2 pass_hover_uv = glm::vec2(0.0f);
 
     glm::vec2 rect_min = glm::vec2(0.0f);
@@ -66,6 +64,7 @@ struct OutlineFeature : Feature
     glm::vec2 pass_rect_max = glm::vec2(1.0f);
 
     RenderGraph::Pass outline_pass;
+    RenderGraph::Pass hover_pass;
     RenderGraph::Pass mask_reset_pass;
     RenderGraph::Pass mask_select_pass;
     RenderGraph::Pass mask_draw_pass;
@@ -74,6 +73,7 @@ struct OutlineFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline mask_draw_pipe;
 
     void _create_outline_pass();
+    void _dispatch(RenderGraph::CommandList& cl, bool p_hover);
     void _create_mask_passes();
     bool _selected(uint32_t p_entity) const;
     void _gather_mask(MaskSlot& r_slot);

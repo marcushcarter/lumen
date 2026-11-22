@@ -514,6 +514,14 @@ void RenderGraph::CommandList::dispatch(std::string_view p_name, uint32_t p_x, u
     graph->gpu_profiler.dispatch_end(cmd);
 }
 
+void RenderGraph::CommandList::breadcrumb(std::string_view p_name)
+{
+    if (!graph->breadcrumbs) return;
+    std::vector<std::string>& names = graph->_breadcrumb_names[graph->current_frame];
+    names.push_back(std::string(graph->nodes[node_index].pass->name) + " / " + std::string(p_name));
+    graph->_breadcrumb_mark(cmd, (uint32_t)names.size() - 1);
+}
+
 void RenderGraph::CommandList::dispatch_indirect(std::string_view p_name, const drivers::DeviceDriverVulkan::Buffer& p_indirect, uint64_t p_offset)
 {
     graph->gpu_profiler.dispatch_begin(cmd, p_name, "Indirect Dispatch");

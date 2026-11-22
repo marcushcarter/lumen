@@ -39,8 +39,14 @@ void rect_args() {
     }
     const uint x0 = r.v[0] > pc.margin_x ? r.v[0] - pc.margin_x : 0u;
     const uint y0 = r.v[1] > pc.margin_y ? r.v[1] - pc.margin_y : 0u;
-    const uint x1 = min(r.v[2] + pc.margin_x, pc.width - 1u);
-    const uint y1 = min(r.v[3] + pc.margin_y, pc.height - 1u);
+    const uint x1 = min(min(r.v[2], pc.width - 1u) + pc.margin_x, pc.width - 1u);
+    const uint y1 = min(min(r.v[3], pc.height - 1u) + pc.margin_y, pc.height - 1u);
+    if (x1 < x0 || y1 < y0) {
+        r.v[4] = 0u;
+        r.v[5] = 0u;
+        r.v[6] = 0u;
+        return;
+    }
     r.v[0] = x0;
     r.v[1] = y0;
     r.v[4] = (x1 - x0 + 8u) / 8u;

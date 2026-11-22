@@ -56,11 +56,14 @@ struct WaterDrawPush
     uint32_t debug_mode;
     uint32_t noise_index;
     uint32_t noise_sampler;
+    uint32_t detail_index;
     uint32_t ripple_index;
     int32_t ripple_size;
     float ripple_cell;
     float ripple_center[2];
+    uint32_t item_count;
 };
+static_assert(sizeof(WaterDrawPush) == 104);
 
 struct WaterBackdropPush
 {
@@ -84,7 +87,7 @@ struct WaterRipplePush
 struct WaterNoisePush
 {
     uint32_t out_slot, size;
-    float domain;
+    float domain, layer_scale, layer_weight;
 };
 
 static constexpr uint32_t RECT_RESET[8] = { 0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u, 0u, 1u, 1u, 0u };
@@ -196,6 +199,7 @@ void WaterFeature::_ensure_sim(VkCommandBuffer p_cmd, const WaterGpuLink& p_link
         const VkBufferCopy sr{ 0, 0, (VkDeviceSize)capacity * sizeof(uint32_t) };
         vkCmdCopyBuffer(p_cmd, stats.buffer, st.buffer, 1, &sr);
     }
+    _barrier(p_cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     _reset_sim();
     state = wide;
     state16 = half;
@@ -373,7 +377,10 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     const VkDeviceAddress ripple_sources = hw.put(r_link.ripples.data(), r_link.ripples.size());
     ctx->dd->buffer_flush(hb, 0, hw.offset);
 
-    if (steps) vkCmdFillBuffer(cmd, stats.buffer, 0, VK_WHOLE_SIZE, 0u);
+    if (steps) {
+        _barrier(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        vkCmdFillBuffer(cmd, stats.buffer, 0, VK_WHOLE_SIZE, 0u);
+    }
     _all_barrier(cmd);
 
     const uint32_t flags = prm.vorticity > 0.0f ? FLAG_VORTEX : 0u;
@@ -382,6 +389,9 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
         WaterSimPush pc{ info_addr, p_pass, p_dt, flags, 0u };
         ctx->dd->command_bind_push_constants(cmd, sizeof(pc), &pc);
         cl.dispatch("Water", p_groups, 1, 1);
+        static constexpr const char* PASS_NAMES[] = { "init", "events", "ghost", "advect", "curlforce", "fluxlimit", "height", "velocity", "sources", "foam", "gather", "drain" };
+        _compute_barrier(cmd);
+        cl.breadcrumb(p_pass < std::size(PASS_NAMES) ? PASS_NAMES[p_pass] : "?");
         _compute_barrier(cmd);
     };
     const auto groups256 = [](size_t p_count) { return (uint32_t)((p_count + 255) / 256); };
@@ -471,6 +481,8 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
         VkDeviceAddress surface_push = info_addr;
         ctx->dd->command_bind_push_constants(cmd, sizeof(surface_push), &surface_push);
         cl.dispatch("Water Surface", (uint32_t)r_link.surface.size(), 1, 1);
+        _compute_barrier(cmd);
+        cl.breadcrumb("surface");
     }
     _all_barrier(cmd);
 
@@ -526,7 +538,9 @@ void WaterFeature::_record(RenderGraph::CommandList& cl, WaterGpuLink& r_link)
     ctx->dd->command_bind_pipeline(cmd, cull_pipe);
     ctx->dd->command_bind_push_constants(cmd, sizeof(cp), &cp);
     cl.dispatch("Water Cull", (_item_count + 63) / 64, 1, 1);
-    _barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    _compute_barrier(cmd);
+    cl.breadcrumb("cull");
+    _barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 }
 
 void WaterFeature::_ripple_transition(VkCommandBuffer p_cmd, uint32_t p_index, VkImageLayout p_layout)
@@ -554,6 +568,15 @@ void WaterFeature::_run_ripples(RenderGraph::CommandList& cl, const WaterGpuLink
 {
     const uint32_t steps = std::min(p_link.ripple_steps, WaterGpuLink::MAX_STEPS);
     if (!steps || !ripple[0].image || !ripple[1].image) return;
+    if (p_link.ripples.empty()) {
+        if (_ripple_quiet >= RIPPLE_SLEEP_FRAMES) {
+            _ripple_valid = false;
+            return;
+        }
+        _ripple_quiet++;
+    } else {
+        _ripple_quiet = 0;
+    }
     VkCommandBuffer cmd = cl.cmd;
     _ripple_transition(cmd, 0, VK_IMAGE_LAYOUT_GENERAL);
     _ripple_transition(cmd, 1, VK_IMAGE_LAYOUT_GENERAL);
@@ -578,6 +601,8 @@ void WaterFeature::_run_ripples(RenderGraph::CommandList& cl, const WaterGpuLink
         ctx->dd->command_bind_push_constants(cmd, sizeof(pc), &pc);
         cl.dispatch("Water Ripple", RIPPLE_SIZE / 8, RIPPLE_SIZE / 8, 1);
         _compute_barrier(cmd);
+        cl.breadcrumb("ripple");
+        _compute_barrier(cmd);
         _ripple_origin = origin;
         _ripple_cur = 1 - _ripple_cur;
     }
@@ -588,34 +613,42 @@ void WaterFeature::_run_ripples(RenderGraph::CommandList& cl, const WaterGpuLink
 
 void WaterFeature::_generate_noise(RenderGraph::CommandList& cl)
 {
-    if (!noise.image) return;
-    VkImageMemoryBarrier2 ib{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-    ib.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    ib.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    ib.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    ib.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    ib.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    ib.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    ib.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    ib.image = noise.image;
-    ib.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, NOISE_MIPS, 0, 1 };
+    if (!noise.image || !detail.image) return;
+    const drivers::DeviceDriverVulkan::Image* images[2] = { &noise, &detail };
+    VkImageMemoryBarrier2 ib[2] = {};
+    for (uint32_t i = 0; i < 2; i++) {
+        ib[i] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        ib[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        ib[i].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        ib[i].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        ib[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ib[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        ib[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ib[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ib[i].image = images[i]->image;
+        ib[i].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, NOISE_MIPS, 0, 1 };
+    }
     VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &ib;
+    dep.imageMemoryBarrierCount = 2;
+    dep.pImageMemoryBarriers = ib;
     vkCmdPipelineBarrier2(cl.cmd, &dep);
     ctx->dd->command_bind_pipeline(cl.cmd, noise_pipe);
-    for (uint32_t m = 0; m < NOISE_MIPS && m < (uint32_t)noise.mip_storage_slots.size(); m++) {
-        const uint32_t size = std::max(NOISE_SIZE >> m, 1u);
-        WaterNoisePush pc{ noise.mip_storage_slots[m], size, NOISE_DOMAIN };
-        ctx->dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
-        cl.dispatch("Water Noise", (size + 7) / 8, (size + 7) / 8, 1);
+    for (uint32_t i = 0; i < 2; i++) {
+        for (uint32_t m = 0; m < NOISE_MIPS && m < (uint32_t)images[i]->mip_storage_slots.size(); m++) {
+            const uint32_t size = std::max(NOISE_SIZE >> m, 1u);
+            WaterNoisePush pc{ images[i]->mip_storage_slots[m], size, NOISE_DOMAIN, DETAIL_LAYER_SCALE, i == 1 ? DETAIL_LAYER_WEIGHT : 0.0f };
+            ctx->dd->command_bind_push_constants(cl.cmd, sizeof(pc), &pc);
+            cl.dispatch("Water Noise", (size + 7) / 8, (size + 7) / 8, 1);
+        }
     }
-    ib.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    ib.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    ib.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    ib.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    ib.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    ib.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    for (uint32_t i = 0; i < 2; i++) {
+        ib[i].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        ib[i].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        ib[i].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        ib[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        ib[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        ib[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
     vkCmdPipelineBarrier2(cl.cmd, &dep);
     _noise_ready = true;
 }
@@ -737,6 +770,7 @@ void WaterFeature::_draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_
     pc.list = list.device_address;
     pc.light = light->device_address;
     pc.capacity = _draw_capacity;
+    pc.item_count = _item_count;
     pc.lod_error = _lod_error;
     pc.time = _time;
     pc.backdrop_index = backdrop->bindless_sampled;
@@ -746,6 +780,7 @@ void WaterFeature::_draw_execute(RenderGraph::CommandList& cl, uint32_t p_debug_
     pc.debug_mode = p_debug_mode;
     pc.noise_index = noise.bindless_sampled;
     pc.noise_sampler = noise_sampler.bindless_sampler;
+    pc.detail_index = detail.bindless_sampled;
     pc.ripple_index = _ripple_valid ? ripple[_ripple_cur].bindless_sampled : UINT32_MAX;
     pc.ripple_size = RIPPLE_SIZE;
     pc.ripple_cell = RIPPLE_CELL;
@@ -803,6 +838,9 @@ Error WaterFeature::create_resources()
     noise_ci.name = "water_noise";
     noise = ctx->dd->image_create_dedicated(noise_ci, { NOISE_SIZE, NOISE_SIZE });
     LUMEN_ERR_FAIL_COND_V(!noise.image, Error::FAILED);
+    noise_ci.name = "water_detail";
+    detail = ctx->dd->image_create_dedicated(noise_ci, { NOISE_SIZE, NOISE_SIZE });
+    LUMEN_ERR_FAIL_COND_V(!detail.image, Error::FAILED);
     drivers::DeviceDriverVulkan::SamplerCreateInfo noise_sampler_ci{};
     noise_sampler_ci.filter = VK_FILTER_LINEAR;
     noise_sampler_ci.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
@@ -885,6 +923,8 @@ void WaterFeature::destroy_resources()
     _ripple_valid = false;
     if (noise.image) ctx->dd->image_free(noise);
     noise = {};
+    if (detail.image) ctx->dd->image_free(detail);
+    detail = {};
     ctx->dd->sampler_free(noise_sampler);
     _noise_ready = false;
     _retire(rect);

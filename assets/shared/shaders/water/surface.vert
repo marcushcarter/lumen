@@ -78,6 +78,17 @@ void main() {
     const uint entry_index = uint(gl_InstanceIndex);
     const uint level = entry_index / pc.capacity;
     const uint entry = pc.list.v[entry_index];
+    if ((entry >> 4u) >= pc.item_count || level >= WATER_LOD_LEVELS) {
+        v_sample = vec2(0.0);
+        v_item = 0u;
+        v_world = vec3(0.0);
+        v_flow = vec2(0.0);
+        v_foam = 0.0;
+        v_depth = 0.0;
+        v_curl = 0.0;
+        gl_Position = vec4(0.0);
+        return;
+    }
     WaterItem it = pc.items.v[entry >> 4u];
     const uvec2 block = uvec2(entry & 3u, (entry >> 2u) & 3u);
     const uint qb = 1u << level;

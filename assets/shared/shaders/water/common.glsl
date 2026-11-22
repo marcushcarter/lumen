@@ -95,7 +95,7 @@ const float W_FALL_SLOPE = 2.0;
 const float W_FALL_MIN = 0.3;
 const int W_SHORE_REACH = 2;
 const int W_EXT_REACH = 4;
-const float W_SURFACE_BLEND = 0.35;
+const float W_SURFACE_BLEND = 0.58;
 
 const float SAMPLE_INVALID = 0.0;
 const float SAMPLE_HIDDEN = 1.0;

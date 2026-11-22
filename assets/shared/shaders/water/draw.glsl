@@ -23,10 +23,12 @@ layout(push_constant, scalar) uniform Push {
     uint debug_mode;
     uint noise_index;
     uint noise_sampler;
+    uint detail_index;
     uint ripple_index;
     int ripple_size;
     float ripple_cell;
     vec2 ripple_center;
+    uint item_count;
 } pc;
 
 const float WATER_NOISE_DOMAIN = 16.0;

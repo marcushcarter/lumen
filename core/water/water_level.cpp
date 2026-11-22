@@ -738,6 +738,7 @@ void WaterLevel::publish()
     if (!placed) return;
     const bool all = _surface_capacity != capacity;
     _surface_capacity = capacity;
+    _surface_parity ^= 1u;
     for (int32_t y = -1; y <= tiles_w; y++) {
         for (int32_t x = -1; x <= tiles_w; x++) {
             const ivec2 lt(x, y);
@@ -751,7 +752,9 @@ void WaterLevel::publish()
             gpu->page[s] = e;
             if (!run) continue;
             gpu->awake.push_back(pack_tile(lt));
-            gpu->surface.push_back(pack_tile(lt) | (all || t.surface_dirty ? SURFACE_FRESH : 0u));
+            const bool fresh = all || t.surface_dirty || !t.surface_built;
+            if (!fresh && ((uint32_t)(t.global.x + t.global.y) & 1u) != _surface_parity) continue;
+            gpu->surface.push_back(pack_tile(lt) | (fresh ? SURFACE_FRESH : 0u));
             t.surface_dirty = false;
             t.surface_built = true;
         }

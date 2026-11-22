@@ -28,6 +28,8 @@ const float CAUSTIC_MIN_ATTENUATION = 0.004;
 const float FLOW_STRETCH = 0.6;
 const float FLOW_STRETCH_SPEED = 3.0;
 const float RIPPLE_CALM = 0.04;
+const float FAR_DETAIL_START = 50.0;
+const float FAR_DETAIL_END = 70.0;
 const float RIPPLE_EDGE_TEXELS = 24.0;
 const float RIPPLE_FLOW_FADE_START = 0.8;
 const float RIPPLE_FLOW_FADE_END = 2.5;
@@ -76,9 +78,9 @@ float caustic(vec2 p_p, float p_t) {
     return float(ca * ca * sqrt(ca) * float16_t(0.8) + cb * cb * sqrt(cb) * float16_t(0.45));
 }
 
-vec3 fbmd(vec2 p_p, vec2 p_dx, vec2 p_dy) {
+vec3 fbmd(uint p_tex, vec2 p_p, vec2 p_dx, vec2 p_dy) {
     const float inv = 1.0 / WATER_NOISE_DOMAIN;
-    return textureGrad(sampler2D(u_textures[pc.noise_index], u_samplers[pc.noise_sampler]), p_p * inv, p_dx * inv, p_dy * inv).rgb;
+    return textureGrad(sampler2D(u_textures[p_tex], u_samplers[pc.noise_sampler]), p_p * inv, p_dx * inv, p_dy * inv).rgb;
 }
 
 mat2 flow_frame(vec2 p_vel) {
@@ -89,15 +91,15 @@ mat2 flow_frame(vec2 p_vel) {
     return mat2(1.0) + (aligned - mat2(1.0)) * smoothstep(0.1, 0.6, speed);
 }
 
-vec3 flow_detail(vec2 p_p, vec2 p_vel, float p_freq, vec2 p_dx, vec2 p_dy, bool p_shimmer, mat2 p_frame) {
+vec3 flow_detail(uint p_tex, vec2 p_p, vec2 p_vel, float p_freq, vec2 p_dx, vec2 p_dy, bool p_shimmer, mat2 p_frame) {
     const float t = pc.time / FLOW_PERIOD;
     const float p0 = fract(t), p1 = fract(t + 0.5);
     const float16_t w0 = float16_t(1.0 - abs(1.0 - 2.0 * p0));
     const vec2 gx = p_frame * p_dx * p_freq, gy = p_frame * p_dy * p_freq;
-    const f16vec3 a = f16vec3(fbmd(p_frame * (p_p - p_vel * p0 * FLOW_PERIOD) * p_freq, gx, gy));
-    const f16vec3 b = f16vec3(fbmd(p_frame * (p_p - p_vel * p1 * FLOW_PERIOD) * p_freq + 0.37, gx, gy));
+    const f16vec3 a = f16vec3(fbmd(p_tex, p_frame * (p_p - p_vel * p0 * FLOW_PERIOD) * p_freq, gx, gy));
+    const f16vec3 b = f16vec3(fbmd(p_tex, p_frame * (p_p - p_vel * p1 * FLOW_PERIOD) * p_freq + 0.37, gx, gy));
     f16vec3 s = mix(b, a, w0);
-    if (p_shimmer) s += f16vec3(fbmd(p_frame * p_p * p_freq * 0.7 + vec2(pc.time * 0.13, -pc.time * 0.09), gx * 0.7, gy * 0.7)) * float16_t(0.35);
+    if (p_shimmer) s += f16vec3(fbmd(p_tex, p_frame * p_p * p_freq * 0.7 + vec2(pc.time * 0.13, -pc.time * 0.09), gx * 0.7, gy * 0.7)) * float16_t(0.35);
     return vec3(s.x, transpose(p_frame) * vec2(s.yz));
 }
 
@@ -160,9 +162,9 @@ void main() {
     const vec2 dpx = dFdx(v_world.xz);
     const vec2 dpy = dFdy(v_world.xz);
     const mat2 frame = flow_frame(v_flow);
-    const vec3 det = flow_detail(v_world.xz, v_flow, 1.7, dpx, dpy, true, frame);
-    const vec3 det2 = flow_detail(v_world.xz * 2.7 + 11.0, v_flow, 1.7, dpx * 2.7, dpy * 2.7, false, frame);
-    const f16vec2 g = f16vec2(det.yz) + f16vec2(det2.yz) * float16_t(0.5);
+    const vec3 det = flow_detail(pc.detail_index, v_world.xz, v_flow, 1.7, dpx, dpy, true, frame);
+    const f16vec2 g = f16vec2(det.yz);
+    const float near_detail = 1.0 - smoothstep(FAR_DETAIL_START, FAR_DETAIL_END, wdist);
     const float16_t strength = float16_t(RIPPLE_CALM + 0.22 * clamp(speed / 2.5, 0.0, 1.0) + 0.25 * foam_amt + RIPPLE_CURL * clamp(abs(v_curl) / 3.0, 0.0, 1.0));
     const vec3 n = vec3(normalize(f16vec3(base_n) + f16vec3(-g.x, 0.0, -g.y) * strength));
 
@@ -190,12 +192,12 @@ void main() {
     vec3 bg = b1.rgb;
     const bool caustics_on = (pc.flags & WATER_FLAG_CAUSTICS) != 0u;
     float caustic_term = 0.0;
-    if (!sky && (caustics_on || pc.debug_mode == WATER_DEBUG_CAUSTICS)) {
+    if (!sky && near_detail > 0.0 && (caustics_on || pc.debug_mode == WATER_DEBUG_CAUSTICS)) {
         const vec3 bed = cam + (v_world - cam) * (b1.a / max(wdist, 1.0e-3));
         const float d = v_world.y - bed.y;
         const float att = d > 0.0 ? exp(-d * 0.7) * smoothstep(0.0, 0.15, d) : 0.0;
         if (att > CAUSTIC_MIN_ATTENUATION) {
-            caustic_term = caustic(bed.xz * 1.15 - vec2(0.0, pc.time * 0.35), pc.time * 1.4) * att;
+            caustic_term = caustic(bed.xz * 1.15 - vec2(0.0, pc.time * 0.35), pc.time * 1.4) * att * near_detail;
             if (caustics_on) bg += bg * caustic_term * 0.45;
         }
     }
@@ -219,9 +221,9 @@ void main() {
         return;
     }
 
-    if (foam_amt >= 0.02 || thick < 0.10) {
-        const float fn = flow_detail(v_world.xz * 1.3 + 5.0, v_flow, 2.3, dpx * 1.3, dpy * 1.3, false, frame).x;
-        const float fn2 = flow_detail(v_world.xz * 4.0 - 3.0, v_flow, 2.0, dpx * 4.0, dpy * 4.0, false, frame).x;
+    if (near_detail > 0.0 && (foam_amt >= 0.02 || thick < 0.10)) {
+        const float fn = flow_detail(pc.noise_index, v_world.xz * 1.3 + 5.0, v_flow, 2.3, dpx * 1.3, dpy * 1.3, false, frame).x;
+        const float fn2 = flow_detail(pc.noise_index, v_world.xz * 4.0 - 3.0, v_flow, 2.0, dpx * 4.0, dpy * 4.0, false, frame).x;
         const float nz = fn * 0.7 + fn2 * 0.45;
         float fm = smoothstep(0.62 - 0.5 * foam_amt, 0.78 - 0.45 * foam_amt, nz) * smoothstep(0.02, 0.35, foam_amt);
         const float shore = 1.0 - smoothstep(0.0, 0.10, thick);
@@ -230,7 +232,7 @@ void main() {
         const float lace = smoothstep(0.55, 0.95, 1.0 - abs(fn2 * 2.0 - 1.0));
         const float agitation = smoothstep(0.35, 0.9, foam_amt);
         const float density = mix(FOAM_WISP_FLOOR + (1.0 - FOAM_WISP_FLOOR) * lace, 1.0, agitation);
-        col = mix(col, foam_col * exposure, clamp(fm, 0.0, 1.0) * density);
+        col = mix(col, foam_col * exposure, clamp(fm, 0.0, 1.0) * density * near_detail);
     }
 
     col = mix(bg, col, smoothstep(0.0, 0.05, thick));

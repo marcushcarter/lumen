@@ -1,0 +1,43 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#include "common/camera.glsl"
+#include "common/direct_light.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 1, rgba16f) uniform image2D u_storage_rgba16f[];
+
+layout(push_constant, scalar) uniform Push {
+    CameraBuffer camera;
+    DirectLightBuffer light;
+    uint color_slot;
+    uint depth_index;
+    uint width;
+    uint height;
+} pc;
+
+const vec3 ABSORB = vec3(0.62, 0.17, 0.13);
+const vec3 SCATTER = vec3(0.02, 0.10, 0.085);
+const float FAR_DISTANCE = 200.0;
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.width) || p.y >= int(pc.height)) return;
+    const float depth = texelFetch(u_textures[pc.depth_index], p, 0).r;
+    float dist = FAR_DISTANCE;
+    if (depth > 0.0) {
+        const vec2 ndc = (vec2(p) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0;
+        const vec4 h = pc.camera.inv_view_proj * vec4(ndc, depth, 1.0);
+        dist = min(distance(h.xyz / h.w, pc.camera.position.xyz), FAR_DISTANCE);
+    }
+    const vec3 sun_dir = -pc.light.direction;
+    const vec3 fog = SCATTER * (pc.light.illuminance * max(sun_dir.y, 0.0) + vec3(0.4, 0.5, 0.6)) * pc.camera.pre_exposure;
+    const vec3 trans = exp(-ABSORB * dist * 1.4);
+    const vec3 color = imageLoad(u_storage_rgba16f[pc.color_slot], p).rgb;
+    imageStore(u_storage_rgba16f[pc.color_slot], p, vec4(color * trans + fog * (1.0 - trans), 1.0));
+}

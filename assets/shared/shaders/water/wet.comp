@@ -1,0 +1,50 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "water/grid.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 1, rgba16f) uniform image2D u_storage_rgba16f[];
+
+layout(push_constant, scalar) uniform Push {
+    WaterLevel level;
+    uint slot;
+    int size;
+    ivec2 old_origin;
+    ivec2 new_origin;
+    float decay;
+} pc;
+
+const float NO_LEVEL = -60000.0;
+
+ivec2 wrap_texel(ivec2 p_t) {
+    return (p_t % pc.size + pc.size) % pc.size;
+}
+
+ivec2 world_texel(ivec2 p_t, ivec2 p_origin) {
+    return p_origin + wrap_texel(p_t - p_origin);
+}
+
+void main() {
+    const ivec2 t = ivec2(gl_GlobalInvocationID.xy);
+    if (t.x >= pc.size || t.y >= pc.size) return;
+    const ivec2 w = world_texel(t, pc.new_origin);
+    float level = NO_LEVEL;
+    if (all(equal(w, world_texel(t, pc.old_origin)))) level = imageLoad(u_storage_rgba16f[pc.slot], t).r - pc.decay;
+    WaterData D = water_data(pc.level);
+    const ivec2 local = w - pc.level.origin * 16;
+    for (int oy = -1; oy <= 1; oy++) {
+        for (int ox = -1; ox <= 1; ox++) {
+            const int c = water_cell_global(D, local.x + ox, local.y + oy);
+            if (c < 0) continue;
+            const float h = dget(D, A_H, c);
+            const float b = dget(D, A_B, c);
+            if (h <= W_SURFACE_WET || b >= W_WALL_TEST || (floatBitsToUint(dget(D, A_FLAGS, c)) & CELL_DRAIN) != 0u) continue;
+            level = max(level, h + b);
+        }
+    }
+    imageStore(u_storage_rgba16f[pc.slot], t, vec4(max(level, NO_LEVEL), 0.0, 0.0, 0.0));
+}

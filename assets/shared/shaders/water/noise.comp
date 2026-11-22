@@ -9,6 +9,8 @@ layout(push_constant) uniform Push {
     uint out_slot;
     uint size;
     float domain;
+    float layer_scale;
+    float layer_weight;
 } pc;
 
 const int OCTAVES = 4;
@@ -31,21 +33,27 @@ vec3 noised(vec2 p_x, float p_period) {
     return vec3(a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y, du * (vec2(b - a, c - a) + (a - b - c + d) * u.yx));
 }
 
+vec3 fbm_layer(vec2 p_p, float p_scale, vec2 p_shift) {
+    const float texels_per_unit = float(pc.size) / pc.domain;
+    vec3 s = vec3(0.0);
+    float a = 0.5;
+    float freq = p_scale;
+    for (int k = 0; k < OCTAVES; k++) {
+        const float w = clamp(texels_per_unit / freq * 0.5 - 1.0, 0.0, 1.0);
+        const vec2 offset = vec2(float(k) * 17.0, float(k) * 31.0) + p_shift;
+        const vec3 n = noised(p_p * freq + offset, pc.domain * freq);
+        s += a * vec3(mix(0.5, n.x, w), n.yz * freq * w / p_scale);
+        freq *= 2.0;
+        a *= 0.5;
+    }
+    return s;
+}
+
 void main() {
     const uvec2 px = gl_GlobalInvocationID.xy;
     if (px.x >= pc.size || px.y >= pc.size) return;
     const vec2 p = (vec2(px) + 0.5) / float(pc.size) * pc.domain;
-    const float texels_per_unit = float(pc.size) / pc.domain;
-    vec3 s = vec3(0.0);
-    float a = 0.5;
-    float freq = 1.0;
-    for (int k = 0; k < OCTAVES; k++) {
-        const float w = clamp(texels_per_unit / freq * 0.5 - 1.0, 0.0, 1.0);
-        const vec2 offset = vec2(float(k) * 17.0, float(k) * 31.0);
-        const vec3 n = noised(p * freq + offset, pc.domain * freq);
-        s += a * vec3(mix(0.5, n.x, w), n.yz * freq * w);
-        freq *= 2.0;
-        a *= 0.5;
-    }
+    vec3 s = fbm_layer(p, 1.0, vec2(0.0));
+    if (pc.layer_weight > 0.0) s += pc.layer_weight * fbm_layer(p, pc.layer_scale, vec2(11.0, 23.0));
     imageStore(u_storage_rgba16f[pc.out_slot], ivec2(px), vec4(s, 1.0));
 }

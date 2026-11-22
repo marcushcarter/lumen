@@ -16,6 +16,9 @@ struct WaterFeature : Feature
     static constexpr uint32_t NOISE_SIZE = 512;
     static constexpr uint32_t NOISE_MIPS = 10;
     static constexpr float NOISE_DOMAIN = 16.0f;
+    static constexpr float DETAIL_LAYER_SCALE = 3.0f;
+    static constexpr float DETAIL_LAYER_WEIGHT = 0.5f;
+    static constexpr uint32_t RIPPLE_SLEEP_FRAMES = 300;
     static constexpr float BACKDROP_MARGIN = 0.045f;
     static constexpr int32_t RIPPLE_SIZE = 512;
     static constexpr float RIPPLE_CELL = 0.06f;
@@ -55,6 +58,7 @@ struct WaterFeature : Feature
     drivers::DeviceDriverVulkan::Pipeline debug_pipe;
     drivers::DeviceDriverVulkan::Pipeline noise_pipe;
     drivers::DeviceDriverVulkan::Image noise;
+    drivers::DeviceDriverVulkan::Image detail;
     drivers::DeviceDriverVulkan::Sampler noise_sampler;
     bool _noise_ready = false;
     Buffer rect;
@@ -64,6 +68,7 @@ struct WaterFeature : Feature
     uint32_t _ripple_cur = 0;
     ivec2 _ripple_origin = ivec2(INT32_MIN / 4);
     bool _ripple_valid = false;
+    uint32_t _ripple_quiet = 0;
     vec2 _ripple_center = vec2(0.0f);
 
     uint64_t layout = 0;

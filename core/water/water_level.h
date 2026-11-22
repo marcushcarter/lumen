@@ -115,6 +115,7 @@ struct WaterLevel
 
     WaterTerrainHeights* heights = nullptr;
     uint32_t _surface_capacity = 0;
+    uint32_t _surface_parity = 0;
     WaterGpuLink* gpu = nullptr;
     WaterSettings settings;
     float gravity = 9.81f;

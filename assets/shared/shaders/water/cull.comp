@@ -35,7 +35,7 @@ void main() {
         ymin = uintBitsToFloat(it.bounds.v[0]);
         ymax = uintBitsToFloat(it.bounds.v[1]);
     }
-    if (ymin > ymax) return;
+    if (!(ymin <= ymax) || isinf(ymin) || isinf(ymax) || ymax - ymin > WATER_MAX_ITEM_HEIGHT || isnan(it.spacing) || !(it.spacing > 0.0)) return;
     const float size = 16.0 * it.spacing;
     const vec3 bmin = vec3(it.origin.x, ymin - 0.05, it.origin.y);
     const vec3 bmax = vec3(it.origin.x + size, ymax + 0.05, it.origin.y + size);
@@ -57,7 +57,7 @@ void main() {
             lo = min(lo, px);
             hi = max(hi, px);
         }
-        if (behind) {
+        if (behind || any(isnan(lo)) || any(isnan(hi))) {
             lo = vec2(0.0);
             hi = pc.screen - 1.0;
         }

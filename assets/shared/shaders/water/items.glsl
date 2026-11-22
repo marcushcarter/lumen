@@ -26,6 +26,7 @@ struct WaterDrawArgs {
 layout(buffer_reference, scalar) buffer WaterArgs { WaterDrawArgs v[]; };
 
 const uint WATER_LOD_LEVELS = 5u;
+const float WATER_MAX_ITEM_HEIGHT = 2000.0;
 const uint WATER_BLOCK_CELLS = 4u;
 const float WATER_MORPH_START = 0.7;
 

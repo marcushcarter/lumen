@@ -85,7 +85,8 @@ const uint PAGE_AWAKE = 1u << 31;
 
 const float W_EPS = 0.004;
 const float W_WET = 0.01;
-const float W_SURFACE_WET = 0.004;
+const float W_SURFACE_WET = 0.01;
+const float W_SURFACE_KEEP = 0.006;
 const float W_WALL = 1.0e6;
 const float W_WALL_TEST = 0.5e6;
 const float W_FOAM_MAX = 1.5;

@@ -12,6 +12,8 @@ struct OrbitCamera
     static constexpr float MIN_MOVE_SPEED = 1.0f;
     static constexpr float MIN_SPEED = 0.05f;
     static constexpr float MAX_SPEED = 20.0f;
+    static constexpr float FLY_SPEED = 8.0f;
+    static constexpr float FLY_WHEEL_STEP = 2.0f;
 
     struct Input {
         glm::vec2 rotate = glm::vec2(0.0f);
@@ -32,6 +34,7 @@ struct OrbitCamera
     float min_distance = 0.01f;
     float max_distance = 50.0f;
     bool keep_view = false;
+    bool fly = false;
 
     void rotate(float p_dx, float p_dy);
     void zoom(float p_wheel);

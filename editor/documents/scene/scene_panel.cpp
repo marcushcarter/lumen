@@ -209,11 +209,6 @@ void ScenePanel::draw_contents(EditorContext& ctx)
     const float footer_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
     _draw_table(ctx, footer_h);
     _draw_footer(ctx);
-
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_F2, false) && world.valid(selection.primary())) _rename_begin(world, selection.primary());
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) _delete_selection(ctx);
-    }
 }
 
 void ScenePanel::_draw_toolbar(EditorContext& ctx)
@@ -313,11 +308,9 @@ void ScenePanel::_draw_table(EditorContext& ctx, float p_footer_h)
     ImGui::PopStyleVar(2);
 }
 
-uint32_t ScenePanel::_world_row_count(const EditorContext& ctx) const
+uint32_t ScenePanel::_world_row_count(const EditorContext&) const
 {
-    if (!root_open && filter[0] == '\0') return 1u;
-    if (ctx.template_doc) return 1u;
-    return world_open ? 5u : 2u;
+    return 1u;
 }
 
 void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
@@ -329,20 +322,13 @@ void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
     const float content_h = p_row_h - pad * 2.0f;
     const float icon_w = font * ui.outliner.icon_width_scale;
     const float icon_px = ImFloor(font * 1.2f);
-    const float box_half = ui_tree_box_half();
     const ImU32 text_col = ImGui::GetColorU32(ImGuiCol_Text);
     const ImGuiSelectableFlags sel_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const bool filtering = filter[0] != '\0';
     const bool open_root = root_open || filtering;
-    const bool has_entities = !rows.empty();
     const float gap = ui.outliner.box_gap;
 
-    const auto lines = [&](ImVec2 p_cell, uint16_t p_depth, uint64_t p_lines, bool p_last, bool p_box) {
-        const float x = p_cell.x + (float)p_depth * font;
-        const float y0 = p_cell.y - pad;
-        ui_tree_lines(dl, p_cell.x, font, y0, y0 + p_row_h, p_depth, p_lines, p_last, p_box ? x + ImFloor(font * 0.5f) - box_half : x + font + gap);
-    };
     const auto folder_icon = [&](float p_x, float p_y) {
         ui_icon_folder(dl, ImVec2(p_x + ImFloor((icon_w - icon_px) * 0.5f), p_y + ImFloor((content_h - icon_px) * 0.5f)), icon_px);
     };
@@ -352,8 +338,9 @@ void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
     ImGui::TableSetColumnIndex(0);
     ImVec2 cell = ImGui::GetCursorScreenPos();
     float text_y = cell.y + ImFloor((content_h - font) * 0.5f);
-    if (ImGui::Selectable("##root_row", false, sel_flags, ImVec2(0.0f, content_h))) {
-        _clear_selection(ctx);
+    if (ImGui::Selectable("##root_row", !ctx.template_doc && selection.scene, sel_flags, ImVec2(0.0f, content_h))) {
+        if (ctx.template_doc) _clear_selection(ctx);
+        else selection.select_scene();
         if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) root_open = !root_open;
     }
     if (ImGui::BeginDragDropTarget()) {
@@ -369,43 +356,6 @@ void ScenePanel::_draw_world_rows(EditorContext& ctx, float p_row_h)
     dl->AddText(ImVec2(cell.x + font + gap + icon_w + ui.outliner.icon_gap, text_y), text_col, root_name.c_str());
     ImGui::PopID();
 
-    if (!open_root || ctx.template_doc) return;
-
-    ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
-    ImGui::PushID("##world");
-    ImGui::TableSetColumnIndex(0);
-    cell = ImGui::GetCursorScreenPos();
-    text_y = cell.y + ImFloor((content_h - font) * 0.5f);
-    if (ImGui::Selectable("##world_row", false, sel_flags, ImVec2(0.0f, content_h)) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) world_open = !world_open;
-    lines(cell, 1, 0, !has_entities, true);
-    const float wx = cell.x + font;
-    ImGui::SetCursorScreenPos(ImVec2(wx, cell.y));
-    if (ImGui::InvisibleButton("##world_arrow", ImVec2(font, content_h))) world_open = !world_open;
-    ui_tree_box(dl, ImVec2(wx + ImFloor(font * 0.5f), cell.y + ImFloor(content_h * 0.5f)), world_open, ImGui::IsItemHovered());
-    folder_icon(wx + font + gap, cell.y);
-    dl->AddText(ImVec2(wx + font + gap + icon_w + ui.outliner.icon_gap, text_y), text_col, "World");
-    ImGui::PopID();
-
-    if (!world_open) return;
-
-    const auto row = [&](const char* p_id, const char* p_icon, const char* p_label, bool p_selected, bool p_last) {
-        ImGui::TableNextRow(ImGuiTableRowFlags_None, p_row_h);
-        ImGui::PushID(p_id);
-        ImGui::TableSetColumnIndex(0);
-        const ImVec2 c = ImGui::GetCursorScreenPos();
-        const float ty = c.y + ImFloor((content_h - font) * 0.5f);
-        const bool clicked = ImGui::Selectable("##row", p_selected, sel_flags, ImVec2(0.0f, content_h));
-        lines(c, 2, has_entities ? 1ull : 0ull, p_last, false);
-        const float rx = c.x + font * 3.0f + gap;
-        dl->AddText(ImVec2(ImFloor(rx + (icon_w - ImGui::CalcTextSize(p_icon).x) * 0.5f), ty), text_col, p_icon);
-        dl->AddText(ImVec2(rx + icon_w + ui.outliner.icon_gap, ty), text_col, p_label);
-        ImGui::PopID();
-        return clicked;
-    };
-    if (row("##shadows", ICON_FA_CIRCLE_HALF_STROKE, "Shadows", selection.shadows, false)) selection.select_shadows();
-    if (row("##physics", ICON_FA_ATOM, "Physics", selection.physics, false)) selection.select_physics();
-    if (row("##terrain", ICON_FA_MOUNTAIN, "Terrain", selection.terrain, false)) selection.select_terrain();
-    if (row("##water", ICON_FA_WATER, "Water", selection.water, true)) selection.select_water();
 }
 
 void ScenePanel::_draw_row(EditorContext& ctx, int p_index, float p_row_h)
@@ -536,7 +486,7 @@ void ScenePanel::_row_menu(EditorContext& ctx, const Row& p_row)
         ImGui::EndMenu();
     }
     ImGui::Separator();
-    if (ImGui::MenuItem(ICON_FA_PEN "  Rename", "F2")) _rename_begin(world, p_row.entity);
+    if (ImGui::MenuItem(ICON_FA_PEN "  Rename")) _rename_begin(world, p_row.entity);
     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS "  Move To New Folder")) _new_folder(ctx);
     if (ImGui::MenuItem(ICON_FA_ARROW_UP "  Move To Root")) _drop(ctx, ENTITY_NULL);
     ImGui::Separator();
@@ -565,7 +515,7 @@ void ScenePanel::_row_menu(EditorContext& ctx, const Row& p_row)
     ImGui::Separator();
     char del[48];
     snprintf(del, sizeof(del), count > 1 ? ICON_FA_TRASH_CAN "  Delete %u Items" : ICON_FA_TRASH_CAN "  Delete", count);
-    if (ImGui::MenuItem(del, "Del")) _delete_selection(ctx);
+    if (ImGui::MenuItem(del)) _delete_selection(ctx);
     bool any_children = false;
     for (const Entity e : ctx.selection->entities) {
         const Node* n = _node(e);

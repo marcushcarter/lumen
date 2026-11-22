@@ -1,0 +1,71 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "common/geometry.glsl"
+#include "common/lod.glsl"
+#include "common/compact_draw.glsl"
+#include "editor/outline_mask_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(push_constant, scalar) uniform Push {
+    GeometryBuffer geometry;
+    OutlineMaskInstanceBuffer instances;
+    OutlineMaskListBuffer list;
+    OutlineMaskIndexBuffer indices;
+    OutlineMaskMaterialBuffer materials;
+    uint cluster_capacity;
+    uint index_capacity;
+} pc;
+
+uint tri_entry(uint p_slot_base, uint p_cluster_slot, uint p_tri, uint p_lt) {
+    const uint slot = p_cluster_slot == CLUSTER_SLOT_MIXED ? geometry_tri_slot(pc.geometry, p_tri, p_lt) : p_cluster_slot;
+    return geometry_slot_entry(pc.geometry, p_slot_base, slot);
+}
+
+void main() {
+    const uint which = gl_WorkGroupID.y;
+    if (which >= pc.instances.count) return;
+    const OutlineMaskInstance oi = pc.instances.data[which];
+    const Mesh mesh = pc.geometry.meshes.data[oi.mesh];
+    const uint n = gl_GlobalInvocationID.x;
+    if (n >= mesh.node_count) return;
+    const Node node = pc.geometry.nodes.data[mesh.node_base + n];
+    if (node.page == NODE_INNER) return;
+    if (pc.geometry.page_resident.data[mesh.page_base + node.page] == PAGE_ABSENT) return;
+
+    for (uint k = 0u; k < node.count; k++) {
+        const uint id = node.first + k;
+        const Cluster c = pc.geometry.clusters.data[id];
+        if (!lod_selected_density(pc.geometry, c, oi.lod_density)) continue;
+
+        const uint base = atomicAdd(pc.list.draw.index_count, c.index_count);
+        if (base + c.index_count > pc.index_capacity) {
+            atomicAdd(pc.list.draw.index_count, uint(-int(c.index_count)));
+            continue;
+        }
+        const uint slot = atomicAdd(pc.list.cluster_count, 1u);
+        if (slot >= pc.cluster_capacity) {
+            atomicAdd(pc.list.cluster_count, uint(-1));
+            for (uint i = 0u; i < c.index_count; i++) pc.indices.data[base + i] = 0u;
+            for (uint t = 0u; t < c.index_count / 3u; t++) pc.materials.data[base / 3u + t] = OUTLINE_MASK_OPAQUE;
+            continue;
+        }
+        pc.list.clusters[slot] = uvec2(id, oi.instance);
+
+        const uint key = slot << OUTLINE_MASK_SLOT_SHIFT;
+        const uint tri_base = c.index_base / 3u;
+        const uint cluster_slot = pc.geometry.cluster_slots.data[id];
+        const uint tri_count = c.index_count / 3u;
+        for (uint t = 0u; t < tri_count; t++) {
+            const uint lt = pc.geometry.local_triangles.data[tri_base + t];
+            const uint entry = tri_entry(oi.slot_base, cluster_slot, tri_base + t, lt);
+            pc.materials.data[base / 3u + t] = (slot_bin(entry) & RASTER_BIN_MASKED) != 0u ? slot_material(entry) : OUTLINE_MASK_OPAQUE;
+            const uint o = base + t * 3u;
+            pc.indices.data[o] = key | (lt & 0xFFu);
+            pc.indices.data[o + 1u] = key | ((lt >> 8u) & 0xFFu);
+            pc.indices.data[o + 2u] = key | ((lt >> 16u) & 0xFFu);
+        }
+    }
+}

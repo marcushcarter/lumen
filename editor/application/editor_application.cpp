@@ -109,6 +109,7 @@ Error EditorApplication::on_init()
     editor_camera.min_distance = SCENE_CAMERA_MIN_DISTANCE;
     editor_camera.max_distance = SCENE_CAMERA_MAX_DISTANCE;
     editor_camera.distance = SCENE_CAMERA_DISTANCE;
+    editor_camera.fly = true;
     _ctx.editor_camera = &editor_camera;
     _ctx.frame_stats = &frame_stats;
     _ctx.settings = &settings;
@@ -137,29 +138,13 @@ Error EditorApplication::on_init()
     play.physics_system.project = &project;
     _ctx.pie_is_playing = [this] { return play.active(); };
     _ctx.pie_toggle_play = [this] {
-        if (play.active()) play.stop();
-        else _play_start();
-    };
-    _ctx.pie_play = [this] {
-        if (!play.active()) {
-            _play_start();
+        if (play.active()) {
+            play.stop();
             return;
         }
-        if (!play.simulating) return;
-        play.simulating = false;
-        _keep_editor_view();
+        _play_start();
+        play.simulating = play.active();
     };
-    _ctx.pie_simulate = [this] {
-        if (!play.active()) {
-            _play_start();
-            play.simulating = play.active();
-            return;
-        }
-        if (play.simulating) return;
-        editor_camera.place(play.session.camera);
-        play.simulating = true;
-    };
-    _ctx.pie_is_simulating = [this] { return play.active() && play.simulating; };
     _ctx.water_bake = [this] { _water_bake_start(); };
     _ctx.pie_is_paused = [this] { return play.editing(); };
     _ctx.pie_toggle_pause = [this] {
@@ -348,10 +333,8 @@ void EditorApplication::on_update(float)
         import_dialog.draw(ctx);
         references_dialog.draw(ctx);
         thumbnails.update(ctx);
-        if (!workspace.scene.viewport.game_captured) {
-            if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) _save_focused();
-            if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) save_all();
-        }
+        if (ImGui::Shortcut(ImGuiKey_F8, ImGuiInputFlags_RouteGlobal)) _toggle_possess();
+        if (!workspace.scene.viewport.game_captured && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) _save_focused();
 
         const uint64_t signature = _documents_hash();
         if (signature != _documents_signature) {
@@ -986,7 +969,7 @@ void EditorApplication::_titlebar_menus()
 {
     if (_topbar_menu("File")) {
         if (ImGui::MenuItem("Save", "Ctrl+S")) _save_focused();
-        if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, workspace.scene.any_dirty() || documents.any_dirty())) save_all();
+        if (ImGui::MenuItem("Save All", nullptr, false, workspace.scene.any_dirty() || documents.any_dirty())) save_all();
         ImGui::Separator();
         if (ImGui::MenuItem("Export Project...")) ProjectExporter::run_with_dialog(project);
         ImGui::Separator();
@@ -1027,7 +1010,7 @@ void EditorApplication::_titlebar_menus()
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Take Screenshot", "Ctrl+F12")) screenshot_request();
+        if (ImGui::MenuItem("Take Screenshot")) screenshot_request();
         _topbar_menu_end();
     }
 
@@ -1101,6 +1084,23 @@ EditorContext& EditorApplication::_context()
 {
     _ctx.render_path = dynamic_cast<EditorRenderPath*>(render_path);
     return _ctx;
+}
+
+void EditorApplication::_toggle_possess()
+{
+    if (!play.active()) {
+        _play_start();
+        _keep_editor_view();
+        return;
+    }
+    if (play.game()) {
+        editor_camera.place(play.session.camera);
+        play.simulating = true;
+        return;
+    }
+    if (play.editing()) play.toggle();
+    play.simulating = false;
+    _keep_editor_view();
 }
 
 void EditorApplication::_keep_editor_view()

@@ -513,6 +513,31 @@ void WaterLevel::_build_beds(const TerrainSource* p_terrain, const PhysicsWorld&
             if (mesh) {
                 PhysicsHit hit;
                 if (p_physics.raycast(from, vec3(0.0f, -1.0f, 0.0f), BED_RANGE + settings.bed_probe, hit, query)) {
+                    for (uint32_t layer = 0; layer < BED_LAYERS && hit.user_data != PhysicsWorld::TERRAIN_USER_DATA; layer++) {
+                        PhysicsQuery below = query;
+                        below.ignore = hit.body;
+                        PhysicsHit floor_hit;
+                        const bool floored = p_physics.raycast(hit.position, vec3(0.0f, -1.0f, 0.0f), BED_RANGE, floor_hit, below);
+                        const bool terrain_floor = thv[k] && th[k] < hit.position.y && (!floored || th[k] >= floor_hit.position.y);
+                        if (!floored && !terrain_floor) break;
+                        const float floor_y = terrain_floor ? th[k] : floor_hit.position.y;
+                        const float gap = hit.position.y - floor_y;
+                        if (gap <= BED_CLEARANCE) break;
+                        float roof_from = floor_y + BED_LIFT;
+                        PhysicsHit roof;
+                        bool roofed = p_physics.raycast(vec3(from.x, roof_from, from.z), vec3(0.0f, 1.0f, 0.0f), hit.position.y - roof_from, roof, query);
+                        if (roofed && roof.user_data == PhysicsWorld::TERRAIN_USER_DATA) {
+                            roof_from = roof.position.y + BED_LIFT;
+                            roofed = roof_from < hit.position.y && p_physics.raycast(vec3(from.x, roof_from, from.z), vec3(0.0f, 1.0f, 0.0f), hit.position.y - roof_from, roof, query);
+                        }
+                        if (!roofed || roof.position.y - floor_y < BED_CLEARANCE || roof.normal.y >= 0.0f) break;
+                        if (terrain_floor) {
+                            hit.position.y = floor_y;
+                            hit.user_data = PhysicsWorld::TERRAIN_USER_DATA;
+                        } else {
+                            hit = floor_hit;
+                        }
+                    }
                     bed.b[k] = thv[k] ? std::max(hit.position.y, th[k]) : hit.position.y;
                     lowest = std::min(lowest, bed.b[k]);
                     continue;
@@ -724,9 +749,9 @@ void WaterLevel::publish()
     WaterGpuParams& p = gpu->params;
     p.dx = dx;
     p.gravity = gravity;
-    p.manning = settings.manning;
+    p.manning = MANNING;
     p.vorticity = settings.vorticity;
-    p.vortex_min_depth = settings.vortex_min_depth;
+    p.vortex_min_depth = VORTEX_MIN_DEPTH;
     p.cfl_limit = settings.cfl_limit;
     p.flux_depth_cap = settings.flux_depth_cap;
     p.foam_decay = settings.foam_decay;

@@ -2,6 +2,7 @@
 #include <backends/imgui_impl_win32.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <implot.h>
+#include <imgui_internal.h>
 #include <vulkan/vulkan.h>
 #include <cstdio>
 #include <iterator>
@@ -19,6 +20,8 @@ Error ImGuiDriver::initialize(const ImGuiDriverCreateInfo& p_create_info)
     ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     if (p_create_info.enable_docking) io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    ImGui::GetCurrentContext()->ConfigNavWindowingKeyNext = 0;
+    ImGui::GetCurrentContext()->ConfigNavWindowingKeyPrev = 0;
 
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();

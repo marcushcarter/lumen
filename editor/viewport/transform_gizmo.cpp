@@ -67,6 +67,14 @@ static uint32_t _index(TransformGizmo::Handle p_h, TransformGizmo::Handle p_firs
     return (uint32_t)p_h - (uint32_t)p_first;
 }
 
+bool TransformGizmo::_allowed(Handle p_h) const
+{
+    if (_is_scale(p_h)) return parts & PART_SCALE;
+    if (_is_rotate(p_h)) return parts & PART_ROTATE;
+    if (p_h == Handle::NONE) return true;
+    return parts & PART_MOVE;
+}
+
 void TransformGizmo::reset()
 {
     hovered = Handle::NONE;
@@ -106,7 +114,7 @@ void TransformGizmo::_build_shape(const Frame& p_frame, vec3 p_pivot, float p_wo
     const UiStyle::Gizmo& g = ui_style().gizmo;
     const float arrow = g.arrow_ratio * p_frame.size.y * p_world_px;
     const float ring = arrow * g.ring_scale;
-    const float handle = arrow * g.scale_handle_scale;
+    const float handle = (parts & PART_MOVE) ? arrow * g.scale_handle_scale : arrow;
 
     _project(p_frame, p_pivot, r_shape.center);
     for (uint32_t i = 0; i < 3; i++) {
@@ -114,6 +122,7 @@ void TransformGizmo::_build_shape(const Frame& p_frame, vec3 p_pivot, float p_wo
         r_shape.scale_visible[i] = _project(p_frame, p_pivot + axes[i] * handle, r_shape.scale[i]);
         const vec3 u = axes[(i + 1) % 3];
         const vec3 v = axes[(i + 2) % 3];
+        r_shape.ring_label_visible[i] = _project(p_frame, p_pivot + normalize(u + v) * ring, r_shape.ring_label[i]);
         for (uint32_t s = 0; s < RING_SEGMENTS; s++) {
             const float t = two_pi<float>() * (float)s / (float)RING_SEGMENTS;
             r_shape.ring_visible[i][s] = _project(p_frame, p_pivot + (u * std::cos(t) + v * std::sin(t)) * ring, r_shape.ring[i][s]);
@@ -127,7 +136,7 @@ TransformGizmo::Handle TransformGizmo::_hit_test(const Shape& p_shape, ImVec2 p_
     Handle best = Handle::NONE;
     float best_d = FLT_MAX;
 
-    for (uint32_t i = 0; i < 3; i++) {
+    for (uint32_t i = 0; i < 3 && (parts & PART_SCALE); i++) {
         if (!p_shape.scale_visible[i]) continue;
         const float d = std::max(std::abs(p_mouse.x - p_shape.scale[i].x), std::abs(p_mouse.y - p_shape.scale[i].y));
         if (d <= g.handle_size * 0.5f + g.hit_tolerance && d < best_d) {
@@ -137,9 +146,9 @@ TransformGizmo::Handle TransformGizmo::_hit_test(const Shape& p_shape, ImVec2 p_
     }
     if (best != Handle::NONE) return best;
 
-    if (_length(ImVec2(p_mouse.x - p_shape.center.x, p_mouse.y - p_shape.center.y)) <= g.center_radius + g.hit_tolerance) return Handle::MOVE_SCREEN;
+    if ((parts & PART_MOVE) && _length(ImVec2(p_mouse.x - p_shape.center.x, p_mouse.y - p_shape.center.y)) <= g.center_radius + g.hit_tolerance) return Handle::MOVE_SCREEN;
 
-    for (uint32_t i = 0; i < 3; i++) {
+    for (uint32_t i = 0; i < 3 && (parts & PART_MOVE); i++) {
         if (!p_shape.tip_visible[i]) continue;
         const float d = _dist_segment(p_mouse, p_shape.center, p_shape.tip[i]);
         if (d <= g.head_width * 0.5f + g.hit_tolerance && d < best_d) {
@@ -149,7 +158,7 @@ TransformGizmo::Handle TransformGizmo::_hit_test(const Shape& p_shape, ImVec2 p_
     }
     if (best != Handle::NONE) return best;
 
-    for (uint32_t i = 0; i < 3; i++) {
+    for (uint32_t i = 0; i < 3 && (parts & PART_ROTATE); i++) {
         for (uint32_t s = 0; s < RING_SEGMENTS; s++) {
             const uint32_t n = (s + 1) % RING_SEGMENTS;
             if (!p_shape.ring_visible[i][s] || !p_shape.ring_visible[i][n]) continue;
@@ -268,15 +277,24 @@ void TransformGizmo::_draw(ImDrawList* p_dl, const Shape& p_shape, bool p_unifor
         return active != Handle::NONE ? _fade(p_base, g.drag_alpha) : p_base;
     };
 
-    for (uint32_t i = 0; i < 3; i++) {
+    auto label = [&](ImVec2 p_at, uint32_t p_axis, ImU32 p_col) {
+        const ImVec2 dir(p_at.x - p_shape.center.x, p_at.y - p_shape.center.y);
+        const float len = _length(dir);
+        const ImVec2 n = len > 1.0f ? ImVec2(dir.x / len, dir.y / len) : ImVec2(0.0f, -1.0f);
+        const ImVec2 text = ImGui::CalcTextSize(AXIS_LABEL[p_axis]);
+        p_dl->AddText(ImVec2(p_at.x + n.x * g.label_offset - text.x * 0.5f, p_at.y + n.y * g.label_offset - text.y * 0.5f), p_col, AXIS_LABEL[p_axis]);
+    };
+
+    for (uint32_t i = 0; i < 3 && (parts & PART_ROTATE); i++) {
         const ImU32 col = color(_offset(Handle::ROTATE_X, i), axis_color[i]);
+        if (!(parts & PART_MOVE) && p_shape.ring_label_visible[i]) label(p_shape.ring_label[i], i, col);
         for (uint32_t s = 0; s < RING_SEGMENTS; s++) {
             const uint32_t n = (s + 1) % RING_SEGMENTS;
             if (p_shape.ring_visible[i][s] && p_shape.ring_visible[i][n]) p_dl->AddLine(p_shape.ring[i][s], p_shape.ring[i][n], col, g.ring_thickness);
         }
     }
 
-    for (uint32_t i = 0; i < 3; i++) {
+    for (uint32_t i = 0; i < 3 && (parts & PART_MOVE); i++) {
         if (!p_shape.tip_visible[i]) continue;
         const ImU32 col = color(_offset(Handle::MOVE_X, i), axis_color[i]);
         const ImVec2 dir(p_shape.tip[i].x - p_shape.center.x, p_shape.tip[i].y - p_shape.center.y);
@@ -292,25 +310,29 @@ void TransformGizmo::_draw(ImDrawList* p_dl, const Shape& p_shape, bool p_unifor
         } else {
             p_dl->AddLine(p_shape.center, p_shape.tip[i], col, g.axis_thickness);
         }
-        const ImVec2 text = ImGui::CalcTextSize(AXIS_LABEL[i]);
-        const ImVec2 label(p_shape.tip[i].x + n.x * g.label_offset - text.x * 0.5f, p_shape.tip[i].y + n.y * g.label_offset - text.y * 0.5f);
-        p_dl->AddText(label, col, AXIS_LABEL[i]);
+        label(p_shape.tip[i], i, col);
     }
 
     const float half = g.handle_size * 0.5f;
-    for (uint32_t i = 0; i < 3; i++) {
+    for (uint32_t i = 0; i < 3 && (parts & PART_SCALE); i++) {
         if (!p_shape.scale_visible[i]) continue;
         const ImU32 col = color(_offset(Handle::SCALE_X, i), axis_color[i]);
         const ImVec2 c = p_shape.scale[i];
+        if (!(parts & PART_MOVE)) {
+            p_dl->AddLine(p_shape.center, c, col, g.axis_thickness);
+            label(c, i, col);
+        }
         p_dl->AddRectFilled(ImVec2(c.x - half, c.y - half), ImVec2(c.x + half, c.y + half), col);
     }
 
-    p_dl->AddCircleFilled(p_shape.center, g.center_radius, color(Handle::MOVE_SCREEN, ui.color.gizmo_center), 20);
+    if (parts & PART_MOVE) p_dl->AddCircleFilled(p_shape.center, g.center_radius, color(Handle::MOVE_SCREEN, ui.color.gizmo_center), 20);
 }
 
 bool TransformGizmo::update(const Frame& p_frame, bool p_world, bool p_hover_ok, TransformComponent& r_xf, bool& r_changed)
 {
     r_changed = false;
+    if (!_allowed(active)) active = Handle::NONE;
+    if (!_allowed(hovered)) hovered = Handle::NONE;
     const ImGuiIO& io = ImGui::GetIO();
     const vec3 pivot = r_xf.position;
 
@@ -330,13 +352,7 @@ bool TransformGizmo::update(const Frame& p_frame, bool p_world, bool p_hover_ok,
     const bool uniform = io.KeyShift;
 
     if (active != Handle::NONE) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-            r_xf.position = start_position;
-            r_xf.rotation = start_rotation;
-            r_xf.scale = start_scale;
-            r_changed = true;
-            active = Handle::NONE;
-        } else if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             r_changed = _drag(p_frame, shape, mouse, io.KeyCtrl, uniform, r_xf);
             if (r_changed) {
                 for (uint32_t i = 0; i < 3; i++) axes[i] = p_world ? AXIS_UNIT[i] : normalize(r_xf.rotation * AXIS_UNIT[i]);

@@ -20,13 +20,19 @@ static glm::vec3 _offset(float p_yaw, float p_pitch)
 
 void OrbitCamera::rotate(float p_dx, float p_dy)
 {
+    const glm::vec3 eye = target + _offset(yaw, pitch) * distance;
     yaw -= p_dx * rotate_speed;
     pitch = glm::clamp(pitch + p_dy * rotate_speed, -MAX_PITCH, MAX_PITCH);
     yaw = std::fmod(yaw, glm::two_pi<float>());
+    if (fly) target = eye - _offset(yaw, pitch) * distance;
 }
 
 void OrbitCamera::zoom(float p_wheel)
 {
+    if (fly) {
+        target -= _offset(yaw, pitch) * p_wheel * FLY_WHEEL_STEP * speed;
+        return;
+    }
     distance = glm::clamp(distance * std::pow(1.0f - zoom_step, p_wheel), min_distance, max_distance);
 }
 
@@ -42,6 +48,13 @@ void OrbitCamera::pan(float p_dx, float p_dy, float p_view_height)
 void OrbitCamera::move(const glm::vec3& p_axes, float p_dt)
 {
     if (glm::dot(p_axes, p_axes) <= 0.0f || p_dt <= 0.0f) return;
+    if (fly) {
+        const glm::vec3 look = -_offset(yaw, pitch);
+        const glm::vec3 side = glm::normalize(glm::vec3(-look.z, 0.0f, look.x));
+        const glm::vec3 dir = side * p_axes.x + glm::vec3(0.0f, 1.0f, 0.0f) * p_axes.y + look * p_axes.z;
+        target += glm::normalize(dir) * FLY_SPEED * speed * p_dt;
+        return;
+    }
     const glm::vec3 forward(-std::sin(yaw), 0.0f, -std::cos(yaw));
     const glm::vec3 right(-forward.z, 0.0f, forward.x);
     const glm::vec3 dir = right * p_axes.x + glm::vec3(0.0f, 1.0f, 0.0f) * p_axes.y + forward * p_axes.z;

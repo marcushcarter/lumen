@@ -415,12 +415,16 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (drop.active && (pick_ready || ++drop.frames > DROP_TIMEOUT_FRAMES)) _finish_drop(ctx, picked_depth, pick_ready);
     else if (pick_ready) {
         Scene& world = *ctx.scene;
-        Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
-        const Entity root = template_root_of(world, e);
-        const Entity primary = ctx.selection->primary();
-        if (root != ENTITY_NULL && primary != e && primary != root && template_root_of(world, primary) != root) e = root;
-        ctx.selection->clear();
-        if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
+        if (picked == PickFeature::TERRAIN) {
+            ctx.selection->select_terrain();
+        } else {
+            Entity e = picked != PickFeature::NONE ? (live ? play->to_authored(picked) : world.entity_at(picked)) : ENTITY_NULL;
+            const Entity root = template_root_of(world, e);
+            const Entity primary = ctx.selection->primary();
+            if (root != ENTITY_NULL && primary != e && primary != root && template_root_of(world, primary) != root) e = root;
+            ctx.selection->clear();
+            if (world.has<EntityIdComponent>(e)) ctx.selection->select(e);
+        }
     }
 
     const bool outline_on = !playing;
@@ -439,6 +443,8 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
             ctx.render_path->outline.source_version = ctx.selection->version;
         }
     }
+    if (ctx.render_path) ctx.render_path->outline.terrain = outline_on && ctx.selection && ctx.selection->terrain;
+    if (outline_on && ctx.render_path && ctx.selection && ctx.selection->terrain) ctx.render_path->outline.set_rect(vec2(0.0f), vec2(1.0f));
     if (outline_on && ctx.render_path && ctx.scene && ctx.selection && !ctx.selection->entities.empty()) {
         if (live) _outline_rect(ctx, ctx.render_path->outline, play->runtime, _view_selection);
         else _outline_rect(ctx, ctx.render_path->outline, *ctx.scene, ctx.selection->entities);
@@ -451,7 +457,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (ctx.render_path) {
         GridFeature& grid = ctx.render_path->grid;
         grid.show_grid = !playing && ctx.template_doc;
-        grid.show_axes = !playing;
+        grid.show_axes = grid.show_grid;
         const ImVec4 gc = ui_vec4(ui.color.grid);
         const ImVec4 xc = ui_vec4(ui.color.axis_x);
         const ImVec4 zc = ui_vec4(ui.color.axis_z);
@@ -478,26 +484,24 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     else dl->AddRectFilled(p_pos, p_end, ui.color.viewport_back);
 
     const bool gizmo_hover_ok = image_hovered && !popup_open_last_frame && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-    const bool gizmo_hot = !playing && !spawn_mode && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
-    if (playing || spawn_mode) {
+    const uint8_t gizmo_parts = view_action_gizmo_parts(view.action);
+    gizmo.parts = gizmo_parts;
+    shape_gizmo.gizmo.parts = gizmo_parts;
+    const bool gizmo_on = !playing && !spawn_mode && gizmo_parts != 0;
+    const bool gizmo_hot = gizmo_on && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
+    if (!gizmo_on) {
         gizmo.reset();
         shape_gizmo.reset();
     }
     const bool pick_click = !playing && !spawn_mode && !gizmo_hot && image_clicked;
-    const bool game_click = playing && image_clicked;
     const ImVec2 mouse = ImGui::GetMousePos();
     if (!playing) _asset_drop(ctx, p_pos, p_size);
     if (view.stats) draw_stats(ctx, p_pos);
 
     if (pick_click && ctx.render_path && !popup_open_last_frame) ctx.render_path->pick.request((mouse.x - p_pos.x) / p_size.x, 1.0f - (mouse.y - p_pos.y) / p_size.y);
-    if (game_click && !game_captured && !popup_open_last_frame) {
+    if (playing && !game_captured) {
         game_captured = true;
         cursor_lock.begin();
-    }
-    if (game_captured && playing && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        game_captured = false;
-        cursor_lock.end();
-        if (ctx.pie_simulate) ctx.pie_simulate();
     }
     if (game_captured && !playing) {
         game_captured = false;
@@ -512,16 +516,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
     if (spawn_mode && !popup_open_last_frame && image_hovered) {
-        const bool typing = ImGui::GetIO().WantTextInput;
-        bool spawn = image_clicked;
-        if (!typing && ImGui::IsKeyDown(ImGuiKey_Space)) {
-            spawner.repeat_timer -= ImGui::GetIO().DeltaTime;
-            if (ImGui::IsKeyPressed(ImGuiKey_Space, false) || spawner.repeat_timer <= 0.0f) spawn = true;
-        }
-        if (spawn) {
-            spawner.repeat_timer = ShapeSpawner::REPEAT_SECONDS;
-            _spawn_at_mouse(ctx, p_pos, p_size);
-        }
+        if (image_clicked) _spawn_at_mouse(ctx, p_pos, p_size);
     }
 
     const bool camera_ok = !playing && !game_captured && gizmo.active == TransformGizmo::Handle::NONE && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame;
@@ -541,6 +536,12 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         }
     }
     camera_view_height = p_size.y;
+    if (ctx.render_path) {
+        const bool nothing_selected = !ctx.selection || (ctx.selection->entities.empty() && !ctx.selection->terrain);
+        const bool mouse_free = !ImGui::IsAnyMouseDown() && !camera_drag.active() && !cursor_lock.active;
+        const bool hover_on = outline_on && nothing_selected && image_hovered && mouse_free && !spawn_mode && !gizmo_hot && !popup_open_last_frame && !drop.active;
+        ctx.render_path->outline.set_hover(hover_on, vec2((mouse.x - p_pos.x) / p_size.x, 1.0f - (mouse.y - p_pos.y) / p_size.y));
+    }
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     if (ctx.render_path) {
@@ -552,11 +553,15 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     }
 }
 
-const char* view_action_name(ViewAction p_action)
+uint8_t view_action_gizmo_parts(ViewAction p_action)
 {
-    static constexpr const char* NAMES[] = { "Gizmo", "Spawn Shapes" };
-    static_assert(std::size(NAMES) == (size_t)ViewAction::COUNT);
-    return NAMES[std::min((size_t)p_action, std::size(NAMES) - 1)];
+    switch (p_action) {
+        case ViewAction::MOVE: return TransformGizmo::PART_MOVE;
+        case ViewAction::ROTATE: return TransformGizmo::PART_ROTATE;
+        case ViewAction::SCALE: return TransformGizmo::PART_SCALE;
+        case ViewAction::ALL: return TransformGizmo::PART_ALL;
+        default: return 0;
+    }
 }
 
 void Viewport::_spawn_at_mouse(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
@@ -644,10 +649,9 @@ void Viewport::draw(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     draw_bar(bar_min, bar_max);
 
     const bool live = play && play->active();
-    const float border = live ? ui.viewport.play_border : 0.0f;
-    const ImVec2 img_min(p_min.x + border, bar_max.y + border);
-    const ImVec2 img_max(p_max.x - border, p_max.y - border);
-    _draw_image(ctx, img_min, ImVec2(ImMax(1.0f, img_max.x - img_min.x), ImMax(1.0f, img_max.y - img_min.y)));
+    const float border = ui.viewport.play_border;
+    const ImVec2 img_min(p_min.x, bar_max.y);
+    _draw_image(ctx, img_min, ImVec2(ImMax(1.0f, p_max.x - img_min.x), ImMax(1.0f, p_max.y - img_min.y)));
     if (live) ImGui::GetWindowDrawList()->AddRect(ImVec2(p_min.x + border * 0.5f, bar_max.y + border * 0.5f), ImVec2(p_max.x - border * 0.5f, p_max.y - border * 0.5f), ui.color.play_border, 0.0f, 0, border);
 }
 

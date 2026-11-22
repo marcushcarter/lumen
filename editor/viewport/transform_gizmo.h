@@ -14,6 +14,10 @@ struct TransformGizmo
     static constexpr float MIN_SCALE = 1e-3f;
     static constexpr float MIN_SCALE_FACTOR = 0.01f;
     static constexpr uint32_t RING_SEGMENTS = 64;
+    static constexpr uint8_t PART_MOVE = 1;
+    static constexpr uint8_t PART_ROTATE = 2;
+    static constexpr uint8_t PART_SCALE = 4;
+    static constexpr uint8_t PART_ALL = PART_MOVE | PART_ROTATE | PART_SCALE;
 
     enum class Handle : uint8_t {
         NONE,
@@ -40,10 +44,13 @@ struct TransformGizmo
         ImVec2 scale[3];
         bool tip_visible[3];
         bool scale_visible[3];
+        ImVec2 ring_label[3];
+        bool ring_label_visible[3];
         ImVec2 ring[3][RING_SEGMENTS];
         bool ring_visible[3][RING_SEGMENTS];
     };
 
+    uint8_t parts = PART_ALL;
     Handle hovered = Handle::NONE;
     Handle active = Handle::NONE;
 
@@ -65,6 +72,7 @@ struct TransformGizmo
     bool update(const Frame& p_frame, bool p_world, bool p_hover_ok, TransformComponent& r_xf, bool& r_changed);
     void reset();
 
+    bool _allowed(Handle p_h) const;
     bool _project(const Frame& p_frame, vec3 p_world, ImVec2& r_screen) const;
     vec3 _ray_dir(const Frame& p_frame, ImVec2 p_mouse) const;
     bool _ray_plane(const Frame& p_frame, ImVec2 p_mouse, vec3 p_point, vec3 p_normal, vec3& r_hit) const;

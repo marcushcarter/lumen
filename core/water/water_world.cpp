@@ -459,7 +459,7 @@ void WaterWorld::publish(const vec3& p_camera)
 {
     sim.publish();
     link.items.clear();
-    link.lod_error = std::clamp(settings.lod_error, 0.001f, 0.2f);
+    link.lod_error = LOD_ERROR;
     link.min_quad = sim.dx;
     link.caustics = settings.caustics;
     if (!enabled || !settings.render) return;

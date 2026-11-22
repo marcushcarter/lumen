@@ -48,7 +48,6 @@ struct ScenePanel : Panel
     double last_rebuild = -1.0;
     bool dirty = true;
     bool expect_world_change = false;
-    bool world_open = false;
     bool root_open = true;
 
     char filter[128] = {};

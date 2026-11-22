@@ -119,7 +119,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const Scene* live = live_on ? &ctx.play->runtime : nullptr;
 
     const Entity selected = ctx.selection->primary();
-    const bool has_target = ctx.selection->environment || ctx.selection->shadows || ctx.selection->physics || ctx.selection->terrain || ctx.selection->water || world.valid(selected);
+    const bool has_target = ctx.selection->scene || world.valid(selected);
     const float inset = ui_category_inset();
     {
         const ImVec2 o = ImGui::GetCursorScreenPos();
@@ -156,7 +156,15 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         return;
     }
 
-    if (ctx.selection->shadows) {
+    if (ctx.selection->scene) {
+        if (_section("Scene Info")) {
+            _name("Name");
+            ImGui::TextDisabled("%s", ctx.scene_document ? ctx.scene_document->document_name().c_str() : "-");
+            _live("-");
+            _name("Exposure");
+            ImGui::TextDisabled("%.2f (fixed)", EnvironmentSettings::EXPOSURE);
+            _live("-");
+        }
         if (_section("Shadows")) {
             _name("Player Shadow");
             ImGui::Checkbox("##player_shadow", &world.shadows.player_shadow);
@@ -171,25 +179,11 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::Checkbox("##heightfield_shadow", &world.shadows.heightfield_shadow);
             _live("%s", live ? (live->shadows.heightfield_shadow ? "On" : "Off") : "-");
         }
-        _section_end();
-        ImGui::EndChild();
-        ui_field_pop_style();
-        return;
-    }
-
-    if (ctx.selection->physics) {
         if (_section("Physics")) {
             _name("Gravity");
             ImGui::DragFloat("##gravity", &world.physics.gravity, 0.05f, 0.0f, 100.0f, "%.2f m/s2");
             _live("%.2f m/s2", live ? live->physics.gravity : 0.0f);
         }
-        _section_end();
-        ImGui::EndChild();
-        ui_field_pop_style();
-        return;
-    }
-
-    if (ctx.selection->terrain) {
         if (_section("Terrain")) {
             _name("Terrain");
             asset_field(ctx, "", "###scene_terrain", world.terrain.terrain, AssetType::TERRAIN);
@@ -197,93 +191,20 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             if (entry) _live("%s", entry->name.c_str());
             else _live("-");
         }
-        _section_end();
-        ImGui::EndChild();
-        ui_field_pop_style();
-        return;
-    }
-
-    if (ctx.selection->water) {
         WaterSettings& water = world.water;
+        const WaterWorld* ww = live ? &ctx.play->physics_system.water : nullptr;
         const WaterSettings* lw = live ? &live->water : nullptr;
         const auto on_off = [](bool p_on) { return p_on ? "On" : "Off"; };
-        if (_section("Water Simulation")) {
+        if (_section("Water")) {
             _name("Simulation");
             _check("##water_simulate", &water.simulate);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Off freezes the water where it is. Buoyancy still works.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Off freezes the water where it is and turns off buoyancy.");
             _live("%s", lw ? on_off(lw->simulate) : "-");
             _name("Rendering");
             _check("##water_render", &water.render);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Off hides the water. The simulation keeps running.");
             _live("%s", lw ? on_off(lw->render) : "-");
-            _name("Cell Size");
-            ImGui::DragFloat("##water_cell_size", &water.cell_size, 0.01f, 0.1f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Changing this restarts the simulation.");
-            _live_float(lw, lw ? lw->cell_size : 0.0f, " m");
-            _name("Substeps");
-            int substeps = (int)water.substeps;
-            if (ImGui::DragInt("##water_substeps", &substeps, 0.05f, 1, 8, "%d", ImGuiSliderFlags_AlwaysClamp)) water.substeps = (uint32_t)substeps;
-            if (lw) _live("%u", lw->substeps);
-            else _live("-");
-            _name("Sim Radius");
-            ImGui::DragFloat("##water_sim_radius", &water.sim_radius, 0.5f, 8.0f, 512.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The simulation runs this far from the player. Water further out is frozen.");
-            _live_float(lw, lw ? lw->sim_radius : 0.0f, " m");
-            _name("LOD Error");
-            ImGui::DragFloat("##water_lod_error", &water.lod_error, 0.0005f, 0.001f, 0.2f, "%.4f", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Surface quad size per metre of distance. Lower is more detailed.");
-            _live_float(lw, lw ? lw->lod_error : 0.0f);
-            _name("Manning");
-            ImGui::DragFloat("##water_manning", &water.manning, 0.001f, 0.0f, 0.2f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->manning : 0.0f);
-            _name("Vorticity");
-            ImGui::DragFloat("##water_vorticity", &water.vorticity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->vorticity : 0.0f);
-            _name("Vortex Min Depth");
-            ImGui::DragFloat("##water_vortex_depth", &water.vortex_min_depth, 0.005f, 0.0f, 2.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->vortex_min_depth : 0.0f, " m");
-            _name("CFL Limit");
-            ImGui::DragFloat("##water_cfl", &water.cfl_limit, 0.005f, 0.01f, 0.9f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->cfl_limit : 0.0f);
-            _name("Flux Depth Cap");
-            ImGui::DragFloat("##water_flux_cap", &water.flux_depth_cap, 0.01f, 0.05f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->flux_depth_cap : 0.0f);
-            _name("Foam Decay");
-            ImGui::DragFloat("##water_foam_decay", &water.foam_decay, 0.01f, 0.0f, 10.0f, "%.2f /s", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->foam_decay : 0.0f, " /s");
-            _name("Foam Gain");
-            ImGui::DragFloat("##water_foam_gain", &water.foam_gain, 0.01f, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->foam_gain : 0.0f);
-            _name("Bed Probe Height");
-            ImGui::DragFloat("##water_bed_probe", &water.bed_probe, 0.1f, 0.5f, 200.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far above the terrain the riverbed rays start. Rocks taller than this block water like walls.");
-            _live_float(lw, lw ? lw->bed_probe : 0.0f, " m");
-            _name("Caustics");
-            _check("##water_caustics", &water.caustics);
-            _live("%s", lw ? on_off(lw->caustics) : "-");
-            _name("Buoyancy");
-            _check("##water_buoyancy", &water.buoyancy);
-            _live("%s", lw ? on_off(lw->buoyancy) : "-");
-            _name("Drag");
-            ImGui::DragFloat("##water_drag", &water.drag, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lw, lw ? lw->drag : 0.0f);
-            _name("Objects Push Water");
-            _check("##water_push", &water.push_water);
-            _live("%s", lw ? on_off(lw->push_water) : "-");
-            const WaterWorld* ww = live ? &ctx.play->physics_system.water : nullptr;
-            _name("Sim Tiles");
-            ImGui::TextDisabled("-");
-            if (ww) _live("%u active", ww->sim.stats.active);
-            else _live("-");
-            _name("Frozen Tiles");
-            ImGui::TextDisabled("-");
-            if (ww) _live("%u (%u on disk)", ww->sim.stats.frozen, ww->sim.stats.paged);
-            else _live("-");
-            _name("Surface Tiles");
-            ImGui::TextDisabled("-");
-            if (ww) _live("%u", (uint32_t)ww->link.items.size());
-            else _live("-");
-            _name("Bake");
+            _name("Water Asset");
             asset_field(ctx, "", "###water_bake", water.bake, AssetType::WATER);
             const AssetRegistry::Entry* bake_entry = lw && ctx.assets ? ctx.assets->find(lw->bake) : nullptr;
             if (bake_entry) _live("%s", bake_entry->name.c_str());
@@ -301,17 +222,47 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             else if (ww && !ww->bake.message.empty()) _live("%s", ww->bake.message.c_str());
             else _live("-");
         }
-        _section_end();
-        ImGui::EndChild();
-        ui_field_pop_style();
-        return;
-    }
-
-    if (ctx.selection->environment) {
-        if (_section("Scene Info")) {
-            _name("Exposure");
-            ImGui::TextDisabled("%.2f (fixed)", EnvironmentSettings::EXPOSURE);
-            _live("-");
+        if (_section("Water Simulation")) {
+            _name("Cell Size");
+            ImGui::DragFloat("##water_cell_size", &water.cell_size, 0.01f, 0.1f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Changing this restarts the simulation.");
+            _live_float(lw, lw ? lw->cell_size : 0.0f, " m");
+            _name("Objects Push Water");
+            _check("##water_push", &water.push_water);
+            _live("%s", lw ? on_off(lw->push_water) : "-");
+            _name("Substeps");
+            int substeps = (int)water.substeps;
+            if (ImGui::DragInt("##water_substeps", &substeps, 0.05f, 1, 8, "%d", ImGuiSliderFlags_AlwaysClamp)) water.substeps = (uint32_t)substeps;
+            if (lw) _live("%u", lw->substeps);
+            else _live("-");
+            _name("Sim Radius");
+            ImGui::DragFloat("##water_sim_radius", &water.sim_radius, 0.5f, 8.0f, 512.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("The simulation runs this far from the player. Water further out is frozen.");
+            _live_float(lw, lw ? lw->sim_radius : 0.0f, " m");
+            _name("Vorticity");
+            ImGui::DragFloat("##water_vorticity", &water.vorticity, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->vorticity : 0.0f);
+            _name("Bed Probe Height");
+            ImGui::DragFloat("##water_bed_probe", &water.bed_probe, 0.1f, 0.5f, 200.0f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far above the terrain the riverbed rays start. Must be above the tallest object standing in water.");
+            _live_float(lw, lw ? lw->bed_probe : 0.0f, " m");
+            _name("CFL Limit");
+            ImGui::DragFloat("##water_cfl", &water.cfl_limit, 0.005f, 0.01f, 0.9f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->cfl_limit : 0.0f);
+            _name("Flux Depth Cap");
+            ImGui::DragFloat("##water_flux_cap", &water.flux_depth_cap, 0.01f, 0.05f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->flux_depth_cap : 0.0f);
+            _name("Foam Decay");
+            ImGui::DragFloat("##water_foam_decay", &water.foam_decay, 0.01f, 0.0f, 10.0f, "%.2f /s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->foam_decay : 0.0f, " /s");
+            _name("Foam Gain");
+            ImGui::DragFloat("##water_foam_gain", &water.foam_gain, 0.01f, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lw, lw ? lw->foam_gain : 0.0f);
+        }
+        if (_section("Water Rendering")) {
+            _name("Caustics");
+            _check("##water_caustics", &water.caustics);
+            _live("%s", lw ? on_off(lw->caustics) : "-");
         }
         _section_end();
         ImGui::EndChild();
@@ -337,10 +288,12 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const uint32_t collision_index = component("collision");
     const uint32_t character_index = component("character");
     const uint32_t static_index = component("static");
+    const uint32_t disabled_index = component("disabled");
 
     bool revert_transform = false;
     bool revert_model = false;
     bool revert_static = false;
+    bool revert_visible = false;
     bool revert_entity = false;
     bool revert_character = false;
     bool revert_collision = false;
@@ -363,9 +316,24 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         _live("-");
     }
 
-    if (TransformComponent* xf = world.try_get<TransformComponent>(e)) {
-        const TransformComponent* lxf = has_live ? live->try_get<TransformComponent>(le) : nullptr;
-        if (_section("Transform", nullptr, overridden(transform_index) || overridden(static_index) ? &revert_transform : nullptr)) {
+    const bool general_overridden = overridden(transform_index) || overridden(static_index) || overridden(disabled_index);
+    if (_section("General", nullptr, general_overridden ? &revert_transform : nullptr)) {
+        bool is_static = world.has<StaticTag>(e);
+        _name("Static");
+        if (_check("##static", &is_static)) {
+            if (is_static) world.deferred_add<StaticTag>(e);
+            else world.deferred_remove<StaticTag>(e);
+        }
+        if (tmpl && overridden(static_index)) {
+            ImGui::SameLine();
+            revert_static = ImGui::SmallButton(ICON_FA_ROTATE_LEFT "##revert_static");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the template's value");
+        }
+        if (has_live) _live("%s", live->has<StaticTag>(le) ? "True" : "False");
+        else _live("-");
+
+        if (TransformComponent* xf = world.try_get<TransformComponent>(e)) {
+            const TransformComponent* lxf = has_live ? live->try_get<TransformComponent>(le) : nullptr;
             bool changed = false;
             _name("Position");
             changed |= ImGui::DragFloat3("##position", &xf->position.x, 0.1f, 0.0f, 0.0f, "%.3f");
@@ -396,21 +364,26 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
                 if (!std::isfinite(xf->rotation.x) || !std::isfinite(xf->rotation.y) || !std::isfinite(xf->rotation.z) || !std::isfinite(xf->rotation.w)) xf->rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
                 world.touch(e);
             }
-
-            bool is_static = world.has<StaticTag>(e);
-            _name("Static");
-            if (_check("##static", &is_static)) {
-                if (is_static) world.deferred_add<StaticTag>(e);
-                else world.deferred_remove<StaticTag>(e);
-            }
-            if (tmpl && overridden(static_index)) {
-                ImGui::SameLine();
-                revert_static = ImGui::SmallButton(ICON_FA_ROTATE_LEFT "##revert_static");
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the template's value");
-            }
-            if (has_live) _live("%s", live->has<StaticTag>(le) ? "True" : "False");
-            else _live("-");
         }
+
+        bool visible = !world.has<DisabledTag>(e);
+        _name("Visible");
+        if (_check("##visible", &visible)) {
+            std::vector<Entity> subtree;
+            world.subtree(e, subtree);
+            for (const Entity c : subtree) {
+                if (world.has<DisabledTag>(c) == !visible) continue;
+                if (visible) world.deferred_remove<DisabledTag>(c);
+                else world.deferred_add<DisabledTag>(c);
+            }
+        }
+        if (tmpl && overridden(disabled_index)) {
+            ImGui::SameLine();
+            revert_visible = ImGui::SmallButton(ICON_FA_ROTATE_LEFT "##revert_visible");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert to the template's value");
+        }
+        if (has_live) _live("%s", live->has<DisabledTag>(le) ? "False" : "True");
+        else _live("-");
     }
 
     if (tmpl && _section("Template")) {
@@ -723,7 +696,9 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_transform) {
         template_revert_component(world, e, *tmpl, transform_index);
         template_revert_component(world, e, *tmpl, static_index);
+        template_revert_component(world, e, *tmpl, disabled_index);
     }
+    if (tmpl && revert_visible) template_revert_component(world, e, *tmpl, disabled_index);
     if (tmpl && revert_static) template_revert_component(world, e, *tmpl, static_index);
     if (tmpl && revert_model) template_revert_component(world, e, *tmpl, model_index);
     if (tmpl && revert_collision) template_revert_component(world, e, *tmpl, collision_index);

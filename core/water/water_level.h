@@ -35,7 +35,12 @@ struct WaterLevel
     static constexpr uint32_t FRESH_FRAMES = 6;
     static constexpr float BED_MESH_MARGIN = 2.0f;
     static constexpr uint32_t BED_RETRY_FRAMES = 60;
-    static constexpr float BED_RANGE = 200.0f;    static constexpr float DRAIN_DROP = 4.0f;
+    static constexpr float BED_RANGE = 200.0f;
+    static constexpr float MANNING = 0.032f;
+    static constexpr float VORTEX_MIN_DEPTH = 0.08f;
+    static constexpr uint32_t BED_LAYERS = 3;
+    static constexpr float BED_CLEARANCE = 0.25f;
+    static constexpr float BED_LIFT = 0.02f;    static constexpr float DRAIN_DROP = 4.0f;
     static constexpr uint32_t CAPACITY_MIN = 256;
     static constexpr float BED_CACHE_KEEP = 3.0f;
     static constexpr float PUSH_MIN_DEPTH = 0.15f;

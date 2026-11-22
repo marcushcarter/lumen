@@ -206,7 +206,6 @@ Error Application::_frame()
 
     cpu.zone_begin("Update");
     on_update((float)delta);
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F12, ImGuiInputFlags_RouteGlobal)) screenshot_request();
     scene.deferred_flush();
     cpu.zone_end();
 

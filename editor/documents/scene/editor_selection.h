@@ -10,11 +10,8 @@ struct EditorSelection
     std::vector<Entity> entities;
     std::vector<uint32_t> entity_marks;
     uint64_t version = 0;
-    bool environment = false;
-    bool shadows = false;
-    bool physics = false;
+    bool scene = false;
     bool terrain = false;
-    bool water = false;
     int32_t _shape = -1;
     uint64_t _shape_version = 0;
 
@@ -30,11 +27,8 @@ struct EditorSelection
 
     void clear();
     void select(Entity p_entity);
-    void select_environment();
-    void select_shadows();
-    void select_physics();
+    void select_scene();
     void select_terrain();
-    void select_water();
     void add(Entity p_entity);
     void remove(Entity p_entity);
     void toggle(Entity p_entity);

@@ -287,8 +287,7 @@ void PhysicsSystem::_update_water(const Scene& p_world)
     water.bake_path = s.bake.valid() && project ? project->content_path(s.bake) : std::filesystem::path();
     water.prepare(p_world, focus, terrain.valid() ? &terrain.source : nullptr, physics);
     physics.water = &water;
-    physics.buoyancy_forces = s.buoyancy;
-    physics.buoyancy_drag = s.drag;
+    physics.buoyancy_forces = s.simulate;
     physics.buoyancy_push = s.push_water;
 }
 

@@ -66,7 +66,6 @@ struct VersionControlTool : EditorDocument
     int32_t selected = NONE;
     std::string selected_hash;
     int32_t menu_row = NONE;
-    bool scroll_to_selected = false;
 
     char message[MESSAGE_SIZE] = {};
     char remote_url[FIELD_SIZE] = {};

@@ -34,6 +34,7 @@ struct WaterBake
 struct WaterWorld : WaterQuery
 {
     static constexpr float BAKE_MARGIN = 8.0f;
+    static constexpr float LOD_ERROR = 0.001f;
     static constexpr float BAKE_RADIUS_MAX = 2048.0f;
     static constexpr uint32_t BAKE_LAG_FRAMES = 6;
     static constexpr float RIPPLE_MIN_SPEED = 0.05f;

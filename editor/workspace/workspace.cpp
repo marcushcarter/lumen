@@ -173,7 +173,12 @@ struct ToolGrid
 
     void separator()
     {
-        x += ui_style().space.lg;
+        const UiStyle& ui = ui_style();
+        const float half = ImFloor(ui.space.lg * 0.5f);
+        const float inset = ImFloor(cell * 0.25f);
+        x += half;
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(x + 0.5f, origin.y + inset), ImVec2(x + 0.5f, origin.y + cell * 2.0f - inset), ui.color.line);
+        x += half + 1.0f;
     }
 };
 
@@ -190,7 +195,6 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     const bool playing = ctx.pie_is_playing && ctx.pie_is_playing();
     const bool paused = playing && ctx.pie_is_paused && ctx.pie_is_paused();
     const bool can_play = scene.can_play() && ctx.pie_toggle_play;
-    const bool simulating = playing && ctx.pie_is_simulating && ctx.pie_is_simulating();
 
     ToolGrid g;
     g.origin = p_min;
@@ -213,13 +217,12 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     };
 
     if (g.small(0, "##save", ICON_FA_FLOPPY_DISK, "Save (Ctrl+S)", false, dirty(), 0)) save(ctx);
-    if (g.small(1, "##save_all", ICON_FA_FOLDER_CLOSED, "Save All (Ctrl+Shift+S)", false, true, 0) && ctx.save_all_callback) ctx.save_all_callback();
+    if (g.small(1, "##save_all", ICON_FA_FOLDER_CLOSED, "Save All", false, true, 0) && ctx.save_all_callback) ctx.save_all_callback();
     g.column(g.cell);
     g.separator();
 
-    if (g.big("##simulate", ICON_FA_ATOM, can_play ? (playing ? "Simulate: hand the view back to the editor camera (Esc)" : "Simulate: run physics with the editor camera") : "Open a scene to simulate", simulating, can_play || playing, 0) && ctx.pie_simulate) ctx.pie_simulate();
-    if (g.big("##play", ICON_FA_PLAY, can_play ? (playing ? "Play: take control of the game" : "Play") : "Open a scene to play", playing && !simulating, can_play || playing, 0) && ctx.pie_play) ctx.pie_play();
-    if (g.big("##stop", ICON_FA_STOP, playing ? "Stop and go back to editing" : "Nothing is running", false, playing, 0) && playing) ctx.pie_toggle_play();
+    const char* play_tip = playing ? "Stop and go back to editing" : (can_play ? "Play (F8 takes you into the player and back out)" : "Open a scene to play");
+    if (g.big("##play", playing ? ICON_FA_STOP : ICON_FA_PLAY, play_tip, playing, can_play || playing, 0) && ctx.pie_toggle_play) ctx.pie_toggle_play();
     const bool scaled = playing && ctx.pie_is_scaled && ctx.pie_is_scaled();
     if (g.small(0, "##pause", paused ? ICON_FA_PLAY : ICON_FA_PAUSE, paused ? "Resume" : "Pause and edit", paused, playing && (bool)ctx.pie_toggle_pause, 0, 0)) ctx.pie_toggle_pause();
     if (g.small(0, "##step", ICON_FA_FORWARD_STEP, "Step one frame", false, paused && (bool)ctx.pie_step, 0, 1)) ctx.pie_step();
@@ -231,6 +234,22 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Play speed (time scale)");
     }
     g.column(ImMax(g.cell * 2.0f, g.cell + speed_w));
+    g.separator();
+
+    ViewportView& view = viewport_view();
+    struct ToolButton { ViewAction action; const char* id; const char* icon; const char* tip; };
+    static constexpr ToolButton TOOLS[] = {
+        { ViewAction::SELECT, "##tool_select", ICON_FA_ARROW_POINTER, "Select" },
+        { ViewAction::MOVE, "##tool_move", ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "Move" },
+        { ViewAction::ROTATE, "##tool_rotate", ICON_FA_ROTATE, "Rotate" },
+        { ViewAction::SCALE, "##tool_scale", ICON_FA_UP_RIGHT_AND_DOWN_LEFT_FROM_CENTER, "Scale" },
+        { ViewAction::ALL, "##tool_all", ICON_FA_CROSSHAIRS, "Move, rotate and scale" },
+        { ViewAction::SPAWN, "##tool_spawn", ICON_FA_CUBES, "Spawn shapes: left click drops one. Only while the game runs." },
+    };
+    static_assert(std::size(TOOLS) == (size_t)ViewAction::COUNT);
+    for (const ToolButton& t : TOOLS) {
+        if (g.big(t.id, t.icon, t.tip, view.action == t.action, true, 0)) view.action = t.action;
+    }
     g.separator();
 
     const float field_w = ImFloor(ImGui::CalcTextSize("Global").x * 3.0f);
@@ -249,31 +268,21 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Camera move speed (WASD, Q, E)");
     }
     g.column(field_w);
-    g.separator();
 
-    ViewportView& view = viewport_view();
-    const float action_w = ImFloor(ImGui::CalcTextSize("Spawn Shapes").x + ImGui::GetFrameHeight() * 1.5f);
-    field_at(g.slot(0), action_w);
-    if (ImGui::BeginCombo("##viewport_action", view_action_name(view.action))) {
-        for (int i = 0; i < (int)ViewAction::COUNT; i++) {
-            if (ImGui::Selectable(view_action_name((ViewAction)i), (int)view.action == i)) view.action = (ViewAction)i;
-        }
-        ImGui::EndCombo();
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("What left click does in the viewport");
+    const float shape_w = ImFloor(ImGui::CalcTextSize("Boulder").x + ImGui::GetFrameHeight() * 1.5f);
     ImGui::BeginDisabled(view.action != ViewAction::SPAWN);
-    field_at(g.slot(1), action_w);
+    field_at(g.slot(0), shape_w);
     if (ImGui::BeginCombo("##spawn_shape", spawn_shape_name(view.spawn_shape))) {
         for (int i = 0; i < (int)SpawnShape::COUNT; i++) {
             if (ImGui::Selectable(spawn_shape_name((SpawnShape)i), (int)view.spawn_shape == i)) view.spawn_shape = (SpawnShape)i;
         }
         ImGui::EndCombo();
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Shape to spawn. Left click spawns one, hold Space to keep spawning. Only while simulating or playing.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Shape the spawn tool drops");
     ImGui::EndDisabled();
+    g.column(shape_w);
     ImGui::PopStyleColor(6);
     ImGui::PopStyleVar();
-    g.column(action_w);
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
     ImGui::EndChild();
 }

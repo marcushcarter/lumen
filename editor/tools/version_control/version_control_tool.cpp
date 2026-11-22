@@ -386,26 +386,6 @@ void VersionControlTool::_draw_graph(EditorContext& ctx, ImVec2 p_min, ImVec2 p_
     if (hover_row != NONE && hover_row != head_row && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ctx.git->busy) {
         _go_to(ctx, cached.commits[(size_t)hover_row].hash);
     }
-    if (ImGui::IsWindowFocused() && n > 0) {
-        int32_t next = selected;
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) next = selected == NONE ? 0 : ImMin(selected + 1, (int32_t)n - 1);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) next = selected == NONE ? 0 : ImMax(selected - 1, 0);
-        if (next != selected) {
-            selected = next;
-            selected_hash = cached.commits[(size_t)next].hash;
-            scroll_to_selected = true;
-        }
-        if (selected != NONE && ImGui::IsKeyPressed(ImGuiKey_Enter) && groups[(size_t)row_group[(size_t)selected]].branch) {
-            menu_row = selected;
-            ImGui::OpenPopup("##vc_commit_menu");
-        }
-    }
-    if (scroll_to_selected && selected != NONE) {
-        const float top = row_h * (float)selected;
-        if (top < scroll) ImGui::SetScrollY(top);
-        else if (top + row_h > scroll + view_h) ImGui::SetScrollY(top + row_h - view_h);
-        scroll_to_selected = false;
-    }
 
     const uint32_t first = (uint32_t)ImMax(0.0f, ImFloor(scroll / row_h) - 1.0f);
     const uint32_t last = (uint32_t)ImMin((float)rows, ImCeil((scroll + view_h) / row_h) + 1.0f);
@@ -620,7 +600,7 @@ void VersionControlTool::_draw_rename_popup(EditorContext& ctx)
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) close = true;
+    if (ImGui::Button("Cancel")) close = true;
     if (close) {
         rename_open = false;
         ImGui::CloseCurrentPopup();

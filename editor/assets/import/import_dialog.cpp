@@ -289,12 +289,8 @@ void ImportDialog::_draw_footer(EditorContext& ctx, Pending& r_pending)
     ui_pop_buttons();
     ImGui::SameLine();
     ui_push_buttons(UiButton::NEUTRAL);
-    bool cancel = ImGui::Button("Cancel", ImVec2(button_w, 0.0f));
+    const bool cancel = ImGui::Button("Cancel", ImVec2(button_w, 0.0f));
     ui_pop_buttons();
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        cancel |= ImGui::IsKeyPressed(ImGuiKey_Escape, false);
-        accept |= !cancel && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false));
-    }
 
     if (accept_all) {
         _apply_to_rest(r_pending);

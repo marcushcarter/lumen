@@ -111,6 +111,7 @@ struct EditorApplication : Application
     void _water_preview_update(float p_dt);
     void _water_preview_stop();
     void _keep_editor_view();
+    void _toggle_possess();
     void on_simulate(float p_dt) override;
     Scene& simulated_scene() override { return play.active() ? play.runtime : scene; }
     void update_camera(float p_dt) override;

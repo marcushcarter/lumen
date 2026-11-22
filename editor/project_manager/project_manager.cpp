@@ -718,8 +718,7 @@ void ProjectManager::_draw_new_project(EditorContext& ctx)
     const bool cancel = ImGui::Button("Cancel", ImVec2(pm.button_width, 0.0f));
     ui_pop_buttons();
 
-    if (can_create && (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) create = edit = true;
-    if (cancel || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    if (cancel) ImGui::CloseCurrentPopup();
     else if (create) _new_project_create(ctx, edit);
 
     ImGui::EndPopup();

@@ -145,7 +145,6 @@ void ReferencesDialog::draw(EditorContext& ctx)
     ui_push_buttons(UiButton::NEUTRAL);
     close |= ImGui::Button(replacing ? "Cancel" : "Close", ImVec2(button_w, 0.0f));
     ui_pop_buttons();
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) close = true;
 
     if (close) {
         active = false;

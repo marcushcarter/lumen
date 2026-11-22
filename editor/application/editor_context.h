@@ -74,10 +74,7 @@ struct EditorContext
     EditorPlay* play = nullptr;
     std::function<bool()> pie_is_playing;
     std::function<void()> pie_toggle_play;
-    std::function<void()> pie_play;
-    std::function<void()> pie_simulate;
     std::function<void()> water_bake;
-    std::function<bool()> pie_is_simulating;
     std::function<bool()> pie_is_paused;
     std::function<void()> pie_toggle_pause;
     std::function<void()> pie_step;

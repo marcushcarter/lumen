@@ -18,7 +18,7 @@ namespace lumen {
 struct EditorPlay;
 
 enum class ViewOverlay : uint8_t { NONE, COLLISION, BONES, DEBUG_LINES, BUOYANCY, WATER_FLOW, COUNT };
-enum class ViewAction : uint8_t { GIZMO, SPAWN, COUNT };
+enum class ViewAction : uint8_t { SELECT, MOVE, ROTATE, SCALE, ALL, SPAWN, COUNT };
 
 struct ViewportView
 {
@@ -26,11 +26,11 @@ struct ViewportView
     int debug_view = 0;
     bool culling_paused = false;
     bool stats = false;
-    ViewAction action = ViewAction::GIZMO;
+    ViewAction action = ViewAction::MOVE;
     SpawnShape spawn_shape = SpawnShape::RANDOM;
 };
 
-const char* view_action_name(ViewAction p_action);
+uint8_t view_action_gizmo_parts(ViewAction p_action);
 
 const char* view_overlay_name(ViewOverlay p_overlay);
 uint32_t view_overlay_kinds(ViewOverlay p_overlay);

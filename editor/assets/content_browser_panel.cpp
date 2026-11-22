@@ -461,10 +461,6 @@ void ContentBrowserPanel::_list_end(EditorContext& ctx)
         ImGui::EndPopup();
     }
     ui_context_menu_pop_style();
-    if (ImGui::IsWindowFocused() && !ImGui::GetIO().WantTextInput && rename_target.empty()) {
-        if (!selection.empty() && ImGui::IsKeyPressed(ImGuiKey_F2, false)) _rename_begin(selection.back());
-        if (!selection.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) _delete_selection();
-    }
 }
 
 void ContentBrowserPanel::_draw_list(EditorContext& ctx, const char* p_id, ImVec2 p_size, bool p_results)
@@ -838,7 +834,7 @@ void ContentBrowserPanel::_context_menu(EditorContext& ctx, const std::filesyste
     for (const std::filesystem::path& p : selection) any_folder = any_folder || std::filesystem::is_directory(p, ec);
 
     if (!any_folder && count == 1 && ImGui::MenuItem("Open")) open_entry(ctx, p_row);
-    if (ImGui::MenuItem("Rename", "F2")) _rename_begin(p_row);
+    if (ImGui::MenuItem("Rename")) _rename_begin(p_row);
     if (_duplicable(p_row) && ImGui::MenuItem("Duplicate")) _duplicate_selection(ctx);
     if (!any_folder) {
         const bool reimportable = std::any_of(selection.begin(), selection.end(), [](const std::filesystem::path& p) { return can_reimport(p); });
@@ -859,7 +855,7 @@ void ContentBrowserPanel::_context_menu(EditorContext& ctx, const std::filesyste
     if (ImGui::MenuItem("Show in Explorer")) Paths::reveal_in_explorer(p_row);
     char del[48];
     std::snprintf(del, sizeof(del), count > 1 ? "Delete %u Items" : "Delete", count);
-    if (ImGui::MenuItem(del, "Del")) _delete_selection();
+    if (ImGui::MenuItem(del)) _delete_selection();
     if (any_folder) {
         if (ImGui::MenuItem("Delete Folder Only")) _delete_folders_only();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Removes the folder and moves its contents to the parent folder");

@@ -20,7 +20,7 @@ Error Scene::initialize()
     component_register_saved<NameComponent>("Name", "name", false);
     component_register_saved<ParentComponent>("Parent", "parent", false);
     component_register_saved<TransformComponent>("Transform", "transform");
-    component_register_saved<ModelComponent>("Model", "model");
+    component_register_saved<MeshComponent>("Mesh", "mesh");
     component_register<PoseComponent>("Pose", false);
     component_register<InitialVelocityComponent>("Initial Velocity", false);
     component_register_saved<CollisionComponent>("Collision", "collision");

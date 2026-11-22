@@ -545,7 +545,6 @@ void UiStyle::_build_colors()
     color.notice = ui_hex(0xcc7529ff);
     color.favorite = ui_hex(0xffb400ff);
     color.folder = ui_hex(p.ICON_FOLDER);
-    color.asset_model = IM_COL32(86, 182, 230, 255);
     color.asset_mesh = IM_COL32(64, 196, 196, 255);
     color.asset_material = IM_COL32(112, 196, 92, 255);
     color.asset_texture = IM_COL32(226, 96, 86, 255);

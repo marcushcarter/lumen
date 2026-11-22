@@ -24,9 +24,9 @@ struct TransformComponent
     vec3 scale = vec3(1.0f);
 };
 
-struct ModelComponent
+struct MeshComponent
 {
-    Guid model;
+    Guid mesh;
     vec4 tint = vec4(1.0f);
 };
 

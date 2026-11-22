@@ -118,8 +118,8 @@ bool TemplateDocument::frame(EditorContext& ctx)
     vec3 hi(-FLT_MAX);
     bool any = false;
     bool pending = false;
-    scene.view<ModelComponent>([&](Entity p_entity, const ModelComponent& p_model) {
-        const ModelCache::Entry* entry = ctx.renderer->models.get(p_model.model);
+    scene.view<MeshComponent>([&](Entity p_entity, const MeshComponent& p_model) {
+        const MeshSlotCache::Entry* entry = ctx.renderer->mesh_slots.get(p_model.mesh);
         if (!entry || !entry->mesh.valid()) return;
         const LMesh* mesh = ctx.renderer->geometry.get(ctx.renderer->geometry.find(entry->mesh));
         if (!mesh) {

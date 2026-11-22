@@ -618,7 +618,7 @@ Error CollisionCooker::reimport(EditorContext& ctx, const std::filesystem::path&
         ModelCooker::Settings settings;
         settings.mesh_settings = job.settings;
         log_write("'%s' was cooked before collision lived in the mesh file, reimporting the mesh to add it.", p_lmesh.filename().string().c_str());
-        return ModelCooker::reimport_mesh(ctx, p_lmesh, &settings);
+        return ModelCooker::reimport(ctx, p_lmesh, &settings);
     }
 
     std::shared_ptr<ImportSession> session = ctx.imports->begin(*ctx.project, p_lmesh);

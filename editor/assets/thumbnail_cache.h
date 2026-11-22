@@ -4,7 +4,6 @@
 #include <core/assets/asset_common.h>
 #include <core/assets/lanim.h>
 #include <core/assets/lmaterial.h>
-#include <core/assets/lmodel.h>
 #include <core/assets/guid.h>
 #include <core/scene/scene.h>
 #include <core/scene/camera.h>
@@ -75,7 +74,7 @@ struct ThumbnailCache
     };
 
     struct ParsedMaterial { uint64_t stamp = 0; LMaterial material; };
-    struct ParsedModel { uint64_t stamp = 0; LModel model; };
+    struct ParsedMesh { uint64_t stamp = 0; Guid guid; std::vector<Guid> materials; };
     struct ParsedAnimation { uint64_t stamp = 0; LAnimation clip; Guid mesh; };
     struct Retired { drivers::DeviceDriverVulkan::Image image; uint64_t frame = 0; };
     struct PendingWrite { JobCounter counter; bool ok = false; };
@@ -90,7 +89,7 @@ struct ThumbnailCache
 
     std::unordered_map<Guid, Entry> entries;
     std::unordered_map<Guid, ParsedMaterial> materials;
-    std::unordered_map<Guid, ParsedModel> models;
+    std::unordered_map<Guid, ParsedMesh> parsed_meshes;
     std::unordered_map<Guid, ParsedAnimation> animations;
     std::deque<Guid> queue;
     Job job;
@@ -138,7 +137,7 @@ struct ThumbnailCache
     void _place_template(const Job& p_job);
     Readiness _ready(EditorContext& ctx, const Job& p_job);
     const LMaterial* _parsed_material(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
-    const LModel* _parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
+    const ParsedMesh* _parsed_mesh(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     const ParsedAnimation* _parsed_animation(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp);
     void _pose_animation(Guid p_guid);
     Guid _clip_preview_mesh(EditorContext& ctx, Guid p_clip);

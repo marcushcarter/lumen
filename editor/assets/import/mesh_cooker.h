@@ -39,6 +39,7 @@ struct MeshCooker
         vec3 rotation = vec3(0.0f);
         float scale = 1.0f;
         bool load_skeleton = true;
+        bool generate_materials = true;
         CollisionSettings collision;
         uint32_t max_verts = 64;
         uint32_t max_tris = 64;
@@ -54,6 +55,7 @@ struct MeshCooker
         CookSettings settings;
         const LSkeleton* skeleton_data = nullptr;
         std::vector<uint8_t> collision;
+        std::vector<Guid> materials;
         ImportStep step;
     };
 

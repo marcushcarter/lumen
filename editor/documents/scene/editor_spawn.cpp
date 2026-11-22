@@ -3,7 +3,6 @@
 #include <editor/application/editor_context.h>
 #include <core/scene/components.h>
 #include <core/rendering/renderer.h>
-#include <core/assets/lmodel.h>
 #include <core/assets/lmesh.h>
 #include <core/project/project.h>
 #include <editor/assets/asset_registry.h>
@@ -13,18 +12,14 @@
 
 namespace lumen {
 
-static bool _model_skinned(EditorContext& ctx, Guid p_model)
+static bool _mesh_skinned(EditorContext& ctx, Guid p_mesh)
 {
-    if (!ctx.assets || !ctx.project) return false;
-    const AssetRegistry::Entry* entry = ctx.assets->find(p_model);
-    if (!entry) return false;
-    LModel model;
-    if (model.load(entry->path) != Error::OK || !model.mesh.valid()) return false;
+    if (!ctx.project || !p_mesh.valid()) return false;
     LMeshRig rig;
-    return lmesh_read_rig(ctx.project->content_path(model.mesh), rig);
+    return lmesh_read_rig(ctx.project->content_path(p_mesh), rig);
 }
 
-Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid p_model, const vec3* p_position)
+Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid p_mesh, const vec3* p_position)
 {
     Scene& world = *ctx.scene;
     const Camera& cam = ctx.renderer->main_view.camera;
@@ -41,9 +36,9 @@ Entity editor_spawn(EditorContext& ctx, SpawnType p_type, Entity p_parent, Guid 
     }
 
     switch (p_type) {
-        case SpawnType::MODEL:
-            world.add<ModelComponent>(e, { p_model });
-            if (!_model_skinned(ctx, p_model)) world.add<StaticTag>(e);
+        case SpawnType::MESH:
+            world.add<MeshComponent>(e, { p_mesh });
+            if (!_mesh_skinned(ctx, p_mesh)) world.add<StaticTag>(e);
             world.add<CollisionComponent>(e, {});
             break;
         default:

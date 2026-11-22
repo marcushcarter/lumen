@@ -3,11 +3,13 @@
 #include <core/base/error.h>
 #include <core/io/file_io.h>
 #include <meshoptimizer.h>
+#include <toml++/toml.hpp>
 #include <algorithm>
 #include <cstddef>
 #include <cfloat>
 #include <cstring>
 #include <fstream>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -819,7 +821,7 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     const size_t joint_box_bytes = joint_boxes.size() * sizeof(LMeshJointBox);
 
     LMeshPayloadHeader header = p_data.header;
-    header.section_count = 5;
+    header.section_count = 6;
     header.group_child_page_count = (uint32_t)p_data.group_child_pages.size();
 
     const uint64_t sections_at = sizeof(LAssetHeader) + sizeof(LMeshPayloadHeader) + rig_bytes;
@@ -827,7 +829,8 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     const uint64_t blobs_at = resident_at + resident.size();
     const uint64_t joint_boxes_at = blobs_at + blobs.size();
     const uint64_t skeleton_at = joint_boxes_at + joint_box_bytes;
-    const uint64_t collision_at = skeleton_at + p_data.skeleton.size();
+    const uint64_t materials_at = skeleton_at + p_data.skeleton.size();
+    const uint64_t collision_at = materials_at;
     const uint64_t total = collision_at + p_data.collision.size();
     if (total > UINT32_MAX) {
         log_write("lmesh: '%s' would be over 4 GB.", p_bin.string().c_str());
@@ -836,11 +839,12 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
     for (LMeshPage& page : pages) page.offset += blobs_at;
     std::memcpy(resident.data() + pages_at, pages.data(), pages.size() * sizeof(LMeshPage));
 
-    const LMeshSection sections[5] = {
+    const LMeshSection sections[6] = {
         { LMeshSectionType::RASTER_RESIDENT, 0, resident_at, resident.size() },
         { LMeshSectionType::RASTER_PAGES, 0, blobs_at, blobs.size() },
         { LMeshSectionType::JOINT_BOXES, 0, joint_boxes_at, joint_box_bytes },
         { LMeshSectionType::SKELETON, 0, skeleton_at, p_data.skeleton.size() },
+        { LMeshSectionType::MATERIALS, 0, materials_at, 0 },
         { LMeshSectionType::COLLISION, 0, collision_at, p_data.collision.size() },
     };
 
@@ -860,7 +864,7 @@ bool lmesh_write(const std::filesystem::path& p_bin, Guid p_guid, const LMeshDat
         _append(out, p_data.rig.inverse_binds.data(), p_data.rig.inverse_binds.size());
         _append(out, rig_names.data(), rig_names.size());
     }
-    _append(out, sections, 5);
+    _append(out, sections, 6);
     _append(out, resident.data(), resident.size());
     _append(out, blobs.data(), blobs.size());
     _append(out, joint_boxes.data(), joint_boxes.size());
@@ -1311,6 +1315,58 @@ bool lmesh_replace_section(const std::filesystem::path& p_bin, LMeshSectionType 
     ah.payload_size = (uint32_t)(out.size() - sizeof(LAssetHeader));
     std::memcpy(out.data(), &ah, sizeof(ah));
     return write_file_atomic(p_bin, out.data(), out.size());
+}
+
+bool lmesh_read_materials(const std::filesystem::path& p_bin, std::vector<Guid>& r_materials, Guid* r_guid)
+{
+    r_materials.clear();
+    std::vector<uint8_t> bytes;
+    if (!lmesh_read_section(p_bin, LMeshSectionType::MATERIALS, bytes, r_guid) || bytes.size() % sizeof(Guid)) return false;
+    r_materials.resize(bytes.size() / sizeof(Guid));
+    std::memcpy(r_materials.data(), bytes.data(), bytes.size());
+    return true;
+}
+
+bool lmesh_write_materials(const std::filesystem::path& p_bin, const std::vector<Guid>& p_materials)
+{
+    std::vector<Guid> current;
+    lmesh_read_materials(p_bin, current);
+    if (current == p_materials) return true;
+    std::vector<uint8_t> bytes(p_materials.size() * sizeof(Guid));
+    if (!bytes.empty()) std::memcpy(bytes.data(), p_materials.data(), bytes.size());
+    return lmesh_replace_section(p_bin, LMeshSectionType::MATERIALS, bytes);
+}
+
+bool lmesh_asset_materials(const std::filesystem::path& p_lmesh, Guid& r_guid, std::vector<Guid>& r_materials)
+{
+    r_materials.clear();
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lmesh.string()); }
+    catch (const toml::parse_error&) { return false; }
+    if (asset_type_from_u32((uint32_t)tbl["asset"]["type"].value_or<int64_t>(0)) != AssetType::MESH) return false;
+    r_guid = Guid::from_string(tbl["asset"]["guid"].value_or(std::string{}));
+    if (const toml::array* arr = tbl[asset_type_section(AssetType::MESH)]["materials"].as_array()) {
+        for (const toml::node& n : *arr) r_materials.push_back(Guid::from_string(n.value_or(std::string{})));
+    }
+    return r_guid.valid();
+}
+
+bool lmesh_save_asset_materials(const std::filesystem::path& p_lmesh, const std::vector<Guid>& p_materials)
+{
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lmesh.string()); }
+    catch (const toml::parse_error&) { return false; }
+    toml::table* mesh = tbl[asset_type_section(AssetType::MESH)].as_table();
+    if (!mesh) {
+        tbl.insert_or_assign(std::string(asset_type_section(AssetType::MESH)), toml::table{});
+        mesh = tbl[asset_type_section(AssetType::MESH)].as_table();
+    }
+    toml::array slots;
+    for (Guid m : p_materials) slots.push_back(m.valid() ? m.to_string() : std::string{});
+    mesh->insert_or_assign("materials", std::move(slots));
+    std::ostringstream ss;
+    ss << tbl;
+    return write_file_atomic(p_lmesh, ss.str());
 }
 
 }

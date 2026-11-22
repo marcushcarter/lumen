@@ -120,7 +120,7 @@ void AnimationDocument::_sync_preview(EditorContext& ctx)
 {
     if (preview_mesh != _shown_mesh && ctx.renderer) {
         _shown_mesh = preview_mesh;
-        ctx.renderer->models.set(_preview_model, preview_mesh, {});
+        ctx.renderer->mesh_slots.set(_preview_model, preview_mesh, {});
         _framed = false;
     }
     rig_preview.refresh(ctx, preview_mesh);

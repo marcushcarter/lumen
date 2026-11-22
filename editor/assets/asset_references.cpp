@@ -207,7 +207,7 @@ static void _update_binary(EditorContext& ctx, const AssetReference& p_ref, cons
 static void _reload(EditorContext& ctx, const AssetReference& p_ref)
 {
     if (!ctx.renderer) return;
-    if (p_ref.type == AssetType::MODEL) ctx.renderer->models.load(p_ref.path);
+    if (p_ref.type == AssetType::MESH) ctx.renderer->mesh_slots.load(p_ref.path);
     if (p_ref.type == AssetType::MATERIAL) ctx.renderer->materials.load(p_ref.path);
 }
 
@@ -283,8 +283,7 @@ bool delete_replaced_asset(EditorContext& ctx, Guid p_guid)
     if (ctx.renderer) {
         switch (type) {
             case AssetType::TEXTURE: ctx.renderer->textures.unload(p_guid); break;
-            case AssetType::MESH: ctx.renderer->geometry.unload(p_guid); ctx.renderer->skeletons.unload(p_guid); break;
-            case AssetType::MODEL: ctx.renderer->models.unload(p_guid); break;
+            case AssetType::MESH: ctx.renderer->geometry.unload(p_guid); ctx.renderer->skeletons.unload(p_guid); ctx.renderer->mesh_slots.unload(p_guid); break;
             case AssetType::MATERIAL: ctx.renderer->materials.unload(p_guid); break;
             default: break;
         }

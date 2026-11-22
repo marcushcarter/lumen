@@ -1,6 +1,5 @@
 #include <editor/assets/content_browser_panel.h>
 #include <core/assets/lmaterial.h>
-#include <core/assets/lmodel.h>
 #include <core/assets/lterrain.h>
 #include <core/base/jobs.h>
 #include <core/assets/lscene.h>
@@ -25,7 +24,6 @@
 #include <editor/documents/animation/animation_document.h>
 #include <editor/documents/material/material_document.h>
 #include <editor/documents/mesh/mesh_document.h>
-#include <editor/documents/model/model_document.h>
 #include <editor/documents/terrain/terrain_document.h>
 #include <editor/documents/texture/texture_document.h>
 #include <editor/ui/ui_style.h>
@@ -52,7 +50,6 @@ static const NewAssetDesc NEW_ASSETS[] = {
     { "Scene", "New Scene", ".lscene" },
     { "Template", "New Template", ".ltemplate" },
     { "Terrain", "New Terrain", ".lterrain" },
-    { "Model", "New Model", ".lmodel" },
     { "Material", "New Material", ".lmaterial" },
 };
 static_assert(std::size(NEW_ASSETS) == (size_t)ContentBrowserPanel::NewAsset::COUNT);
@@ -68,7 +65,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmodel" || ext == ".lmaterial" || ext == ".lscene" || ext == ".ltemplate";
+    return ext == ".lmaterial" || ext == ".lscene" || ext == ".ltemplate";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -94,7 +91,6 @@ const char* ContentBrowserPanel::icon_for(const std::filesystem::path& p_path, b
     const std::filesystem::path ext = p_path.extension();
     if (ext == ".ltexture") return TextureDocument::ICON;
     if (ext == ".lmesh") return MeshDocument::ICON;
-    if (ext == ".lmodel") return ModelDocument::ICON;
     if (ext == ".lmaterial") return MaterialDocument::ICON;
     if (ext == ".lanim") return AnimationDocument::ICON;
     if (ext == ".lscene") return ICON_FA_EARTH_AMERICAS;
@@ -108,7 +104,6 @@ std::string ContentBrowserPanel::type_name(std::string p_ext)
     str_lower(p_ext);
     if (p_ext == ".lmesh") return "Mesh";
     if (p_ext == ".ltexture") return "Texture";
-    if (p_ext == ".lmodel") return "Model";
     if (p_ext == ".lmaterial") return "Material";
     if (p_ext == ".lanim") return "Animation";
     if (p_ext == ".lscene") return "Scene";
@@ -124,7 +119,6 @@ bool ContentBrowserPanel::open_entry(EditorContext& ctx, const std::filesystem::
     const AssetInfo info = read_asset_info(p_path);
     if (!info.valid()) return false;
     switch (info.type) {
-        case AssetType::MODEL: ctx.documents->open<ModelDocument>(info.guid)->path = p_path; break;
         case AssetType::MESH: ctx.documents->open<MeshDocument>(info.guid)->path = p_path; break;
         case AssetType::ANIMATION: ctx.documents->open<AnimationDocument>(info.guid)->path = p_path; break;
         case AssetType::TERRAIN: ctx.documents->open<TerrainDocument>(info.guid)->path = p_path; break;
@@ -661,7 +655,6 @@ void ContentBrowserPanel::_duplicate_selection(EditorContext& ctx)
             log_write("Asset Browser: failed to duplicate '%s'.", p.string().c_str());
             continue;
         }
-        if (ctx.renderer && dst.extension() == ".lmodel") ctx.renderer->models.load(dst);
         if (ctx.renderer && dst.extension() == ".lmaterial") ctx.renderer->materials.load(dst);
         created.push_back(dst);
     }
@@ -729,8 +722,7 @@ void ContentBrowserPanel::_delete_content(EditorContext& ctx, const std::filesys
     if (ctx.renderer) {
         switch (info.type) {
             case AssetType::TEXTURE: ctx.renderer->textures.unload(info.guid); break;
-            case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); ctx.renderer->skeletons.unload(info.guid); break;
-            case AssetType::MODEL: ctx.renderer->models.unload(info.guid); break;
+            case AssetType::MESH: ctx.renderer->geometry.unload(info.guid); ctx.renderer->skeletons.unload(info.guid); ctx.renderer->mesh_slots.unload(info.guid); break;
             case AssetType::MATERIAL: ctx.renderer->materials.unload(info.guid); break;
             default: break;
         }
@@ -770,7 +762,7 @@ void ContentBrowserPanel::_delete_folder(EditorContext& ctx, const std::filesyst
         if (ec) break;
         if (it->is_directory(ec)) continue;
         const std::filesystem::path ext = it->path().extension();
-        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmodel" || ext == ".lmaterial" || ext == ".lanim" || ext == ".lterrain" || ext == ".lwater") _delete_content(ctx, it->path(), files);
+        if (ext == ".ltexture" || ext == ".lmesh" || ext == ".lmaterial" || ext == ".lanim" || ext == ".lterrain" || ext == ".lwater") _delete_content(ctx, it->path(), files);
     }
     files.push_back(p_folder);
     _delete_files(std::move(files));
@@ -884,7 +876,6 @@ void ContentBrowserPanel::_create_asset(EditorContext& ctx, NewAsset p_kind)
             err = SceneFile::write(path, tmp, file);
         } break;
         case NewAsset::TERRAIN: { LTerrain a; a.guid = Guid::generate(); err = a.save(path); } break;
-        case NewAsset::MODEL: { LModel a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MATERIAL: { LMaterial a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::COUNT: break;
     }
@@ -892,7 +883,6 @@ void ContentBrowserPanel::_create_asset(EditorContext& ctx, NewAsset p_kind)
         log_write("Asset Browser: failed to create '%s'.", path.string().c_str());
         return;
     }
-    if (ctx.renderer && p_kind == NewAsset::MODEL) ctx.renderer->models.load(path);
     if (ctx.renderer && p_kind == NewAsset::MATERIAL) ctx.renderer->materials.load(path);
     _begin_new(path);
 }

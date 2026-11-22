@@ -116,7 +116,7 @@ Entity ShapeSpawner::spawn(Scene& r_world, SpawnShape p_shape, const vec3& p_hit
     xf.rotation = rotation;
     xf.scale = scale;
     r_world.add<TransformComponent>(e, xf);
-    r_world.add<ModelComponent>(e, { builtin_model(mesh), _tint(color) });
+    r_world.add<MeshComponent>(e, { builtin_mesh(mesh), _tint(color) });
 
     CollisionComponent col;
     col.motion = PhysicsMotion::DYNAMIC;

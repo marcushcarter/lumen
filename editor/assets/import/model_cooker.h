@@ -3,7 +3,6 @@
 #include <editor/assets/import/mesh_cooker.h>
 #include <editor/assets/import/texture_cooker.h>
 #include <editor/assets/import/collision_cooker.h>
-#include <core/assets/lmodel.h>
 #include <filesystem>
 #include <memory>
 
@@ -22,7 +21,6 @@ struct ModelCooker
 
     struct Settings {
         std::wstring name;
-        ModelImportMode mode = ModelImportMode::FULL;
         MeshCooker::CookSettings mesh_settings;
         TextureCooker::CookSettings texture_settings;
     };
@@ -32,13 +30,10 @@ struct ModelCooker
         std::filesystem::path source;
         std::filesystem::path dst_dir;
         std::filesystem::path anim_dir;
-        std::filesystem::path dst_lmodel;
         std::filesystem::path dst_lmesh;
-        Guid model_guid;
         Guid mesh_guid;
         Settings settings;
-        bool mesh_only = false;
-        uint32_t model_slots = 0;
+        bool reimport = false;
         ImportSession* session = nullptr;
     };
 
@@ -50,9 +45,7 @@ struct ModelCooker
     static void fbx_to_meters(const aiScene* p_scene);
 
     static void import_async(EditorContext& ctx, const std::filesystem::path& p_src, const std::filesystem::path& p_dst_dir, const Settings& p_settings = {});
-    static std::filesystem::path find_mesh(const std::filesystem::path& p_folder, Guid p_mesh);
-    static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmodel, const Settings* p_override = nullptr);
-    static Error reimport_mesh(EditorContext& ctx, const std::filesystem::path& p_lmesh, const Settings* p_override = nullptr);
+    static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lmesh, const Settings* p_override = nullptr);
 };
 
 }

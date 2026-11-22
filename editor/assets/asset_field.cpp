@@ -27,7 +27,6 @@ ImU32 asset_type_color(AssetType p_type)
     switch (p_type) {
         case AssetType::TEXTURE: return ui.color.asset_texture;
         case AssetType::MESH: return ui.color.asset_mesh;
-        case AssetType::MODEL: return ui.color.asset_model;
         case AssetType::MATERIAL: return ui.color.asset_material;
         case AssetType::ANIMATION: return ui.color.asset_animation;
         case AssetType::SCENE: return ui.color.asset_scene;
@@ -43,7 +42,6 @@ const char* asset_type_label(AssetType p_type)
     switch (p_type) {
         case AssetType::TEXTURE: return "Texture";
         case AssetType::MESH: return "Mesh";
-        case AssetType::MODEL: return "Model";
         case AssetType::MATERIAL: return "Material";
         case AssetType::ANIMATION: return "Animation";
         case AssetType::SCENE: return "Scene";

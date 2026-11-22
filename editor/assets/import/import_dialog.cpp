@@ -3,7 +3,6 @@
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
 #include <core/assets/lmesh.h>
-#include <core/assets/lmodel.h>
 #include <imgui.h>
 #include <algorithm>
 #include <iterator>
@@ -115,7 +114,6 @@ void ImportDialog::_apply_to_rest(const Pending& p_pending)
             p.model.mesh_settings.rotation = p_pending.model.mesh_settings.rotation;
             p.model.mesh_settings.scale = p_pending.model.mesh_settings.scale;
         } else if (p_pending.kind != ImportKind::TEXTURE && p.kind != ImportKind::TEXTURE) {
-            p.model.mode = p_pending.model.mode;
             p.model.mesh_settings = p_pending.model.mesh_settings;
         }
     }
@@ -146,9 +144,8 @@ void ImportDialog::_draw_model(ModelCooker::Settings& r_settings, bool p_materia
     }
     _draw_transform(mesh);
     if (p_materials && ui_category("Materials")) {
-        bool generate = r_settings.mode == ModelImportMode::FULL;
-        if (ImGui::Checkbox("Generate Materials", &generate)) r_settings.mode = generate ? ModelImportMode::FULL : ModelImportMode::MESH_ONLY;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Creates materials and imports their textures");
+        ImGui::Checkbox("Generate Materials", &mesh.generate_materials);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Creates materials and imports their textures for slots that have no material yet");
     }
     ui_category_flush();
 }
@@ -352,7 +349,7 @@ void ImportDialog::draw(EditorContext& ctx)
         else _draw_texture(p.texture);
     }
     else if (p.kind == ImportKind::ANIMATION) _draw_transform(p.model.mesh_settings);
-    else _draw_model(p.model, p.kind == ImportKind::MODEL);
+    else _draw_model(p.model, true);
     ui_field_pop_style();
     _draw_footer(ctx, p);
     ImGui::PopID();

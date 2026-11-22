@@ -4,7 +4,6 @@
 #include <core/scene/components.h>
 #include <core/assets/asset_common.h>
 #include <core/assets/lmaterial.h>
-#include <core/assets/lmodel.h>
 #include <core/assets/lmesh.h>
 #include <core/io/embedded_resource.h>
 #include <core/base/cpu_profiler.h>
@@ -106,7 +105,7 @@ Error Renderer::initialize(drivers::DeviceDriverVulkan& r_dd, const ProfilingSet
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = geometry.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    err = models.initialize(r_dd, frame_count);
+    err = mesh_slots.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     err = materials.initialize(r_dd, frame_count);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -131,7 +130,7 @@ void Renderer::shutdown()
 {
     unload();
     materials.shutdown();
-    models.shutdown();
+    mesh_slots.shutdown();
     terrain.shutdown();
     geometry.shutdown();
     textures.shutdown();
@@ -171,7 +170,7 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
         for (auto it = std::filesystem::recursive_directory_iterator(p_assets_dir, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
             const std::filesystem::path ext = it->path().extension();
-            if (ext == ".lmodel") models.load(it->path());
+            if (ext == ".lmesh") mesh_slots.load(it->path());
             else if (ext == ".lmaterial") materials.load(it->path());
         }
     }
@@ -189,19 +188,18 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
             case AssetType::TEXTURE:
                 textures.load(ah.guid, path);
                 break;
-            case AssetType::MESH:
+            case AssetType::MESH: {
                 geometry.load(ah.guid, path);
                 skeletons.load_mesh(ah.guid, path);
+                if (authoring) break;
+                std::vector<Guid> slots;
+                lmesh_read_materials(path, slots);
+                mesh_slots.set(ah.guid, ah.guid, slots);
                 break;
+            }
             case AssetType::TERRAIN:
                 terrain.register_path(ah.guid, path);
                 break;
-            case AssetType::MODEL: {
-                if (authoring) break;
-                LModel model;
-                if (model.load_cooked(path) == OK) models.set(model.guid, model.mesh, model.materials);
-                break;
-            }
             case AssetType::MATERIAL: {
                 if (authoring) break;
                 LMaterial material;
@@ -219,7 +217,7 @@ Error Renderer::load(const std::filesystem::path& p_content_dir, const std::file
 void Renderer::unload()
 {
     textures.clear();
-    models.clear();
+    mesh_slots.clear();
     materials.clear();
     skeletons.clear();
     terrain.clear();
@@ -670,12 +668,12 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
     frame.reset();
 
     StaticInstances& static_insts = frame.static_insts;
-    if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version || static_insts.model_version != models.version) {
+    if (static_insts.world_version != p_world.static_version || static_insts.geometry_version != geometry.version || static_insts.model_version != mesh_slots.version) {
         static_insts.clear();
-        p_world.view<TransformComponent, ModelComponent, StaticTag>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model, const StaticTag&) {
+        p_world.view<TransformComponent, MeshComponent, StaticTag>(Exclude<DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const MeshComponent& p_model, const StaticTag&) {
             if (static_insts.instances.size() >= MAX_INSTANCES) return;
             uint32_t mesh_index, slot_base;
-            models.lookup(p_model.model, mesh_index, slot_base);
+            mesh_slots.lookup(p_model.mesh, mesh_index, slot_base);
             const LMesh* mesh = geometry.get(mesh_index);
             if (!mesh) return;
             const mat4 model = p_world.world_matrix(p_entity);
@@ -685,20 +683,20 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         static_insts.bvh.build(static_insts.bounds_min, static_insts.bounds_max);
         static_insts.world_version = p_world.static_version;
         static_insts.geometry_version = geometry.version;
-        static_insts.model_version = models.version;
+        static_insts.model_version = mesh_slots.version;
         static_insts.version++;
     }
 
     const uint32_t base = static_insts.count();
-    p_world.view<TransformComponent, ModelComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const ModelComponent& p_model) {
+    p_world.view<TransformComponent, MeshComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const MeshComponent& p_model) {
         if (base + frame.instances_scratch.size() >= MAX_INSTANCES) return;
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
         FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
         if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
-        if (cache.model != p_model.model || cache.model_version != models.version) {
-            cache.model = p_model.model;
-            cache.model_version = models.version;
-            models.lookup(p_model.model, cache.mesh_index, cache.slot_base);
+        if (cache.model != p_model.mesh || cache.model_version != mesh_slots.version) {
+            cache.model = p_model.mesh;
+            cache.model_version = mesh_slots.version;
+            mesh_slots.lookup(p_model.mesh, cache.mesh_index, cache.slot_base);
         }
         const LMesh* mesh = geometry.get(cache.mesh_index);
         if (!mesh) return;
@@ -919,9 +917,9 @@ Error Renderer::begin_frame(const Scene& p_world, bool p_scene)
     materials.begin_frame(frame_number);
     materials.resolve(textures);
     materials.upload(current_frame);
-    geometry.begin_frame(frame_number, current_frame, models.slot_table_address(current_frame), materials.address(current_frame));
-    models.resolve(geometry, materials);
-    models.upload(current_frame);
+    geometry.begin_frame(frame_number, current_frame, mesh_slots.slot_table_address(current_frame), materials.address(current_frame));
+    mesh_slots.resolve(geometry, materials);
+    mesh_slots.upload(current_frame);
     _queued_views.clear();
 
     if (p_scene) {

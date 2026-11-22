@@ -24,7 +24,7 @@ Error MaterialDocument::create(EditorContext& ctx)
     _create_preview();
     if (ctx.renderer && BuiltinMeshes::ensure_sphere()) {
         ctx.renderer->geometry.load(BuiltinMeshes::SPHERE, BuiltinMeshes::sphere_bin());
-        ctx.renderer->models.set(_preview_model, BuiltinMeshes::SPHERE, { material.guid });
+        ctx.renderer->mesh_slots.set(_preview_model, BuiltinMeshes::SPHERE, { material.guid });
     }
 
     orbit.update();

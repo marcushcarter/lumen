@@ -27,7 +27,7 @@ static const char* _entity_icon(const Scene& world, Entity p_entity, bool p_open
 {
     if (world.is_folder(p_entity)) return p_open ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER;
     if (world.has<TemplateInstanceComponent>(p_entity) && !world.has<TemplatePartComponent>(p_entity)) return ICON_FA_BOX;
-    if (world.has<ModelComponent>(p_entity)) return ICON_FA_CUBES;
+    if (world.has<MeshComponent>(p_entity)) return ICON_FA_CUBES;
     return ICON_FA_CIRCLE_DOT;
 }
 
@@ -671,11 +671,11 @@ void ScenePanel::_asset_drop(EditorContext& ctx, Entity p_target)
     if (!peek) return;
     const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
     const bool tmpl = asset.type == AssetType::TEMPLATE && !ctx.template_doc;
-    if (!asset.guid.valid() || (!tmpl && asset.type != AssetType::MODEL)) return;
+    if (!asset.guid.valid() || (!tmpl && asset.type != AssetType::MESH)) return;
     if (!ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) return;
     Entity parent = p_target;
     if (parent == ENTITY_NULL && ctx.template_doc) parent = ctx.scene->find(ctx.template_doc->root);
-    const Entity e = tmpl ? editor_spawn_template(ctx, asset.guid, parent) : editor_spawn(ctx, SpawnType::MODEL, parent, asset.guid);
+    const Entity e = tmpl ? editor_spawn_template(ctx, asset.guid, parent) : editor_spawn(ctx, SpawnType::MESH, parent, asset.guid);
     if (e != ENTITY_NULL) {
         scroll_to_selected = true;
         expect_world_change = true;

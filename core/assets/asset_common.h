@@ -12,8 +12,7 @@ enum class AssetType : uint32_t {
     NONE = 0,
     TEXTURE,
     MESH,
-    MODEL,
-    MATERIAL,
+    MATERIAL = 4,
     ANIMATION = 6,
     SCENE = 9,
     TERRAIN = 10,
@@ -29,7 +28,6 @@ inline AssetType asset_type_from_u32(uint32_t p_v)
     switch (p_v) {
         case static_cast<uint32_t>(AssetType::TEXTURE): return AssetType::TEXTURE;
         case static_cast<uint32_t>(AssetType::MESH): return AssetType::MESH;
-        case static_cast<uint32_t>(AssetType::MODEL): return AssetType::MODEL;
         case static_cast<uint32_t>(AssetType::MATERIAL): return AssetType::MATERIAL;
         case static_cast<uint32_t>(AssetType::ANIMATION): return AssetType::ANIMATION;
         case static_cast<uint32_t>(AssetType::SCENE): return AssetType::SCENE;
@@ -45,7 +43,6 @@ inline std::string_view asset_type_section(AssetType p_type)
     switch (p_type) {
         case AssetType::TEXTURE: return "texture";
         case AssetType::MESH: return "mesh";
-        case AssetType::MODEL: return "model";
         case AssetType::MATERIAL: return "material";
         case AssetType::ANIMATION: return "animation";
         case AssetType::SCENE: return "world";

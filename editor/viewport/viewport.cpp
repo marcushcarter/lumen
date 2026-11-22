@@ -83,8 +83,8 @@ static void _outline_rect(EditorContext& ctx, OutlineFeature& r_outline, const S
         const TransformComponent* xf = world.try_get<TransformComponent>(e);
         if (!xf || world.has<DisabledTag>(e)) continue;
         const mat4 mvp = view_proj * world.world_matrix(e);
-        if (const ModelComponent* m = world.try_get<ModelComponent>(e)) {
-            const uint32_t mesh_index = renderer.models.mesh_index(m->model);
+        if (const MeshComponent* m = world.try_get<MeshComponent>(e)) {
+            const uint32_t mesh_index = renderer.mesh_slots.mesh_index(m->mesh);
             const PoseComponent* pose = world.has<StaticTag>(e) ? nullptr : world.try_get<PoseComponent>(e);
             vec3 box_min, box_max;
             renderer.geometry.posed_box(mesh_index, pose ? pose->skin.data() : nullptr, pose ? (uint32_t)pose->skin.size() : 0u, box_min, box_max);
@@ -716,7 +716,7 @@ void Viewport::_asset_drop(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (const ImGuiPayload* peek = ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE, ImGuiDragDropFlags_AcceptPeekOnly)) {
         const AssetDragPayload& asset = *(const AssetDragPayload*)peek->Data;
         const bool template_ok = asset.type == AssetType::TEMPLATE && !ctx.template_doc;
-        if ((asset.type == AssetType::MODEL || template_ok) && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
+        if ((asset.type == AssetType::MESH || template_ok) && asset.guid.valid() && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
             const Camera& cam = ctx.renderer->main_view.camera;
             const ImVec2 mouse = ImGui::GetMousePos();
             const float u = std::clamp((mouse.x - p_pos.x) / p_size.x, 0.0f, 1.0f);
@@ -747,7 +747,7 @@ void Viewport::_finish_drop(EditorContext& ctx, float p_depth, bool p_hit)
     }
     const vec3 position = drop.origin + drop.direction * distance;
     if (drop.is_template) editor_spawn_template(ctx, drop.guid, ENTITY_NULL, &position);
-    else editor_spawn(ctx, SpawnType::MODEL, ENTITY_NULL, drop.guid, &position);
+    else editor_spawn(ctx, SpawnType::MESH, ENTITY_NULL, drop.guid, &position);
 }
 
 void Viewport::draw_options_menu(EditorContext& ctx)

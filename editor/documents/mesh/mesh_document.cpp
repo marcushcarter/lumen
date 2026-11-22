@@ -35,7 +35,11 @@ Error MeshDocument::create(EditorContext& ctx)
     _create_preview();
     preview.remove<StaticTag>(_preview_entity);
     preview.add<PoseComponent>(_preview_entity);
-    ctx.renderer->models.set(_preview_model, guid, {});
+    Guid asset_guid;
+    lmesh_asset_materials(path, asset_guid, saved_materials);
+    materials = saved_materials;
+    _preview_materials = materials;
+    ctx.renderer->mesh_slots.set(_preview_model, guid, _preview_materials);
 
     orbit.update();
     return OK;
@@ -51,6 +55,14 @@ Error MeshDocument::save(EditorContext& ctx)
         collision.has = !collision.edit.shapes.empty();
         _collision_poll = -1.0e9;
     }
+    if (materials_dirty()) {
+        if (!lmesh_save_asset_materials(path, materials)) {
+            log_write("Mesh: failed to save the materials of '%s'.", path.string().c_str());
+            return FAILED;
+        }
+        saved_materials = materials;
+        if (ctx.renderer) ctx.renderer->mesh_slots.set(guid, guid, materials);
+    }
     _refresh_title();
     return OK;
 }
@@ -64,6 +76,11 @@ void MeshDocument::on_update(EditorContext& ctx, float)
     if (ImGui::GetTime() - _collision_poll >= STATS_POLL_S) {
         _collision_poll = ImGui::GetTime();
         _refresh_collision(ctx);
+        _refresh_materials(ctx);
+    }
+    if (ctx.renderer && materials != _preview_materials) {
+        _preview_materials = materials;
+        ctx.renderer->mesh_slots.set(_preview_model, guid, _preview_materials);
     }
     rig_preview.refresh(ctx, guid);
     _pick_bone(ctx);
@@ -138,6 +155,17 @@ void MeshDocument::_refresh_collision(EditorContext& ctx)
         collision.settings = current;
     }
     if (selected_shape >= (int32_t)collision.edit.shapes.size()) selected_shape = -1;
+}
+
+void MeshDocument::_refresh_materials(EditorContext& ctx)
+{
+    (void)ctx;
+    if (path.empty()) return;
+    Guid asset_guid;
+    std::vector<Guid> disk;
+    if (!lmesh_asset_materials(path, asset_guid, disk) || disk == saved_materials) return;
+    if (!materials_dirty()) materials = disk;
+    saved_materials = disk;
 }
 
 void MeshDocument::fit_shape(CollisionShapeSettings& r_shape) const

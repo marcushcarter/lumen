@@ -21,7 +21,7 @@ enum class MeshFlags : uint32_t { NONE = 0, SKINNED = 1u << 0, WIDE_SLOTS = 1u <
 LUMEN_ENUM_FLAGS(MeshFlags)
 
 static constexpr uint32_t CLUSTER_GROUP_NONE = 0xffffffffu;
-static constexpr uint32_t LMESH_VERSION = 6;
+static constexpr uint32_t LMESH_VERSION = 7;
 
 static constexpr uint32_t LMESH_CLUSTER_MAX_TRIS = 256;
 static constexpr uint32_t LMESH_CLUSTER_MAX_VERTS = 256;
@@ -154,7 +154,7 @@ struct LMeshNode
 
 static_assert(sizeof(LMeshNode) == 48, "LMeshNode layout changed");
 
-enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, SKELETON = 8 };
+enum class LMeshSectionType : uint32_t { RASTER_RESIDENT = 1, RASTER_PAGES = 2, RT_PROXY = 3, SDF = 4, COLLISION = 5, JOINT_BOXES = 6, SKELETON = 8, MATERIALS = 9 };
 
 struct LMeshJointBox
 {
@@ -305,5 +305,10 @@ bool lmesh_has_collision_slot(const std::filesystem::path& p_bin);
 LMeshCollisionWrite lmesh_write_collision(const std::filesystem::path& p_src, const std::filesystem::path& p_dst, const std::vector<uint8_t>& p_collision);
 bool lmesh_read_section(const std::filesystem::path& p_bin, LMeshSectionType p_type, std::vector<uint8_t>& r_bytes, Guid* r_guid = nullptr);
 bool lmesh_replace_section(const std::filesystem::path& p_bin, LMeshSectionType p_type, const std::vector<uint8_t>& p_bytes);
+
+bool lmesh_read_materials(const std::filesystem::path& p_bin, std::vector<Guid>& r_materials, Guid* r_guid = nullptr);
+bool lmesh_write_materials(const std::filesystem::path& p_bin, const std::vector<Guid>& p_materials);
+bool lmesh_asset_materials(const std::filesystem::path& p_lmesh, Guid& r_guid, std::vector<Guid>& r_materials);
+bool lmesh_save_asset_materials(const std::filesystem::path& p_lmesh, const std::vector<Guid>& p_materials);
 
 }

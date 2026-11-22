@@ -11,7 +11,6 @@
 #include <string>
 #include <string_view>
 #include <core/assets/asset_common.h>
-#include <core/assets/lmodel.h>
 #include <algorithm>
 
 namespace lumen {
@@ -22,11 +21,6 @@ ReimportTarget reimport_target(const std::filesystem::path& p_asset)
     if (!info.valid()) return {};
 
     switch (info.type) {
-        case AssetType::MODEL: {
-            LModel model;
-            if (model.load(p_asset) != Error::OK || model.import.source.empty()) return {};
-            return { ReimportKind::MODEL, p_asset };
-        }
         case AssetType::MESH: {
             MeshCooker::CookSettings settings;
             std::filesystem::path source;
@@ -56,22 +50,12 @@ bool can_reimport(const std::filesystem::path& p_asset)
 
 bool reimport_has_settings(ReimportKind p_kind)
 {
-    return p_kind == ReimportKind::MODEL || p_kind == ReimportKind::MESH || p_kind == ReimportKind::TEXTURE || p_kind == ReimportKind::ANIMATION;
+    return p_kind == ReimportKind::MESH || p_kind == ReimportKind::TEXTURE || p_kind == ReimportKind::ANIMATION;
 }
 
 bool reimport_load_settings(const ReimportTarget& p_target, ReimportSettings& r_settings)
 {
     switch (p_target.kind) {
-        case ReimportKind::MODEL: {
-            LModel model;
-            if (model.load(p_target.asset) != Error::OK || model.import.source.empty()) return false;
-            r_settings.source = std::filesystem::path(model.import.source);
-            r_settings.model.mode = model.import.mode;
-            const std::filesystem::path lmesh = model.mesh.valid() ? ModelCooker::find_mesh(p_target.asset.parent_path(), model.mesh) : std::filesystem::path();
-            std::filesystem::path mesh_source;
-            if (!lmesh.empty()) MeshCooker::load_settings(lmesh, r_settings.model.mesh_settings, mesh_source);
-            return true;
-        }
         case ReimportKind::MESH:
             return MeshCooker::load_settings(p_target.asset, r_settings.model.mesh_settings, r_settings.source);
         case ReimportKind::TEXTURE:
@@ -107,7 +91,7 @@ static Error _reimport_texture(EditorContext& ctx, const std::filesystem::path& 
 
 static std::filesystem::path _scope(const ReimportTarget& p_target)
 {
-    return p_target.kind == ReimportKind::MODEL ? p_target.asset.parent_path() : p_target.asset;
+    return p_target.kind == ReimportKind::MESH ? p_target.asset.parent_path() : p_target.asset;
 }
 
 static bool _confirm_reload(const EditorDocument& p_window)
@@ -137,8 +121,7 @@ static bool _confirm_documents(EditorContext& ctx, const std::vector<ReimportTar
 static Error _run(EditorContext& ctx, const ReimportTarget& p_target, const ReimportSettings* p_override = nullptr)
 {
     switch (p_target.kind) {
-        case ReimportKind::MODEL: return ModelCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
-        case ReimportKind::MESH: return ModelCooker::reimport_mesh(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
+        case ReimportKind::MESH: return ModelCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model : nullptr);
         case ReimportKind::TEXTURE: return _reimport_texture(ctx, p_target.asset, p_override ? &p_override->texture : nullptr);
         case ReimportKind::ANIMATION: return AnimationCooker::reimport(ctx, p_target.asset, p_override ? &p_override->model.mesh_settings : nullptr);
         default: return Error::FAILED;

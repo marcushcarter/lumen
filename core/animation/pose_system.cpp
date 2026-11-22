@@ -39,13 +39,13 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer)
     }
 
     std::vector<Entity> posed;
-    r_world.view<ModelComponent>(Exclude<StaticTag, PoseComponent, DisabledTag>{}, [&](Entity p_entity, const ModelComponent& p_model) {
-        if (p_renderer.geometry.rig(p_renderer.models.mesh_index(p_model.model))) posed.push_back(p_entity);
+    r_world.view<MeshComponent>(Exclude<StaticTag, PoseComponent, DisabledTag>{}, [&](Entity p_entity, const MeshComponent& p_model) {
+        if (p_renderer.geometry.rig(p_renderer.mesh_slots.mesh_index(p_model.mesh))) posed.push_back(p_entity);
     });
     for (Entity e : posed) r_world.add<PoseComponent>(e);
 
-    r_world.view<ModelComponent, PoseComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity, const ModelComponent& p_model, PoseComponent& r_pose) {
-        const Binding* binding = _binding(p_renderer, p_renderer.models.mesh_index(p_model.model));
+    r_world.view<MeshComponent, PoseComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity, const MeshComponent& p_model, PoseComponent& r_pose) {
+        const Binding* binding = _binding(p_renderer, p_renderer.mesh_slots.mesh_index(p_model.mesh));
         if (!binding) {
             r_pose.skin.clear();
             return;

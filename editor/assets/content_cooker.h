@@ -16,6 +16,7 @@ struct ContentCooker
     };
 
     static bool _stale(const std::filesystem::path& p_source, const std::filesystem::path& p_cooked, AssetType p_type);
+    static void _cook_mesh_materials(const Project& p_project, const std::filesystem::path& p_source, Result& r_result);
     static void _cook_file(const Project& p_project, const std::filesystem::path& p_source, AssetType p_type, Result& r_result);
     static void _cook_copy(const Project& p_project, const std::filesystem::path& p_source, const char* p_extension, Result& r_result);
 

@@ -9,8 +9,8 @@ namespace lumen {
 static const CollisionMeshCache::Entry* _model_collision(const Scene& p_scene, Entity p_entity, const EntityDebugSource& p_source)
 {
     if (!p_source.meshes || !p_source.project) return nullptr;
-    const ModelComponent* m = p_scene.try_get<ModelComponent>(p_entity);
-    const uint32_t mesh_index = m ? p_source.renderer.models.mesh_index(m->model) : UINT32_MAX;
+    const MeshComponent* m = p_scene.try_get<MeshComponent>(p_entity);
+    const uint32_t mesh_index = m ? p_source.renderer.mesh_slots.mesh_index(m->mesh) : UINT32_MAX;
     if (!p_source.renderer.geometry.get(mesh_index)) return nullptr;
     const Guid mesh = p_source.renderer.geometry.mesh_guids[mesh_index];
     return p_source.meshes->get(mesh, p_source.project->content_path(mesh));

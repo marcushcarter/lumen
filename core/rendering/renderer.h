@@ -4,7 +4,7 @@
 #include <core/rendering/render_view.h>
 #include <core/rendering/resources/texture_cache.h>
 #include <core/rendering/resources/geometry_pool.h>
-#include <core/rendering/resources/model_cache.h>
+#include <core/rendering/resources/mesh_slot_cache.h>
 #include <core/rendering/resources/material_cache.h>
 #include <core/rendering/resources/skeleton_cache.h>
 #include <core/rendering/resources/terrain_cache.h>
@@ -30,7 +30,7 @@ struct Renderer
     RenderView main_view;
     TextureCache textures;
     GeometryPool geometry;
-    ModelCache models;
+    MeshSlotCache mesh_slots;
     MaterialCache materials;
     SkeletonCache skeletons;
     TerrainCache terrain;

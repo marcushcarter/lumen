@@ -89,12 +89,12 @@ void ThumbnailCache::close(EditorContext& ctx)
     queue.clear();
     job = {};
     materials.clear();
-    models.clear();
+    parsed_meshes.clear();
     animations.clear();
 
     if (ctx.renderer) {
-        ctx.renderer->models.unload(preview_sphere);
-        ctx.renderer->models.unload(preview_mesh);
+        ctx.renderer->mesh_slots.unload(preview_sphere);
+        ctx.renderer->mesh_slots.unload(preview_mesh);
     }
     if (path) {
         path->destroy_resources();
@@ -133,7 +133,7 @@ Error ThumbnailCache::_ensure_view(EditorContext& ctx)
     world.load();
     entity = world.create();
     world.add<TransformComponent>(entity);
-    world.add<ModelComponent>(entity, { preview_sphere });
+    world.add<MeshComponent>(entity, { preview_sphere });
     world.add<PoseComponent>(entity);
     return OK;
 }
@@ -352,17 +352,17 @@ Guid ThumbnailCache::_clip_preview_mesh(EditorContext& ctx, Guid p_clip)
     return RigPreview::find_mesh(ctx, Guid::from_string(section["skeleton"].value_or(std::string())));
 }
 
-const LModel* ThumbnailCache::_parsed_model(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp)
+const ThumbnailCache::ParsedMesh* ThumbnailCache::_parsed_mesh(EditorContext& ctx, Guid p_guid, uint64_t& r_stamp)
 {
     const std::filesystem::path file = _asset_file(ctx, p_guid);
     r_stamp = _stamp(file);
     if (r_stamp == STAMP_MISSING) return nullptr;
-    ParsedModel& p = models[p_guid];
+    ParsedMesh& p = parsed_meshes[p_guid];
     if (p.stamp != r_stamp) {
         p.stamp = r_stamp;
-        if (p.model.load(file) != Error::OK) p.model = LModel{};
+        if (!lmesh_asset_materials(file, p.guid, p.materials)) p = ParsedMesh{ r_stamp };
     }
-    return p.model.guid == p_guid ? &p.model : nullptr;
+    return p.guid == p_guid ? &p : nullptr;
 }
 
 bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type, Job& r_job)
@@ -396,10 +396,18 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
         case AssetType::MESH: {
             const uint64_t stamp = _stamp(_content_file(ctx, p_guid));
             if (stamp == STAMP_MISSING) return false;
-            key = _mix(key, stamp);
+            uint64_t asset_stamp = STAMP_MISSING;
+            const ParsedMesh* m = _parsed_mesh(ctx, p_guid, asset_stamp);
+            if (!m) return false;
+            key = _mix(_mix(key, stamp), asset_stamp);
             add_rig(p_guid);
-            r_job.model = preview_mesh;
+            r_job.model = p_guid;
             r_job.mesh = p_guid;
+            r_job.materials = m->materials;
+            for (size_t i = 0; i < m->materials.size(); ++i) {
+                key = _mix(key, i);
+                if (m->materials[i].valid()) add_material(m->materials[i]);
+            }
         } break;
         case AssetType::MATERIAL: {
             uint64_t stamp = STAMP_MISSING;
@@ -410,33 +418,19 @@ bool ThumbnailCache::_resolve(EditorContext& ctx, Guid p_guid, AssetType p_type,
             r_job.mesh = BuiltinMeshes::SPHERE;
             r_job.materials = { p_guid };
         } break;
-        case AssetType::MODEL: {
-            uint64_t stamp = STAMP_MISSING;
-            const LModel* m = _parsed_model(ctx, p_guid, stamp);
-            if (!m || !m->mesh.valid()) return false;
-            key = _mix(_mix(_mix(key, stamp), m->mesh.value), _stamp(_content_file(ctx, m->mesh)));
-            add_rig(m->mesh);
-            r_job.model = p_guid;
-            r_job.mesh = m->mesh;
-            r_job.materials = m->materials;
-            for (size_t i = 0; i < m->materials.size(); ++i) {
-                key = _mix(key, i);
-                if (m->materials[i].valid()) add_material(m->materials[i]);
-            }
-        } break;
         case AssetType::TEMPLATE: {
             const uint64_t stamp = _stamp(_asset_file(ctx, p_guid));
             if (stamp == STAMP_MISSING) return false;
             Template* tmpl = template_library().get(p_guid);
             if (!tmpl) return false;
             key = _mix(key, stamp);
-            tmpl->world.view<ModelComponent>([&](Entity p_entity, const ModelComponent& p_model) {
+            tmpl->world.view<MeshComponent>([&](Entity p_entity, const MeshComponent& p_model) {
                 if (r_job.pieces.size() >= MAX_TEMPLATE_PIECES) return;
-                uint64_t model_stamp = STAMP_MISSING;
-                const LModel* m = _parsed_model(ctx, p_model.model, model_stamp);
-                if (!m || !m->mesh.valid()) return;
-                key = _mix(_mix(_mix(_mix(key, p_model.model.value), model_stamp), m->mesh.value), _stamp(_content_file(ctx, m->mesh)));
-                r_job.pieces.push_back({ p_model.model, m->mesh, tmpl->world.world_matrix(p_entity) });
+                uint64_t mesh_stamp = STAMP_MISSING;
+                const ParsedMesh* m = _parsed_mesh(ctx, p_model.mesh, mesh_stamp);
+                if (!m) return;
+                key = _mix(_mix(_mix(key, p_model.mesh.value), mesh_stamp), _stamp(_content_file(ctx, p_model.mesh)));
+                r_job.pieces.push_back({ p_model.mesh, p_model.mesh, tmpl->world.world_matrix(p_entity) });
                 for (const Guid material : m->materials) {
                     if (!material.valid()) continue;
                     add_material(material);
@@ -472,7 +466,7 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
 
     std::vector<Guid> meshes{ p_job.mesh };
     std::vector<Guid> model_list;
-    if (p_job.type == AssetType::MODEL) model_list.push_back(p_job.model);
+    if (p_job.type == AssetType::MESH) model_list.push_back(p_job.model);
     for (const Piece& piece : p_job.pieces) {
         if (std::find(meshes.begin(), meshes.end(), piece.mesh) == meshes.end()) meshes.push_back(piece.mesh);
         if (std::find(model_list.begin(), model_list.end(), piece.model) == model_list.end()) model_list.push_back(piece.model);
@@ -516,11 +510,11 @@ ThumbnailCache::Readiness ThumbnailCache::_ready(EditorContext& ctx, const Job& 
 
     bool loading = false;
     for (const Guid model : model_list) {
-        auto parsed = models.find(model);
-        if (parsed == models.end() || parsed->second.model.guid != model) return FAIL;
-        const ModelCache::Entry* cached = r.models.get(model);
-        if (!cached || cached->mesh != parsed->second.model.mesh || cached->materials != parsed->second.model.materials) {
-            r.models.load(_asset_file(ctx, model));
+        auto parsed = parsed_meshes.find(model);
+        if (parsed == parsed_meshes.end() || parsed->second.guid != model) return FAIL;
+        const MeshSlotCache::Entry* cached = r.mesh_slots.get(model);
+        if (!cached || cached->mesh != model || cached->materials != parsed->second.materials) {
+            r.mesh_slots.load(_asset_file(ctx, model));
             loading = true;
         }
     }
@@ -537,7 +531,6 @@ bool ThumbnailCache::supports(AssetType p_type)
         case AssetType::TEXTURE:
         case AssetType::MESH:
         case AssetType::MATERIAL:
-        case AssetType::MODEL:
         case AssetType::ANIMATION:
         case AssetType::TEMPLATE:
             return true;
@@ -646,9 +639,9 @@ void ThumbnailCache::_start_next(EditorContext& ctx)
         next.camera.near_z = std::max(distance - radius * 1.5f, distance * 0.01f);
         next.camera.far_z = distance + radius * 2.0f;
 
-        if (next.type != AssetType::MODEL && !tmpl) r.models.set(next.model, next.mesh, next.materials);
-        if (ModelComponent* mc = world.try_get<ModelComponent>(entity); mc && mc->model != next.model) {
-            mc->model = next.model;
+        if (next.type != AssetType::MESH && !tmpl) r.mesh_slots.set(next.model, next.mesh, next.materials);
+        if (MeshComponent* mc = world.try_get<MeshComponent>(entity); mc && mc->mesh != next.model) {
+            mc->mesh = next.model;
             world.touch(entity);
         }
         _place_template(next);
@@ -693,7 +686,7 @@ void ThumbnailCache::_place_template(const Job& p_job)
     for (size_t i = 1; i < p_job.pieces.size(); ++i) {
         const Entity e = world.create();
         world.add<TransformComponent>(e, transform_from_matrix(p_job.pieces[i].matrix));
-        world.add<ModelComponent>(e, { p_job.pieces[i].model });
+        world.add<MeshComponent>(e, { p_job.pieces[i].model });
         extras.push_back(e);
     }
 }

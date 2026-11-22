@@ -14,7 +14,6 @@ static constexpr uint32_t BUILTIN_BOULDER_VARIANTS = 5;
 static constexpr float BUILTIN_CAPSULE_RADIUS = 0.2f;
 static constexpr float BUILTIN_CAPSULE_HALF_HEIGHT = 0.35f;
 
-Guid builtin_model(BuiltinMesh p_mesh);
 Guid builtin_mesh(BuiltinMesh p_mesh);
 bool builtin_hull(BuiltinMesh p_mesh);
 CollisionShapeEntry builtin_collision(BuiltinMesh p_mesh);

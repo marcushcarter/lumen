@@ -12,11 +12,11 @@ struct Scene;
 struct Camera;
 struct DocumentLayout;
 
-enum class DocumentKind : uint8_t { EDITOR_SETTINGS, PROJECT_SETTINGS, MODEL, MATERIAL, TEXTURE, MESH, ANIMATION, TERRAIN, VERSION_CONTROL, GPU_PROFILER, MEMORY };
+enum class DocumentKind : uint8_t { EDITOR_SETTINGS, PROJECT_SETTINGS, MATERIAL, TEXTURE, MESH, ANIMATION, TERRAIN, VERSION_CONTROL, GPU_PROFILER, MEMORY };
 
 struct EditorDocument
 {
-    DocumentKind kind = DocumentKind::MODEL;
+    DocumentKind kind = DocumentKind::MESH;
     Guid guid;
 
     bool _created = false;

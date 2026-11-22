@@ -59,7 +59,7 @@ struct EditorApplication : Application
     size_t imports_notified = 0;
 
     struct SavedDocument {
-        DocumentKind kind = DocumentKind::MODEL;
+        DocumentKind kind = DocumentKind::MESH;
         Guid guid;
     };
 

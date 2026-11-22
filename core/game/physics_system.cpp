@@ -55,9 +55,9 @@ void PhysicsSystem::decompose(const mat4& p_world, vec3& r_position, quat& r_rot
 Guid PhysicsSystem::_model_mesh(const Scene& p_world, Entity p_entity) const
 {
     if (!renderer) return {};
-    const ModelComponent* model = p_world.try_get<ModelComponent>(p_entity);
+    const MeshComponent* model = p_world.try_get<MeshComponent>(p_entity);
     if (!model) return {};
-    const uint32_t mesh_index = renderer->models.mesh_index(model->model);
+    const uint32_t mesh_index = renderer->mesh_slots.mesh_index(model->mesh);
     return renderer->geometry.get(mesh_index) ? renderer->geometry.mesh_guids[mesh_index] : Guid{};
 }
 
@@ -144,7 +144,7 @@ void PhysicsSystem::_clear()
 
 void PhysicsSystem::_sync(Scene& r_world, float p_dt)
 {
-    const uint64_t static_key = hash_combine(hash_combine(r_world.static_version, renderer ? renderer->geometry.version : 0), renderer ? renderer->models.version : 0);
+    const uint64_t static_key = hash_combine(hash_combine(r_world.static_version, renderer ? renderer->geometry.version : 0), renderer ? renderer->mesh_slots.version : 0);
     const bool full = !_static_synced || static_key != _static_key;
     for (auto& [k, b] : bodies) b.seen = b.tagged_static && !full;
 
@@ -244,9 +244,9 @@ bool PhysicsSystem::_bounds(const Scene& p_world, Entity p_entity, const Collisi
         return true;
     }
     if (!renderer) return true;
-    const ModelComponent* model = p_world.try_get<ModelComponent>(p_entity);
+    const MeshComponent* model = p_world.try_get<MeshComponent>(p_entity);
     if (!model) return true;
-    const LMesh* mesh = renderer->geometry.get(renderer->models.mesh_index(model->model));
+    const LMesh* mesh = renderer->geometry.get(renderer->mesh_slots.mesh_index(model->mesh));
     if (!mesh) return false;
     r_center = vec3(p_matrix * vec4(vec3(mesh->bounds_sphere), 1.0f));
     r_radius = mesh->bounds_sphere.w * scale;

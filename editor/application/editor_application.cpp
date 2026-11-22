@@ -10,7 +10,6 @@
 #include <editor/assets/import/splash_cooker.h>
 #include <editor/export/project_exporter.h>
 #include <editor/documents/material/material_document.h>
-#include <editor/documents/model/model_document.h>
 #include <editor/documents/texture/texture_document.h>
 #include <editor/tools/settings/editor_settings_tool.h>
 #include <editor/tools/settings/project_settings_tool.h>
@@ -379,13 +378,12 @@ void EditorApplication::_tick_imports()
     imports.tick();
     if (!imports.completed.empty()) assets.request_rebuild();
     for (const auto& c : imports.completed) {
-        if (c.dst.extension() == ".lmodel") {
+        if (c.dst.extension() == ".lmesh") {
             std::error_code mat_ec;
             for (auto it = std::filesystem::directory_iterator(c.dst.parent_path(), mat_ec); !mat_ec && it != std::filesystem::directory_iterator(); it.increment(mat_ec)) {
                 if (it->path().extension() == ".lmaterial") renderer.materials.load(it->path());
             }
-            renderer.models.load(c.dst);
-            continue;
+            renderer.mesh_slots.load(c.dst);
         }
         if (c.keep_loaded) continue;
         LAssetHeader ah{};
@@ -425,7 +423,6 @@ void EditorApplication::_tick_imports()
 EditorDocument* EditorApplication::_open_document(DocumentKind p_kind, Guid p_guid)
 {
     switch (p_kind) {
-        case DocumentKind::MODEL: return documents.open<ModelDocument>(p_guid);
         case DocumentKind::MATERIAL: return documents.open<MaterialDocument>(p_guid);
         case DocumentKind::TEXTURE: return documents.open<TextureDocument>(p_guid);
         case DocumentKind::MESH: return documents.open<MeshDocument>(p_guid);
@@ -574,7 +571,6 @@ static const char* _document_kind_name(DocumentKind p_kind)
     switch (p_kind) {
         case DocumentKind::EDITOR_SETTINGS: return "editor_settings";
         case DocumentKind::PROJECT_SETTINGS: return "project_settings";
-        case DocumentKind::MODEL: return "model";
         case DocumentKind::MATERIAL: return "material";
         case DocumentKind::TEXTURE: return "texture";
         case DocumentKind::MESH: return "mesh";
@@ -584,12 +580,12 @@ static const char* _document_kind_name(DocumentKind p_kind)
         case DocumentKind::GPU_PROFILER: return "gpu_profiler";
         case DocumentKind::MEMORY: return "memory";
     }
-    return "model";
+    return "mesh";
 }
 
 static bool _document_kind_from_string(const std::string& p_name, DocumentKind& r_kind)
 {
-    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MODEL, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::TERRAIN, DocumentKind::VERSION_CONTROL, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
+    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::TERRAIN, DocumentKind::VERSION_CONTROL, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
     for (DocumentKind k : ALL) {
         if (p_name != _document_kind_name(k)) continue;
         r_kind = k;

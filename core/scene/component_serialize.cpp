@@ -16,9 +16,9 @@ void serialize(Archive& a, TransformComponent& r_c)
     a.field("scale", r_c.scale);
 }
 
-void serialize(Archive& a, ModelComponent& r_c)
+void serialize(Archive& a, MeshComponent& r_c)
 {
-    a.field("model", r_c.model);
+    a.field("mesh", r_c.mesh);
     a.field("tint", r_c.tint);
 }
 

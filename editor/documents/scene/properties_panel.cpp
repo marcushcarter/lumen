@@ -89,9 +89,9 @@ static constexpr double MESH_STATUS_POLL_S = 1.0;
 
 static const char* _mesh_collision_status(EditorContext& ctx, const Scene& p_world, Entity p_entity)
 {
-    const ModelComponent* model = p_world.try_get<ModelComponent>(p_entity);
+    const MeshComponent* model = p_world.try_get<MeshComponent>(p_entity);
     if (!model || !ctx.renderer || !ctx.assets) return nullptr;
-    const uint32_t mesh_index = ctx.renderer->models.mesh_index(model->model);
+    const uint32_t mesh_index = ctx.renderer->mesh_slots.mesh_index(model->mesh);
     if (!ctx.renderer->geometry.get(mesh_index)) return nullptr;
     const AssetRegistry::Entry* entry = ctx.assets->find(ctx.renderer->geometry.mesh_guids[mesh_index]);
     if (!entry) return nullptr;
@@ -280,7 +280,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     };
     const auto overridden = [&](uint32_t p_index) { return p_index < 64 && (overrides >> p_index) & 1ull; };
     const uint32_t transform_index = component("transform");
-    const uint32_t model_index = component("model");
+    const uint32_t model_index = component("mesh");
     const uint32_t collision_index = component("collision");
     const uint32_t character_index = component("character");
     const uint32_t static_index = component("static");
@@ -433,13 +433,13 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         }
     }
 
-    if (ModelComponent* model = world.try_get<ModelComponent>(e)) {
+    if (MeshComponent* model = world.try_get<MeshComponent>(e)) {
         bool remove = false;
-        if (_section("Model", &remove, overridden(model_index) ? &revert_model : nullptr)) {
-            _name("Model");
-            if (asset_field(ctx, "", "###model_field", model->model, AssetType::MODEL)) world.touch(e);
-            const ModelComponent* lm = has_live ? live->try_get<ModelComponent>(le) : nullptr;
-            const AssetRegistry::Entry* entry = lm && ctx.assets ? ctx.assets->find(lm->model) : nullptr;
+        if (_section("Mesh", &remove, overridden(model_index) ? &revert_model : nullptr)) {
+            _name("Mesh");
+            if (asset_field(ctx, "", "###model_field", model->mesh, AssetType::MESH)) world.touch(e);
+            const MeshComponent* lm = has_live ? live->try_get<MeshComponent>(le) : nullptr;
+            const AssetRegistry::Entry* entry = lm && ctx.assets ? ctx.assets->find(lm->mesh) : nullptr;
             if (entry) _live("%s", entry->name.c_str());
             else _live("-");
             _name("Tint");
@@ -448,7 +448,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             if (lm) _live("%.2f, %.2f, %.2f", lm->tint.x, lm->tint.y, lm->tint.z);
             else _live("-");
         }
-        if (remove) world.deferred_remove<ModelComponent>(e);
+        if (remove) world.deferred_remove<MeshComponent>(e);
     }
 
     if (CharacterComponent* loco = world.try_get<CharacterComponent>(e)) {
@@ -556,7 +556,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
                 _name("Mesh Collision");
                 const char* status = _mesh_collision_status(ctx, world, e);
                 if (status) ImGui::TextDisabled("%s", status);
-                else ImGui::TextColored(ui_vec4(ui.color.danger), "%s", world.has<ModelComponent>(e) ? "Mesh has no collision" : "Needs a Model component");
+                else ImGui::TextColored(ui_vec4(ui.color.danger), "%s", world.has<MeshComponent>(e) ? "Mesh has no collision" : "Needs a Mesh component");
                 _live("-");
             }
             static const char* MOTIONS[] = { "Static", "Kinematic", "Dynamic" };

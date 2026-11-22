@@ -37,7 +37,7 @@ void AssetDocument::_create_preview()
     _preview_model = Guid::generate();
     _preview_entity = preview.create();
     preview.add<TransformComponent>(_preview_entity);
-    preview.add<ModelComponent>(_preview_entity, { _preview_model });
+    preview.add<MeshComponent>(_preview_entity, { _preview_model });
     preview.add<StaticTag>(_preview_entity);
 }
 
@@ -118,7 +118,7 @@ void AssetDocument::destroy(EditorContext& ctx)
 {
     viewport.release();
     layout.shutdown();
-    if (ctx.renderer && _preview_model.valid()) ctx.renderer->models.unload(_preview_model);
+    if (ctx.renderer && _preview_model.valid()) ctx.renderer->mesh_slots.unload(_preview_model);
     preview.shutdown();
 }
 

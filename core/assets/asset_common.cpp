@@ -37,7 +37,6 @@ bool asset_version_supported(AssetType p_type, uint32_t p_version)
     switch (p_type) {
         case AssetType::MESH: return p_version == LMESH_VERSION;
         case AssetType::TEXTURE: return p_version == LASSET_VERSION;
-        case AssetType::MODEL: return p_version == LASSET_VERSION;
         case AssetType::MATERIAL: return p_version == LASSET_VERSION;
         case AssetType::ANIMATION: return p_version == LASSET_VERSION;
         case AssetType::TERRAIN: return p_version == LASSET_VERSION;

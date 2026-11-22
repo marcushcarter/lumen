@@ -1,13 +1,13 @@
-#include <core/rendering/resources/model_cache.h>
+#include <core/rendering/resources/mesh_slot_cache.h>
 #include <core/rendering/resources/geometry_pool.h>
 #include <core/rendering/resources/material_cache.h>
-#include <core/assets/lmodel.h>
+#include <core/assets/lmesh.h>
 
 namespace lumen {
 
 using Buffer = drivers::DeviceDriverVulkan::Buffer;
 
-Error ModelCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
+Error MeshSlotCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count)
 {
     using enum Error;
     dd = &r_dd;
@@ -16,13 +16,13 @@ Error ModelCache::initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame
     _uploaded_version.assign(frame_count, UINT64_MAX);
     for (Buffer& b : slot_buffers) {
         b = dd->buffer_create({ .size = (VkDeviceSize)MAX_SLOTS * sizeof(uint32_t), .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, .device_local = false, .host_visible = true, .pool = dd->bar_pool(), .name = "model_slot_table" });
-        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "ModelCache: slot table allocation failed.");
+        LUMEN_ERR_FAIL_COND_V_MSG(!b.buffer, FAILED, "MeshSlotCache: slot table allocation failed.");
     }
     slot_table.assign(1, DEFAULT_MATERIAL);
     return OK;
 }
 
-void ModelCache::shutdown()
+void MeshSlotCache::shutdown()
 {
     for (Buffer& b : slot_buffers) dd->buffer_free(b);
     slot_buffers.clear();
@@ -31,28 +31,23 @@ void ModelCache::shutdown()
     slot_table.clear();
 }
 
-Error ModelCache::load(const std::filesystem::path& p_path)
+Error MeshSlotCache::load(const std::filesystem::path& p_lmesh)
 {
-    using enum Error;
-    LModel model;
-    if (model.load(p_path) != OK || !model.guid.valid()) return FAILED;
-    Entry& e = by_guid[model.guid];
-    e = Entry{};
-    e.mesh = model.mesh;
-    e.materials = model.materials;
-    _geometry_version = UINT64_MAX;
-    version++;
-    return OK;
+    Guid guid;
+    std::vector<Guid> materials;
+    if (!lmesh_asset_materials(p_lmesh, guid, materials)) return Error::FAILED;
+    set(guid, guid, materials);
+    return Error::OK;
 }
 
-void ModelCache::unload(Guid p_guid)
+void MeshSlotCache::unload(Guid p_guid)
 {
     if (!by_guid.erase(p_guid)) return;
     _geometry_version = UINT64_MAX;
     version++;
 }
 
-void ModelCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials)
+void MeshSlotCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials)
 {
     if (auto it = by_guid.find(p_guid); it != by_guid.end() && it->second.mesh == p_mesh) {
         if (it->second.materials != p_materials) {
@@ -69,14 +64,14 @@ void ModelCache::set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materi
     version++;
 }
 
-void ModelCache::clear()
+void MeshSlotCache::clear()
 {
     by_guid.clear();
     _geometry_version = UINT64_MAX;
     version++;
 }
 
-void ModelCache::_write_slots(const Entry& p_entry, const MaterialCache& p_materials)
+void MeshSlotCache::_write_slots(const Entry& p_entry, const MaterialCache& p_materials)
 {
     for (uint32_t s = 0; s < p_entry.slot_count; ++s) {
         const uint32_t index = s < p_entry.materials.size() ? p_materials.index_of(p_entry.materials[s]) : DEFAULT_MATERIAL;
@@ -84,7 +79,7 @@ void ModelCache::_write_slots(const Entry& p_entry, const MaterialCache& p_mater
     }
 }
 
-void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials)
+void MeshSlotCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_materials)
 {
     if (_geometry_version == p_geometry.version && _material_layout == p_materials.layout_version) {
         if (!_slots_dirty && _material_bins == p_materials.bin_version) return;
@@ -112,7 +107,7 @@ void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_
         slot_table.resize(slot_table.size() + mesh->slot_count, DEFAULT_MATERIAL);
         _write_slots(entry, p_materials);
     }
-    if (overflow) log_write("ModelCache: slot table full (%u), some models use the default material.", MAX_SLOTS);
+    if (overflow) log_write("MeshSlotCache: slot table full (%u), some meshes use the default material.", MAX_SLOTS);
 
     _geometry_version = p_geometry.version;
     _material_layout = p_materials.layout_version;
@@ -122,7 +117,7 @@ void ModelCache::resolve(const GeometryPool& p_geometry, const MaterialCache& p_
     slot_version++;
 }
 
-void ModelCache::upload(uint32_t p_frame)
+void MeshSlotCache::upload(uint32_t p_frame)
 {
     if (p_frame >= slot_buffers.size() || _uploaded_version[p_frame] == slot_version) return;
     Buffer& b = slot_buffers[p_frame];

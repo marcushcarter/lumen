@@ -35,6 +35,10 @@ struct MeshDocument : AssetDocument
 
     int32_t selected_bone = -1;
 
+    std::vector<Guid> materials;
+    std::vector<Guid> saved_materials;
+    std::vector<Guid> _preview_materials;
+
     std::filesystem::file_time_type _stats_time{};
     double _stats_poll = -1.0e9;
     double _collision_poll = -1.0e9;
@@ -47,6 +51,7 @@ struct MeshDocument : AssetDocument
     void _refresh_collision(EditorContext& ctx);
     void _draw_collision(DebugDraw& r_draw) const;
     void _edit_selected_shape(EditorContext& ctx);
+    void _refresh_materials(EditorContext& ctx);
 
     bool shapes_mode() const { return collision.edit.type == CollisionType::SHAPES; }
     bool shapes_dirty() const { return shapes_mode() && (!(collision.edit == collision.settings) || collision.has == collision.edit.shapes.empty()); }
@@ -58,7 +63,8 @@ struct MeshDocument : AssetDocument
 
     void _pick_bone(EditorContext& ctx);
     void _draw_bones(DebugDraw& r_draw) const;
-    bool dirty() const override { return shapes_dirty(); }
+    bool materials_dirty() const { return materials != saved_materials; }
+    bool dirty() const override { return shapes_dirty() || materials_dirty(); }
     Error create(EditorContext& ctx) override;
     Error save(EditorContext& ctx) override;
     void on_update(EditorContext& ctx, float p_dt) override;

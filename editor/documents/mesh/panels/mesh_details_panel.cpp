@@ -21,8 +21,14 @@ void MeshDetailsPanel::_draw_warnings(EditorContext& ctx)
 {
     (void)ctx;
     const RigPreview& rig = tab->rig_preview;
-    if (!rig.skinned || !rig.missing_joints) return;
-    ui_warning("%u of %u joints aren't in this skeleton", rig.missing_joints, (uint32_t)rig.rig.joints.size());
+    if (rig.skinned && rig.missing_joints) ui_warning("%u of %u joints aren't in this skeleton", rig.missing_joints, (uint32_t)rig.rig.joints.size());
+    const uint32_t slots = tab->mesh_stats.slots;
+    uint32_t empty = 0;
+    for (uint32_t i = 0; i < slots; ++i) {
+        if (i >= tab->materials.size() || !tab->materials[i].valid()) empty++;
+    }
+    if (empty) ui_warning("%u of %u material slots are empty", empty, slots);
+    if (tab->materials.size() > slots && slots) ui_warning("Materials past slot %u aren't used by this mesh", slots - 1);
 }
 
 void MeshDetailsPanel::draw_contents(EditorContext& ctx)
@@ -188,6 +194,32 @@ void MeshDetailsPanel::draw_contents(EditorContext& ctx)
         if (shapes.empty()) ImGui::TextDisabled("No collision. Add a shape to give this mesh collision.");
         if (dirty) ImGui::TextDisabled("Save (Ctrl+S) to cook the collision into the mesh.");
 
+        if (locked) ImGui::EndDisabled();
+    }
+
+    char materials_header[48];
+    std::vector<Guid>& mats = tab->materials;
+    const uint32_t material_count = std::max<uint32_t>(tab->mesh_stats.slots, (uint32_t)mats.size());
+    std::snprintf(materials_header, sizeof(materials_header), "Materials (%u)###materials", material_count);
+    if (ui_category(materials_header)) {
+        const bool locked = tab->locked(ctx);
+        if (locked) ImGui::BeginDisabled();
+        if (material_count == 0) ImGui::TextDisabled("No material slots");
+        bool changed = false;
+        for (uint32_t i = 0; i < material_count; ++i) {
+            char id[32];
+            std::snprintf(id, sizeof(id), "###mesh_material_%u", i);
+            char slot[32];
+            std::snprintf(slot, sizeof(slot), i < tab->mesh_stats.slots ? "Slot %u" : "Slot %u (unused)", i);
+            Guid m = i < mats.size() ? mats[i] : Guid{};
+            if (asset_field(ctx, slot, id, m, AssetType::MATERIAL)) {
+                if (i >= mats.size()) mats.resize(i + 1);
+                mats[i] = m;
+                changed = true;
+            }
+        }
+        while (changed && !mats.empty() && !mats.back().valid()) mats.pop_back();
+        if (tab->materials_dirty()) ImGui::TextDisabled("Save (Ctrl+S) to apply the materials to the scene.");
         if (locked) ImGui::EndDisabled();
     }
 

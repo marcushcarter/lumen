@@ -20,7 +20,6 @@ namespace lumen {
 
 static constexpr uint64_t BUILTIN_VERSION = 2;
 static constexpr uint64_t BUILTIN_MESH_BASE = 0x4C554D454E4D0000ull + (BUILTIN_VERSION << 8);
-static constexpr uint64_t BUILTIN_MODEL_BASE = 0x4C554D454E4F0000ull + (BUILTIN_VERSION << 8);
 static constexpr uint32_t ROUND_SEGMENTS = 32;
 static constexpr uint32_t SPHERE_RINGS = 16;
 static constexpr float HALF = 0.5f;
@@ -67,13 +66,6 @@ Guid builtin_mesh(BuiltinMesh p_mesh)
 {
     Guid g;
     g.value = BUILTIN_MESH_BASE + (uint64_t)p_mesh + 1;
-    return g;
-}
-
-Guid builtin_model(BuiltinMesh p_mesh)
-{
-    Guid g;
-    g.value = BUILTIN_MODEL_BASE + (uint64_t)p_mesh + 1;
     return g;
 }
 
@@ -383,7 +375,7 @@ void builtin_shapes_prepare(const Project& p_project, Renderer& r_renderer)
         g_volumes[i] = _build(kind, shape);
         if (!_cooked(bin, mesh) && !_cook(kind, shape, dir / (std::string(BUILTIN_NAMES[i]) + ".lmesh"), bin)) continue;
         if (r_renderer.geometry.find(mesh) == GeometryPool::INVALID_MESH) r_renderer.geometry.load(mesh, bin);
-        r_renderer.models.set(builtin_model(kind), mesh, {});
+        r_renderer.mesh_slots.set(mesh, mesh, {});
     }
 }
 

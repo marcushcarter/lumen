@@ -51,11 +51,11 @@ uint32_t debug_instance_color(uint64_t p_seed)
 void debug_draw_entity_bones(DebugDraw& r_draw, const Scene& p_world, const Renderer& p_renderer, Entity p_entity)
 {
     if (p_world.has<StaticTag>(p_entity)) return;
-    const ModelComponent* model_c = p_world.try_get<ModelComponent>(p_entity);
+    const MeshComponent* model_c = p_world.try_get<MeshComponent>(p_entity);
     const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
     if (!model_c || !pose || pose->skin.empty()) return;
     uint32_t mesh_index, slot_base;
-    p_renderer.models.lookup(model_c->model, mesh_index, slot_base);
+    p_renderer.mesh_slots.lookup(model_c->mesh, mesh_index, slot_base);
     const LMeshRig* rig = p_renderer.geometry.rig(mesh_index);
     if (!rig) return;
     const SkeletonCache::Entry* entry = p_renderer.skeletons.get(rig->skeleton);

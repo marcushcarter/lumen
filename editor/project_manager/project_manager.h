@@ -23,7 +23,6 @@ struct ProjectManager
         { "Scenes", ".lscene" },
         { "Templates", ".ltemplate" },
         { "Terrains", ".lterrain" },
-        { "Models", ".lmodel" },
         { "Meshes", ".lmesh" },
         { "Materials", ".lmaterial" },
         { "Textures", ".ltexture" },

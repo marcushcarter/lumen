@@ -12,7 +12,7 @@ namespace lumen {
 struct GeometryPool;
 struct MaterialCache;
 
-struct ModelCache
+struct MeshSlotCache
 {
     static constexpr uint32_t INVALID_MESH = UINT32_MAX;
     static constexpr uint32_t MAX_SLOTS = 64u * 1024;
@@ -42,7 +42,7 @@ struct ModelCache
     Error initialize(drivers::DeviceDriverVulkan& r_dd, uint32_t p_frame_count);
     void shutdown();
 
-    Error load(const std::filesystem::path& p_path);
+    Error load(const std::filesystem::path& p_lmesh);
     void unload(Guid p_guid);
     void set(Guid p_guid, Guid p_mesh, const std::vector<Guid>& p_materials);
     void clear();

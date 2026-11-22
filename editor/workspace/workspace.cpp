@@ -1,5 +1,4 @@
 #include <editor/viewport/viewport.h>
-#include <editor/play/shape_spawner.h>
 #include <editor/workspace/workspace.h>
 #include <core/rendering/renderer.h>
 #include <editor/documents/document_manager.h>
@@ -244,7 +243,6 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
         { ViewAction::ROTATE, "##tool_rotate", ICON_FA_ROTATE, "Rotate" },
         { ViewAction::SCALE, "##tool_scale", ICON_FA_UP_RIGHT_AND_DOWN_LEFT_FROM_CENTER, "Scale" },
         { ViewAction::ALL, "##tool_all", ICON_FA_CROSSHAIRS, "Move, rotate and scale" },
-        { ViewAction::SPAWN, "##tool_spawn", ICON_FA_CUBES, "Spawn shapes: left click drops one. Only while the game runs." },
     };
     static_assert(std::size(TOOLS) == (size_t)ViewAction::COUNT);
     for (const ToolButton& t : TOOLS) {
@@ -269,18 +267,6 @@ void Workspace::_draw_toolbar(EditorContext& ctx, ImVec2 p_min, ImVec2 p_max)
     }
     g.column(field_w);
 
-    const float shape_w = ImFloor(ImGui::CalcTextSize("Boulder").x + ImGui::GetFrameHeight() * 1.5f);
-    ImGui::BeginDisabled(view.action != ViewAction::SPAWN);
-    field_at(g.slot(0), shape_w);
-    if (ImGui::BeginCombo("##spawn_shape", spawn_shape_name(view.spawn_shape))) {
-        for (int i = 0; i < (int)SpawnShape::COUNT; i++) {
-            if (ImGui::Selectable(spawn_shape_name((SpawnShape)i), (int)view.spawn_shape == i)) view.spawn_shape = (SpawnShape)i;
-        }
-        ImGui::EndCombo();
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Shape the spawn tool drops");
-    ImGui::EndDisabled();
-    g.column(shape_w);
     ImGui::PopStyleColor(6);
     ImGui::PopStyleVar();
     ImGui::Dummy(ImVec2(0.0f, 0.0f));

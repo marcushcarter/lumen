@@ -621,6 +621,18 @@ void PhysicsWorld::add_impulse(PhysicsBodyId p_body, const vec3& p_impulse)
     impl->bodies().AddImpulse(to_jph(p_body), to_jph(p_impulse));
 }
 
+void PhysicsWorld::add_impulse_at(PhysicsBodyId p_body, const vec3& p_impulse, const vec3& p_point)
+{
+    if (!impl || !p_body.valid()) return;
+    impl->bodies().AddImpulse(to_jph(p_body), to_jph(p_impulse), JPH::RVec3(p_point.x, p_point.y, p_point.z));
+}
+
+vec3 PhysicsWorld::point_velocity(PhysicsBodyId p_body, const vec3& p_point) const
+{
+    if (!impl || !p_body.valid()) return vec3(0.0f);
+    return to_glm(impl->bodies().GetPointVelocity(to_jph(p_body), JPH::RVec3(p_point.x, p_point.y, p_point.z)));
+}
+
 void PhysicsWorld::set_gravity(const vec3& p_gravity)
 {
     if (impl) impl->system.SetGravity(to_jph(p_gravity));

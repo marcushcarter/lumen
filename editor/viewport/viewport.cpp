@@ -347,6 +347,24 @@ void Viewport::draw_bar(ImVec2 p_min, ImVec2 p_max, bool p_overlay)
     }
     if (p_overlay && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Debug drawn for the selected entity.");
 
+    if (p_overlay) {
+        static constexpr const char* SIM_TOOL_NAMES[] = { "Shape Spawn", "Physics Debugging" };
+        static_assert(std::size(SIM_TOOL_NAMES) == (size_t)SimTool::COUNT);
+        if (bar.combo("##sim_tool", SIM_TOOL_NAMES[(int)view.sim_tool], combo_w * 1.4f)) {
+            for (int i = 0; i < (int)SimTool::COUNT; i++) {
+                if (ImGui::MenuItem(SIM_TOOL_NAMES[i], nullptr, (int)view.sim_tool == i)) view.sim_tool = (SimTool)i;
+            }
+            bar.end_combo();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("What left click does while simulating (game running, not in the player)");
+        if (view.sim_tool == SimTool::SPAWN && bar.combo("##spawn_shape", spawn_shape_name(view.spawn_shape), combo_w)) {
+            for (int i = 0; i < (int)SpawnShape::COUNT; i++) {
+                if (ImGui::MenuItem(spawn_shape_name((SpawnShape)i), nullptr, (int)view.spawn_shape == i)) view.spawn_shape = (SpawnShape)i;
+            }
+            bar.end_combo();
+        }
+    }
+
     if (bar.toggle("##freeze_culling", ICON_FA_SNOWFLAKE "  Freeze Culling", view.culling_paused ? "Culling is frozen where you paused it" : "Freeze culling", view.culling_paused)) view.culling_paused = !view.culling_paused;
     if (bar.toggle("##stats", "IM", "Frame stats", view.stats)) view.stats = !view.stats;
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
@@ -407,7 +425,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     const ViewportView& view = viewport_view();
     const bool live = play && play->active();
     const bool playing = play && play->game();
-    const bool spawn_mode = live && !playing && view.action == ViewAction::SPAWN;
+    const bool sim_mode = live && play->playing() && !playing;
 
     uint32_t picked = PickFeature::NONE;
     float picked_depth = 0.0f;
@@ -427,7 +445,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         }
     }
 
-    const bool outline_on = !playing;
+    const bool outline_on = !playing && !sim_mode;
     if (ctx.render_path) ctx.render_path->outline.enabled = outline_on;
     if (outline_on && ctx.render_path && ctx.selection) {
         if (live) {
@@ -487,13 +505,13 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     const uint8_t gizmo_parts = view_action_gizmo_parts(view.action);
     gizmo.parts = gizmo_parts;
     shape_gizmo.gizmo.parts = gizmo_parts;
-    const bool gizmo_on = !playing && !spawn_mode && gizmo_parts != 0;
+    const bool gizmo_on = !playing && !sim_mode && gizmo_parts != 0;
     const bool gizmo_hot = gizmo_on && set && _draw_gizmo(ctx, p_pos, p_size, gizmo_hover_ok);
     if (!gizmo_on) {
         gizmo.reset();
         shape_gizmo.reset();
     }
-    const bool pick_click = !playing && !spawn_mode && !gizmo_hot && image_clicked;
+    const bool pick_click = !playing && !sim_mode && !gizmo_hot && image_clicked;
     const ImVec2 mouse = ImGui::GetMousePos();
     if (!playing) _asset_drop(ctx, p_pos, p_size);
     if (view.stats) draw_stats(ctx, p_pos);
@@ -515,11 +533,15 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
         game_look.y += dy;
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
-    if (spawn_mode && !popup_open_last_frame && image_hovered) {
-        if (image_clicked) _spawn_at_mouse(ctx, p_pos, p_size);
+    if (sim_mode && view.sim_tool == SimTool::SPAWN && !popup_open_last_frame && image_hovered && image_clicked) _spawn_at_mouse(ctx, p_pos, p_size);
+    if (sim_mode && view.sim_tool == SimTool::GRAB) {
+        _physics_grab(ctx, p_pos, p_size, image_hovered && !popup_open_last_frame && !camera_drag.active(), image_clicked && !popup_open_last_frame);
+        _draw_grab(ctx, p_pos, p_size);
+    } else {
+        grab = {};
     }
 
-    const bool camera_ok = !playing && !game_captured && gizmo.active == TransformGizmo::Handle::NONE && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame;
+    const bool camera_ok = !playing && !game_captured && !grab.active && gizmo.active == TransformGizmo::Handle::NONE && shape_gizmo.gizmo.active == TransformGizmo::Handle::NONE && !popup_open_last_frame;
     if (playing) camera_drag.release();
     camera_input = playing ? OrbitCamera::Input{} : camera_drag.update(image_hovered, camera_ok);
     if (!camera_ok && !camera_drag.active()) camera_input.keys = false;
@@ -539,7 +561,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (ctx.render_path) {
         const bool nothing_selected = !ctx.selection || (ctx.selection->entities.empty() && !ctx.selection->terrain);
         const bool mouse_free = !ImGui::IsAnyMouseDown() && !camera_drag.active() && !cursor_lock.active;
-        const bool hover_on = outline_on && nothing_selected && image_hovered && mouse_free && !spawn_mode && !gizmo_hot && !popup_open_last_frame && !drop.active;
+        const bool hover_on = outline_on && nothing_selected && image_hovered && mouse_free && !sim_mode && !gizmo_hot && !popup_open_last_frame && !drop.active;
         ctx.render_path->outline.set_hover(hover_on, vec2((mouse.x - p_pos.x) / p_size.x, 1.0f - (mouse.y - p_pos.y) / p_size.y));
     }
     popup_open_last_frame = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
@@ -564,16 +586,129 @@ uint8_t view_action_gizmo_parts(ViewAction p_action)
     }
 }
 
-void Viewport::_spawn_at_mouse(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+vec3 Viewport::_mouse_ray(const EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size) const
 {
-    if (!ctx.play || !ctx.play->active() || !ctx.renderer || p_size.x < 1.0f || p_size.y < 1.0f) return;
     const Camera& cam = ctx.renderer->main_view.camera;
     const ImVec2 mouse = ImGui::GetMousePos();
     const float u = std::clamp((mouse.x - p_pos.x) / p_size.x, 0.0f, 1.0f);
     const float v = std::clamp((mouse.y - p_pos.y) / p_size.y, 0.0f, 1.0f);
     const float tan_half = std::tan(cam.fov_y * 0.5f);
-    const float aspect = p_size.x / p_size.y;
-    const vec3 dir = normalize(cam.forward() + cam.right() * ((u * 2.0f - 1.0f) * tan_half * aspect) + cam.up() * ((1.0f - v * 2.0f) * tan_half));
+    const float aspect = p_size.x / std::max(p_size.y, 1.0f);
+    return normalize(cam.forward() + cam.right() * ((u * 2.0f - 1.0f) * tan_half * aspect) + cam.up() * ((1.0f - v * 2.0f) * tan_half));
+}
+
+bool Viewport::_grab_body(EditorContext& ctx, uint64_t p_key, PhysicsBodyId& r_body) const
+{
+    const PhysicsSystem& ps = ctx.play->physics_system;
+    const auto it = ps.bodies.find(p_key);
+    if (it == ps.bodies.end() || it->second.motion != PhysicsMotion::DYNAMIC || it->second.frozen || !it->second.id.valid()) return false;
+    if (!std::isfinite(ps.physics.body_mass(it->second.id))) return false;
+    r_body = it->second.id;
+    return true;
+}
+
+void Viewport::_physics_grab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hovered, bool p_clicked)
+{
+    grab.hover = false;
+    if (!ctx.play || !ctx.play->active() || !ctx.renderer || p_size.x < 1.0f || p_size.y < 1.0f) {
+        grab = {};
+        return;
+    }
+    PhysicsWorld& physics = ctx.play->physics_system.physics;
+    if (!physics.initialized()) {
+        grab = {};
+        return;
+    }
+    const Camera& cam = ctx.renderer->main_view.camera;
+    const vec3 dir = _mouse_ray(ctx, p_pos, p_size);
+
+    if (grab.active) {
+        PhysicsBodyId body;
+        vec3 position;
+        quat rotation;
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || !_grab_body(ctx, grab.key, body) || body != grab.body || !physics.get_transform(body, position, rotation)) {
+            grab.active = false;
+            return;
+        }
+        const float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) grab.distance = std::max(grab.distance * std::pow(GRAB_WHEEL_STEP, wheel), GRAB_MIN_DISTANCE);
+        grab.anchor = position + rotation * grab.local_anchor;
+        grab.target = cam.position + dir * grab.distance;
+        const float dt = ImGui::GetIO().DeltaTime;
+        const float mass = physics.body_mass(body);
+        vec3 desired = (grab.target - grab.anchor) * GRAB_STIFFNESS;
+        const float speed = length(desired);
+        if (speed > GRAB_MAX_SPEED) desired *= GRAB_MAX_SPEED / speed;
+        const vec3 change = desired - physics.point_velocity(body, grab.anchor);
+        const vec3 impulse = (change * GRAB_RESPONSE - physics.gravity() * dt) * mass;
+        if (std::isfinite(impulse.x) && std::isfinite(impulse.y) && std::isfinite(impulse.z)) physics.add_impulse_at(body, impulse, grab.anchor);
+        return;
+    }
+
+    if (!p_hovered) return;
+    PhysicsHit hit;
+    if (!physics.raycast(cam.position, dir, cam.far_z, hit)) return;
+    PhysicsBodyId body;
+    if (!_grab_body(ctx, hit.user_data, body)) return;
+    grab.hover = true;
+    grab.hover_point = hit.position;
+    if (!p_clicked) return;
+    vec3 position;
+    quat rotation;
+    if (!physics.get_transform(body, position, rotation)) return;
+    grab.active = true;
+    grab.key = hit.user_data;
+    grab.body = body;
+    grab.local_anchor = inverse(rotation) * (hit.position - position);
+    grab.anchor = hit.position;
+    grab.target = hit.position;
+    grab.distance = std::max(hit.distance, GRAB_MIN_DISTANCE);
+}
+
+void Viewport::_draw_grab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size) const
+{
+    if (!grab.active && !grab.hover) return;
+    const Camera& cam = ctx.renderer->main_view.camera;
+    const mat4 view_proj = cam.view_proj(p_size.x / std::max(p_size.y, 1.0f));
+    const auto project = [&](vec3 p_world, ImVec2& r_screen) {
+        const vec4 clip = view_proj * vec4(p_world, 1.0f);
+        if (clip.w <= cam.near_z) return false;
+        r_screen = ImVec2(p_pos.x + (clip.x / clip.w * 0.5f + 0.5f) * p_size.x, p_pos.y + (0.5f - clip.y / clip.w * 0.5f) * p_size.y);
+        return true;
+    };
+    const UiStyle& ui = ui_style();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 white = IM_COL32(255, 255, 255, 230);
+    const ImU32 yellow = IM_COL32(255, 225, 40, 255);
+    const float t = ui.stroke.thin;
+    if (grab.active) {
+        ImVec2 a, b;
+        const bool has_a = project(grab.anchor, a);
+        const bool has_b = project(grab.target, b);
+        if (has_a && has_b) dl->AddLine(a, b, white, t * 1.5f);
+        const auto marker = [&](ImVec2 p_at) {
+            const float r = GRAB_MARKER_PX;
+            dl->AddCircle(p_at, r, yellow, 16, t * 1.5f);
+            dl->AddLine(ImVec2(p_at.x - r * 1.5f, p_at.y), ImVec2(p_at.x + r * 1.5f, p_at.y), yellow, t);
+            dl->AddLine(ImVec2(p_at.x, p_at.y - r * 1.5f), ImVec2(p_at.x, p_at.y + r * 1.5f), yellow, t);
+        };
+        if (has_a) marker(a);
+        if (has_b) marker(b);
+        return;
+    }
+    ImVec2 c;
+    if (!project(grab.hover_point, c)) return;
+    const float r = GRAB_SPHERE_PX;
+    dl->AddCircle(c, r, white, 24, t * 1.5f);
+    dl->AddEllipse(c, ImVec2(r, r * 0.35f), white, 0.0f, 24, t);
+    dl->AddEllipse(c, ImVec2(r * 0.35f, r), white, 0.0f, 24, t);
+}
+
+void Viewport::_spawn_at_mouse(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
+{
+    if (!ctx.play || !ctx.play->active() || !ctx.renderer || p_size.x < 1.0f || p_size.y < 1.0f) return;
+    const Camera& cam = ctx.renderer->main_view.camera;
+    const vec3 dir = _mouse_ray(ctx, p_pos, p_size);
     vec3 ground = cam.position + dir * ShapeSpawner::MISS_DISTANCE;
     const PhysicsWorld& physics = ctx.play->physics_system.physics;
     PhysicsHit hit;

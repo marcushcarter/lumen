@@ -18,7 +18,8 @@ namespace lumen {
 struct EditorPlay;
 
 enum class ViewOverlay : uint8_t { NONE, COLLISION, BONES, DEBUG_LINES, BUOYANCY, WATER_FLOW, COUNT };
-enum class ViewAction : uint8_t { SELECT, MOVE, ROTATE, SCALE, ALL, SPAWN, COUNT };
+enum class ViewAction : uint8_t { SELECT, MOVE, ROTATE, SCALE, ALL, COUNT };
+enum class SimTool : uint8_t { SPAWN, GRAB, COUNT };
 
 struct ViewportView
 {
@@ -27,6 +28,7 @@ struct ViewportView
     bool culling_paused = false;
     bool stats = false;
     ViewAction action = ViewAction::MOVE;
+    SimTool sim_tool = SimTool::GRAB;
     SpawnShape spawn_shape = SpawnShape::RANDOM;
 };
 
@@ -60,6 +62,26 @@ struct Viewport
     ImVec2 game_look = ImVec2(0.0f, 0.0f);
 
     static constexpr uint32_t DROP_TIMEOUT_FRAMES = 8;
+    static constexpr float GRAB_STIFFNESS = 12.0f;
+    static constexpr float GRAB_RESPONSE = 0.35f;
+    static constexpr float GRAB_MAX_SPEED = 40.0f;
+    static constexpr float GRAB_MIN_DISTANCE = 0.5f;
+    static constexpr float GRAB_WHEEL_STEP = 1.1f;
+    static constexpr float GRAB_MARKER_PX = 7.0f;
+    static constexpr float GRAB_SPHERE_PX = 10.0f;
+
+    struct PhysicsGrab
+    {
+        bool active = false;
+        bool hover = false;
+        uint64_t key = 0;
+        PhysicsBodyId body;
+        vec3 local_anchor = vec3(0.0f);
+        vec3 anchor = vec3(0.0f);
+        vec3 target = vec3(0.0f);
+        vec3 hover_point = vec3(0.0f);
+        float distance = 0.0f;
+    } grab;
 
     struct PendingDrop
     {
@@ -75,6 +97,10 @@ struct Viewport
 
     void _submit_debug_draw(EditorContext& ctx, bool p_live);
     void _spawn_at_mouse(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size);
+    vec3 _mouse_ray(const EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size) const;
+    bool _grab_body(EditorContext& ctx, uint64_t p_key, PhysicsBodyId& r_body) const;
+    void _physics_grab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hovered, bool p_clicked);
+    void _draw_grab(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size) const;
     void _draw_cull_frustum(EditorContext& ctx);
     bool _draw_gizmo(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size, bool p_hover_ok);
     static void draw_bar(ImVec2 p_min, ImVec2 p_max, bool p_overlay = true);

@@ -84,6 +84,8 @@ struct PhysicsWorld
     vec3 get_linear_velocity(PhysicsBodyId p_body) const;
     float body_mass(PhysicsBodyId p_body) const;
     void add_impulse(PhysicsBodyId p_body, const vec3& p_impulse);
+    void add_impulse_at(PhysicsBodyId p_body, const vec3& p_impulse, const vec3& p_point);
+    vec3 point_velocity(PhysicsBodyId p_body, const vec3& p_point) const;
     void set_gravity(const vec3& p_gravity);
     vec3 gravity() const;
 

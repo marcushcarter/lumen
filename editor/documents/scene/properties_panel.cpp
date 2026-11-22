@@ -221,8 +221,9 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             if (baking) _live("%s %.0f%%", ww->bake.collecting() ? "Saving" : "Baking", ww->bake.progress() * 100.0f);
             else if (ww && !ww->bake.message.empty()) _live("%s", ww->bake.message.c_str());
             else _live("-");
-        }
-        if (_section("Water Simulation")) {
+            _name("Caustics");
+            _check("##water_caustics", &water.caustics);
+            _live("%s", lw ? on_off(lw->caustics) : "-");
             _name("Cell Size");
             ImGui::DragFloat("##water_cell_size", &water.cell_size, 0.01f, 0.1f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Changing this restarts the simulation.");
@@ -258,11 +259,6 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _name("Foam Gain");
             ImGui::DragFloat("##water_foam_gain", &water.foam_gain, 0.01f, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
             _live_float(lw, lw ? lw->foam_gain : 0.0f);
-        }
-        if (_section("Water Rendering")) {
-            _name("Caustics");
-            _check("##water_caustics", &water.caustics);
-            _live("%s", lw ? on_off(lw->caustics) : "-");
         }
         _section_end();
         ImGui::EndChild();

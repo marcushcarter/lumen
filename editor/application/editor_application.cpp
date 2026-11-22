@@ -46,6 +46,7 @@ Error EditorApplication::on_init()
 
     ui_style().build();
     ui_style().apply_to_imgui();
+    viewport_view().stats = debug;
 
     win32.window_set_custom_titlebar(main_window, true);
     win32.window_set_title(main_window, "Lumen Editor");

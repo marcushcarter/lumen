@@ -17,6 +17,7 @@ LaunchArgs LaunchArgs::parse_command_line()
         const wchar_t* a = argv[i];
         if (std::wcscmp(a, L"--game") == 0) args.game = true;
         else if (std::wcscmp(a, L"--pie") == 0) args.pie = true;
+        else if (std::wcscmp(a, L"--debug") == 0) args.debug = true;
         else if (std::wcscmp(a, L"--project") == 0 && i + 1 < argc) args.project = argv[++i];
         else if (std::wcscmp(a, L"--world") == 0 && i + 1 < argc) args.world = argv[++i];
     }

@@ -1,4 +1,5 @@
 #include <editor/play/play_session.h>
+#include <core/application/launch_args.h>
 #include <windows.h>
 #include <string>
 #include <vector>
@@ -88,7 +89,7 @@ Error PlaySession::launch(const std::filesystem::path& p_project_root, const std
 
     std::wstring cmd = L"\"";
     cmd += exe;
-    cmd += L"\" --game --pie --project \"";
+    cmd += LaunchArgs::parse_command_line().debug ? L"\" --debug --game --pie --project \"" : L"\" --game --pie --project \"";
     cmd += v_root.wstring();
     cmd += L"\"";
     if (!p_world.empty()) {

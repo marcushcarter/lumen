@@ -26,6 +26,7 @@ struct ApplicationCreateInfo
     std::string window_title;
     int width = 1280;
     int height = 720;
+    bool debug = false;
 };
 
 struct BackgroundPolicy
@@ -47,6 +48,7 @@ struct Application
 
     Renderer renderer;
     ProfilingSettings profiling;
+    bool debug = false;
     RenderPath* render_path = nullptr;
     RenderPath* pending_render_path = nullptr;
     std::function<void()> pending_transition;

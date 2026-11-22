@@ -36,6 +36,8 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     // win32.window_set_minimum_size(main_window, 900, 600);
 
     on_boot_status("Initializing graphics", BOOT_GRAPHICS, BOOT_SHADERS);
+    debug = p_create_info.debug;
+    cd.validation = debug;
     err = cd.full_initialize_windows(main_window.hwnd);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
 
@@ -45,6 +47,7 @@ Error Application::_initialize(const ApplicationCreateInfo& p_create_info)
     on_boot_status("Compiling shaders", BOOT_SHADERS, BOOT_ASSETS);
     err = renderer.initialize(dd, profiling);
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
+    renderer.main_view.graph.breadcrumbs = debug;
 
     err = scene.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
@@ -88,6 +91,7 @@ Error Application::initialize(const ApplicationCreateInfo& p_create_info)
 
     log_write("\n\n%s v%s.stable.official - https://ballisticgames.ca", LUMEN_VERSION_NAME, LUMEN_VERSION_NUMBER);
 
+    if (p_create_info.debug) log_write("Debug launch: Vulkan validation, breadcrumbs and frame stats on.");
     cpu_profiler().initialize();
 
     Error err = job_system().initialize();

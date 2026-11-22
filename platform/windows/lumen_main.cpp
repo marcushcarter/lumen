@@ -56,6 +56,7 @@ static int _run_app()
     info.height = 720;
 
     const lumen::LaunchArgs args = lumen::LaunchArgs::parse_command_line();
+    info.debug = args.debug;
 
     auto app = _create_application(args, info);
 

@@ -33,6 +33,7 @@ struct ContextDriverVulkan
     std::unordered_map<std::string, bool> requested_instance_extensions;
     std::unordered_set<std::string> enabled_instance_extension_names;
     std::vector<const char*> enabled_validation_layer_names;
+    bool validation = false;
     VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
     Functions functions;
 

@@ -82,6 +82,7 @@ Error ContextDriverVulkan::_find_validation_layers()
     using enum Error;
 
     enabled_validation_layer_names.clear();
+    if (!validation) return OK;
 
     uint32_t instance_layer_count = 0;
     VkResult err = vkEnumerateInstanceLayerProperties(&instance_layer_count, nullptr);

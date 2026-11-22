@@ -39,7 +39,7 @@ int main()
     jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
 
-    std::wstring cmd_line = L"\"" + target + L"\"";
+    std::wstring cmd_line = L"\"" + target + L"\" --debug";
     const wchar_t* forwarded = skip_first_arg(GetCommandLineW());
     if (*forwarded) {
         cmd_line += L" ";

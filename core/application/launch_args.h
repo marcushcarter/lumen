@@ -7,6 +7,7 @@ struct LaunchArgs
 {
     bool game = false;
     bool pie = false;
+    bool debug = false;
     std::filesystem::path project;
     std::filesystem::path world;
 

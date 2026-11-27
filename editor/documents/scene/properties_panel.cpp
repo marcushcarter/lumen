@@ -282,7 +282,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     const uint32_t transform_index = component("transform");
     const uint32_t model_index = component("mesh");
     const uint32_t collision_index = component("collision");
-    const uint32_t character_index = component("character");
+    const uint32_t movement_index = component("movement");
     const uint32_t static_index = component("static");
     const uint32_t disabled_index = component("disabled");
 
@@ -291,7 +291,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     bool revert_static = false;
     bool revert_visible = false;
     bool revert_entity = false;
-    bool revert_character = false;
+    bool revert_movement = false;
     bool revert_collision = false;
     bool unpack = false;
 
@@ -451,57 +451,162 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<MeshComponent>(e);
     }
 
-    if (CharacterComponent* loco = world.try_get<CharacterComponent>(e)) {
+    if (MovementComponent* move = world.try_get<MovementComponent>(e)) {
         bool remove = false;
-        const CharacterComponent* ll = has_live ? live->try_get<CharacterComponent>(le) : nullptr;
-        if (_section("Character", &remove, overridden(character_index) ? &revert_character : nullptr)) {
+        const MovementComponent* lm = has_live ? live->try_get<MovementComponent>(le) : nullptr;
+        if (_section("Movement", &remove, overridden(movement_index) ? &revert_movement : nullptr)) {
             bool changed = false;
-            _name("Controller");
-            static constexpr const char* CONTROLLERS[] = { "None", "Player", "AI" };
-            int controller = (int)loco->controller;
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::Combo("##controller", &controller, CONTROLLERS, IM_ARRAYSIZE(CONTROLLERS))) {
-                loco->controller = (CharacterController)controller;
-                changed = true;
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Player gets the input and the camera in play.");
-            _live("%s", ll ? CONTROLLERS[(int)ll->controller] : "-");
+            _name("Player");
+            changed |= _check("##move_player", &move->player);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Moves with the input, relative to the camera. Off: moved by scripting later.");
+            _live("%s", lm ? (lm->player ? "Yes" : "No") : "-");
+            _name("Strafe");
+            changed |= _check("##move_strafe", &move->strafe);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Always faces the look direction instead of the way it moves. First person turns this on by itself.");
+            _live("%s", lm ? (lm->strafing ? "Yes" : "No") : "-");
+            _name("Radius");
+            changed |= ImGui::DragFloat("##move_radius", &move->radius, 0.005f, 0.05f, 5.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->radius : 0.0f, " m");
+            _name("Height");
+            changed |= ImGui::DragFloat("##move_height", &move->height, 0.01f, move->radius * 2.0f + 0.01f, 10.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->height : 0.0f, " m");
+            _name("Step Height");
+            changed |= ImGui::DragFloat("##move_step", &move->step_up, 0.005f, 0.0f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->step_up : 0.0f, " m");
+            _name("Max Slope");
+            changed |= ImGui::DragFloat("##move_slope", &move->max_slope, 0.5f, 0.0f, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->max_slope : 0.0f, " deg");
+            _name("Walk Speed");
+            changed |= ImGui::DragFloat("##move_walk", &move->walk_speed, 0.01f, 0.0f, 50.0f, "%.2f m/s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->walk_speed : 0.0f, " m/s");
+            _name("Run Speed");
+            changed |= ImGui::DragFloat("##move_run", &move->run_speed, 0.01f, 0.0f, 50.0f, "%.2f m/s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->run_speed : 0.0f, " m/s");
+            _name("Sprint Speed");
+            changed |= ImGui::DragFloat("##move_sprint", &move->sprint_speed, 0.01f, 0.0f, 50.0f, "%.2f m/s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->sprint_speed : 0.0f, " m/s");
+            _name("Crouch Speed");
+            changed |= ImGui::DragFloat("##move_crouch_speed", &move->crouch_speed, 0.01f, 0.0f, 50.0f, "%.2f m/s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->crouch_speed : 0.0f, " m/s");
+            _name("Crouch Height");
+            changed |= ImGui::DragFloat("##move_crouch_height", &move->crouch_height, 0.01f, 0.2f, 10.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->crouch_height : 0.0f, " m");
+            _name("Acceleration");
+            changed |= ImGui::DragFloat("##move_accel", &move->acceleration, 0.05f, 0.1f, 200.0f, "%.1f m/s2", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->acceleration : 0.0f);
+            _name("Deceleration");
+            changed |= ImGui::DragFloat("##move_decel", &move->deceleration, 0.05f, 0.1f, 200.0f, "%.1f m/s2", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->deceleration : 0.0f);
+            _name("Brake");
+            changed |= ImGui::DragFloat("##move_brake", &move->brake, 0.05f, 0.1f, 200.0f, "%.1f m/s2", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How hard the character stops when the input reverses direction before turning around");
+            _live_float(lm != nullptr, lm ? lm->brake : 0.0f);
+            _name("Redirect Rate");
+            changed |= ImGui::DragFloat("##move_redirect", &move->redirect_rate, 1.0f, 1.0f, 3600.0f, "%.0f deg/s", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How fast the direction of travel swings toward the input while moving. Lower feels heavier");
+            _live_float(lm != nullptr, lm ? lm->redirect_rate : 0.0f, " deg/s");
+            _name("Responsiveness");
+            changed |= ImGui::SliderFloat("##move_responsive", &move->responsiveness, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("0 keeps full momentum when changing direction, 1 uses Brake and Redirect Rate for sharp, planted direction changes");
+            _live_float(lm != nullptr, lm ? lm->responsiveness : 0.0f);
+            _name("Jump Height");
+            changed |= ImGui::DragFloat("##move_jump", &move->jump_height, 0.01f, 0.0f, 20.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->jump_height : 0.0f, " m");
+            _name("Air Control");
+            changed |= ImGui::SliderFloat("##move_air", &move->air_control, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How much of the ground acceleration is available for steering in the air");
+            _live_float(lm != nullptr, lm ? lm->air_control : 0.0f);
+            _name("Turn Rate");
+            changed |= ImGui::DragFloat("##move_turn", &move->turn_rate, 1.0f, 1.0f, 3600.0f, "%.0f deg/s", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(lm != nullptr, lm ? lm->turn_rate : 0.0f, " deg/s");
+            _name("Speed");
+            ImGui::TextDisabled("-");
+            if (lm) _live("%.2f m/s%s", length(vec2(lm->velocity.x, lm->velocity.z)), lm->simulated ? (lm->grounded ? "" : ", in air") : ", frozen");
+            else _live("-");
             if (changed) world.touch(e);
         }
-        if (remove) world.deferred_remove<CharacterComponent>(e);
+        if (remove) world.deferred_remove<MovementComponent>(e);
     }
 
-    const uint32_t orbit_index = component("orbit_camera");
-    bool revert_orbit = false;
-    if (OrbitCameraComponent* orbit = world.try_get<OrbitCameraComponent>(e)) {
+    const uint32_t camera_index = component("camera");
+    bool revert_camera = false;
+    if (CameraComponent* cam = world.try_get<CameraComponent>(e)) {
         bool remove = false;
-        const OrbitCameraComponent* lo = has_live ? live->try_get<OrbitCameraComponent>(le) : nullptr;
-        if (_section("Orbit Camera", &remove, overridden(orbit_index) ? &revert_orbit : nullptr)) {
+        const CameraComponent* lc = has_live ? live->try_get<CameraComponent>(le) : nullptr;
+        if (_section("Camera", &remove, overridden(camera_index) ? &revert_camera : nullptr)) {
             bool changed = false;
-            _name("Distance");
-            changed |= ImGui::DragFloat("##orbit_distance", &orbit->distance, 0.01f, 0.1f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lo != nullptr, lo ? lo->distance : 0.0f, " m");
-            _name("Shoulder Offset");
-            changed |= ImGui::DragFloat("##orbit_shoulder", &orbit->shoulder, 0.01f, -5.0f, 5.0f, "%.2f m");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Sideways offset of the camera. Negative puts it over the left shoulder.");
-            _live_float(lo != nullptr, lo ? lo->shoulder : 0.0f, " m");
-            _name("Pivot Height");
-            changed |= ImGui::DragFloat("##orbit_pivot", &orbit->pivot_height, 0.01f, -10.0f, 10.0f, "%.2f");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where the camera looks, in metres above the entity.");
-            _live_float(lo != nullptr, lo ? lo->pivot_height : 0.0f);
-            _name("Collision Radius");
-            changed |= ImGui::DragFloat("##orbit_radius", &orbit->radius, 0.005f, 0.0f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Size of the sphere that pulls the camera in front of walls");
-            _live_float(lo != nullptr, lo ? lo->radius : 0.0f, " m");
-            _name("Pitch Min");
-            changed |= ImGui::DragFloat("##orbit_pitch_min", &orbit->pitch_min, 0.5f, -89.0f, orbit->pitch_max, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lo != nullptr, lo ? lo->pitch_min : 0.0f, " deg");
-            _name("Pitch Max");
-            changed |= ImGui::DragFloat("##orbit_pitch_max", &orbit->pitch_max, 0.5f, orbit->pitch_min, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
-            _live_float(lo != nullptr, lo ? lo->pitch_max : 0.0f, " deg");
+            static constexpr const char* TYPES[] = { "Orbit", "First Person" };
+            static_assert(std::size(TYPES) == (size_t)CameraType::COUNT);
+            _name("Type");
+            int type = (int)cam->type;
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("##cam_type", &type, TYPES, (int)CameraType::COUNT)) {
+                cam->type = (CameraType)type;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("V switches between the two in play");
+            _live("%s", lc ? TYPES[(int)lc->type] : "-");
+            if (cam->type == CameraType::ORBIT) {
+                _name("Distance");
+                changed |= ImGui::DragFloat("##cam_distance", &cam->distance, 0.01f, 0.1f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                _live_float(lc != nullptr, lc ? lc->distance : 0.0f, " m");
+                _name("Shoulder Offset");
+                changed |= ImGui::DragFloat("##cam_shoulder", &cam->shoulder, 0.01f, -5.0f, 5.0f, "%.2f m");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Sideways offset of the camera. Negative puts it over the left shoulder.");
+                _live_float(lc != nullptr, lc ? lc->shoulder : 0.0f, " m");
+                _name("Pivot Height");
+                changed |= ImGui::DragFloat("##cam_pivot", &cam->pivot_height, 0.01f, -10.0f, 10.0f, "%.2f m");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where the camera looks, in metres above the entity.");
+                _live_float(lc != nullptr, lc ? lc->pivot_height : 0.0f, " m");
+                _name("Collision Radius");
+                changed |= ImGui::DragFloat("##cam_radius", &cam->radius, 0.005f, 0.0f, 2.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Size of the sphere that pulls the camera in front of walls");
+                _live_float(lc != nullptr, lc ? lc->radius : 0.0f, " m");
+                _name("Pitch Min");
+                changed |= ImGui::DragFloat("##cam_pitch_min", &cam->pitch_min, 0.5f, -89.0f, cam->pitch_max, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+                _live_float(lc != nullptr, lc ? lc->pitch_min : 0.0f, " deg");
+                _name("Pitch Max");
+                changed |= ImGui::DragFloat("##cam_pitch_max", &cam->pitch_max, 0.5f, cam->pitch_min, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+                _live_float(lc != nullptr, lc ? lc->pitch_max : 0.0f, " deg");
+            } else {
+                _name("Head Bone");
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                changed |= ImGui::InputTextWithHint("##cam_head", "Found by name", cam->head_bone, sizeof(cam->head_bone));
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Bone the camera sits on. Empty uses the first bone whose name ends in 'head'.");
+                _live("%s", lc ? (lc->head_bone[0] ? lc->head_bone : "Auto") : "-");
+                _name("Eye Offset");
+                changed |= ImGui::DragFloat3("##cam_eye", &cam->eye_offset.x, 0.005f, -2.0f, 2.0f, "%.2f");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Offset from the head bone, in the character's space (Y up, Z forward)");
+                _live_vec3(lc != nullptr, lc ? lc->eye_offset : vec3(0.0f));
+                _name("Pitch Min");
+                changed |= ImGui::DragFloat("##cam_fp_min", &cam->fp_pitch_min, 0.5f, -89.0f, cam->fp_pitch_max, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+                _live_float(lc != nullptr, lc ? lc->fp_pitch_min : 0.0f, " deg");
+                _name("Pitch Max");
+                changed |= ImGui::DragFloat("##cam_fp_max", &cam->fp_pitch_max, 0.5f, cam->fp_pitch_min, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+                _live_float(lc != nullptr, lc ? lc->fp_pitch_max : 0.0f, " deg");
+                _name("Hide Head");
+                changed |= _check("##cam_hide_head", &cam->hide_head);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Shrinks the head bone while looking through it, so the camera doesn't see the inside of the head");
+                _live("%s", lc ? (lc->hide_head ? "Yes" : "No") : "-");
+            }
             if (changed) world.touch(e);
         }
-        if (remove) world.deferred_remove<OrbitCameraComponent>(e);
+        if (remove) world.deferred_remove<CameraComponent>(e);
+    }
+
+    const uint32_t locomotion_index = component("locomotion");
+    bool revert_locomotion = false;
+    if (LocomotionComponent* loco = world.try_get<LocomotionComponent>(e)) {
+        bool remove = false;
+        const LocomotionComponent* ll = has_live ? live->try_get<LocomotionComponent>(le) : nullptr;
+        if (_section("Locomotion", &remove, overridden(locomotion_index) ? &revert_locomotion : nullptr)) {
+            _name("Locomotion Set");
+            if (asset_field(ctx, "", "###loco_set", loco->set, AssetType::LOCOMOTION)) world.touch(e);
+            const AssetRegistry::Entry* entry = ll && ctx.assets ? ctx.assets->find(ll->set) : nullptr;
+            if (entry) _live("%s", entry->name.c_str());
+            else _live("-");
+        }
+        if (remove) world.deferred_remove<LocomotionComponent>(e);
     }
 
     const uint32_t water_index = component("water_source");
@@ -698,8 +803,9 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_static) template_revert_component(world, e, *tmpl, static_index);
     if (tmpl && revert_model) template_revert_component(world, e, *tmpl, model_index);
     if (tmpl && revert_collision) template_revert_component(world, e, *tmpl, collision_index);
-    if (tmpl && revert_character) template_revert_component(world, e, *tmpl, character_index);
-    if (tmpl && revert_orbit) template_revert_component(world, e, *tmpl, orbit_index);
+    if (tmpl && revert_movement) template_revert_component(world, e, *tmpl, movement_index);
+    if (tmpl && revert_camera) template_revert_component(world, e, *tmpl, camera_index);
+    if (tmpl && revert_locomotion) template_revert_component(world, e, *tmpl, locomotion_index);
     if (tmpl && revert_water) template_revert_component(world, e, *tmpl, water_index);
     if (revert_entity) editor_revert_template(ctx, e);
     if (unpack) editor_unpack_template(ctx, e);

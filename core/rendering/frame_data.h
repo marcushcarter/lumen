@@ -96,6 +96,7 @@ struct FrameData
         Guid model;
         uint64_t model_version = UINT64_MAX;
         std::vector<mat4> prev_skin;
+        std::vector<mat4> prev_view_skin;
         vec3 prev_box_min = vec3(0.0f);
         vec3 prev_box_max = vec3(0.0f);
     };

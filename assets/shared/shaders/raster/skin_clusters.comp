@@ -79,7 +79,7 @@ void main() {
             s_pos_extent[lid] = mesh.pos_extent;
             const SkinInstance skin = pc.camera.skins.data[skin_id];
             const SkinQuant quant = skin_quant(skin);
-            s_joint_base[lid] = skin.joint_base;
+            s_joint_base[lid] = skin_view_base(skin);
             s_quant_lo[lid] = quant.lo;
             s_quant_extent[lid] = quant.extent;
         }

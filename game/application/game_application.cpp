@@ -49,8 +49,12 @@ Error GameApplication::on_init()
     update_camera(0.0f);
     physics_system.renderer = &renderer;
     physics_system.project = &project;
-    orbit_camera_system.physics = &physics_system;
-    session.systems = { &physics_system, &orbit_camera_system, &orbit_camera_system.late };
+    camera_system.physics = &physics_system;
+    camera_system.renderer = &renderer;
+    movement_system.physics = &physics_system;
+    locomotion_system.renderer = &renderer;
+    locomotion_system.project = &project;
+    session.systems = { &camera_system, &movement_system, &physics_system, &locomotion_system, &camera_system.late };
     session.begin(scene, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());
@@ -128,7 +132,7 @@ void GameApplication::on_simulate(float p_dt)
     const bool focused = win32.window_is_focused(main_window);
     if (mouse_released && focused && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) mouse_released = false;
     if (!mouse_captured && focused && !mouse_released) {
-        cursor_lock.begin();
+        cursor_lock.begin_at(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
         mouse_captured = true;
     }
     if (mouse_captured && (!focused || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {

@@ -629,19 +629,30 @@ static vec4 _matrix_row(const mat4& p_m, int p_row)
 static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, bool p_continuous, const PoseComponent& p_pose, const GeometryPool& p_geometry, uint32_t p_mesh_index)
 {
     const uint32_t joint_count = std::min<uint32_t>((uint32_t)p_pose.skin.size(), MESH_MAX_JOINTS);
-    if (joint_count == 0 || r_frame.skins_scratch.size() >= MAX_SKINNED_INSTANCES || r_frame.joints_scratch.size() + joint_count > MAX_SKIN_JOINTS) return SKIN_NONE;
+    const bool split = joint_count > 0 && p_pose.view_skin.size() == p_pose.skin.size();
+    const uint32_t needed = split ? joint_count * 2 : joint_count;
+    if (joint_count == 0 || r_frame.skins_scratch.size() >= MAX_SKINNED_INSTANCES || r_frame.joints_scratch.size() + needed > MAX_SKIN_JOINTS) return SKIN_NONE;
 
     const bool has_prev = p_continuous && r_cache.prev_skin.size() == joint_count;
     const uint32_t joint_base = (uint32_t)r_frame.joints_scratch.size();
-    for (uint32_t j = 0; j < joint_count; j++) {
-        const mat4& m = p_pose.skin[j];
-        const mat4& pm = has_prev ? r_cache.prev_skin[j] : m;
-        JointMatrices jm;
-        for (int r = 0; r < 3; r++) {
-            jm.curr[r] = _matrix_row(m, r);
-            jm.prev[r] = _matrix_row(pm, r);
+    auto push = [&](const std::vector<mat4>& p_curr, const std::vector<mat4>& p_prev, bool p_has_prev) {
+        for (uint32_t j = 0; j < joint_count; j++) {
+            const mat4& m = p_curr[j];
+            const mat4& pm = p_has_prev ? p_prev[j] : m;
+            JointMatrices jm;
+            for (int r = 0; r < 3; r++) {
+                jm.curr[r] = _matrix_row(m, r);
+                jm.prev[r] = _matrix_row(pm, r);
+            }
+            r_frame.joints_scratch.push_back(jm);
         }
-        r_frame.joints_scratch.push_back(jm);
+    };
+    push(p_pose.skin, r_cache.prev_skin, has_prev);
+    if (split) {
+        push(p_pose.view_skin, r_cache.prev_view_skin, p_continuous && r_cache.prev_view_skin.size() == joint_count);
+        r_cache.prev_view_skin.assign(p_pose.view_skin.begin(), p_pose.view_skin.begin() + joint_count);
+    } else {
+        r_cache.prev_view_skin.clear();
     }
     vec3 lo, hi;
     p_geometry.posed_box(p_mesh_index, p_pose.skin.data(), joint_count, lo, hi);
@@ -655,7 +666,7 @@ static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, b
     r_cache.prev_box_max = hi;
     r_cache.prev_skin.assign(p_pose.skin.begin(), p_pose.skin.begin() + joint_count);
 
-    r_frame.skins_scratch.push_back(SkinInstance{ box_lo, joint_base, box_hi - box_lo, joint_count });
+    r_frame.skins_scratch.push_back(SkinInstance{ box_lo, joint_base, box_hi - box_lo, split ? joint_count | SKIN_VIEW_SPLIT : joint_count });
     return (uint32_t)r_frame.skins_scratch.size() - 1;
 }
 

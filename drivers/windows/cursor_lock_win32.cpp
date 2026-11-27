@@ -12,6 +12,16 @@ void CursorLockWin32::begin()
     active = true;
 }
 
+void CursorLockWin32::begin_at(float p_client_x, float p_client_y)
+{
+    POINT p{ (LONG)p_client_x, (LONG)p_client_y };
+    if (HWND window = GetActiveWindow()) ClientToScreen(window, &p);
+    SetCursorPos((int)p.x, (int)p.y);
+    anchor_x = p.x;
+    anchor_y = p.y;
+    active = true;
+}
+
 void CursorLockWin32::end(float p_offset_x, float p_offset_y)
 {
     if (!active) return;

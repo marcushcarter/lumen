@@ -8,8 +8,8 @@ namespace lumen {
 
 bool character_is_player(const Scene& p_world, Entity p_entity)
 {
-    const CharacterComponent* c = p_world.try_get<CharacterComponent>(p_entity);
-    return c && c->controller == CharacterController::PLAYER;
+    const MovementComponent* m = p_world.try_get<MovementComponent>(p_entity);
+    return m && m->player;
 }
 
 Error Scene::initialize()
@@ -24,8 +24,9 @@ Error Scene::initialize()
     component_register<PoseComponent>("Pose", false);
     component_register<InitialVelocityComponent>("Initial Velocity", false);
     component_register_saved<CollisionComponent>("Collision", "collision");
-    component_register_saved<CharacterComponent>("Character", "character");
-    component_register_saved<OrbitCameraComponent>("Orbit Camera", "orbit_camera");
+    component_register_saved<MovementComponent>("Movement", "movement");
+    component_register_saved<CameraComponent>("Camera", "camera");
+    component_register_saved<LocomotionComponent>("Locomotion", "locomotion");
     component_register_saved<WaterSourceComponent>("Water Source", "water_source");
     component_register_saved<TemplateInstanceComponent>("Template", "template", false);
     component_register<TemplatePartComponent>("Template Part", false);

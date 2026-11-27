@@ -20,6 +20,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
@@ -133,6 +134,14 @@ static JPH::RefConst<JPH::Shape> _character_shape(float p_radius, float p_height
     return JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0.0f, half + radius, 0.0f), JPH::Quat::sIdentity(), new JPH::CapsuleShape(half, radius)).Create().Get();
 }
 
+static JPH::RefConst<JPH::Shape> _character_body_shape(float p_radius, float p_height)
+{
+    const float radius = std::max(p_radius, MIN_SHAPE_SIZE);
+    const float half = std::max(p_height * 0.5f, MIN_SHAPE_SIZE);
+    const float convex = std::min(JPH::cDefaultConvexRadius, std::min(radius, half) * 0.5f);
+    return JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0.0f, half, 0.0f), JPH::Quat::sIdentity(), new JPH::CylinderShape(half, radius, convex)).Create().Get();
+}
+
 PhysicsCharacterId PhysicsWorld::create_character(const vec3& p_position, float p_radius, float p_height, float p_max_slope_degrees)
 {
     if (!impl) return {};
@@ -141,7 +150,7 @@ PhysicsCharacterId PhysicsWorld::create_character(const vec3& p_position, float 
     settings->mMaxSlopeAngle = JPH::DegreesToRadians(p_max_slope_degrees);
     settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -std::max(p_radius, MIN_SHAPE_SIZE));
     settings->mUp = JPH::Vec3::sAxisY();
-    settings->mInnerBodyShape = settings->mShape;
+    settings->mInnerBodyShape = _character_body_shape(p_radius, p_height);
     settings->mInnerBodyLayer = to_jph(PhysicsLayer::CHARACTER);
     JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(settings, to_jph_r(p_position), JPH::Quat::sIdentity(), 0, &impl->system);
     for (uint32_t i = 0; i < (uint32_t)impl->characters.size(); i++) {
@@ -178,7 +187,7 @@ bool PhysicsWorld::set_character_shape(PhysicsCharacterId p_character, float p_r
     const QueryObjectFilter ol(PHYSICS_QUERY_WORLD);
     const JPH::RefConst<JPH::Shape> shape = _character_shape(p_radius, p_height);
     if (!character->SetShape(shape, 1.5f * character->GetCharacterPadding(), bp, ol, {}, {}, *impl->temp)) return false;
-    character->SetInnerBodyShape(shape);
+    character->SetInnerBodyShape(_character_body_shape(p_radius, p_height));
     return true;
 }
 

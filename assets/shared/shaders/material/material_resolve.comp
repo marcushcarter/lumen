@@ -178,7 +178,7 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
         prev1 = tri.l1;
         prev2 = tri.l2;
         if (o.skin_id != SKIN_NONE) {
-            const uint joint_base = pc.camera.skins.data[o.skin_id].joint_base;
+            const uint joint_base = skin_view_base(pc.camera.skins.data[o.skin_id]);
             const SkinRows k0 = skin_vertex_rows(pc.camera, pc.geometry, streams, lv.x, joint_base, SKIN_CURR);
             const SkinRows k1 = skin_vertex_rows(pc.camera, pc.geometry, streams, lv.y, joint_base, SKIN_CURR);
             const SkinRows k2 = skin_vertex_rows(pc.camera, pc.geometry, streams, lv.z, joint_base, SKIN_CURR);

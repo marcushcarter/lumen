@@ -191,6 +191,7 @@ void AnimationDetailsPanel::draw_contents(EditorContext& ctx)
             ImGui::Text("Moves: %s", angle);
         } else {
             ImGui::TextDisabled("In place (no root motion)");
+            if (meta.speed > 0.01f) ImGui::Text("Speed: %.2f m/s (from feet)", meta.speed);
         }
         _angle_text(meta.turn, angle, sizeof(angle));
         ImGui::Text("Turn: %s", angle);

@@ -34,7 +34,7 @@ vec4 player_shadow_vertex(out ClusterStreams r_streams, out uint r_local, out Me
     const Instance inst = pc.instances.data[pc.instance];
     r_mesh = pc.geometry.meshes.data[inst.mesh_id];
     r_streams = cluster_streams(pc.geometry, cluster);
-    const uint cached = inst.skin_id != SKIN_NONE && !all(equal(uvec2(pc.player_table), uvec2(0u))) ? pc.player_table.data[cluster] : SKIN_CACHE_NONE;
+    const uint cached = inst.skin_id != SKIN_NONE && !skin_view_split(pc.camera.skins.data[inst.skin_id]) && !all(equal(uvec2(pc.player_table), uvec2(0u))) ? pc.player_table.data[cluster] : SKIN_CACHE_NONE;
     vec3 p;
     if (cached != SKIN_CACHE_NONE) {
         p = skin_cache_position(pc.skin_cache, skin_quant(pc.camera.skins.data[inst.skin_id]), cached + r_local);

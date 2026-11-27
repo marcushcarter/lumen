@@ -31,7 +31,7 @@ bool cluster_cone(CameraBuffer p_camera, GeometryBuffer p_geometry, Instance p_i
         if (!skinned_cluster_rigid(p_geometry, p_cluster)) return false;
         const SkinInstance skin = p_camera.skins.data[p_instance.skin_id];
         const uint joint = skinned_cluster_joint_range(p_geometry, p_cluster).x;
-        if (joint >= skin.joint_count) return false;
+        if (joint >= skin_joints(skin)) return false;
         model = p_model * skinned_joint_matrix(p_camera, skin.joint_base, joint, 0u);
     }
 

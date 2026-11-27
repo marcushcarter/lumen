@@ -29,7 +29,7 @@ vec4 raster_vertex(CameraBuffer p_camera, GeometryBuffer p_geometry, InstanceBuf
         p = skin_cache_position(p_skin_cache, skin_quant(p_camera.skins.data[skin_id]), cached + p_local);
     } else {
         p = stream_position(p_geometry, streams, p_local, p_geometry.meshes.data[mesh_id].pos_min, p_geometry.meshes.data[mesh_id].pos_extent);
-        if (skin_id != SKIN_NONE) p = skin_point(skin_vertex_rows(p_camera, p_geometry, streams, p_local, p_camera.skins.data[skin_id].joint_base, SKIN_CURR), p);
+        if (skin_id != SKIN_NONE) p = skin_point(skin_vertex_rows(p_camera, p_geometry, streams, p_local, skin_view_base(p_camera.skins.data[skin_id]), SKIN_CURR), p);
     }
     r_uv = stream_uv(p_geometry, streams, p_local, p_geometry.meshes.data[mesh_id].uv_min, p_geometry.meshes.data[mesh_id].uv_extent);
     const mat4 model = p_transforms.data[transform_id].curr_mtx;

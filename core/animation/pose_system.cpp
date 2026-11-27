@@ -46,11 +46,25 @@ void PoseSystem::update(Scene& r_world, const Renderer& p_renderer)
 
     r_world.view<MeshComponent, PoseComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity, const MeshComponent& p_model, PoseComponent& r_pose) {
         const Binding* binding = _binding(p_renderer, p_renderer.mesh_slots.mesh_index(p_model.mesh));
+        r_pose.view_skin.clear();
         if (!binding) {
             r_pose.skin.clear();
             return;
         }
-        r_pose.skin = binding->rest_skin;
+        const LMeshRig* rig = p_renderer.geometry.rig(p_renderer.mesh_slots.mesh_index(p_model.mesh));
+        const SkeletonCache::Entry* skeleton = rig ? p_renderer.skeletons.get(rig->skeleton) : nullptr;
+        if (!skeleton || r_pose.skeleton != rig->skeleton || r_pose.local.size() != skeleton->skeleton.joint_count()) {
+            r_pose.skin = binding->rest_skin;
+            return;
+        }
+        _global.resize(r_pose.local.size());
+        skeleton->skeleton.globals(r_pose.local.data(), _global.data());
+        rig_skin(_global, *rig, binding->map, r_pose.skin);
+        if (r_pose.hidden_joint < 0 || r_pose.hidden_joint >= (int32_t)r_pose.local.size()) return;
+        _hidden = r_pose.local;
+        _hidden[r_pose.hidden_joint].scale = vec3(0.001f);
+        skeleton->skeleton.globals(_hidden.data(), _global.data());
+        rig_skin(_global, *rig, binding->map, r_pose.view_skin);
     });
 }
 

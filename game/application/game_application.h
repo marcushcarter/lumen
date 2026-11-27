@@ -4,7 +4,9 @@
 #include <game/application/boot_splash.h>
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
-#include <core/game/orbit_camera_system.h>
+#include <core/game/camera_system.h>
+#include <core/game/locomotion_system.h>
+#include <core/game/movement_system.h>
 #include <drivers/windows/cursor_lock_win32.h>
 #include <filesystem>
 #include <string>
@@ -26,7 +28,9 @@ struct GameApplication : Application
     Camera orbit_camera;
     GameSession session;
     PhysicsSystem physics_system;
-    OrbitCameraSystem orbit_camera_system;
+    CameraSystem camera_system;
+    MovementSystem movement_system;
+    LocomotionSystem locomotion_system;
     drivers::CursorLockWin32 cursor_lock;
     bool mouse_captured = false;
     bool mouse_released = false;

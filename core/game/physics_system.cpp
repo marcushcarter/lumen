@@ -421,7 +421,7 @@ void PhysicsSystem::_sync_terrain(GameSession& r_session)
     const std::filesystem::path terrain_path = terrain_guid.valid() && project ? project->content_path(terrain_guid) : std::filesystem::path();
     _anchors.clear();
     _anchors.push_back(r_session.camera.position);
-    world.view<TransformComponent, CharacterComponent>([&](Entity p_entity, const TransformComponent&, const CharacterComponent&) {
+    world.view<TransformComponent, MovementComponent>([&](Entity p_entity, const TransformComponent&, const MovementComponent&) {
         _anchors.push_back(vec3(world.world_matrix(p_entity)[3]));
     });
     terrain.update(physics, terrain_guid, terrain_path, _anchors);

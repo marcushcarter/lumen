@@ -15,6 +15,7 @@ static constexpr uint32_t CONTACT_GAP_FRAMES = 2;
 static constexpr uint32_t CONTACT_MIN_FRAMES = 3;
 static constexpr float TRAJECTORY_SMOOTH_S = 0.1f;
 static constexpr float ROOT_MOTION_MIN = 0.05f;
+static constexpr float ROOT_TURN_MIN = 5.0f;
 
 std::vector<std::string> clip_name_tokens(std::string_view p_name)
 {
@@ -219,6 +220,18 @@ static float _path_xz(const std::vector<vec3>& p_points)
     return total;
 }
 
+static float _yaw_span(const std::vector<quat>& p_rotations)
+{
+    if (p_rotations.empty()) return 0.0f;
+    const quat inv0 = inverse(p_rotations.front());
+    float span = 0.0f;
+    for (const quat& q : p_rotations) {
+        const vec3 fwd = (q * inv0) * vec3(0.0f, 0.0f, 1.0f);
+        span = std::max(span, std::abs(std::atan2(fwd.x, fwd.z)));
+    }
+    return span;
+}
+
 static void _contacts(const std::vector<bool>& p_raw, std::vector<ClipContact>& r_out)
 {
     std::vector<bool> on = p_raw;
@@ -321,7 +334,7 @@ void clip_analyze(LAnimation& r_clip, const LSkeleton* p_skeleton, std::string_v
         }
     }
 
-    const bool use_root = root != hips && _path_xz(root_pos) > ROOT_MOTION_MIN;
+    const bool use_root = root != hips && (_path_xz(root_pos) > ROOT_MOTION_MIN || _yaw_span(root_rot) > glm::radians(ROOT_TURN_MIN));
     const std::vector<vec3>& pos = use_root ? root_pos : hips_pos;
     const std::vector<quat>& rot = use_root ? root_rot : hips_rot;
     r_clip.meta.root_joint = skeleton.names[use_root ? root : hips];
@@ -402,6 +415,21 @@ void clip_analyze(LAnimation& r_clip, const LSkeleton* p_skeleton, std::string_v
             }
         }
         _contacts(raw, out.contacts);
+    }
+    if (!root_motion) {
+        float total = 0.0f;
+        uint32_t samples = 0;
+        for (int s = 0; s < 2; ++s) {
+            if (point_joint[s * 2] == SKELETON_NO_JOINT) continue;
+            const std::vector<vec3>& pt = points[s * 2];
+            for (const ClipContact& c : r_clip.meta.feet[s].contacts) {
+                for (uint32_t f = c.start; f < c.end; ++f) {
+                    total += length(vec2(pt[f + 1].x - pt[f].x, pt[f + 1].z - pt[f].z)) * r_clip.sample_rate;
+                    samples++;
+                }
+            }
+        }
+        r_clip.meta.speed = samples ? total / (float)samples : 0.0f;
     }
     _phase(r_clip.meta, frames, r_clip.meta.phase);
 }

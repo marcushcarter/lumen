@@ -16,6 +16,7 @@
 #include <editor/documents/mesh/mesh_document.h>
 #include <editor/documents/animation/animation_document.h>
 #include <editor/documents/terrain/terrain_document.h>
+#include <editor/documents/locomotion/locomotion_document.h>
 #include <editor/tools/version_control/version_control_tool.h>
 #include <editor/documents/asset_document.h>
 #include <core/scene/template.h>
@@ -136,6 +137,13 @@ Error EditorApplication::on_init()
     _ctx.play = &play;
     play.physics_system.renderer = &renderer;
     play.physics_system.project = &project;
+    play.camera_system.renderer = &renderer;
+    play.locomotion_system.renderer = &renderer;
+    play.locomotion_system.project = &project;
+    play.locomotion_system.locate = [this](Guid p_guid) {
+        const AssetRegistry::Entry* entry = assets.find(p_guid);
+        return entry ? entry->path : std::filesystem::path();
+    };
     _ctx.pie_is_playing = [this] { return play.active(); };
     _ctx.pie_toggle_play = [this] {
         if (play.active()) {
@@ -334,6 +342,7 @@ void EditorApplication::on_update(float)
         references_dialog.draw(ctx);
         thumbnails.update(ctx);
         if (ImGui::Shortcut(ImGuiKey_F8, ImGuiInputFlags_RouteGlobal)) _toggle_possess();
+        if (play.game() && ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteGlobal)) _toggle_possess();
         if (!workspace.scene.viewport.game_captured && ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal)) _save_focused();
 
         const uint64_t signature = _documents_hash();
@@ -428,6 +437,7 @@ EditorDocument* EditorApplication::_open_document(DocumentKind p_kind, Guid p_gu
         case DocumentKind::MESH: return documents.open<MeshDocument>(p_guid);
         case DocumentKind::ANIMATION: return documents.open<AnimationDocument>(p_guid);
         case DocumentKind::TERRAIN: return documents.open<TerrainDocument>(p_guid);
+        case DocumentKind::LOCOMOTION: return documents.open<LocomotionDocument>(p_guid);
         default: return nullptr;
     }
 }
@@ -576,6 +586,7 @@ static const char* _document_kind_name(DocumentKind p_kind)
         case DocumentKind::MESH: return "mesh";
         case DocumentKind::ANIMATION: return "animation";
         case DocumentKind::TERRAIN: return "terrain";
+        case DocumentKind::LOCOMOTION: return "locomotion";
         case DocumentKind::VERSION_CONTROL: return "version_control";
         case DocumentKind::GPU_PROFILER: return "gpu_profiler";
         case DocumentKind::MEMORY: return "memory";
@@ -585,7 +596,7 @@ static const char* _document_kind_name(DocumentKind p_kind)
 
 static bool _document_kind_from_string(const std::string& p_name, DocumentKind& r_kind)
 {
-    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::TERRAIN, DocumentKind::VERSION_CONTROL, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
+    static constexpr DocumentKind ALL[] = { DocumentKind::EDITOR_SETTINGS, DocumentKind::PROJECT_SETTINGS, DocumentKind::MATERIAL, DocumentKind::TEXTURE, DocumentKind::MESH, DocumentKind::ANIMATION, DocumentKind::TERRAIN, DocumentKind::LOCOMOTION, DocumentKind::VERSION_CONTROL, DocumentKind::GPU_PROFILER, DocumentKind::MEMORY };
     for (DocumentKind k : ALL) {
         if (p_name != _document_kind_name(k)) continue;
         r_kind = k;
@@ -1104,7 +1115,7 @@ void EditorApplication::_keep_editor_view()
 {
     if (!play.game()) return;
     bool game_camera = false;
-    play.runtime.view<OrbitCameraComponent>(Exclude<DisabledTag>{}, [&](Entity, const OrbitCameraComponent&) { game_camera = true; });
+    play.runtime.view<CameraComponent>(Exclude<DisabledTag>{}, [&](Entity, const CameraComponent&) { game_camera = true; });
     if (!game_camera) play.session.camera = editor_camera.camera;
 }
 

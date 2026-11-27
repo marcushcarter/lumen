@@ -11,8 +11,9 @@ Error EditorPlay::initialize()
     using enum Error;
     Error err = runtime.initialize();
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
-    orbit_camera_system.physics = &physics_system;
-    session.systems = { &physics_system, &orbit_camera_system, &orbit_camera_system.late };
+    camera_system.physics = &physics_system;
+    movement_system.physics = &physics_system;
+    session.systems = { &camera_system, &movement_system, &physics_system, &locomotion_system, &camera_system.late };
     return runtime.load();
 }
 

@@ -86,6 +86,7 @@ struct SkinInstance
     uint32_t joint_count;
 };
 static_assert(sizeof(SkinInstance) == 32, "SkinInstance layout changed");
+inline constexpr uint32_t SKIN_VIEW_SPLIT = 0x80000000u;
 
 struct JointMatrices
 {

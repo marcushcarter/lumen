@@ -50,7 +50,7 @@ bool _skinned_box_valid(vec3 p_lo, vec3 p_hi) {
 
 bool skinned_cluster_boxes(CameraBuffer p_camera, GeometryBuffer p_geometry, Mesh p_mesh, SkinInstance p_skin, uint p_cluster, bool p_want_prev, out vec3 r_min, out vec3 r_extent, out vec3 r_prev_min, out vec3 r_prev_extent, out bool r_prev_valid) {
     const uvec2 range = skinned_cluster_joint_range(p_geometry, p_cluster);
-    const uint last = min(range.y, p_skin.joint_count);
+    const uint last = min(range.y, skin_joints(p_skin));
     r_min = vec3(0.0);
     r_extent = vec3(0.0);
     r_prev_min = vec3(0.0);

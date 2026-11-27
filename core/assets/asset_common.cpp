@@ -41,6 +41,7 @@ bool asset_version_supported(AssetType p_type, uint32_t p_version)
         case AssetType::ANIMATION: return p_version == LASSET_VERSION;
         case AssetType::TERRAIN: return p_version == LASSET_VERSION;
         case AssetType::WATER: return p_version == LASSET_VERSION;
+        case AssetType::LOCOMOTION: return p_version == LASSET_VERSION;
         default: return false;
     }
 }

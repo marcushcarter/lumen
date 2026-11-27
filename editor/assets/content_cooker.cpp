@@ -1,5 +1,6 @@
 #include <editor/assets/content_cooker.h>
 #include <core/assets/lmaterial.h>
+#include <core/assets/llocomotion.h>
 #include <core/assets/lmesh.h>
 #include <core/project/project.h>
 #include <core/scene/scene_file.h>
@@ -106,6 +107,7 @@ ContentCooker::Result ContentCooker::cook(const Project& p_project)
         else if (ext == ".lmaterial") _cook_file(p_project, it->path(), AssetType::MATERIAL, result);
         else if (ext == SceneFile::EXTENSION) _cook_copy(p_project, it->path(), SceneFile::EXTENSION, result);
         else if (ext == TemplateLibrary::EXTENSION) _cook_copy(p_project, it->path(), TemplateLibrary::EXTENSION, result);
+        else if (ext == LLocomotionSet::EXTENSION) _cook_copy(p_project, it->path(), LLocomotionSet::EXTENSION, result);
     }
     if (ec) {
         log_write("Cook: couldn't scan '%s' (%s).", p_project.assets_dir.string().c_str(), ec.message().c_str());

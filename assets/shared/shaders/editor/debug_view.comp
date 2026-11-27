@@ -115,7 +115,7 @@ uvec3 triangle_locals(uint cluster, uint tri) {
 
 vec3 vertex_local(Instance inst, Mesh mesh, ClusterStreams streams, uint local) {
     vec3 p = stream_position(pc.geometry, streams, local, mesh.pos_min, mesh.pos_extent);
-    if (inst.skin_id != SKIN_NONE) p = skin_point(skin_vertex_rows(pc.camera, pc.geometry, streams, local, pc.camera.skins.data[inst.skin_id].joint_base, SKIN_CURR), p);
+    if (inst.skin_id != SKIN_NONE) p = skin_point(skin_vertex_rows(pc.camera, pc.geometry, streams, local, skin_view_base(pc.camera.skins.data[inst.skin_id]), SKIN_CURR), p);
     return p;
 }
 

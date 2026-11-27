@@ -513,7 +513,7 @@ void Viewport::_draw_image(EditorContext& ctx, ImVec2 p_pos, ImVec2 p_size)
     if (pick_click && ctx.render_path && !popup_open_last_frame) ctx.render_path->pick.request((mouse.x - p_pos.x) / p_size.x, 1.0f - (mouse.y - p_pos.y) / p_size.y);
     if (playing && !game_captured) {
         game_captured = true;
-        cursor_lock.begin();
+        cursor_lock.begin_at(p_pos.x + p_size.x * 0.5f, p_pos.y + p_size.y * 0.5f);
     }
     if (game_captured && !playing) {
         game_captured = false;

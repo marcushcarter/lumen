@@ -22,21 +22,56 @@ void serialize(Archive& a, MeshComponent& r_c)
     a.field("tint", r_c.tint);
 }
 
-void serialize(Archive& a, CharacterComponent& r_c)
+void serialize(Archive& a, MovementComponent& r_c)
 {
-    uint32_t controller = (uint32_t)r_c.controller;
-    a.field("controller", controller);
-    r_c.controller = controller <= (uint32_t)CharacterController::AI ? (CharacterController)controller : CharacterController::NONE;
+    a.field("player", r_c.player);
+    a.field("strafe", r_c.strafe);
+    a.field("radius", r_c.radius);
+    a.field("height", r_c.height);
+    a.field("step_up", r_c.step_up);
+    a.field("max_slope", r_c.max_slope);
+    a.field("walk_speed", r_c.walk_speed);
+    a.field("run_speed", r_c.run_speed);
+    a.field("sprint_speed", r_c.sprint_speed);
+    a.field("crouch_speed", r_c.crouch_speed);
+    a.field("crouch_height", r_c.crouch_height);
+    a.field("acceleration", r_c.acceleration);
+    a.field("deceleration", r_c.deceleration);
+    a.field("turn_rate", r_c.turn_rate);
+    a.field("brake", r_c.brake);
+    a.field("redirect_rate", r_c.redirect_rate);
+    a.field("responsiveness", r_c.responsiveness);
+    a.field("jump_height", r_c.jump_height);
+    a.field("air_control", r_c.air_control);
+    if (!a.loading) return;
+    r_c.radius = std::max(r_c.radius, 0.05f);
+    r_c.height = std::max(r_c.height, r_c.radius * 2.0f + 0.01f);
+    r_c.step_up = std::max(r_c.step_up, 0.0f);
+    r_c.max_slope = std::clamp(r_c.max_slope, 0.0f, 89.0f);
 }
 
-void serialize(Archive& a, OrbitCameraComponent& r_c)
+void serialize(Archive& a, CameraComponent& r_c)
 {
+    uint32_t type = (uint32_t)r_c.type;
+    a.field("type", type);
     a.field("distance", r_c.distance);
     a.field("shoulder", r_c.shoulder);
     a.field("pivot_height", r_c.pivot_height);
     a.field("radius", r_c.radius);
     a.field("pitch_min", r_c.pitch_min);
     a.field("pitch_max", r_c.pitch_max);
+    a.field("head_bone", r_c.head_bone);
+    a.field("eye_offset", r_c.eye_offset);
+    a.field("fp_pitch_min", r_c.fp_pitch_min);
+    a.field("fp_pitch_max", r_c.fp_pitch_max);
+    a.field("hide_head", r_c.hide_head);
+    if (!a.loading) return;
+    r_c.type = type < (uint32_t)CameraType::COUNT ? (CameraType)type : CameraType::ORBIT;
+}
+
+void serialize(Archive& a, LocomotionComponent& r_c)
+{
+    a.field("set", r_c.set);
 }
 
 void serialize(Archive& a, WaterSourceComponent& r_c)

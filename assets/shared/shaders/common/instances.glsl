@@ -24,6 +24,20 @@ struct SkinInstance {
     uint joint_count;
 };
 
+const uint SKIN_VIEW_SPLIT = 0x80000000u;
+
+uint skin_joints(SkinInstance p_skin) {
+    return p_skin.joint_count & ~SKIN_VIEW_SPLIT;
+}
+
+bool skin_view_split(SkinInstance p_skin) {
+    return (p_skin.joint_count & SKIN_VIEW_SPLIT) != 0u;
+}
+
+uint skin_view_base(SkinInstance p_skin) {
+    return p_skin.joint_base + (skin_view_split(p_skin) ? skin_joints(p_skin) : 0u);
+}
+
 struct Transform {
     mat4 prev_mtx;
     mat4 curr_mtx;

@@ -1,7 +1,9 @@
 #pragma once
 #include <core/game/game_session.h>
 #include <core/game/physics_system.h>
-#include <core/game/orbit_camera_system.h>
+#include <core/game/camera_system.h>
+#include <core/game/locomotion_system.h>
+#include <core/game/movement_system.h>
 #include <core/scene/scene.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>
@@ -18,7 +20,9 @@ struct EditorPlay
     Scene runtime;
     GameSession session;
     PhysicsSystem physics_system;
-    OrbitCameraSystem orbit_camera_system;
+    CameraSystem camera_system;
+    MovementSystem movement_system;
+    LocomotionSystem locomotion_system;
     Guid scene_guid;
     EnvironmentSettings _environment;
     ShadowSettings _shadows;

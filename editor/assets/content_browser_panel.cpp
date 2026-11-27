@@ -25,6 +25,7 @@
 #include <editor/documents/material/material_document.h>
 #include <editor/documents/mesh/mesh_document.h>
 #include <editor/documents/terrain/terrain_document.h>
+#include <editor/documents/locomotion/locomotion_document.h>
 #include <editor/documents/texture/texture_document.h>
 #include <editor/ui/ui_style.h>
 #include <editor/ui/ui_widgets.h>
@@ -51,6 +52,7 @@ static const NewAssetDesc NEW_ASSETS[] = {
     { "Template", "New Template", ".ltemplate" },
     { "Terrain", "New Terrain", ".lterrain" },
     { "Material", "New Material", ".lmaterial" },
+    { "Locomotion Set", "New Locomotion Set", ".llocomotion" },
 };
 static_assert(std::size(NEW_ASSETS) == (size_t)ContentBrowserPanel::NewAsset::COUNT);
 
@@ -65,7 +67,7 @@ static std::filesystem::path _unique_path(const std::filesystem::path& p_parent,
 static bool _duplicable(const std::filesystem::path& p_path)
 {
     const std::filesystem::path ext = p_path.extension();
-    return ext == ".lmaterial" || ext == ".lscene" || ext == ".ltemplate";
+    return ext == ".lmaterial" || ext == ".lscene" || ext == ".ltemplate" || ext == ".llocomotion";
 }
 
 static std::filesystem::path _duplicate_asset(const std::filesystem::path& p_path)
@@ -96,6 +98,7 @@ const char* ContentBrowserPanel::icon_for(const std::filesystem::path& p_path, b
     if (ext == ".lscene") return ICON_FA_EARTH_AMERICAS;
     if (ext == ".lterrain") return TerrainDocument::ICON;
     if (ext == ".ltemplate") return ICON_FA_BOX;
+    if (ext == ".llocomotion") return LocomotionDocument::ICON;
     return ICON_FA_FILE;
 }
 
@@ -109,6 +112,7 @@ std::string ContentBrowserPanel::type_name(std::string p_ext)
     if (p_ext == ".lscene") return "Scene";
     if (p_ext == ".lterrain") return "Terrain";
     if (p_ext == ".ltemplate") return "Template";
+    if (p_ext == ".llocomotion") return "Locomotion Set";
     if (!p_ext.empty() && p_ext[0] == '.') p_ext.erase(0, 1);
     for (char& c : p_ext) c = (char)std::toupper((unsigned char)c);
     return p_ext;
@@ -124,6 +128,7 @@ bool ContentBrowserPanel::open_entry(EditorContext& ctx, const std::filesystem::
         case AssetType::TERRAIN: ctx.documents->open<TerrainDocument>(info.guid)->path = p_path; break;
         case AssetType::MATERIAL: ctx.documents->open<MaterialDocument>(info.guid)->path = p_path; break;
         case AssetType::TEXTURE: ctx.documents->open<TextureDocument>(info.guid)->path = p_path; break;
+        case AssetType::LOCOMOTION: ctx.documents->open<LocomotionDocument>(info.guid)->path = p_path; break;
         case AssetType::TEMPLATE:
             if (!ctx.scene_document) return false;
             ctx.scene_document->open_template(ctx, info.guid, p_path);
@@ -877,6 +882,7 @@ void ContentBrowserPanel::_create_asset(EditorContext& ctx, NewAsset p_kind)
         } break;
         case NewAsset::TERRAIN: { LTerrain a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::MATERIAL: { LMaterial a; a.guid = Guid::generate(); err = a.save(path); } break;
+        case NewAsset::LOCOMOTION: { LLocomotionSet a; a.guid = Guid::generate(); err = a.save(path); } break;
         case NewAsset::COUNT: break;
     }
     if (err != Error::OK) {

@@ -18,6 +18,7 @@ enum class AssetType : uint32_t {
     TERRAIN = 10,
     TEMPLATE = 11,
     WATER = 12,
+    LOCOMOTION = 13,
 };
 
 inline constexpr uint32_t LASSET_VERSION = 1;
@@ -34,6 +35,7 @@ inline AssetType asset_type_from_u32(uint32_t p_v)
         case static_cast<uint32_t>(AssetType::TERRAIN): return AssetType::TERRAIN;
         case static_cast<uint32_t>(AssetType::TEMPLATE): return AssetType::TEMPLATE;
         case static_cast<uint32_t>(AssetType::WATER): return AssetType::WATER;
+        case static_cast<uint32_t>(AssetType::LOCOMOTION): return AssetType::LOCOMOTION;
         default: return AssetType::NONE;
     }
 }
@@ -49,6 +51,7 @@ inline std::string_view asset_type_section(AssetType p_type)
         case AssetType::TERRAIN: return "terrain";
         case AssetType::TEMPLATE: return "template";
         case AssetType::WATER: return "water";
+        case AssetType::LOCOMOTION: return "locomotion";
         default: return "None";
     }
 }

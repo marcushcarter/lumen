@@ -11,6 +11,8 @@ struct AnimationDetailsPanel : Panel
     const char* name() const override { return ICON_FA_PERSON_RUNNING "  Animation"; }
 
     void _draw_warnings(EditorContext& ctx);
+    void _draw_events();
+    void _draw_curves();
     void draw_contents(EditorContext& ctx) override;
 };
 

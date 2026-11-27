@@ -348,7 +348,10 @@ void ImportDialog::draw(EditorContext& ctx)
         if (p.heightfield) ui_category_flush();
         else _draw_texture(p.texture);
     }
-    else if (p.kind == ImportKind::ANIMATION) _draw_transform(p.model.mesh_settings);
+    else if (p.kind == ImportKind::ANIMATION) {
+        _draw_transform(p.model.mesh_settings);
+        ui_category_flush();
+    }
     else _draw_model(p.model, true);
     ui_field_pop_style();
     _draw_footer(ctx, p);

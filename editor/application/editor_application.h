@@ -39,7 +39,7 @@ struct EditorApplication : Application
 
     ProjectManager project_manager;
     AssetImportTracker imports;
-    static constexpr float EDITOR_RENDER_SCALE = 0.75f;
+    static constexpr float EDITOR_RENDER_SCALE = 1.0f;
 
     AssetRegistry assets;
     std::filesystem::path _bake_source;

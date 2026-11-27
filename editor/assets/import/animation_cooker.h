@@ -1,7 +1,10 @@
 #pragma once
 #include <editor/assets/import/mesh_cooker.h>
 #include <core/assets/lanim.h>
+#include <toml++/toml.hpp>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 struct aiAnimation;
 struct aiScene;
@@ -32,11 +35,18 @@ struct AnimationCooker
         bool loop = true;
         Guid skeleton;
         MeshCooker::CookSettings settings;
+        std::string name;
+        std::vector<ClipEvent> events;
+        std::vector<ClipCurve> curves;
     };
 
     static bool build(const aiScene* p_scene, const aiAnimation* p_anim, const MeshCooker::CookSettings& p_settings, const LSkeleton* p_skeleton, LAnimation& r_clip);
     static Guid find_skeleton(const Project& p_project, const aiAnimation* p_anim, LSkeleton& r_skeleton);
     static Error cook(const Job& p_job, const LAnimation& p_clip);
+    static void read_authored(const toml::table& p_section, LAnimation& r_clip);
+    static void read_authored(const std::filesystem::path& p_lanim, LAnimation& r_clip);
+    static void write_authored(toml::table& r_section, const LAnimation& p_clip);
+    static std::string asset_name(const std::filesystem::path& p_lanim);
     static bool load_record(const std::filesystem::path& p_lanim, Record& r_record);
     static Error reimport(EditorContext& ctx, const std::filesystem::path& p_lanim, const MeshCooker::CookSettings* p_override = nullptr);
 };

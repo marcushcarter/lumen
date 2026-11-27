@@ -1,4 +1,5 @@
 #include <editor/assets/import/model_cooker.h>
+#include <editor/assets/import/clip_analyzer.h>
 #include <editor/application/editor_context.h>
 #include <editor/assets/import/animation_cooker.h>
 #include <editor/assets/import/skeleton_cooker.h>
@@ -300,7 +301,9 @@ uint32_t ModelCooker::_import_animations(const Job& p_job, const aiScene* p_scen
         if (std::filesystem::exists(dst, ec)) {
             try { job.loop = toml::parse_file(dst.string())[asset_type_section(AssetType::ANIMATION)]["loop"].value_or(true); }
             catch (const toml::parse_error&) {}
+            AnimationCooker::read_authored(dst, clip);
         }
+        clip_analyze(clip, skeleton, AnimationCooker::asset_name(dst));
         std::filesystem::path content_bin;
         if (AssetImportTracker::resolve_import(*p_job.project, AssetType::ANIMATION, dst, clip.guid, content_bin) != Error::OK) {
             log_write("ModelCooker: '%s' exists and is not an animation.", dst.string().c_str());

@@ -483,24 +483,6 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
                 return cursor.x >= r.left && cursor.x < r.right && cursor.y >= r.top  && cursor.y < r.bottom;
             };
 
-            if (window->has_ctrls) {
-                if (in(window->ctrl_close)) return HTCLOSE;
-                if (in(window->ctrl_max))   return HTMAXBUTTON;
-                if (in(window->ctrl_min))   return HTMINBUTTON;
-            }
-
-            if (window->imgui && ImGui::GetCurrentContext() && ImGui::IsAnyItemHovered()) return HTCLIENT;
-
-            bool over_widget = false;
-            if (cursor.y < window->titlebar_height) {
-                for (const RECT& r : window->titlebar_interactive_rects) {
-                    if (in(r)) {
-                        over_widget = true;
-                        break;
-                    }
-                }
-            }
-
             const int border = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
             if (window->resizable && !IsZoomed(p_hwnd)) {
                 bool l = cursor.x < border;
@@ -514,9 +496,22 @@ LRESULT CALLBACK WindowDriverWin32::_wnd_proc(HWND p_hwnd, UINT p_msg, WPARAM p_
                 if (l) return HTLEFT;
                 if (r) return HTRIGHT;
                 if (b) return HTBOTTOM;
-                if (t && !over_widget) return HTTOP;
+                if (t) return HTTOP;
             }
-            if (over_widget) return HTCLIENT;
+
+            if (window->has_ctrls) {
+                if (in(window->ctrl_close)) return HTCLOSE;
+                if (in(window->ctrl_max))   return HTMAXBUTTON;
+                if (in(window->ctrl_min))   return HTMINBUTTON;
+            }
+
+            if (window->imgui && ImGui::GetCurrentContext() && ImGui::IsAnyItemHovered()) return HTCLIENT;
+
+            if (cursor.y < window->titlebar_height) {
+                for (const RECT& r : window->titlebar_interactive_rects) {
+                    if (in(r)) return HTCLIENT;
+                }
+            }
             if (cursor.y < window->titlebar_height) return HTCAPTION;
             return HTCLIENT;
         }

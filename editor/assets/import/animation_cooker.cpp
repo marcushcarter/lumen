@@ -1,5 +1,6 @@
 #include <editor/assets/import/animation_cooker.h>
 #include <editor/assets/import/asset_import_tracker.h>
+#include <editor/assets/import/clip_analyzer.h>
 #include <editor/assets/import/model_cooker.h>
 #include <editor/application/editor_context.h>
 #include <core/assets/asset_common.h>
@@ -11,7 +12,6 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <glm/gtc/matrix_transform.hpp>
-#include <toml++/toml.hpp>
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -163,6 +163,73 @@ Guid AnimationCooker::find_skeleton(const Project& p_project, const aiAnimation*
     return best ? r_skeleton.guid : Guid{};
 }
 
+void AnimationCooker::read_authored(const toml::table& p_section, LAnimation& r_clip)
+{
+    r_clip.events.clear();
+    r_clip.curves.clear();
+    if (const toml::array* events = p_section["events"].as_array()) {
+        for (const toml::node& n : *events) {
+            const toml::table* t = n.as_table();
+            if (!t) continue;
+            ClipEvent e;
+            e.name = (*t)["name"].value_or(std::string());
+            e.time = (float)(*t)["time"].value_or(0.0);
+            r_clip.events.push_back(std::move(e));
+        }
+    }
+    if (const toml::array* curves = p_section["curves"].as_array()) {
+        for (const toml::node& n : *curves) {
+            const toml::table* t = n.as_table();
+            if (!t) continue;
+            ClipCurve c;
+            c.name = (*t)["name"].value_or(std::string());
+            if (const toml::array* keys = (*t)["keys"].as_array()) {
+                for (const toml::node& k : *keys) {
+                    const toml::array* pair = k.as_array();
+                    if (!pair || pair->size() != 2) continue;
+                    c.keys.push_back(vec2((float)(*pair)[0].value_or(0.0), (float)(*pair)[1].value_or(0.0)));
+                }
+            }
+            std::sort(c.keys.begin(), c.keys.end(), [](const vec2& a, const vec2& b) { return a.x < b.x; });
+            r_clip.curves.push_back(std::move(c));
+        }
+    }
+}
+
+void AnimationCooker::read_authored(const std::filesystem::path& p_lanim, LAnimation& r_clip)
+{
+    toml::table tbl;
+    try { tbl = toml::parse_file(p_lanim.string()); }
+    catch (const toml::parse_error&) { return; }
+    if (const toml::table* section = tbl[asset_type_section(AssetType::ANIMATION)].as_table()) read_authored(*section, r_clip);
+}
+
+void AnimationCooker::write_authored(toml::table& r_section, const LAnimation& p_clip)
+{
+    r_section.erase("events");
+    r_section.erase("curves");
+    if (!p_clip.events.empty()) {
+        toml::array events;
+        for (const ClipEvent& e : p_clip.events) events.push_back(toml::table{ { "name", e.name }, { "time", static_cast<double>(e.time) } });
+        r_section.insert_or_assign("events", std::move(events));
+    }
+    if (!p_clip.curves.empty()) {
+        toml::array curves;
+        for (const ClipCurve& c : p_clip.curves) {
+            toml::array keys;
+            for (const vec2& k : c.keys) keys.push_back(toml::array{ static_cast<double>(k.x), static_cast<double>(k.y) });
+            curves.push_back(toml::table{ { "name", c.name }, { "keys", std::move(keys) } });
+        }
+        r_section.insert_or_assign("curves", std::move(curves));
+    }
+}
+
+std::string AnimationCooker::asset_name(const std::filesystem::path& p_lanim)
+{
+    const std::u8string stem = p_lanim.stem().u8string();
+    return std::string(stem.begin(), stem.end());
+}
+
 Error AnimationCooker::cook(const Job& p_job, const LAnimation& p_clip)
 {
     using enum Error;
@@ -189,6 +256,7 @@ Error AnimationCooker::cook(const Job& p_job, const LAnimation& p_clip)
             { "frames", static_cast<int64_t>(p_clip.frame_count) },
             { "tracks", static_cast<int64_t>(p_clip.track_count()) } }},
     };
+    if (toml::table* section = tbl[asset_type_section(AssetType::ANIMATION)].as_table()) write_authored(*section, p_clip);
     std::ostringstream ss;
     ss << tbl;
     return write_file_atomic(p_job.dst_lanim, ss.str()) ? OK : FAILED;
@@ -220,6 +288,11 @@ bool AnimationCooker::load_record(const std::filesystem::path& p_lanim, Record& 
     r_record.settings.translation = _read_vec3(rec["translation"], r_record.settings.translation);
     r_record.settings.rotation = _read_vec3(rec["rotation"], r_record.settings.rotation);
     r_record.settings.scale = (float)rec["scale"].value_or((double)r_record.settings.scale);
+    LAnimation authored;
+    if (const toml::table* section = anim.as_table()) read_authored(*section, authored);
+    r_record.events = std::move(authored.events);
+    r_record.curves = std::move(authored.curves);
+    r_record.name = asset_name(p_lanim);
     return true;
 }
 
@@ -263,6 +336,9 @@ static Error _reimport_clip(const Project& p_project, const AnimationCooker::Rec
     }
     clip.guid = p_guid;
     clip.skeleton = skeleton_guid;
+    clip_analyze(clip, skeleton_guid.valid() ? &skeleton : nullptr, p_record.name);
+    clip.events = p_record.events;
+    clip.curves = p_record.curves;
     const Error err = AnimationCooker::cook(p_job, clip);
     p_step.report(1.0f);
     return err;

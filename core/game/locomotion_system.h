@@ -29,6 +29,8 @@ struct LocomotionSystem : GameSystem
     static constexpr float LOOK_PITCH_MAX = 60.0f;
     static constexpr float ROOT_MOTION_TURN = 5.0f;
     static constexpr float HIP_SWITCH = 0.25f;
+    static constexpr float DIR_SMOOTH = 10.0f;
+    static constexpr float DIR_VELOCITY_MIN = 0.5f;
     static constexpr float TURN_BIG = 112.5f;
     static constexpr float TURN_DECIDE = 0.2f;
     static constexpr float TURN_UPGRADE = 0.3f;
@@ -106,6 +108,7 @@ struct LocomotionSystem : GameSystem
         float turn_wait = 0.0f;
         float turn_clip = 0.0f;
         bool hips_back = false;
+        float dir_angle = 0.0f;
         bool foot_down[2] = {};
         bool foot_landed = false;
         bool foot_grip = true;

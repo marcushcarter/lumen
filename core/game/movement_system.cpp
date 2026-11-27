@@ -314,7 +314,7 @@ void MovementSystem::update(GameSession& r_session, float p_dt)
         }
 
         const bool turn_in_place = world.has<LocomotionComponent>(p_entity);
-        if (!r_move.rolling && (moving || !turn_in_place)) {
+        if (!r_move.rolling && r_move.grounded && (moving || !turn_in_place)) {
             const float delta = _wrap_angle(r_move.target_facing - r_move.facing);
             const float max_turn = glm::radians(r_move.turn_rate) * p_dt;
             r_move.facing = _wrap_angle(r_move.facing + std::clamp(delta, -max_turn, max_turn));

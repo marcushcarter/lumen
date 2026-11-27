@@ -500,18 +500,20 @@ bool LocomotionSystem::_cycle(Character& r_char, const LLocomotionSet& p_set, co
         }
     }
 
-    float local_z = 1.0f;
-    float local_x = 0.0f;
+    float target_angle = 0.0f;
+    bool steer = true;
     if (!p_move || p_move->strafing) {
         const float facing = p_move ? p_move->facing : 0.0f;
         const vec3 forward(std::sin(facing), 0.0f, std::cos(facing));
         const vec3 right(-forward.z, 0.0f, forward.x);
-        const float len = length(velocity);
-        if (len > 1e-4f) {
-            local_z = dot(velocity, forward) / len;
-            local_x = dot(velocity, right) / len;
-        }
+        vec3 heading = velocity;
+        if (p_move && speed < DIR_VELOCITY_MIN) heading = vec3(p_move->want_move.x, 0.0f, p_move->want_move.z);
+        if (length(heading) > 1e-3f) target_angle = std::atan2(dot(heading, right), dot(heading, forward));
+        else steer = false;
     }
+    if (p_advance && steer) r_char.dir_angle = _wrap_angle(r_char.dir_angle + _wrap_angle(target_angle - r_char.dir_angle) * std::clamp(p_dt * DIR_SMOOTH, 0.0f, 1.0f));
+    const float local_z = std::cos(r_char.dir_angle);
+    const float local_x = std::sin(r_char.dir_angle);
     const bool want_back = local_z < -HIP_SWITCH ? true : local_z > HIP_SWITCH ? false : r_char.hips_back;
     const bool sideways = std::abs(local_x) > 0.1f;
     if (p_advance && want_back != r_char.hips_back && (r_char.foot_landed || !sideways)) {

@@ -128,11 +128,8 @@ void CameraSystem::update(GameSession& r_session, float p_dt)
         distance = cam.distance;
         shoulder = cam.shoulder;
     }
-    const MovementComponent* rolling = world.try_get<MovementComponent>(target);
-    if (!rolling || (!rolling->rolling && !rolling->mantling)) {
-        yaw = _wrap(yaw - r_session.input.look.x);
-        pitch = std::clamp(pitch - r_session.input.look.y, pitch_min, pitch_max);
-    }
+    yaw = _wrap(yaw - r_session.input.look.x);
+    pitch = std::clamp(pitch - r_session.input.look.y, pitch_min, pitch_max);
     r_session.camera.rotation = quatLookAt(_look(yaw, pitch), CAMERA_UP);
 }
 
@@ -236,10 +233,10 @@ void CameraSystem::_place_first_person(GameSession& r_session, float p_dt, bool 
     quat head;
     if (p_follow_head && move && move->roll_camera > 0.0f && _head_rotation(world, head)) {
         if (!roll_ready) {
-            roll_offset = inverse(head) * rotation;
+            roll_offset = head;
             roll_ready = true;
         }
-        rotation = normalize(slerp(rotation, normalize(head * roll_offset), move->roll_camera * ROLL_CAMERA));
+        rotation = normalize(slerp(rotation, normalize(head * inverse(roll_offset) * rotation), move->roll_camera * ROLL_CAMERA));
     } else {
         roll_ready = false;
     }

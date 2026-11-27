@@ -124,6 +124,13 @@ struct MovementComponent
     float fall_speed = 0.0f;
     float land_speed = 0.0f;
     bool jumped = false;
+    bool mantle_request = false;
+    bool mantling = false;
+    bool mantle_sync = false;
+    vec3 mantle_start = vec3(0.0f);
+    vec3 mantle_target = vec3(0.0f);
+    float mantle_facing = 0.0f;
+    float mantle_height = 0.0f;
 
     float gait_speed(MoveGait p_gait) const { return p_gait == MoveGait::WALK ? walk_speed : p_gait == MoveGait::SPRINT ? sprint_speed : run_speed; }
 };
@@ -146,8 +153,10 @@ struct CameraComponent
     float fp_pitch_min = -85.0f;
     float fp_pitch_max = 85.0f;
     bool hide_head = true;
+    bool actions_third_person = true;
 
     bool viewing = false;
+    float third_person = 0.0f;
 };
 
 struct LocomotionComponent

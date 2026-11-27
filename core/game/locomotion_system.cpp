@@ -247,6 +247,10 @@ void LocomotionSystem::_legs(Character& r_char, const LLocomotionSet& p_set, con
     }
     const TwoBoneChain& any = r_char.legs[0].valid() ? r_char.legs[0] : r_char.legs[1];
     r_char.pelvis = any.valid() ? p_skeleton.parents[any.upper] : SKELETON_NO_JOINT;
+    if (r_char.pelvis != SKELETON_NO_JOINT) {
+        r_char.top = r_char.pelvis;
+        while (p_skeleton.parents[r_char.top] >= 0) r_char.top = p_skeleton.parents[r_char.top];
+    }
 }
 
 void LocomotionSystem::_stride_warp(Character& r_char, const LSkeleton& p_skeleton, std::vector<JointTransform>& r_pose, float p_stride, const vec3& p_dir)
@@ -323,6 +327,37 @@ void LocomotionSystem::_effort(Character& r_char, const LLocomotionSet& p_set, c
         const vec3 axis(delta.x / s, delta.y / s, delta.z / s);
         r_char.out[j].rotation = normalize(angleAxis(angle * (1.0f + gain), axis) * r_char.swing_mean[j]);
     }
+}
+
+const std::vector<vec3>* LocomotionSystem::_mantle_path(Character& r_char, const LLocomotionSet& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
+{
+    const Guid guid = p_set.clip(p_slot);
+    auto it = clips.find(guid);
+    if (it == clips.end() || !it->second.loaded) return nullptr;
+    Clip& clip = it->second;
+    _legs(r_char, p_set, p_skeleton);
+    int32_t hips = r_char.pelvis;
+    const Binding* b = _binding(guid, clip, p_skeleton, p_skeleton_guid);
+    if (hips == SKELETON_NO_JOINT) hips = b->root_joint;
+    if (hips == SKELETON_NO_JOINT) return nullptr;
+    r_char.top = hips;
+    while (p_skeleton.parents[r_char.top] >= 0) r_char.top = p_skeleton.parents[r_char.top];
+    if (clip.path_skeleton == p_skeleton_guid && !clip.path.empty()) return &clip.path;
+    const uint32_t frames = std::max(clip.anim.frame_count, 2u);
+    clip.path.resize(frames);
+    std::vector<JointTransform> pose;
+    _globals.resize(p_skeleton.joint_count());
+    vec3 first(0.0f);
+    for (uint32_t f = 0; f < frames; ++f) {
+        pose = p_skeleton.rest;
+        clip_sample(BoundClip{ &clip.anim, &b->map, &b->retarget }, clip.anim.duration * (float)f / (float)(frames - 1), pose.data());
+        p_skeleton.globals(pose.data(), _globals.data());
+        const vec3 at = vec3(_globals[hips][3]);
+        if (f == 0) first = at;
+        clip.path[f] = at - first;
+    }
+    clip.path_skeleton = p_skeleton_guid;
+    return &clip.path;
 }
 
 void LocomotionSystem::_dip(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, float p_amount)
@@ -624,7 +659,7 @@ void LocomotionSystem::_look(Character& r_char, const LLocomotionSet& p_set, con
     const float flat = length(vec2(look.x, look.z));
     float yaw_target = 0.0f;
     float pitch_target = 0.0f;
-    if (r_char.state != State::ROLL && (flat > 1e-4f || std::abs(look.y) > 1e-4f)) {
+    if (r_char.state != State::ROLL && r_char.state != State::MANTLE && (flat > 1e-4f || std::abs(look.y) > 1e-4f)) {
         yaw_target = std::clamp(_wrap_angle(std::atan2(look.x, look.z) - p_move->facing), -glm::radians(LOOK_YAW_MAX), glm::radians(LOOK_YAW_MAX));
         pitch_target = std::clamp(std::atan2(look.y, flat), -glm::radians(LOOK_PITCH_MAX), glm::radians(LOOK_PITCH_MAX));
     }
@@ -684,21 +719,41 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
     if (move && move->want_roll) {
         move->want_roll = false;
         const Clip* roll = _slot_clip(p_set, LocoSlot::ROLL);
-        if (roll && roll->anim.duration > 0.0f && r_char.state != State::ROLL && move->grounded) {
+        if (roll && roll->anim.duration > 0.0f && r_char.state != State::ROLL && r_char.state != State::MANTLE && move->grounded) {
             const vec2 want(move->want_move.x, move->want_move.z);
+            const float before = move->facing;
             if (length(want) > 0.01f) move->facing = std::atan2(want.x, want.y);
             if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) t->rotation = angleAxis(move->facing, LOCO_UP);
-            const Binding* b = _binding(p_set.clip(LocoSlot::ROLL), *roll, p_skeleton, p_skeleton_guid);
-            const float natural = roll->anim.meta.speed * (b->retarget.active() ? b->retarget.scale : 1.0f);
-            r_char.roll_rate = natural > 0.1f ? std::clamp(speed / natural, ROLL_RATE_MIN, ROLL_RATE_MAX) : 1.0f;
+            r_char.yaw_blend = _wrap_angle(before - move->facing);
+            r_char.yaw_elapsed = 0.0f;
+            r_char.yaw_time = ROLL_BLEND_IN;
+            const float fraction = std::clamp(speed / std::max(move->sprint_speed, 0.1f), 0.0f, 1.0f);
+            r_char.roll_rate = ROLL_RATE_MIN + (ROLL_RATE_MAX - ROLL_RATE_MIN) * fraction;
             r_char.roll_velocity = vec3(0.0f);
             r_char.roll_entry = speed;
             _switch(r_char, State::ROLL, LocoSlot::ROLL, p_set);
+            r_char.blend_time = std::max(p_set.blend_time, ROLL_BLEND_IN);
             move->rolling = true;
         }
     }
 
-    if (move && r_char.state != State::ROLL && r_char.state != State::AIR && (move->jumped || (!move->grounded && move->air_time > AIR_DELAY))) {
+    if (move && move->mantle_request) {
+        move->mantle_request = false;
+        const bool left = r_char.foot_down[(int)ClipFootSide::LEFT];
+        const LocoSlot near_low = left ? LocoSlot::MANTLE_1M_LH : LocoSlot::MANTLE_1M_RH;
+        const LocoSlot far_low = left ? LocoSlot::MANTLE_1M_RH : LocoSlot::MANTLE_1M_LH;
+        const LocoSlot order[3] = { move->mantle_height > MANTLE_SPLIT ? LocoSlot::MANTLE_2M : near_low, move->mantle_height > MANTLE_SPLIT ? near_low : far_low, move->mantle_height > MANTLE_SPLIT ? far_low : LocoSlot::MANTLE_2M };
+        LocoSlot slot = LocoSlot::COUNT;
+        for (LocoSlot s : order) {
+            if (!_slot_clip(p_set, s)) continue;
+            slot = s;
+            break;
+        }
+        _switch(r_char, State::MANTLE, slot, p_set);
+        r_char.slot = slot;
+    }
+
+    if (move && r_char.state != State::ROLL && r_char.state != State::MANTLE && r_char.state != State::AIR && (move->jumped || (!move->grounded && move->air_time > AIR_DELAY))) {
         LocoSlot takeoff = LocoSlot::COUNT;
         if (move->jumped && speed > JUMP_STILL) {
             const bool run = speed > (move->walk_speed + move->run_speed) * 0.5f;
@@ -722,6 +777,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
 
     switch (r_char.state) {
         case State::ROLL:
+        case State::MANTLE:
             break;
         case State::AIR: {
             if (!move || !move->grounded) break;
@@ -736,14 +792,14 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 _switch(r_char, State::LAND, LocoSlot::LAND_HEAVY, p_set);
                 break;
             }
-            if (!wants && _slot_clip(p_set, LocoSlot::LAND_LIGHT)) {
+            if (!wants && speed < LAND_STILL && _slot_clip(p_set, LocoSlot::LAND_LIGHT)) {
                 _switch(r_char, State::LAND, LocoSlot::LAND_LIGHT, p_set);
                 break;
             }
             r_char.dip = std::clamp(impact / LAND_HEAVY_SPEED, 0.0f, 1.0f);
             r_char.dip_time = 0.0f;
             r_char.cycle = 0.0f;
-            if (wants) _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
+            if (wants || speed >= LAND_STILL) _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
             else _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
             break;
         }
@@ -884,9 +940,11 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             r_char.time = std::min(r_char.time + p_dt * r_char.roll_rate, clip->anim.duration);
             const vec3 before = move->root_motion;
             _push_root(move, *clip, _travel(p_set, LocoSlot::ROLL, p_skeleton, p_skeleton_guid, r_char.time) - _travel(p_set, LocoSlot::ROLL, p_skeleton, p_skeleton_guid, t0), r_char.time);
-            if (wants && p_dt > 0.0f) {
+            if (p_dt > 0.0f) {
                 const vec3 ahead(std::sin(move->facing), 0.0f, std::cos(move->facing));
-                const float carry = std::min(r_char.roll_entry, move->gait_speed(move->want_gait)) * p_dt;
+                const float base = std::max(wants ? std::min(r_char.roll_entry, move->gait_speed(move->want_gait)) : r_char.roll_entry, ROLL_SPEED_MIN);
+                const float progress = r_char.time / clip->anim.duration;
+                const float carry = (wants ? base : base * (1.0f - progress) * (1.0f - progress)) * p_dt;
                 const float along = dot(move->root_motion - before, ahead);
                 if (along < carry) move->root_motion += ahead * (carry - along);
             }
@@ -925,6 +983,66 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             _push_root(move, *clip, _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time) - _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, t0), r_char.time);
             _sample(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
             if (r_char.time >= clip->anim.duration) _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
+            break;
+        }
+        case State::MANTLE: {
+            if (!move) {
+                _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
+                break;
+            }
+            const Clip* clip = r_char.slot != LocoSlot::COUNT ? _slot_clip(p_set, r_char.slot) : nullptr;
+            const float duration = clip && clip->anim.duration > 0.0f ? clip->anim.duration : MANTLE_FALLBACK_TIME;
+            r_char.time = std::min(r_char.time + p_dt, duration);
+            const float x = r_char.time / duration;
+            const vec3 forward(std::sin(move->mantle_facing), 0.0f, std::cos(move->mantle_facing));
+            const vec3 delta = move->mantle_target - move->mantle_start;
+            const float along = dot(delta, forward);
+            vec3 offset(0.0f, delta.y, along);
+            const std::vector<vec3>* path = clip ? _mantle_path(r_char, p_set, r_char.slot, p_skeleton, p_skeleton_guid) : nullptr;
+            vec3 now(0.0f);
+            if (path && path->size() >= 2) {
+                const float frame = x * (float)(path->size() - 1);
+                const uint32_t f0 = std::min((uint32_t)frame, (uint32_t)path->size() - 2);
+                now = mix((*path)[f0], (*path)[f0 + 1], frame - (float)f0);
+                const vec3 end = path->back();
+                const float sy = std::abs(end.y) > 1e-3f ? std::clamp(delta.y / end.y, MANTLE_SCALE_MIN, MANTLE_SCALE_MAX) : 1.0f;
+                const float sf = std::abs(end.z) > 1e-3f ? std::clamp(along / end.z, MANTLE_SCALE_MIN, MANTLE_SCALE_MAX) : 1.0f;
+                offset = vec3(0.0f, now.y * sy, now.z * sf);
+            } else {
+                const float rise = std::clamp(x / 0.6f, 0.0f, 1.0f);
+                const float reach = std::clamp((x - 0.3f) / 0.7f, 0.0f, 1.0f);
+                offset = vec3(0.0f, delta.y * rise * rise * (3.0f - 2.0f * rise), along * reach * reach * (3.0f - 2.0f * reach));
+            }
+            const vec3 world = move->mantle_start + angleAxis(move->mantle_facing, LOCO_UP) * offset;
+            const bool on_top = offset.y >= delta.y - MANTLE_TOP_TOLERANCE;
+            const bool early = wants && x >= MANTLE_EXIT && on_top;
+            const vec3 placed = x >= 1.0f ? move->mantle_target : (early ? vec3(world.x, std::max(world.y, move->mantle_target.y), world.z) : world);
+            const vec3 step = r_char.time > p_dt ? placed - r_char.mantle_last : vec3(0.0f);
+            r_char.mantle_last = placed;
+            move->facing = move->mantle_facing;
+            if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) {
+                t->position = placed;
+                t->rotation = angleAxis(move->facing, LOCO_UP);
+            }
+            if (clip) {
+                const Binding* b = _binding(p_set.clip(r_char.slot), *clip, p_skeleton, p_skeleton_guid);
+                r_char.out = p_skeleton.rest;
+                clip_sample(BoundClip{ &clip->anim, &b->map, &b->retarget }, r_char.time, r_char.out.data());
+                if (r_char.top != SKELETON_NO_JOINT && path) r_char.out[r_char.top].translation -= now;
+            } else if (r_char.last.size() == r_char.out.size()) {
+                r_char.out = r_char.last;
+            }
+            move->roll_camera = std::sin(x * glm::pi<float>());
+            if (x >= 1.0f || early) {
+                move->mantling = false;
+                move->mantle_sync = true;
+                move->roll_camera = 0.0f;
+                move->velocity = early && p_dt > 0.0f ? vec3(step.x, 0.0f, step.z) / p_dt : vec3(0.0f);
+                r_char.cycle = 0.0f;
+                if (wants) _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
+                else _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
+                r_char.blend_time = std::max(p_set.blend_time, MANTLE_BLEND_OUT);
+            }
             break;
         }
         case State::AIR: {
@@ -1049,16 +1167,24 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             }
         }
     }
+    if (r_char.yaw_blend != 0.0f && r_char.top != SKELETON_NO_JOINT && r_char.top < (int32_t)r_char.out.size()) {
+        r_char.yaw_elapsed += p_dt;
+        const float x = std::clamp(r_char.yaw_elapsed / std::max(r_char.yaw_time, 1e-3f), 0.0f, 1.0f);
+        const float k = 1.0f - x * x * (3.0f - 2.0f * x);
+        const quat turn = angleAxis(r_char.yaw_blend * k, LOCO_UP);
+        r_char.out[r_char.top].rotation = normalize(turn * r_char.out[r_char.top].rotation);
+        r_char.out[r_char.top].translation = turn * r_char.out[r_char.top].translation;
+        if (x >= 1.0f) r_char.yaw_blend = 0.0f;
+    }
     if (r_char.dip > 0.0f) {
         r_char.dip_time += p_dt;
         const float x = r_char.dip_time / DIP_TIME;
         if (x >= 1.0f) r_char.dip = 0.0f;
         else _dip(r_char, p_set, p_skeleton, std::sin(x * glm::pi<float>()) * r_char.dip);
     }
-    if (move && r_char.state != State::ROLL) {
-        move->rolling = false;
-        move->roll_camera = 0.0f;
-    }
+    if (move && r_char.state != State::ROLL) move->rolling = false;
+    if (move && r_char.state != State::MANTLE) move->mantling = false;
+    if (move && r_char.state != State::ROLL && r_char.state != State::MANTLE) move->roll_camera = 0.0f;
     if (move) move->foot_planted = r_char.state != State::MOVE || r_char.foot_grip;
     _lean(r_char, p_set, p_skeleton, move, p_dt);
     _blend(r_char, p_dt);
@@ -1148,7 +1274,7 @@ void LocomotionSystem::update(GameSession& r_session, float p_dt)
         skeleton.globals(c.out.data(), pose->joints.data());
         const CameraComponent* cam = world.try_get<CameraComponent>(e);
         pose->hidden_joint = -1;
-        if (cam && cam->type == CameraType::FIRST_PERSON && cam->hide_head && cam->viewing) {
+        if (cam && cam->type == CameraType::FIRST_PERSON && cam->hide_head && cam->viewing && cam->third_person < HEAD_SHOW) {
             const int32_t head = skeleton_find_head(skeleton, cam->head_bone);
             if (head != SKELETON_NO_JOINT) pose->hidden_joint = head;
         }

@@ -24,7 +24,7 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         { "Crouch", { CROUCH_IDLE, CROUCH_ENTER, CROUCH_EXIT, CROUCH_WALK_F, CROUCH_WALK_B, CROUCH_WALK_L, CROUCH_WALK_R } },
         { "Turns", { TURN_L90, TURN_R90, TURN_L180, TURN_R180, ROTATE_L, ROTATE_R, CROUCH_TURN_L90, CROUCH_TURN_R90, CROUCH_TURN_L180, CROUCH_TURN_R180, CROUCH_ROTATE_L, CROUCH_ROTATE_R } },
         { "Air", { JUMP_WALK_LF, JUMP_WALK_RF, JUMP_RUN_LF, JUMP_RUN_RF, JUMP_LOOP, FALL_LOOP, FALL_FAST, LAND_LIGHT, LAND_HEAVY } },
-        { "Actions", { ROLL } },
+        { "Actions", { ROLL, MANTLE_1M_LH, MANTLE_1M_RH, MANTLE_2M } },
     };
 
     if (ui_category("Clips")) {

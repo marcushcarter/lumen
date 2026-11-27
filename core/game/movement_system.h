@@ -8,6 +8,7 @@
 namespace lumen {
 
 struct PhysicsSystem;
+struct PhysicsWorld;
 
 struct MovementSystem : GameSystem
 {
@@ -20,6 +21,20 @@ struct MovementSystem : GameSystem
     static constexpr float JUMP_BUFFER = 0.15f;
     static constexpr float COYOTE_TIME = 0.12f;
     static constexpr float JUMP_LOCK = 0.15f;
+    static constexpr float MANTLE_MIN = 0.5f;
+    static constexpr float MANTLE_AIR_MIN = 0.2f;
+    static constexpr float MANTLE_MAX = 2.3f;
+    static constexpr float MANTLE_REACH = 0.5f;
+    static constexpr float MANTLE_INSET = 0.1f;
+    static constexpr float MANTLE_PROBE_LOW = 0.45f;
+    static constexpr float MANTLE_AIR_RISE = 2.0f;
+    static constexpr float MANTLE_AIR_DELAY = 0.1f;
+
+    struct Ledge {
+        vec3 target = vec3(0.0f);
+        float facing = 0.0f;
+        float height = 0.0f;
+    };
 
     struct Body {
         Entity entity = ENTITY_NULL;
@@ -40,6 +55,7 @@ struct MovementSystem : GameSystem
 
     void _player_input(const GameSession& p_session, const Scene& p_world, Entity p_entity, MovementComponent& r_move) const;
     void _clear();
+    bool _ledge(const PhysicsWorld& p_world, const vec3& p_feet, const vec3& p_dir, const MovementComponent& p_move, float p_min, Ledge& r_ledge) const;
 };
 
 }

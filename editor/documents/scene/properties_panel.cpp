@@ -588,6 +588,10 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
                 changed |= _check("##cam_hide_head", &cam->hide_head);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Shrinks the head bone while looking through it, so the camera doesn't see the inside of the head");
                 _live("%s", lc ? (lc->hide_head ? "Yes" : "No") : "-");
+                _name("Third Person Actions");
+                changed |= _check("##cam_actions_tp", &cam->actions_third_person);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Pulls the camera out to the orbit view while rolling or mantling");
+                _live("%s", lc ? (lc->actions_third_person ? "Yes" : "No") : "-");
             }
             if (changed) world.touch(e);
         }

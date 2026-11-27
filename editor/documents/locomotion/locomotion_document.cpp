@@ -82,6 +82,11 @@ static int _direction(const std::vector<std::string>& p_tokens, const ClipMeta& 
 static int _match(const std::vector<std::string>& p_tokens, const ClipMeta& p_tags)
 {
     const bool pose = _has(p_tokens, "pose");
+    if (_has(p_tokens, "mantle") && !_has(p_tokens, "montage")) {
+        if (_has(p_tokens, "2m")) return (int)LocoSlot::MANTLE_2M;
+        if (_has(p_tokens, "1m")) return _has(p_tokens, "rh") ? (int)LocoSlot::MANTLE_1M_RH : (int)LocoSlot::MANTLE_1M_LH;
+        return -1;
+    }
     if (_has(p_tokens, "roll") && !_has(p_tokens, "clf") && !_has(p_tokens, "crf") && !_has(p_tokens, "montage")) return (int)LocoSlot::ROLL;
     if (!_has(p_tokens, "additive") && !_has(p_tokens, "falling") && !_has(p_tokens, "clf") && !_has(p_tokens, "crf")) {
         if (_has(p_tokens, "jump")) {

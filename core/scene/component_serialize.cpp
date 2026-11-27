@@ -65,6 +65,7 @@ void serialize(Archive& a, CameraComponent& r_c)
     a.field("fp_pitch_min", r_c.fp_pitch_min);
     a.field("fp_pitch_max", r_c.fp_pitch_max);
     a.field("hide_head", r_c.hide_head);
+    a.field("actions_third_person", r_c.actions_third_person);
     if (!a.loading) return;
     r_c.type = type < (uint32_t)CameraType::COUNT ? (CameraType)type : CameraType::ORBIT;
 }

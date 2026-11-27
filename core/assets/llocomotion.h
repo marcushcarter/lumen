@@ -52,6 +52,9 @@ enum class LocoSlot : uint8_t
     FALL_FAST,
     LAND_LIGHT,
     LAND_HEAVY,
+    MANTLE_1M_LH,
+    MANTLE_1M_RH,
+    MANTLE_2M,
     COUNT,
 };
 

@@ -129,7 +129,7 @@ void CameraSystem::update(GameSession& r_session, float p_dt)
         shoulder = cam.shoulder;
     }
     const MovementComponent* rolling = world.try_get<MovementComponent>(target);
-    if (!rolling || !rolling->rolling) {
+    if (!rolling || (!rolling->rolling && !rolling->mantling)) {
         yaw = _wrap(yaw - r_session.input.look.x);
         pitch = std::clamp(pitch - r_session.input.look.y, pitch_min, pitch_max);
     }
@@ -144,10 +144,33 @@ void CameraSystem::place(GameSession& r_session, float p_dt)
     const CameraComponent* cam = world.try_get<CameraComponent>(target);
     if (!cam) return;
     if (cam->type == CameraType::FIRST_PERSON) {
-        blocked = -1.0f;
-        _place_first_person(r_session, p_dt);
+        CameraComponent* view = world.try_get<CameraComponent>(target);
+        const MovementComponent* move = world.try_get<MovementComponent>(target);
+        const bool acting = move && (move->rolling || move->mantling) && cam->actions_third_person;
+        third_person = std::clamp(third_person + (acting ? p_dt / ACTION_BLEND_IN : -p_dt / ACTION_BLEND_OUT), 0.0f, 1.0f);
+        view->third_person = third_person;
+        _place_first_person(r_session, p_dt, !cam->actions_third_person);
+        const vec3 body = world.world_transform(target).position;
+        if (acting && anchor_weight <= 0.0f) anchor = r_session.camera.position - body;
+        anchor_weight = acting ? 1.0f : std::max(anchor_weight - p_dt / ACTION_BLEND_OUT, 0.0f);
+        if (third_person <= 0.0f) {
+            blocked = -1.0f;
+            distance = cam->distance;
+            shoulder = cam->shoulder;
+            return;
+        }
+        const float a = anchor_weight * anchor_weight * (3.0f - 2.0f * anchor_weight);
+        const vec3 eye_position = mix(r_session.camera.position, body + anchor, a);
+        const quat eye_rotation = r_session.camera.rotation;
+        _place_orbit(r_session, p_dt);
+        const float k = third_person * third_person * third_person * (third_person * (third_person * 6.0f - 15.0f) + 10.0f);
+        r_session.camera.position = mix(eye_position, r_session.camera.position, k);
+        r_session.camera.rotation = normalize(slerp(eye_rotation, r_session.camera.rotation, k));
         return;
     }
+    third_person = 0.0f;
+    anchor_weight = 0.0f;
+    if (CameraComponent* view = world.try_get<CameraComponent>(target)) view->third_person = 0.0f;
     eye_ready = false;
     _place_orbit(r_session, p_dt);
 }
@@ -196,7 +219,7 @@ void CameraSystem::_place_orbit(GameSession& r_session, float p_dt)
     r_session.camera.rotation = quatLookAt(look, CAMERA_UP);
 }
 
-void CameraSystem::_place_first_person(GameSession& r_session, float p_dt)
+void CameraSystem::_place_first_person(GameSession& r_session, float p_dt, bool p_follow_head)
 {
     Scene& world = *r_session.world;
     const vec3 goal = _eye_target(world);
@@ -211,7 +234,7 @@ void CameraSystem::_place_first_person(GameSession& r_session, float p_dt)
     quat rotation = quatLookAt(_look(yaw, pitch), CAMERA_UP);
     const MovementComponent* move = world.try_get<MovementComponent>(target);
     quat head;
-    if (move && move->roll_camera > 0.0f && _head_rotation(world, head)) {
+    if (p_follow_head && move && move->roll_camera > 0.0f && _head_rotation(world, head)) {
         if (!roll_ready) {
             roll_offset = inverse(head) * rotation;
             roll_ready = true;

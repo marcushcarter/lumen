@@ -58,6 +58,9 @@ static constexpr LocoSlotInfo LOCO_SLOTS[LOCO_SLOT_COUNT] = {
     { "Fall Loop Fast", "fall_fast" },
     { "Land Light", "land_light" },
     { "Land Heavy", "land_heavy" },
+    { "Mantle 1m (Left Hand)", "mantle_1m_lh" },
+    { "Mantle 1m (Right Hand)", "mantle_1m_rh" },
+    { "Mantle 2m", "mantle_2m" },
 };
 
 const char* loco_slot_label(LocoSlot p_slot)

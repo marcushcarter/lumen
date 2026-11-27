@@ -23,6 +23,8 @@ struct CameraSystem : GameSystem
     static constexpr float EYE_SNAP = 1.0f;
     static constexpr float RELEASE_TIME = 3.0f;
     static constexpr float ROLL_CAMERA = 0.6f;
+    static constexpr float ACTION_BLEND_IN = 0.45f;
+    static constexpr float ACTION_BLEND_OUT = 0.7f;
 
     struct Place : GameSystem
     {
@@ -47,6 +49,9 @@ struct CameraSystem : GameSystem
     float release_from = 0.0f;
     bool easing = false;
     bool roll_ready = false;
+    float third_person = 0.0f;
+    float anchor_weight = 0.0f;
+    vec3 anchor = vec3(0.0f);
     quat roll_offset = quat(1.0f, 0.0f, 0.0f, 0.0f);
 
     CameraSystem() { late.owner = this; }
@@ -59,7 +64,7 @@ struct CameraSystem : GameSystem
     vec3 _pivot_target(Scene& p_world) const;
     vec3 _eye_target(Scene& p_world) const;
     void _place_orbit(GameSession& r_session, float p_dt);
-    void _place_first_person(GameSession& r_session, float p_dt);
+    void _place_first_person(GameSession& r_session, float p_dt, bool p_follow_head);
     const PhysicsWorld* _physics() const;
     bool _head_rotation(Scene& p_world, quat& r_rotation) const;
 };

@@ -44,6 +44,38 @@ void MovementSystem::_clear()
     bodies.clear();
 }
 
+bool MovementSystem::_ledge(const PhysicsWorld& p_world, const vec3& p_feet, const vec3& p_dir, const MovementComponent& p_move, float p_min, Ledge& r_ledge) const
+{
+    const float reach = p_move.radius + MANTLE_REACH;
+    const float probes[3] = { MANTLE_PROBE_LOW, p_move.height * 0.5f, p_move.height * 0.85f };
+    PhysicsHit wall;
+    bool found = false;
+    for (float h : probes) {
+        PhysicsHit hit;
+        if (!p_world.raycast(p_feet + MOVE_UP * h, p_dir, reach, hit) || std::abs(hit.normal.y) > 0.5f) continue;
+        if (found && hit.distance >= wall.distance) continue;
+        wall = hit;
+        found = true;
+    }
+    if (!found) return false;
+    const vec3 normal = _flat(wall.normal);
+    if (normal == vec3(0.0f)) return false;
+    const vec3 over = wall.position - normal * (p_move.radius + MANTLE_INSET);
+    const float top = p_feet.y + MANTLE_MAX + MANTLE_INSET;
+    PhysicsHit ledge;
+    if (!p_world.raycast(vec3(over.x, top, over.z), -MOVE_UP, top - (p_feet.y + p_min), ledge) || ledge.distance < 0.02f) return false;
+    if (ledge.normal.y < std::cos(glm::radians(p_move.max_slope))) return false;
+    const float height = ledge.position.y - p_feet.y;
+    if (height < p_min || height > MANTLE_MAX) return false;
+    PhysicsHit roof;
+    if (p_world.raycast(ledge.position + MOVE_UP * 0.05f, MOVE_UP, p_move.height, roof)) return false;
+    if (p_world.raycast(p_feet + MOVE_UP * p_move.height, MOVE_UP, std::max(height, 0.05f), roof)) return false;
+    r_ledge.target = ledge.position;
+    r_ledge.facing = std::atan2(-normal.x, -normal.z);
+    r_ledge.height = height;
+    return true;
+}
+
 void MovementSystem::_player_input(const GameSession& p_session, const Scene& p_world, Entity p_entity, MovementComponent& r_move) const
 {
     (void)p_world;
@@ -130,6 +162,47 @@ void MovementSystem::update(GameSession& r_session, float p_dt)
 
         const CameraComponent* cam = world.try_get<CameraComponent>(p_entity);
         r_move.strafing = r_move.strafe || (r_move.player && cam && cam->type == CameraType::FIRST_PERSON);
+
+        if (r_move.mantle_sync) {
+            pw.set_character_position(body.id, r_transform.position);
+            r_move.mantle_sync = false;
+        }
+        if (r_move.mantling) {
+            pw.set_character_position(body.id, r_transform.position);
+            r_move.velocity = vec3(0.0f);
+            r_move.grounded = true;
+            r_move.air_time = 0.0f;
+            r_move.jump_buffer = 0.0f;
+            r_transform.rotation = angleAxis(r_move.facing, MOVE_UP);
+            r_move.simulated = true;
+            return;
+        }
+        if (world.has<LocomotionComponent>(p_entity) && !r_move.rolling) {
+            const vec3 want_dir = _flat(r_move.want_move);
+            const bool pressed = r_move.jump_buffer > 0.0f && (r_move.grounded || r_move.air_time < COYOTE_TIME);
+            const bool catching = !r_move.grounded && want_dir != vec3(0.0f) && r_move.velocity.y < MANTLE_AIR_RISE && r_move.air_time > MANTLE_AIR_DELAY;
+            if (pressed || catching) {
+                const vec3 dir = want_dir != vec3(0.0f) ? want_dir : vec3(std::sin(r_move.facing), 0.0f, std::cos(r_move.facing));
+                Ledge ledge;
+                if (_ledge(pw, position, dir, r_move, pressed ? MANTLE_MIN : MANTLE_AIR_MIN, ledge)) {
+                    r_move.mantle_request = true;
+                    r_move.mantling = true;
+                    r_move.mantle_start = position;
+                    r_move.mantle_target = ledge.target;
+                    r_move.mantle_facing = ledge.facing;
+                    r_move.mantle_height = ledge.height;
+                    r_move.facing = ledge.facing;
+                    r_move.target_facing = ledge.facing;
+                    r_move.velocity = vec3(0.0f);
+                    r_move.jump_buffer = 0.0f;
+                    r_move.want_crouch = false;
+                    r_move.pivoting = false;
+                    r_transform.rotation = angleAxis(r_move.facing, MOVE_UP);
+                    r_move.simulated = true;
+                    return;
+                }
+            }
+        }
 
         if (!body.landed) {
             PhysicsHit hit;

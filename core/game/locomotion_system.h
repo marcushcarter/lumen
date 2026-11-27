@@ -46,6 +46,8 @@ struct LocomotionSystem : GameSystem
     static constexpr float ROLL_RATE_MAX = 1.5f;
     static constexpr float ROLL_EXIT = 0.7f;
     static constexpr float ROLL_BLEND_OUT = 0.3f;
+    static constexpr float ROLL_BLEND_IN = 0.25f;
+    static constexpr float ROLL_SPEED_MIN = 3.0f;
     static constexpr float AIR_DELAY = 0.15f;
     static constexpr float JUMP_STILL = 0.5f;
     static constexpr float AIR_APEX = 1.5f;
@@ -57,14 +59,25 @@ struct LocomotionSystem : GameSystem
     static constexpr float LAND_HEAVY_KEEP = 0.4f;
     static constexpr float LAND_HEAVY_EXIT = 0.45f;
     static constexpr float DIP_TIME = 0.3f;
+    static constexpr float LAND_STILL = 1.0f;
+    static constexpr float MANTLE_SPLIT = 1.4f;
+    static constexpr float HEAD_SHOW = 0.35f;
+    static constexpr float MANTLE_FALLBACK_TIME = 0.6f;
+    static constexpr float MANTLE_SCALE_MIN = 0.3f;
+    static constexpr float MANTLE_SCALE_MAX = 3.0f;
+    static constexpr float MANTLE_BLEND_OUT = 0.25f;
+    static constexpr float MANTLE_EXIT = 0.6f;
+    static constexpr float MANTLE_TOP_TOLERANCE = 0.05f;
     static constexpr float DIP_DEPTH = 0.12f;
 
-    enum class State : uint8_t { IDLE, MOVE, TURN, ROTATE, TRANSITION, ROLL, AIR, LAND };
+    enum class State : uint8_t { IDLE, MOVE, TURN, ROTATE, TRANSITION, ROLL, AIR, LAND, MANTLE };
 
     struct Clip {
         LAnimation anim;
         bool loaded = false;
         float cycle_offset = 0.0f;
+        std::vector<vec3> path;
+        Guid path_skeleton;
     };
 
     struct Set {
@@ -125,11 +138,16 @@ struct LocomotionSystem : GameSystem
         float air_clock = 0.0f;
         float dip = 0.0f;
         float dip_time = 0.0f;
+        vec3 mantle_last = vec3(0.0f);
+        float yaw_blend = 0.0f;
+        float yaw_elapsed = 0.0f;
+        float yaw_time = 0.0f;
         float prev_speed = 0.0f;
         std::vector<int32_t> arms;
         std::vector<quat> swing_mean;
         std::vector<JointTransform> impulse_pose;
         int32_t pelvis = SKELETON_NO_JOINT;
+        int32_t top = SKELETON_NO_JOINT;
         bool legs_ready = false;
         std::vector<int32_t> lean_chain;
         vec2 lean = vec2(0.0f);
@@ -167,6 +185,7 @@ struct LocomotionSystem : GameSystem
     void _evaluate(Scene& r_world, Entity p_entity, Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_dt);
     bool _cycle(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, const MovementComponent* p_move, float p_dt, bool p_crouch, bool p_advance, std::vector<JointTransform>& r_pose);
     static bool _one_shot(LocoSlot p_slot);
+    const std::vector<vec3>* _mantle_path(Character& r_char, const LLocomotionSet& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid);
     void _dip(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, float p_amount);
     void _effort(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid);
     vec3 _travel(const LLocomotionSet& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_time);

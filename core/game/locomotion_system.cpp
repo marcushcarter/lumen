@@ -654,32 +654,9 @@ void LocomotionSystem::_lean(Character& r_char, const LLocomotionSet& p_set, con
     }
 }
 
-void LocomotionSystem::_look(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, const MovementComponent* p_move, float p_dt)
+static uint64_t _entity_key(Entity p_entity)
 {
-    if (!p_set.look || !p_move || r_char.look_chain.empty()) return;
-    const vec3 look = p_move->want_look;
-    const float flat = length(vec2(look.x, look.z));
-    float yaw_target = 0.0f;
-    float pitch_target = 0.0f;
-    if (r_char.state != State::ROLL && r_char.state != State::MANTLE && (flat > 1e-4f || std::abs(look.y) > 1e-4f)) {
-        yaw_target = std::clamp(_wrap_angle(std::atan2(look.x, look.z) - p_move->facing), -glm::radians(LOOK_YAW_MAX), glm::radians(LOOK_YAW_MAX));
-        pitch_target = std::clamp(std::atan2(look.y, flat), -glm::radians(LOOK_PITCH_MAX), glm::radians(LOOK_PITCH_MAX));
-    }
-    const float k = std::clamp(p_dt * LOOK_SMOOTH, 0.0f, 1.0f);
-    r_char.look_yaw += (yaw_target - r_char.look_yaw) * k;
-    r_char.look_pitch += (pitch_target - r_char.look_pitch) * k;
-
-    _globals.resize(p_skeleton.joint_count());
-    for (size_t i = 0; i < r_char.look_chain.size(); ++i) {
-        const int32_t j = r_char.look_chain[i];
-        const float w = r_char.look_weight[i];
-        p_skeleton.globals(r_char.out.data(), _globals.data());
-        const int32_t parent = p_skeleton.parents[j];
-        const quat parent_rot = parent >= 0 ? _rotation_of(_globals[parent]) : quat(1.0f, 0.0f, 0.0f, 0.0f);
-        const quat global_rot = _rotation_of(_globals[j]);
-        const quat turn = angleAxis(r_char.look_yaw * w, LOCO_UP) * angleAxis(r_char.look_pitch * w, vec3(-1.0f, 0.0f, 0.0f));
-        r_char.out[j].rotation = normalize(inverse(parent_rot) * turn * global_rot);
-    }
+    return ((uint64_t)p_entity.index << 32) | p_entity.generation;
 }
 
 void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_dt)
@@ -840,7 +817,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                     facing = _wrap_angle(facing + std::clamp(diff, -max_turn, max_turn));
                     if (std::abs(diff) <= max_turn) r_char.aligning = false;
                 }
-                const float limit = glm::radians(std::min(p_set.turn_threshold, LOOK_YAW_MAX));
+                const float limit = std::min(glm::radians(p_set.turn_threshold), r_char.yaw_max);
                 const float left = _wrap_angle(move->target_facing - facing);
                 if (std::abs(left) > limit) facing = _wrap_angle(move->target_facing - (left > 0.0f ? limit : -limit));
                 move->facing = facing;
@@ -1111,7 +1088,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 r_char.out = p_skeleton.rest;
                 break;
             }
-            const float threshold = glm::radians(std::min(p_set.turn_threshold, LOOK_YAW_MAX));
+            const float threshold = std::min(glm::radians(p_set.turn_threshold), r_char.yaw_max);
             const float diff = _wrap_angle(move->target_facing - move->facing);
             const float rate = std::clamp(std::abs(diff) / std::max(threshold, 1e-3f), 1.0f, MAX_RATE);
             const float duration = clip->anim.duration;
@@ -1191,7 +1168,6 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
     _lean(r_char, p_set, p_skeleton, move, p_dt);
     _blend(r_char, p_dt);
     r_char.last = r_char.out;
-    _look(r_char, p_set, p_skeleton, move, p_dt);
 }
 
 void LocomotionSystem::update(GameSession& r_session, float p_dt)
@@ -1214,8 +1190,7 @@ void LocomotionSystem::update(GameSession& r_session, float p_dt)
         const LLocomotionSet* set = _set(loco.set);
         if (!set) continue;
 
-        const uint64_t k = ((uint64_t)e.index << 32) | e.generation;
-        Character& c = characters[k];
+        Character& c = characters[_entity_key(e)];
         c.seen = true;
         if (c.skeleton != rig->skeleton || c.set != loco.set || c.out.size() != skeleton.joint_count()) {
             c = Character{};
@@ -1223,15 +1198,10 @@ void LocomotionSystem::update(GameSession& r_session, float p_dt)
             c.skeleton = rig->skeleton;
             c.set = loco.set;
             c.out = skeleton.rest;
-            c.head = skeleton_find_head(skeleton, nullptr);
             std::vector<int32_t> spine;
-            int32_t neck = SKELETON_NO_JOINT;
             for (uint32_t i = 0; i < skeleton.joint_count(); ++i) {
-                const std::string lower = _lower(skeleton.names[i]);
-                if (lower.find("spine") != std::string::npos) spine.push_back((int32_t)i);
-                else if (neck == SKELETON_NO_JOINT && lower.find("neck") != std::string::npos) neck = (int32_t)i;
+                if (_lower(skeleton.names[i]).find("spine") != std::string::npos) spine.push_back((int32_t)i);
             }
-            const float spine_share = spine.empty() ? 0.0f : 0.3f / (float)spine.size();
             c.lean_chain = spine;
             for (uint32_t i = 0; i < skeleton.joint_count(); ++i) {
                 const std::string lower = _lower(skeleton.names[i]);
@@ -1248,20 +1218,10 @@ void LocomotionSystem::update(GameSession& r_session, float p_dt)
                     }
                 }
             }
-            for (int32_t j : spine) {
-                c.look_chain.push_back(j);
-                c.look_weight.push_back(spine_share);
-            }
-            if (neck != SKELETON_NO_JOINT) {
-                c.look_chain.push_back(neck);
-                c.look_weight.push_back(0.3f);
-            }
-            if (c.head != SKELETON_NO_JOINT) {
-                c.look_chain.push_back(c.head);
-                c.look_weight.push_back(neck != SKELETON_NO_JOINT ? 0.4f : 0.7f);
-            }
         }
 
+        const LookAtComponent* look = world.try_get<LookAtComponent>(e);
+        c.yaw_max = glm::radians(look ? look->yaw_max : LookAtComponent::DEFAULT_YAW_MAX);
         _evaluate(world, e, c, *set, skeleton, rig->skeleton, p_dt);
 
         PoseComponent* pose = world.try_get<PoseComponent>(e);

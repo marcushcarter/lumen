@@ -6,6 +6,7 @@
 #include <core/game/physics_system.h>
 #include <core/game/camera_system.h>
 #include <core/game/locomotion_system.h>
+#include <core/game/look_at_system.h>
 #include <core/game/movement_system.h>
 #include <drivers/windows/cursor_lock_win32.h>
 #include <filesystem>
@@ -31,6 +32,7 @@ struct GameApplication : Application
     CameraSystem camera_system;
     MovementSystem movement_system;
     LocomotionSystem locomotion_system;
+    LookAtSystem look_at_system;
     drivers::CursorLockWin32 cursor_lock;
     bool mouse_captured = false;
     bool mouse_released = false;

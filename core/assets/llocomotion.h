@@ -75,7 +75,6 @@ struct LLocomotionSet
     float turn_threshold = 70.0f;
     float lean_angle = 10.0f;
     float lean_acceleration = 4.0f;
-    bool look = true;
 
     Guid clip(LocoSlot p_slot) const { return clips[(uint32_t)p_slot]; }
 

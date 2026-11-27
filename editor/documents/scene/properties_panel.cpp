@@ -613,6 +613,92 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<LocomotionComponent>(e);
     }
 
+    const uint32_t look_at_index = component("look_at");
+    bool revert_look_at = false;
+    if (LookAtComponent* look = world.try_get<LookAtComponent>(e)) {
+        bool remove = false;
+        const LookAtComponent* ll = has_live ? live->try_get<LookAtComponent>(le) : nullptr;
+        if (_section("Look At", &remove, overridden(look_at_index) ? &revert_look_at : nullptr)) {
+            bool changed = false;
+            _name("Camera Weight");
+            changed |= ImGui::SliderFloat("##look_camera_weight", &look->camera_weight, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Player only. An Attention Point has to score more than this to take the head off the camera. 0 looks at any point in range, 1 never looks away.");
+            _live_float(ll != nullptr, ll ? ll->camera_weight : 0.0f);
+            _name("Max Yaw");
+            changed |= ImGui::DragFloat("##look_yaw", &look->yaw_max, 0.5f, 0.0f, 180.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the head turns sideways. Attention Points further round are ignored.");
+            _live_float(ll != nullptr, ll ? ll->yaw_max : 0.0f, " deg");
+            _name("Max Pitch");
+            changed |= ImGui::DragFloat("##look_pitch", &look->pitch_max, 0.5f, 0.0f, 89.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            _live_float(ll != nullptr, ll ? ll->pitch_max : 0.0f, " deg");
+            _name("Spine / Neck / Head");
+            changed |= ImGui::DragFloat3("##look_split", &look->split.x, 0.01f, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How the turn is shared between the bones. Adds up to 1 for a full turn.");
+            _live_vec3(ll != nullptr, ll ? ll->split : vec3(0.0f));
+            _name("Speed");
+            changed |= ImGui::DragFloat("##look_speed", &look->speed, 0.1f, 0.1f, 50.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How fast the head turns to a new target");
+            _live_float(ll != nullptr, ll ? ll->speed : 0.0f);
+            if (changed) world.touch(e);
+        }
+        if (remove) world.deferred_remove<LookAtComponent>(e);
+    }
+
+    const uint32_t attention_index = component("attention_point");
+    bool revert_attention = false;
+    if (AttentionPointComponent* point = world.try_get<AttentionPointComponent>(e)) {
+        bool remove = false;
+        const AttentionPointComponent* la = has_live ? live->try_get<AttentionPointComponent>(le) : nullptr;
+        if (_section("Attention Point", &remove, overridden(attention_index) ? &revert_attention : nullptr)) {
+            bool changed = false;
+            struct Preset { const char* name; const char* tip; float priority; float radius; bool head; };
+            static constexpr Preset PRESETS[] = {
+                { "Character", "People and creatures. On the head bone, noticed up close.", 0.5f, 12.0f, true },
+                { "Enemy", "Mechs and threats. On the head bone, noticed from far away.", 0.9f, 30.0f, true },
+                { "Pickup", "Weapons, scrap parts and other collectables. Only noticed nearby.", 0.35f, 5.0f, false },
+                { "Prop", "Small things worth a glance when close by.", 0.15f, 3.0f, false },
+                { "Landmark", "Doors, wrecks, vistas. Pulls the look from a long way.", 0.6f, 25.0f, false },
+            };
+            _name("Preset");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##attention_preset", "Apply...")) {
+                for (const Preset& p : PRESETS) {
+                    if (ImGui::Selectable(p.name)) {
+                        point->priority = p.priority;
+                        point->radius = p.radius;
+                        point->head = p.head;
+                        point->offset = vec3(0.0f);
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s Priority %.2f, radius %.0f m.", p.tip, p.priority, p.radius);
+                }
+                ImGui::EndCombo();
+            }
+            _live("-");
+            _name("Enabled");
+            changed |= _check("##attention_enabled", &point->enabled);
+            _live("%s", la ? (la->enabled ? "Yes" : "No") : "-");
+            _name("Priority");
+            changed |= ImGui::SliderFloat("##attention_priority", &point->priority, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How strongly it pulls the look. Pebble 0.1, person 0.5, mech or explosion 1.0.");
+            _live_float(la != nullptr, la ? la->priority : 0.0f);
+            _name("Radius");
+            changed |= ImGui::DragFloat("##attention_radius", &point->radius, 0.05f, 0.0f, 1000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Characters further away than this don't notice it");
+            _live_float(la != nullptr, la ? la->radius : 0.0f, " m");
+            _name("Head");
+            changed |= _check("##attention_head", &point->head);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Follows the head bone of an animated mesh, so others look at the face, not the feet. Uses the Camera's Head Bone if set.");
+            _live("%s", la ? (la->head ? "Yes" : "No") : "-");
+            _name("Offset");
+            changed |= ImGui::DragFloat3("##attention_offset", &point->offset.x, 0.01f, -100.0f, 100.0f, "%.2f");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Where on the entity to look, in its own space. Added on top of the head when Head is on.");
+            _live_vec3(la != nullptr, la ? la->offset : vec3(0.0f));
+            if (changed) world.touch(e);
+        }
+        if (remove) world.deferred_remove<AttentionPointComponent>(e);
+    }
+
     const uint32_t water_index = component("water_source");
     bool revert_water = false;
     if (WaterSourceComponent* water = world.try_get<WaterSourceComponent>(e)) {
@@ -810,6 +896,8 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_movement) template_revert_component(world, e, *tmpl, movement_index);
     if (tmpl && revert_camera) template_revert_component(world, e, *tmpl, camera_index);
     if (tmpl && revert_locomotion) template_revert_component(world, e, *tmpl, locomotion_index);
+    if (tmpl && revert_look_at) template_revert_component(world, e, *tmpl, look_at_index);
+    if (tmpl && revert_attention) template_revert_component(world, e, *tmpl, attention_index);
     if (tmpl && revert_water) template_revert_component(world, e, *tmpl, water_index);
     if (revert_entity) editor_revert_template(ctx, e);
     if (unpack) editor_unpack_template(ctx, e);

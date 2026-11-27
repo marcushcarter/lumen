@@ -24,9 +24,6 @@ struct LocomotionSystem : GameSystem
     static constexpr float MIN_RATE = 0.3f;
     static constexpr float MAX_RATE = 2.0f;
     static constexpr float LEAN_SMOOTH = 6.0f;
-    static constexpr float LOOK_SMOOTH = 10.0f;
-    static constexpr float LOOK_YAW_MAX = 70.0f;
-    static constexpr float LOOK_PITCH_MAX = 60.0f;
     static constexpr float ROOT_MOTION_TURN = 5.0f;
     static constexpr float HIP_SWITCH = 0.25f;
     static constexpr float DIR_SMOOTH = 10.0f;
@@ -157,11 +154,7 @@ struct LocomotionSystem : GameSystem
         vec3 prev_velocity = vec3(0.0f);
         float prev_facing = 0.0f;
         bool prev_ready = false;
-        float look_yaw = 0.0f;
-        float look_pitch = 0.0f;
-        std::vector<int32_t> look_chain;
-        std::vector<float> look_weight;
-        int32_t head = SKELETON_NO_JOINT;
+        float yaw_max = 0.0f;
         bool seen = false;
     };
 
@@ -197,7 +190,6 @@ struct LocomotionSystem : GameSystem
     void _stride_warp(Character& r_char, const LSkeleton& p_skeleton, std::vector<JointTransform>& r_pose, float p_stride, const vec3& p_dir);
     void _stance_sample(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, LocoSlot p_slot, float p_time, bool p_normalized, std::vector<JointTransform>& r_pose);
     void _lean(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, const MovementComponent* p_move, float p_dt);
-    void _look(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, const MovementComponent* p_move, float p_dt);
     void _blend(Character& r_char, float p_dt);
     void _switch(Character& r_char, State p_state, LocoSlot p_slot, const LLocomotionSet& p_set);
     void _clear();

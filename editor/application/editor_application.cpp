@@ -140,6 +140,7 @@ Error EditorApplication::on_init()
     play.camera_system.renderer = &renderer;
     play.locomotion_system.renderer = &renderer;
     play.locomotion_system.project = &project;
+    play.look_at_system.renderer = &renderer;
     play.locomotion_system.locate = [this](Guid p_guid) {
         const AssetRegistry::Entry* entry = assets.find(p_guid);
         return entry ? entry->path : std::filesystem::path();

@@ -107,7 +107,6 @@ Error LLocomotionSet::load(const std::filesystem::path& p_path)
     turn_threshold = (float)section["turn_threshold"].value_or((double)def.turn_threshold);
     lean_angle = (float)section["lean_angle"].value_or((double)def.lean_angle);
     lean_acceleration = (float)section["lean_acceleration"].value_or((double)def.lean_acceleration);
-    look = section["look"].value_or(def.look);
     return OK;
 }
 
@@ -128,7 +127,6 @@ Error LLocomotionSet::save(const std::filesystem::path& p_path) const
             { "turn_threshold", (double)turn_threshold },
             { "lean_angle", (double)lean_angle },
             { "lean_acceleration", (double)lean_acceleration },
-            { "look", look },
             { "clips", std::move(clip_table) } }},
     };
     std::ostringstream ss;

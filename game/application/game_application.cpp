@@ -54,7 +54,8 @@ Error GameApplication::on_init()
     movement_system.physics = &physics_system;
     locomotion_system.renderer = &renderer;
     locomotion_system.project = &project;
-    session.systems = { &camera_system, &movement_system, &physics_system, &locomotion_system, &camera_system.late };
+    look_at_system.renderer = &renderer;
+    session.systems = { &camera_system, &movement_system, &physics_system, &locomotion_system, &look_at_system, &camera_system.late };
     session.begin(scene, orbit_camera);
 
     win32.window_set_title(main_window, project.window_title());

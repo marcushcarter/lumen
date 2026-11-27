@@ -12,6 +12,8 @@ void serialize(Archive& a, CollisionComponent& r_c);
 void serialize(Archive& a, MovementComponent& r_c);
 void serialize(Archive& a, CameraComponent& r_c);
 void serialize(Archive& a, LocomotionComponent& r_c);
+void serialize(Archive& a, LookAtComponent& r_c);
+void serialize(Archive& a, AttentionPointComponent& r_c);
 void serialize(Archive& a, WaterSourceComponent& r_c);
 void serialize(Archive& a, TerrainSettings& r_c);
 void serialize(Archive& a, WaterSettings& r_c);

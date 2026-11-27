@@ -13,7 +13,7 @@ Error EditorPlay::initialize()
     LUMEN_ERR_FAIL_COND_V(err != OK, err);
     camera_system.physics = &physics_system;
     movement_system.physics = &physics_system;
-    session.systems = { &camera_system, &movement_system, &physics_system, &locomotion_system, &camera_system.late };
+    session.systems = { &camera_system, &movement_system, &physics_system, &locomotion_system, &look_at_system, &camera_system.late };
     return runtime.load();
 }
 

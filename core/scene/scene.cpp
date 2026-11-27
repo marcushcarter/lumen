@@ -27,6 +27,8 @@ Error Scene::initialize()
     component_register_saved<MovementComponent>("Movement", "movement");
     component_register_saved<CameraComponent>("Camera", "camera");
     component_register_saved<LocomotionComponent>("Locomotion", "locomotion");
+    component_register_saved<LookAtComponent>("Look At", "look_at");
+    component_register_saved<AttentionPointComponent>("Attention Point", "attention_point");
     component_register_saved<WaterSourceComponent>("Water Source", "water_source");
     component_register_saved<TemplateInstanceComponent>("Template", "template", false);
     component_register<TemplatePartComponent>("Template Part", false);

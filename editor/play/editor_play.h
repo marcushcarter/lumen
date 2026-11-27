@@ -3,6 +3,7 @@
 #include <core/game/physics_system.h>
 #include <core/game/camera_system.h>
 #include <core/game/locomotion_system.h>
+#include <core/game/look_at_system.h>
 #include <core/game/movement_system.h>
 #include <core/scene/scene.h>
 #include <core/assets/guid.h>
@@ -23,6 +24,7 @@ struct EditorPlay
     CameraSystem camera_system;
     MovementSystem movement_system;
     LocomotionSystem locomotion_system;
+    LookAtSystem look_at_system;
     Guid scene_guid;
     EnvironmentSettings _environment;
     ShadowSettings _shadows;

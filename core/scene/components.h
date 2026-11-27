@@ -164,6 +164,26 @@ struct LocomotionComponent
     Guid set;
 };
 
+struct LookAtComponent
+{
+    static constexpr float DEFAULT_YAW_MAX = 70.0f;
+
+    float yaw_max = DEFAULT_YAW_MAX;
+    float pitch_max = 60.0f;
+    float speed = 10.0f;
+    float camera_weight = 0.0f;
+    vec3 split = vec3(0.3f, 0.3f, 0.4f);
+};
+
+struct AttentionPointComponent
+{
+    bool enabled = true;
+    float priority = 0.5f;
+    float radius = 10.0f;
+    bool head = false;
+    vec3 offset = vec3(0.0f);
+};
+
 enum class WaterSourceType : uint8_t { SPRING, LEVEL, COUNT };
 
 struct WaterSourceComponent

@@ -55,8 +55,6 @@ void LocomotionDetailsPanel::draw_contents(EditorContext& ctx)
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How far the spine tilts at a full lean");
         ImGui::DragFloat("Lean Acceleration", &set.lean_acceleration, 0.05f, 0.1f, 50.0f, "%.1f m/s2", ImGuiSliderFlags_AlwaysClamp);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Acceleration (or turning) that gives a full lean");
-        ImGui::Checkbox("Head Look", &set.look);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Turns the spine, neck and head toward where the character looks");
     }
 
     ui_category_flush();

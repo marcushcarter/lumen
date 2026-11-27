@@ -15,6 +15,7 @@
 #include <assimp/scene.h>
 #include <assimp/material.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -162,6 +163,23 @@ static uint64_t _scene_triangles(const aiScene* p_scene)
     return tris;
 }
 
+static float _linear_to_srgb(float p_c)
+{
+    p_c = std::clamp(p_c, 0.0f, 1.0f);
+    return p_c <= 0.0031308f ? p_c * 12.92f : 1.055f * std::pow(p_c, 1.0f / 2.4f) - 0.055f;
+}
+
+static glm::vec3 _base_color(const aiMaterial* p_mat)
+{
+    aiColor4D c(1.0f, 1.0f, 1.0f, 1.0f);
+    if (p_mat->Get(AI_MATKEY_BASE_COLOR, c) != AI_SUCCESS) {
+        aiColor3D d(1.0f, 1.0f, 1.0f);
+        if (p_mat->Get(AI_MATKEY_COLOR_DIFFUSE, d) != AI_SUCCESS) return glm::vec3(1.0f);
+        c = aiColor4D(d.r, d.g, d.b, 1.0f);
+    }
+    return glm::vec3(_linear_to_srgb(c.r), _linear_to_srgb(c.g), _linear_to_srgb(c.b));
+}
+
 static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textures, const aiMaterial* p_mat, const MapRef& p_mask)
 {
     LMaterial m;
@@ -169,6 +187,7 @@ static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textur
     if (p_mat->Get(AI_MATKEY_TWOSIDED, two_sided) == AI_SUCCESS) m.two_sided = two_sided != 0;
     m.alpha_mode = _alpha_mode(p_mat);
     m.alpha_cutoff = _alpha_cutoff(p_mat);
+    m.color = _base_color(p_mat);
     m.mask_texture = _texture_guid(p_textures, p_mask);
     return m;
 }

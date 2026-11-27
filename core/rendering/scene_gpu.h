@@ -131,8 +131,9 @@ struct GPUMaterial
     uint32_t mask_tex;
     float alpha_cutoff;
     uint32_t flags;
+    uint32_t color;
 };
-static_assert(sizeof(GPUMaterial) == 12, "GPUMaterial layout changed");
+static_assert(sizeof(GPUMaterial) == 16, "GPUMaterial layout changed");
 
 struct IndirectDispatch { uint32_t x, y, z; };
 

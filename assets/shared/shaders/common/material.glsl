@@ -11,6 +11,7 @@ struct Material {
     uint mask_tex;
     float alpha_cutoff;
     uint flags;
+    uint color;
 };
 
 layout(buffer_reference, scalar) readonly buffer MaterialBuffer { Material data[]; };

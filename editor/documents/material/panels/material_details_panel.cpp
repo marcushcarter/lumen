@@ -24,6 +24,7 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
     ui_field_push_style();
 
     if (ui_category("Material")) {
+        changed |= ImGui::ColorEdit3("Color", &m.color.x, ImGuiColorEditFlags_NoInputs);
         int alpha = (int)m.alpha_mode;
         if (ImGui::BeginCombo("Alpha Mode", alpha_mode_name(m.alpha_mode))) {
             for (int i = (int)AlphaMode::NONE; i <= (int)AlphaMode::BLEND; ++i) {

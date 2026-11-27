@@ -63,6 +63,9 @@ Error LMaterial::load(const std::filesystem::path& p_path)
     guid = _read_guid(asset["guid"]);
 
     auto m = t[asset_type_section(AssetType::MATERIAL)];
+    if (const toml::array* c = m["color"].as_array(); c && c->size() == 3) {
+        for (size_t i = 0; i < 3; ++i) color[(int)i] = (float)(*c)[i].value_or((double)def.color[(int)i]);
+    }
     alpha_mode = alpha_mode_from_name(m["alpha_mode"].value_or(std::string{}), def.alpha_mode);
     two_sided = m["two_sided"].value_or(def.two_sided);
     alpha_cutoff = _read_float(m["alpha_cutoff"], def.alpha_cutoff);
@@ -80,6 +83,7 @@ Error LMaterial::save(const std::filesystem::path& p_path) const
 {
     using enum Error;
     toml::table m {
+        { "color", toml::array{ (double)color.x, (double)color.y, (double)color.z } },
         { "alpha_mode", alpha_mode_name(alpha_mode) },
         { "alpha_cutoff", (double)alpha_cutoff },
         { "two_sided", two_sided },
@@ -118,6 +122,7 @@ Error LMaterial::load_cooked(const std::filesystem::path& p_path)
     alpha_mode = (AlphaMode)ph.alpha_mode;
     two_sided = ph.two_sided != 0;
     alpha_cutoff = ph.alpha_cutoff;
+    color = glm::vec3(ph.color[0], ph.color[1], ph.color[2]);
     mask_texture = ph.mask_texture;
     return OK;
 }
@@ -128,6 +133,9 @@ Error LMaterial::save_cooked(const std::filesystem::path& p_path) const
     LMaterialPayloadHeader ph{};
     ph.mask_texture = mask_texture;
     ph.alpha_cutoff = alpha_cutoff;
+    ph.color[0] = color.x;
+    ph.color[1] = color.y;
+    ph.color[2] = color.z;
     ph.alpha_mode = (uint8_t)alpha_mode;
     ph.two_sided = two_sided ? 1 : 0;
     return write_cooked_asset(p_path, AssetType::MATERIAL, guid, &ph, sizeof(ph)) ? OK : FAILED;

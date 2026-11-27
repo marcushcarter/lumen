@@ -3,6 +3,7 @@
 #include <core/base/error.h>
 #include <cstdint>
 #include <filesystem>
+#include <glm/vec3.hpp>
 #include <string>
 #include <type_traits>
 
@@ -17,12 +18,13 @@ struct LMaterialPayloadHeader
 {
     Guid mask_texture;
     float alpha_cutoff;
+    float color[3];
     uint8_t alpha_mode;
     uint8_t two_sided;
-    uint8_t _pad[2];
+    uint8_t _pad[6];
 };
 
-static_assert(sizeof(LMaterialPayloadHeader) == 16, "LMaterialPayloadHeader layout changed");
+static_assert(sizeof(LMaterialPayloadHeader) == 32, "LMaterialPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LMaterialPayloadHeader>, "must be blittable");
 
 struct LMaterial
@@ -36,6 +38,7 @@ struct LMaterial
 
     Guid guid;
 
+    glm::vec3 color = glm::vec3(1.0f);
     AlphaMode alpha_mode = AlphaMode::NONE;
     bool two_sided = false;
     Guid mask_texture;

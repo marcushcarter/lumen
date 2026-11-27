@@ -216,6 +216,7 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
 
     const uint material_index = (o.slot_base == 0u || tri.slot >= o.slot_count) ? MATERIAL_DEFAULT : slot_material(pc.geometry.slot_table.data[o.slot_base + tri.slot]);
     const Material m = pc.geometry.materials.data[material_index];
+    r_s.albedo *= srgb_to_linear(unpackUnorm4x8(m.color).rgb);
     if (material_two_sided(m)) {
         const vec3 ng = cross(p1 - p0, p2 - p0);
         if (dot(ng, p_dir) * dot(ng, n) > 0.0) n = -n;

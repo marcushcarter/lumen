@@ -110,7 +110,9 @@ GPUMaterial MaterialCache::_build(const LMaterial& p_material, const TextureCach
     g.mask_tex = p_textures.bindless_of(m.mask_texture);
     g.alpha_cutoff = m.alpha_cutoff;
     g.color = instance_tint(vec4(m.color, 1.0f));
-    g.flags = ((uint32_t)m.alpha_mode << MATERIAL_ALPHA_SHIFT) | (m.two_sided ? MATERIAL_FLAG_TWO_SIDED : 0u);
+    g.base_tex = p_textures.bindless_of(m.base_color_texture);
+    g.normal_tex = p_textures.bindless_of(m.normal_texture);
+    g.flags = ((uint32_t)m.alpha_mode << MATERIAL_ALPHA_SHIFT) | (m.two_sided ? MATERIAL_FLAG_TWO_SIDED : 0u) | ((uint32_t)m.mask_channel << MATERIAL_MASK_CHANNEL_SHIFT);
     return g;
 }
 
@@ -177,6 +179,8 @@ GPUMaterial MaterialCache::default_material()
     g.alpha_cutoff = 0.5f;
     g.flags = 0u;
     g.color = 0xFFFFFFFFu;
+    g.base_tex = TEXTURE_NONE;
+    g.normal_tex = TEXTURE_NONE;
     return g;
 }
 

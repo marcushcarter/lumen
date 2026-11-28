@@ -40,6 +40,22 @@ inline AssetType asset_type_from_u32(uint32_t p_v)
     }
 }
 
+enum class TextureChannel : uint8_t { R, G, B, A };
+
+inline const char* texture_channel_name(TextureChannel p_channel)
+{
+    static const char* NAMES[] = { "R", "G", "B", "A" };
+    return (uint8_t)p_channel <= (uint8_t)TextureChannel::A ? NAMES[(uint8_t)p_channel] : "A";
+}
+
+inline TextureChannel texture_channel_from_name(std::string_view p_name, TextureChannel p_fallback)
+{
+    for (uint8_t i = 0; i <= (uint8_t)TextureChannel::A; ++i) {
+        if (p_name == texture_channel_name((TextureChannel)i)) return (TextureChannel)i;
+    }
+    return p_fallback;
+}
+
 inline std::string_view asset_type_section(AssetType p_type)
 {
     switch (p_type) {

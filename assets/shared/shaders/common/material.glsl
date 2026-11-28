@@ -12,11 +12,14 @@ struct Material {
     float alpha_cutoff;
     uint flags;
     uint color;
+    uint base_tex;
+    uint normal_tex;
 };
 
 layout(buffer_reference, scalar) readonly buffer MaterialBuffer { Material data[]; };
 
 uint material_alpha_mode(Material p_m) { return (p_m.flags >> 8u) & 0x3u; }
 bool material_two_sided(Material p_m) { return (p_m.flags & (1u << 10u)) != 0u; }
+uint material_mask_channel(Material p_m) { return (p_m.flags >> 11u) & 0x3u; }
 
 #endif

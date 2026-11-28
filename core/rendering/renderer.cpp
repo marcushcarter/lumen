@@ -793,6 +793,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         frame.direct_light.angular_radius = EnvironmentSettings::SUN_ANGULAR_RADIUS;
         frame.direct_light.illuminance = EnvironmentSettings::SUN_COLOR * glm::pi<float>();
         frame.camera.pre_exposure = EnvironmentSettings::EXPOSURE;
+        frame.plain_materials = p_world.environment.plain_materials;
     }
     _player_lod_fit(frame);
     _player_shadow_fit(frame, width, height, p_world.shadows.player_shadow);

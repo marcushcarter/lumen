@@ -98,6 +98,56 @@ void MovementSystem::_player_input(const GameSession& p_session, const Scene& p_
     else r_move.want_gait = std::min(mag, 1.0f) < WALK_INPUT ? MoveGait::WALK : MoveGait::RUN;
 }
 
+static float _random(uint32_t& r_seed)
+{
+    r_seed ^= r_seed << 13;
+    r_seed ^= r_seed >> 17;
+    r_seed ^= r_seed << 5;
+    return (float)(r_seed & 0xFFFFFF) / (float)0x1000000;
+}
+
+void MovementSystem::_wander(Entity p_entity, const vec3& p_position, MovementComponent& r_move, float p_dt) const
+{
+    auto pick = [&] {
+        const float angle = _random(r_move.wander_seed) * glm::two_pi<float>();
+        const float dist = std::sqrt(_random(r_move.wander_seed)) * WANDER_RADIUS;
+        r_move.wander_target = r_move.wander_home + vec3(std::sin(angle), 0.0f, std::cos(angle)) * dist;
+        r_move.wander_stuck = 0.0f;
+    };
+    auto rest = [&] {
+        r_move.wander_wait = WANDER_WAIT_MIN + _random(r_move.wander_seed) * (WANDER_WAIT_MAX - WANDER_WAIT_MIN);
+    };
+    if (!r_move.wander_ready) {
+        r_move.wander_ready = true;
+        r_move.wander_home = p_position;
+        r_move.wander_seed = (p_entity.index * 2654435761u) ^ (p_entity.generation * 40503u) ^ 0x9E3779B9u;
+        if (r_move.wander_seed == 0) r_move.wander_seed = 1;
+        r_move.wander_target = p_position;
+        r_move.wander_wait = _random(r_move.wander_seed) * WANDER_WAIT_MAX;
+    }
+    r_move.want_gait = MoveGait::WALK;
+    r_move.want_move = vec3(0.0f);
+    if (r_move.wander_wait > 0.0f) {
+        r_move.wander_wait -= p_dt;
+        if (r_move.wander_wait <= 0.0f) pick();
+        return;
+    }
+    const vec3 to(r_move.wander_target.x - p_position.x, 0.0f, r_move.wander_target.z - p_position.z);
+    const float dist = length(to);
+    if (dist < WANDER_ARRIVE) {
+        rest();
+        return;
+    }
+    const float speed = length(vec2(r_move.velocity.x, r_move.velocity.z));
+    r_move.wander_stuck = speed < WANDER_STUCK_SPEED ? r_move.wander_stuck + p_dt : 0.0f;
+    if (r_move.wander_stuck > WANDER_STUCK_TIME) {
+        rest();
+        return;
+    }
+    r_move.want_move = to / dist;
+    r_move.want_look = r_move.want_move;
+}
+
 void MovementSystem::update(GameSession& r_session, float p_dt)
 {
     if (!r_session.world || !physics || !physics->physics.initialized() || p_dt <= 0.0f) return;
@@ -118,6 +168,7 @@ void MovementSystem::update(GameSession& r_session, float p_dt)
         r_move.jump_buffer = std::max(r_move.jump_buffer - p_dt, 0.0f);
         r_move.jump_lock = std::max(r_move.jump_lock - p_dt, 0.0f);
         if (r_move.player) _player_input(r_session, world, p_entity, r_move);
+        else if (r_move.wander) _wander(p_entity, position, r_move, p_dt);
 
         const uint64_t k = PhysicsSystem::key(p_entity);
         auto it = bodies.find(k);

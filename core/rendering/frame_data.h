@@ -76,6 +76,7 @@ struct FrameData
     bool sun_cascade_reuse[SUN_CASCADE_COUNT] = {};
     bool sun_cascade_history[SUN_CASCADE_COUNT] = {};
     bool sun_heightfield = false;
+    bool plain_materials = false;
     bool hiz_history_valid = false;
 
     uint32_t output_width = 0;

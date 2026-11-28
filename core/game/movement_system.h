@@ -29,6 +29,12 @@ struct MovementSystem : GameSystem
     static constexpr float MANTLE_PROBE_LOW = 0.45f;
     static constexpr float MANTLE_AIR_RISE = 2.0f;
     static constexpr float MANTLE_AIR_DELAY = 0.1f;
+    static constexpr float WANDER_RADIUS = 8.0f;
+    static constexpr float WANDER_ARRIVE = 0.5f;
+    static constexpr float WANDER_WAIT_MIN = 2.0f;
+    static constexpr float WANDER_WAIT_MAX = 6.0f;
+    static constexpr float WANDER_STUCK_SPEED = 0.3f;
+    static constexpr float WANDER_STUCK_TIME = 1.5f;
 
     struct Ledge {
         vec3 target = vec3(0.0f);
@@ -54,6 +60,7 @@ struct MovementSystem : GameSystem
     void stop(GameSession& r_session) override;
 
     void _player_input(const GameSession& p_session, const Scene& p_world, Entity p_entity, MovementComponent& r_move) const;
+    void _wander(Entity p_entity, const vec3& p_position, MovementComponent& r_move, float p_dt) const;
     void _clear();
     bool _ledge(const PhysicsWorld& p_world, const vec3& p_feet, const vec3& p_dir, const MovementComponent& p_move, float p_min, Ledge& r_ledge) const;
 };

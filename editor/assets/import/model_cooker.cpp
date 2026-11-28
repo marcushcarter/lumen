@@ -24,7 +24,8 @@
 
 namespace lumen {
 
-struct MapRef { std::filesystem::path source; float alpha_cutoff = 0.0f; };
+struct MapRef { std::filesystem::path source; TextureUsage usage = TextureUsage::COLOR; float alpha_cutoff = 0.0f; };
+struct SlotMaps { MapRef base; MapRef normal; };
 
 static std::filesystem::path _texture_path(const std::filesystem::path& p_source_dir, const aiString& p_ref)
 {
@@ -62,10 +63,9 @@ static float _alpha_cutoff(const aiMaterial* p_mat)
     return f;
 }
 
-static MapRef _resolve_mask(const aiMaterial* p_mat, const std::filesystem::path& p_source_dir, const std::filesystem::path& p_model)
+static MapRef _find_map(const aiMaterial* p_mat, std::initializer_list<aiTextureType> p_types, TextureUsage p_usage, const std::filesystem::path& p_source_dir, const std::filesystem::path& p_model)
 {
-    if (_alpha_mode(p_mat) != AlphaMode::MASKED) return {};
-    for (aiTextureType type : { aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE }) {
+    for (aiTextureType type : p_types) {
         if (p_mat->GetTextureCount(type) == 0) continue;
         aiString ref;
         if (p_mat->GetTexture(type, 0, &ref) != AI_SUCCESS || ref.length == 0) continue;
@@ -78,9 +78,18 @@ static MapRef _resolve_mask(const aiMaterial* p_mat, const std::filesystem::path
             log_write("ModelCooker: texture '%s' not found.", ref.C_Str());
             continue;
         }
-        return { path, _alpha_cutoff(p_mat) };
+        return { path, p_usage };
     }
     return {};
+}
+
+static SlotMaps _resolve_maps(const aiMaterial* p_mat, const std::filesystem::path& p_source_dir, const std::filesystem::path& p_model)
+{
+    SlotMaps maps;
+    maps.base = _find_map(p_mat, { aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE }, TextureUsage::COLOR, p_source_dir, p_model);
+    if (!maps.base.source.empty() && _alpha_mode(p_mat) == AlphaMode::MASKED) maps.base.alpha_cutoff = _alpha_cutoff(p_mat);
+    maps.normal = _find_map(p_mat, { aiTextureType_NORMALS, aiTextureType_NORMAL_CAMERA }, TextureUsage::NORMAL, p_source_dir, p_model);
+    return maps;
 }
 
 static bool _same_texture(const TextureCooker::Job& p_job, const MapRef& p_ref)
@@ -88,13 +97,18 @@ static bool _same_texture(const TextureCooker::Job& p_job, const MapRef& p_ref)
     return p_job.source == p_ref.source;
 }
 
-static std::vector<TextureCooker::Job> _texture_jobs(const ModelCooker::Job& p_job, const std::vector<MapRef>& p_masks, std::vector<std::filesystem::path>& r_finals)
+static std::vector<TextureCooker::Job> _texture_jobs(const ModelCooker::Job& p_job, const std::vector<SlotMaps>& p_maps, std::vector<std::filesystem::path>& r_finals)
 {
     std::vector<TextureCooker::Job> jobs;
     std::vector<std::filesystem::path> used;
     const std::filesystem::path& dir = p_job.dst_dir;
 
-    for (const MapRef& r : p_masks) {
+    std::vector<MapRef> refs;
+    for (const SlotMaps& m : p_maps) {
+        refs.push_back(m.base);
+        refs.push_back(m.normal);
+    }
+    for (const MapRef& r : refs) {
         if (r.source.empty()) continue;
         bool seen = false;
         for (const TextureCooker::Job& j : jobs) seen = seen || _same_texture(j, r);
@@ -112,7 +126,7 @@ static std::vector<TextureCooker::Job> _texture_jobs(const ModelCooker::Job& p_j
         std::error_code exists_ec;
         if (!std::filesystem::exists(dst, exists_ec) || !TextureCooker::load_settings(dst, tex.settings, saved_source)) {
             tex.settings = p_job.settings.texture_settings;
-            tex.settings.usage = TextureUsage::COLOR;
+            tex.settings.usage = r.usage;
             tex.settings.source_channel = -1;
             tex.settings.alpha_cutoff = r.alpha_cutoff;
         }
@@ -180,7 +194,7 @@ static glm::vec3 _base_color(const aiMaterial* p_mat)
     return glm::vec3(_linear_to_srgb(c.r), _linear_to_srgb(c.g), _linear_to_srgb(c.b));
 }
 
-static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textures, const aiMaterial* p_mat, const MapRef& p_mask)
+static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textures, const aiMaterial* p_mat, const SlotMaps& p_maps)
 {
     LMaterial m;
     int two_sided = 0;
@@ -188,11 +202,13 @@ static LMaterial _build_material(const std::vector<TextureCooker::Job>& p_textur
     m.alpha_mode = _alpha_mode(p_mat);
     m.alpha_cutoff = _alpha_cutoff(p_mat);
     m.color = _base_color(p_mat);
-    m.mask_texture = _texture_guid(p_textures, p_mask);
+    m.base_color_texture = _texture_guid(p_textures, p_maps.base);
+    m.normal_texture = _texture_guid(p_textures, p_maps.normal);
+    if (m.alpha_mode == AlphaMode::MASKED) m.mask_texture = m.base_color_texture;
     return m;
 }
 
-static std::vector<Guid> _import_materials(const ModelCooker::Job& p_job, const aiScene* p_scene, const std::vector<uint32_t>& p_slots, const std::vector<MapRef>& p_masks, const std::vector<TextureCooker::Job>& p_textures)
+static std::vector<Guid> _import_materials(const ModelCooker::Job& p_job, const aiScene* p_scene, const std::vector<uint32_t>& p_slots, const std::vector<SlotMaps>& p_maps, const std::vector<TextureCooker::Job>& p_textures)
 {
     struct Existing {
         Guid guid;
@@ -234,7 +250,7 @@ static std::vector<Guid> _import_materials(const ModelCooker::Job& p_job, const 
             if (!std::filesystem::exists(dst, ec) && !p_job.session->staged_exists(dst)) break;
         }
 
-        LMaterial m = _build_material(p_textures, mat, p_masks[s]);
+        LMaterial m = _build_material(p_textures, mat, p_maps[s]);
         m.guid = Guid::generate();
         m.import.source = source;
         m.import.name = original;
@@ -405,13 +421,13 @@ Error ModelCooker::_import(const Job& p_job)
     const bool missing = std::any_of(assigned.begin(), assigned.end(), [](Guid g) { return !g.valid(); });
     const bool generate = p_job.settings.mesh_settings.generate_materials && missing;
 
-    std::vector<MapRef> masks;
+    std::vector<SlotMaps> maps;
     std::vector<TextureCooker::Job> textures;
     std::vector<std::filesystem::path> texture_finals;
     if (generate) {
         const std::filesystem::path source_dir = p_job.source.parent_path();
-        for (uint32_t index : slots) masks.push_back(_resolve_mask(scene->mMaterials[index], source_dir, p_job.source));
-        textures = _texture_jobs(p_job, masks, texture_finals);
+        for (uint32_t index : slots) maps.push_back(_resolve_maps(scene->mMaterials[index], source_dir, p_job.source));
+        textures = _texture_jobs(p_job, maps, texture_finals);
     }
 
     std::vector<uint64_t> tex_cost(textures.size());
@@ -437,7 +453,7 @@ Error ModelCooker::_import(const Job& p_job)
         tex.guid = {};
     }
     if (generate) {
-        const std::vector<Guid> imported = _import_materials(p_job, scene, slots, masks, textures);
+        const std::vector<Guid> imported = _import_materials(p_job, scene, slots, maps, textures);
         for (size_t s = 0; s < imported.size() && s < assigned.size(); ++s) {
             if (!assigned[s].valid()) assigned[s] = imported[s];
         }

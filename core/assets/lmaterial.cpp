@@ -66,11 +66,13 @@ Error LMaterial::load(const std::filesystem::path& p_path)
     if (const toml::array* c = m["color"].as_array(); c && c->size() == 3) {
         for (size_t i = 0; i < 3; ++i) color[(int)i] = (float)(*c)[i].value_or((double)def.color[(int)i]);
     }
+    base_color_texture = _read_texture(m["base_color_texture"]);
+    normal_texture = _read_texture(m["normal_texture"]);
     alpha_mode = alpha_mode_from_name(m["alpha_mode"].value_or(std::string{}), def.alpha_mode);
     two_sided = m["two_sided"].value_or(def.two_sided);
     alpha_cutoff = _read_float(m["alpha_cutoff"], def.alpha_cutoff);
     mask_texture = _read_texture(m["mask_texture"]);
-    if (!mask_texture.valid() && alpha_mode == AlphaMode::MASKED) mask_texture = _read_texture(m["base_color_texture"]);
+    mask_channel = texture_channel_from_name(m["mask_channel"].value_or(std::string{}), def.mask_channel);
 
     if (const toml::table* rec = t["import"].as_table()) {
         import.source = (*rec)["source"].value_or(std::string{});
@@ -84,10 +86,13 @@ Error LMaterial::save(const std::filesystem::path& p_path) const
     using enum Error;
     toml::table m {
         { "color", toml::array{ (double)color.x, (double)color.y, (double)color.z } },
+        { "base_color_texture", _guid_text(base_color_texture) },
+        { "normal_texture", _guid_text(normal_texture) },
         { "alpha_mode", alpha_mode_name(alpha_mode) },
         { "alpha_cutoff", (double)alpha_cutoff },
         { "two_sided", two_sided },
         { "mask_texture", _guid_text(mask_texture) },
+        { "mask_channel", texture_channel_name(mask_channel) },
     };
     toml::table tbl {
         { "asset", toml::table{
@@ -115,7 +120,7 @@ Error LMaterial::load_cooked(const std::filesystem::path& p_path)
 
     LMaterialPayloadHeader ph;
     std::memcpy(&ph, payload.data(), sizeof(ph));
-    if (ph.alpha_mode > (uint8_t)AlphaMode::BLEND) return FAILED;
+    if (ph.alpha_mode > (uint8_t)AlphaMode::BLEND || ph.mask_channel > (uint8_t)TextureChannel::A) return FAILED;
 
     *this = LMaterial{};
     guid = header.guid;
@@ -123,7 +128,10 @@ Error LMaterial::load_cooked(const std::filesystem::path& p_path)
     two_sided = ph.two_sided != 0;
     alpha_cutoff = ph.alpha_cutoff;
     color = glm::vec3(ph.color[0], ph.color[1], ph.color[2]);
+    base_color_texture = ph.base_color_texture;
+    normal_texture = ph.normal_texture;
     mask_texture = ph.mask_texture;
+    mask_channel = (TextureChannel)ph.mask_channel;
     return OK;
 }
 
@@ -131,6 +139,8 @@ Error LMaterial::save_cooked(const std::filesystem::path& p_path) const
 {
     using enum Error;
     LMaterialPayloadHeader ph{};
+    ph.base_color_texture = base_color_texture;
+    ph.normal_texture = normal_texture;
     ph.mask_texture = mask_texture;
     ph.alpha_cutoff = alpha_cutoff;
     ph.color[0] = color.x;
@@ -138,6 +148,7 @@ Error LMaterial::save_cooked(const std::filesystem::path& p_path) const
     ph.color[2] = color.z;
     ph.alpha_mode = (uint8_t)alpha_mode;
     ph.two_sided = two_sided ? 1 : 0;
+    ph.mask_channel = (uint8_t)mask_channel;
     return write_cooked_asset(p_path, AssetType::MATERIAL, guid, &ph, sizeof(ph)) ? OK : FAILED;
 }
 

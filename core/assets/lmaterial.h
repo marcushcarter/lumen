@@ -1,4 +1,5 @@
 #pragma once
+#include <core/assets/asset_common.h>
 #include <core/assets/guid.h>
 #include <core/base/error.h>
 #include <cstdint>
@@ -16,15 +17,18 @@ AlphaMode alpha_mode_from_name(const std::string& p_name, AlphaMode p_fallback);
 
 struct LMaterialPayloadHeader
 {
+    Guid base_color_texture;
+    Guid normal_texture;
     Guid mask_texture;
     float alpha_cutoff;
     float color[3];
     uint8_t alpha_mode;
     uint8_t two_sided;
-    uint8_t _pad[6];
+    uint8_t mask_channel;
+    uint8_t _pad[5];
 };
 
-static_assert(sizeof(LMaterialPayloadHeader) == 32, "LMaterialPayloadHeader layout changed");
+static_assert(sizeof(LMaterialPayloadHeader) == 48, "LMaterialPayloadHeader layout changed");
 static_assert(std::is_trivially_copyable_v<LMaterialPayloadHeader>, "must be blittable");
 
 struct LMaterial
@@ -39,9 +43,12 @@ struct LMaterial
     Guid guid;
 
     glm::vec3 color = glm::vec3(1.0f);
+    Guid base_color_texture;
+    Guid normal_texture;
     AlphaMode alpha_mode = AlphaMode::NONE;
     bool two_sided = false;
     Guid mask_texture;
+    TextureChannel mask_channel = TextureChannel::A;
     float alpha_cutoff = 0.5f;
     
     ImportRecord import;

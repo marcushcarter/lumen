@@ -25,6 +25,7 @@ void serialize(Archive& a, MeshComponent& r_c)
 void serialize(Archive& a, MovementComponent& r_c)
 {
     a.field("player", r_c.player);
+    a.field("wander", r_c.wander);
     a.field("strafe", r_c.strafe);
     a.field("radius", r_c.radius);
     a.field("height", r_c.height);
@@ -161,8 +162,7 @@ void serialize(Archive& a, TemplateInstanceComponent& r_c)
 
 void serialize(Archive& a, EnvironmentSettings& r_c)
 {
-    (void)a;
-    (void)r_c;
+    a.field("plain_materials", r_c.plain_materials);
 }
 
 void serialize(Archive& a, ShadowSettings& r_c)

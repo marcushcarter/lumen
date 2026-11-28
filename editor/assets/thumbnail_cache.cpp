@@ -48,8 +48,9 @@ static uint64_t _stamp(const std::filesystem::path& p_path)
 
 static void _texture_refs(const LMaterial& p_material, std::vector<Guid>& r_out)
 {
-    const Guid g = p_material.mask_texture;
-    if (g.valid() && std::find(r_out.begin(), r_out.end(), g) == r_out.end()) r_out.push_back(g);
+    for (const Guid g : { p_material.base_color_texture, p_material.normal_texture, p_material.mask_texture }) {
+        if (g.valid() && std::find(r_out.begin(), r_out.end(), g) == r_out.end()) r_out.push_back(g);
+    }
 }
 
 /***************/

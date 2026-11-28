@@ -22,6 +22,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0) uniform utexture2D u_textures_uint[];
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
+layout(set = 0, binding = 2) uniform sampler u_samplers[];
 
 layout(set = 0, binding = 1, rg16) uniform writeonly image2D u_storage_rg16[];
 layout(set = 0, binding = 1, rg16f) uniform writeonly image2D u_storage_rg16f[];
@@ -46,9 +47,11 @@ layout(push_constant) uniform Push {
     uint height;
     uint flags;
     uint albedo_slot;
+    uint sampler_index;
 } pc;
 
 const uint RESOLVE_WRITE_MOTION = 1u << 0;
+const uint RESOLVE_PLAIN = 1u << 1;
 
 const vec3 TERRAIN_ALBEDO = vec3(1.0);
 
@@ -68,6 +71,8 @@ struct Object {
     vec3 c2;
     vec3 pos_min;
     vec3 pos_extent;
+    vec2 uv_min;
+    vec2 uv_extent;
     uint transform_id;
     uint slot_base;
     uint slot_count;
@@ -102,6 +107,8 @@ Object load_object(uint p_inst) {
     o.c2 = cross(o.m0, o.m1);
     o.pos_min = pc.geometry.meshes.data[mesh_id].pos_min;
     o.pos_extent = pc.geometry.meshes.data[mesh_id].pos_extent;
+    o.uv_min = pc.geometry.meshes.data[mesh_id].uv_min;
+    o.uv_extent = pc.geometry.meshes.data[mesh_id].uv_extent;
     o.slot_count = pc.geometry.meshes.data[mesh_id].slot_count;
     return o;
 }
@@ -138,7 +145,7 @@ bool resolve_terrain(uint p_vis, ivec2 p_coord, vec2 p_ndc, bool p_motion, out S
     return true;
 }
 
-bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surface r_s) {
+bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, vec3 p_dir_dx, vec3 p_dir_dy, bool p_motion, out Surface r_s) {
     r_s.normal = vec3(0.0, 1.0, 0.0);
     r_s.motion = vec2(0.0);
 
@@ -216,12 +223,58 @@ bool resolve_surface(uint p_vis, vec2 p_ndc, vec3 p_dir, bool p_motion, out Surf
 
     const uint material_index = (o.slot_base == 0u || tri.slot >= o.slot_count) ? MATERIAL_DEFAULT : slot_material(pc.geometry.slot_table.data[o.slot_base + tri.slot]);
     const Material m = pc.geometry.materials.data[material_index];
-    r_s.albedo *= srgb_to_linear(unpackUnorm4x8(m.color).rgb);
+    bool flip = false;
     if (material_two_sided(m)) {
         const vec3 ng = cross(p1 - p0, p2 - p0);
-        if (dot(ng, p_dir) * dot(ng, n) > 0.0) n = -n;
+        flip = dot(ng, p_dir) * dot(ng, n) > 0.0;
     }
-    r_s.normal = n;
+
+    if ((pc.flags & RESOLVE_PLAIN) != 0u) {
+        r_s.albedo = vec3(1.0);
+        r_s.normal = flip ? -n : n;
+        return true;
+    }
+
+    r_s.albedo *= srgb_to_linear(unpackUnorm4x8(m.color).rgb);
+    vec3 side_n = flip ? -n : n;
+    if (m.base_tex != TEXTURE_NONE || m.normal_tex != TEXTURE_NONE) {
+        const vec2 uv0 = stream_uv(pc.geometry, streams, lv.x, o.uv_min, o.uv_extent);
+        const vec2 uv1 = stream_uv(pc.geometry, streams, lv.y, o.uv_min, o.uv_extent);
+        const vec2 uv2 = stream_uv(pc.geometry, streams, lv.z, o.uv_min, o.uv_extent);
+        const vec2 uv = uv0 * b.x + uv1 * b.y + uv2 * b.z;
+        vec3 bx, by;
+        vec2 uv_dx = vec2(0.0);
+        vec2 uv_dy = vec2(0.0);
+        if (ray_barycentrics(p_dir_dx, p0, p1, p2, bx)) uv_dx = uv0 * bx.x + uv1 * bx.y + uv2 * bx.z - uv;
+        if (ray_barycentrics(p_dir_dy, p0, p1, p2, by)) uv_dy = uv0 * by.x + uv1 * by.y + uv2 * by.z - uv;
+
+        if (m.base_tex != TEXTURE_NONE) {
+            r_s.albedo *= textureGrad(sampler2D(u_textures[nonuniformEXT(m.base_tex)], u_samplers[pc.sampler_index]), uv, uv_dx, uv_dy).rgb;
+        }
+        if (m.normal_tex != TEXTURE_NONE) {
+            const vec2 e = textureGrad(sampler2D(u_textures[nonuniformEXT(m.normal_tex)], u_samplers[pc.sampler_index]), uv, uv_dx, uv_dy).rg * 2.0 - 1.0;
+            const vec3 tn = vec3(e, sqrt(max(1.0 - dot(e, e), 0.0)));
+            const vec3 e1 = p1 - p0;
+            const vec3 e2 = p2 - p0;
+            const vec2 d1 = uv1 - uv0;
+            const vec2 d2 = uv2 - uv0;
+            const float det = d1.x * d2.y - d2.x * d1.y;
+            if (abs(det) > 1e-12) {
+                const float r = 1.0 / det;
+                vec3 t = (e1 * d2.y - e2 * d1.y) * r;
+                const vec3 up = (e1 * d2.x - e2 * d1.x) * r;
+                t -= n * dot(n, t);
+                const float tl = dot(t, t);
+                if (tl > 1e-20) {
+                    t *= inversesqrt(tl);
+                    const vec3 c = cross(n, t);
+                    const vec3 bn = dot(c, up) < 0.0 ? -c : c;
+                    side_n = normalize(t * tn.x + bn * tn.y + side_n * tn.z);
+                }
+            }
+        }
+    }
+    r_s.normal = side_n;
     return true;
 }
 
@@ -244,6 +297,8 @@ bool resolve_pixel(ivec2 coord) {
     const vec2 ndc = (vec2(coord) + 0.5) * (2.0 / vec2(pc.width, pc.height)) - 1.0;
     const vec3 cam = pc.camera.position.xyz;
     const vec4 h = pc.camera.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    const vec4 hx = pc.camera.inv_view_proj * vec4(ndc + vec2(2.0 / float(pc.width), 0.0), 1.0, 1.0);
+    const vec4 hy = pc.camera.inv_view_proj * vec4(ndc + vec2(0.0, 2.0 / float(pc.height)), 1.0, 1.0);
     const bool write_motion = (pc.flags & RESOLVE_WRITE_MOTION) != 0u;
 
     if (vis_is_empty(v)) {
@@ -257,7 +312,7 @@ bool resolve_pixel(ivec2 coord) {
 
     Surface s;
     if (vis_is_terrain(v)) resolve_terrain(v, coord, ndc, write_motion, s);
-    else resolve_surface(v, ndc, h.xyz / h.w - cam, write_motion, s);
+    else resolve_surface(v, ndc, h.xyz / h.w - cam, hx.xyz / hx.w - cam, hy.xyz / hy.w - cam, write_motion, s);
 
     imageStore(u_storage_rg16[pc.normal_slot], coord, vec4(gbuffer_encode_normal(s.normal), 0.0, 0.0));
     imageStore(u_storage_rgba8[pc.albedo_slot], coord, vec4(linear_to_srgb(s.albedo), 1.0));

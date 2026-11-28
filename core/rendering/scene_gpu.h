@@ -105,6 +105,7 @@ static constexpr uint32_t TEXTURE_NONE = 0xFFFFFFFFu;
 static constexpr uint32_t MATERIAL_DEFAULT = 0u;
 static constexpr uint32_t MATERIAL_ALPHA_SHIFT = 8u;
 static constexpr uint32_t MATERIAL_FLAG_TWO_SIDED = 1u << 10;
+static constexpr uint32_t MATERIAL_MASK_CHANNEL_SHIFT = 11u;
 
 static constexpr uint32_t RASTER_BIN_OPAQUE = 0u;
 static constexpr uint32_t RASTER_BIN_TWO_SIDED = 1u;
@@ -132,8 +133,10 @@ struct GPUMaterial
     float alpha_cutoff;
     uint32_t flags;
     uint32_t color;
+    uint32_t base_tex;
+    uint32_t normal_tex;
 };
-static_assert(sizeof(GPUMaterial) == 16, "GPUMaterial layout changed");
+static_assert(sizeof(GPUMaterial) == 24, "GPUMaterial layout changed");
 
 struct IndirectDispatch { uint32_t x, y, z; };
 

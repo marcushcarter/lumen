@@ -80,6 +80,7 @@ enum class MoveGait : uint8_t { WALK, RUN, SPRINT, COUNT };
 struct MovementComponent
 {
     bool player = false;
+    bool wander = false;
     bool strafe = false;
     float radius = 0.3f;
     float height = 1.8f;
@@ -131,6 +132,12 @@ struct MovementComponent
     vec3 mantle_target = vec3(0.0f);
     float mantle_facing = 0.0f;
     float mantle_height = 0.0f;
+    bool wander_ready = false;
+    uint32_t wander_seed = 0;
+    vec3 wander_home = vec3(0.0f);
+    vec3 wander_target = vec3(0.0f);
+    float wander_wait = 0.0f;
+    float wander_stuck = 0.0f;
 
     float gait_speed(MoveGait p_gait) const { return p_gait == MoveGait::WALK ? walk_speed : p_gait == MoveGait::SPRINT ? sprint_speed : run_speed; }
 };

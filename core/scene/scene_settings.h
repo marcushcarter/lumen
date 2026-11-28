@@ -14,6 +14,8 @@ struct EnvironmentSettings
     static constexpr float SUN_ANGULAR_RADIUS = 0.0046525f;
     static constexpr float EXPOSURE = 0.5f;
 
+    bool plain_materials = false;
+
     bool operator==(const EnvironmentSettings&) const = default;
 };
 

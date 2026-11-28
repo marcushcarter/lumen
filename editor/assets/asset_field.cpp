@@ -155,7 +155,7 @@ bool asset_picker(EditorContext& ctx, const char* p_popup_id, Guid& r_guid, Asse
     return picked;
 }
 
-bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid& r_guid, AssetType p_type, const char* p_empty)
+bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid& r_guid, AssetType p_type, const char* p_empty, TextureChannel* r_channel)
 {
     bool changed = false;
     const std::string_view type = asset_type_section(p_type);
@@ -180,7 +180,9 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
     }
     const bool placeholder = !r_guid.valid() && p_empty;
     if (placeholder) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-    bool open_picker = ImGui::Button(label, ImVec2(-FLT_MIN, 0.0f));
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float channel_w = r_channel ? ImGui::CalcTextSize("A").x + style.FramePadding.x * 2.0f + ImGui::GetFrameHeight() : 0.0f;
+    bool open_picker = ImGui::Button(label, ImVec2(r_channel ? -(channel_w + style.ItemSpacing.x) : -FLT_MIN, 0.0f));
     if (placeholder) ImGui::PopStyleColor();
     const ImVec2 field_min = ImGui::GetItemRectMin();
     const ImVec2 field_max = ImGui::GetItemRectMax();
@@ -212,6 +214,21 @@ bool asset_field(EditorContext& ctx, const char* p_label, const char* p_id, Guid
             }
         }
         ImGui::EndDragDropTarget();
+    }
+
+    if (r_channel) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(channel_w);
+        if (ImGui::BeginCombo("##channel", texture_channel_name(*r_channel))) {
+            for (uint8_t i = 0; i <= (uint8_t)TextureChannel::A; ++i) {
+                if (ImGui::Selectable(texture_channel_name((TextureChannel)i), i == (uint8_t)*r_channel)) {
+                    *r_channel = (TextureChannel)i;
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Texture channel to read");
     }
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();

@@ -25,6 +25,8 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
 
     if (ui_category("Material")) {
         changed |= ImGui::ColorEdit3("Color", &m.color.x, ImGuiColorEditFlags_NoInputs);
+        changed |= asset_field(ctx, "Base Color", "###mat_base_tex", m.base_color_texture, AssetType::TEXTURE);
+        changed |= asset_field(ctx, "Normal", "###mat_normal_tex", m.normal_texture, AssetType::TEXTURE);
         int alpha = (int)m.alpha_mode;
         if (ImGui::BeginCombo("Alpha Mode", alpha_mode_name(m.alpha_mode))) {
             for (int i = (int)AlphaMode::NONE; i <= (int)AlphaMode::BLEND; ++i) {
@@ -39,7 +41,7 @@ void MaterialDetailsPanel::draw_contents(EditorContext& ctx)
     }
 
     if (m.alpha_mode == AlphaMode::MASKED && ui_category("Masking")) {
-        changed |= asset_field(ctx, "Mask Texture", "###mat_mask_tex", m.mask_texture, AssetType::TEXTURE);
+        changed |= asset_field(ctx, "Mask Texture", "###mat_mask_tex", m.mask_texture, AssetType::TEXTURE, nullptr, &m.mask_channel);
         changed |= ImGui::SliderFloat("Alpha Cutoff", &m.alpha_cutoff, 0.0f, 1.0f);
     }
 

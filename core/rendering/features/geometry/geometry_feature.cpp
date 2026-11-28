@@ -963,6 +963,7 @@ void GeometryFeature::_create_visbuffer_compact_pass(RenderGraph::Pass& r_pass, 
 }
 
 static constexpr uint32_t RESOLVE_WRITE_MOTION = 1u << 0;
+static constexpr uint32_t RESOLVE_PLAIN = 1u << 1;
 
 void GeometryFeature::_create_material_resolve_pass()
 {
@@ -1047,6 +1048,7 @@ void GeometryFeature::_create_material_resolve_pass()
             uint32_t height;
             uint32_t flags;
             uint32_t albedo_slot;
+            uint32_t sampler_index;
         } pc;
         pc.camera_addr = camera->device_address;
         pc.geometry_addr = geometry->device_address;
@@ -1065,6 +1067,8 @@ void GeometryFeature::_create_material_resolve_pass()
         pc.height = vis->extent.height;
         const RenderGraph::ImageResource* motion_res = cl.graph->image_resource("G_Motion");
         pc.flags = motion_res && motion_res->read ? RESOLVE_WRITE_MOTION : 0u;
+        if (ctx->frame && ctx->frame->plain_materials) pc.flags |= RESOLVE_PLAIN;
+        pc.sampler_index = material_sampler.bindless_sampler;
 
         cl.dd->command_render_set_viewport(cl.cmd, {{ {0,0}, vis->extent }});
         cl.dd->command_render_set_scissor(cl.cmd, {{ {0,0}, vis->extent }});

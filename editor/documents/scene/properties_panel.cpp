@@ -165,6 +165,11 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             ImGui::TextDisabled("%.2f (fixed)", EnvironmentSettings::EXPOSURE);
             _live("-");
         }
+        if (_section("Materials")) {
+            _name("Plain (white, no maps)");
+            ImGui::Checkbox("##plain_materials", &world.environment.plain_materials);
+            _live("%s", live ? (live->environment.plain_materials ? "On" : "Off") : "-");
+        }
         if (_section("Shadows")) {
             _name("Player Shadow");
             ImGui::Checkbox("##player_shadow", &world.shadows.player_shadow);
@@ -460,6 +465,12 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             changed |= _check("##move_player", &move->player);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Moves with the input, relative to the camera. Off: moved by scripting later.");
             _live("%s", lm ? (lm->player ? "Yes" : "No") : "-");
+            if (!move->player) {
+                _name("Wander");
+                changed |= _check("##move_wander", &move->wander);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Walks to random spots within 8 m of where it started, pausing a few seconds at each");
+                _live("%s", lm ? (lm->wander ? "Yes" : "No") : "-");
+            }
             _name("Strafe");
             changed |= _check("##move_strafe", &move->strafe);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Always faces the look direction instead of the way it moves. First person turns this on by itself.");

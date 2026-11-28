@@ -39,6 +39,9 @@ struct PoseComponent
     std::vector<mat4> joints;
     Guid skeleton;
     int32_t hidden_joint = -1;
+    bool held = false;
+    bool joints_fresh = false;
+    uint64_t skin_revision = 0;
 };
 
 enum class CollisionShapeType : uint8_t { BOX, SPHERE, CAPSULE, CYLINDER, TAPERED_CYLINDER, TAPERED_CAPSULE, WEDGE, COUNT };
@@ -166,7 +169,7 @@ struct CameraComponent
     float third_person = 0.0f;
 };
 
-struct LocomotionComponent
+struct CharacterComponent
 {
     Guid set;
 };
@@ -178,6 +181,7 @@ struct LookAtComponent
     float yaw_max = DEFAULT_YAW_MAX;
     float pitch_max = 60.0f;
     float speed = 10.0f;
+    float turn_speed = 180.0f;
     float camera_weight = 0.0f;
     vec3 split = vec3(0.3f, 0.3f, 0.4f);
 };

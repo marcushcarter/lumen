@@ -11,7 +11,7 @@ void serialize(Archive& a, MeshComponent& r_c);
 void serialize(Archive& a, CollisionComponent& r_c);
 void serialize(Archive& a, MovementComponent& r_c);
 void serialize(Archive& a, CameraComponent& r_c);
-void serialize(Archive& a, LocomotionComponent& r_c);
+void serialize(Archive& a, CharacterComponent& r_c);
 void serialize(Archive& a, LookAtComponent& r_c);
 void serialize(Archive& a, AttentionPointComponent& r_c);
 void serialize(Archive& a, WaterSourceComponent& r_c);

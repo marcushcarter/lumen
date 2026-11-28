@@ -2,6 +2,7 @@
 #include <core/animation/skinning.h>
 #include <core/animation/two_bone_ik.h>
 #include <core/base/hash.h>
+#include <core/base/jobs.h>
 #include <core/project/project.h>
 #include <core/rendering/renderer.h>
 #include <glm/gtc/quaternion.hpp>
@@ -126,12 +127,12 @@ void LocomotionSystem::_clear()
     characters.clear();
 }
 
-const LLocomotionSet* LocomotionSystem::_set(Guid p_guid)
+LocomotionSystem::Set* LocomotionSystem::_set(Guid p_guid)
 {
     if (!p_guid.valid()) return nullptr;
     Set& set = sets[p_guid];
     const double now = ImGui::GetTime();
-    if (now - set.poll < SET_POLL_S) return set.loaded ? &set.data : nullptr;
+    if (now - set.poll < SET_POLL_S) return set.loaded ? &set : nullptr;
     set.poll = now;
     std::filesystem::path path;
     if (locate) path = locate(p_guid);
@@ -146,11 +147,51 @@ const LLocomotionSet* LocomotionSystem::_set(Guid p_guid)
         set.loaded = false;
         return nullptr;
     }
-    if (set.loaded && t == set.time) return &set.data;
+    if (set.loaded && t == set.time) return &set;
     set.time = t;
     set.loaded = set.data.load(path) == Error::OK;
     if (!set.loaded) log_write("Locomotion: failed to load the locomotion set '%s'.", path.string().c_str());
-    return set.loaded ? &set.data : nullptr;
+    if (set.loaded) _resolve(set);
+    return set.loaded ? &set : nullptr;
+}
+
+void LocomotionSystem::_resolve(Set& r_set)
+{
+    for (uint32_t i = 0; i < LOCO_SLOT_COUNT; ++i) r_set.slot_clips[i] = _clip(r_set.data.clips[i]);
+    r_set.bound_skeleton = Guid{};
+    for (const Binding*& b : r_set.slot_bindings) b = nullptr;
+}
+
+void LocomotionSystem::_bind(Set& r_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
+{
+    r_set.bound_skeleton = p_skeleton_guid;
+    for (uint32_t i = 0; i < LOCO_SLOT_COUNT; ++i) {
+        const Clip* clip = r_set.slot_clips[i];
+        r_set.slot_bindings[i] = clip ? _binding(r_set.data.clips[i], *clip, p_skeleton, p_skeleton_guid) : nullptr;
+    }
+}
+
+const LocomotionSystem::Binding* LocomotionSystem::_slot_binding(const Set& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
+{
+    const uint32_t i = (uint32_t)p_slot;
+    if (i >= LOCO_SLOT_COUNT) return nullptr;
+    if (p_set.bound_skeleton == p_skeleton_guid) return p_set.slot_bindings[i];
+    (void)p_skeleton;
+    if (!p_set.slot_clips[i]) return nullptr;
+    auto it = bindings.find(hash_combine(p_set.data.clips[i].value, p_skeleton_guid.value));
+    return it != bindings.end() ? &it->second : nullptr;
+}
+
+void LocomotionSystem::_prepare_bindings(Set& r_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
+{
+    if (!r_set.bound_skeleton.valid()) {
+        _bind(r_set, p_skeleton, p_skeleton_guid);
+        return;
+    }
+    if (r_set.bound_skeleton == p_skeleton_guid) return;
+    for (uint32_t i = 0; i < LOCO_SLOT_COUNT; ++i) {
+        if (const Clip* clip = r_set.slot_clips[i]) _binding(r_set.data.clips[i], *clip, p_skeleton, p_skeleton_guid);
+    }
 }
 
 const LocomotionSystem::Clip* LocomotionSystem::_clip(Guid p_guid)
@@ -187,6 +228,13 @@ const LocomotionSystem::Binding* LocomotionSystem::_binding(Guid p_clip, const C
     Binding& b = it->second;
     if (!added) return &b;
     clip_track_map(p_skeleton, p_data.anim, b.map);
+    std::vector<uint8_t> covered(p_skeleton.joint_count(), 0);
+    for (int32_t j : b.map) {
+        if (j != SKELETON_NO_JOINT && j < (int32_t)covered.size()) covered[j] = 1;
+    }
+    for (uint32_t j = 0; j < (uint32_t)covered.size(); ++j) {
+        if (!covered[j]) b.uncovered.push_back((int32_t)j);
+    }
     const Guid source = p_data.anim.skeleton;
     if (project && source.valid() && source != p_skeleton_guid) {
         auto [sk, loaded] = authored.try_emplace(source);
@@ -201,18 +249,21 @@ const LocomotionSystem::Binding* LocomotionSystem::_binding(Guid p_clip, const C
     return &b;
 }
 
-const LocomotionSystem::Clip* LocomotionSystem::_slot_clip(const LLocomotionSet& p_set, LocoSlot p_slot)
+const LocomotionSystem::Clip* LocomotionSystem::_slot_clip(const Set& p_set, LocoSlot p_slot)
 {
-    return _clip(p_set.clip(p_slot));
+    return (uint32_t)p_slot < LOCO_SLOT_COUNT ? p_set.slot_clips[(uint32_t)p_slot] : nullptr;
 }
 
-bool LocomotionSystem::_sample(const LLocomotionSet& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_time, std::vector<JointTransform>& r_pose)
+bool LocomotionSystem::_sample(const Set& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_time, std::vector<JointTransform>& r_pose)
 {
-    r_pose = p_skeleton.rest;
-    const Guid guid = p_set.clip(p_slot);
-    const Clip* clip = _clip(guid);
-    if (!clip) return false;
-    const Binding* b = _binding(guid, *clip, p_skeleton, p_skeleton_guid);
+    const Clip* clip = _slot_clip(p_set, p_slot);
+    const Binding* b = clip ? _slot_binding(p_set, p_slot, p_skeleton, p_skeleton_guid) : nullptr;
+    if (!b || r_pose.size() != p_skeleton.rest.size()) {
+        r_pose = p_skeleton.rest;
+        if (!b) return false;
+    } else {
+        for (int32_t j : b->uncovered) r_pose[j] = p_skeleton.rest[j];
+    }
     clip_sample(BoundClip{ &clip->anim, &b->map, &b->retarget }, p_time, r_pose.data());
 
     const ClipMeta& meta = clip->anim.meta;
@@ -232,7 +283,7 @@ bool LocomotionSystem::_sample(const LLocomotionSet& p_set, LocoSlot p_slot, con
     return true;
 }
 
-void LocomotionSystem::_legs(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton)
+void LocomotionSystem::_legs(Character& r_char, const Set& p_set, const LSkeleton& p_skeleton)
 {
     if (r_char.legs_ready) return;
     r_char.legs_ready = true;
@@ -255,21 +306,21 @@ void LocomotionSystem::_legs(Character& r_char, const LLocomotionSet& p_set, con
 
 void LocomotionSystem::_stride_warp(Character& r_char, const LSkeleton& p_skeleton, std::vector<JointTransform>& r_pose, float p_stride, const vec3& p_dir)
 {
-    _globals.resize(p_skeleton.joint_count());
-    p_skeleton.globals(r_pose.data(), _globals.data());
+    r_char.globals.resize(p_skeleton.joint_count());
+    p_skeleton.globals(r_pose.data(), r_char.globals.data());
     vec3 hips(0.0f);
     if (r_char.pelvis != SKELETON_NO_JOINT) {
-        hips = vec3(_globals[r_char.pelvis][3]);
+        hips = vec3(r_char.globals[r_char.pelvis][3]);
     } else {
         for (const TwoBoneChain& leg : r_char.legs) {
-            if (leg.valid()) hips = vec3(_globals[leg.upper][3]);
+            if (leg.valid()) hips = vec3(r_char.globals[leg.upper][3]);
         }
     }
     vec3 feet[2];
     float low = 1.0e9f;
     for (uint32_t side = 0; side < 2; ++side) {
         if (!r_char.legs[side].valid()) continue;
-        feet[side] = vec3(_globals[r_char.legs[side].end][3]);
+        feet[side] = vec3(r_char.globals[r_char.legs[side].end][3]);
         low = std::min(low, feet[side].y);
     }
     const float lift = STRIDE_LIFT + (1.0f - STRIDE_LIFT) * p_stride;
@@ -277,12 +328,12 @@ void LocomotionSystem::_stride_warp(Character& r_char, const LSkeleton& p_skelet
         if (!r_char.legs[side].valid()) continue;
         vec3 target = feet[side] - p_dir * dot(feet[side] - hips, p_dir) * (1.0f - p_stride);
         target.y = low + (feet[side].y - low) * lift;
-        two_bone_ik(p_skeleton, r_pose, _globals, r_char.legs[side], target, vec3(0.0f, 0.0f, 1.0f), true);
+        two_bone_ik(p_skeleton, r_pose, r_char.globals, r_char.legs[side], target, vec3(0.0f, 0.0f, 1.0f), true);
     }
 }
 
 
-void LocomotionSystem::_stance_sample(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, LocoSlot p_slot, float p_time, bool p_normalized, std::vector<JointTransform>& r_pose)
+void LocomotionSystem::_stance_sample(Character& r_char, const Set& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, LocoSlot p_slot, float p_time, bool p_normalized, std::vector<JointTransform>& r_pose)
 {
     const Clip* clip = _slot_clip(p_set, p_slot);
     if (!clip || !_sample(p_set, p_slot, p_skeleton, p_skeleton_guid, p_normalized ? p_time * clip->anim.duration : p_time, r_pose)) {
@@ -300,7 +351,7 @@ void LocomotionSystem::_stance_sample(Character& r_char, const LLocomotionSet& p
     if (_sample(p_set, other, p_skeleton, p_skeleton_guid, t, r_char.stance_pose)) _mix_pose(r_pose, r_char.stance_pose, weight);
 }
 
-void LocomotionSystem::_effort(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
+void LocomotionSystem::_effort(Character& r_char, const Set& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
 {
     if (r_char.impulse <= 1e-3f || r_char.arms.empty() || _slot_clip(p_set, LocoSlot::SPRINT_IMPULSE)) return;
     if (r_char.swing_mean.size() != r_char.out.size()) {
@@ -329,56 +380,59 @@ void LocomotionSystem::_effort(Character& r_char, const LLocomotionSet& p_set, c
     }
 }
 
-const std::vector<vec3>* LocomotionSystem::_mantle_path(Character& r_char, const LLocomotionSet& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
+const std::vector<vec3>* LocomotionSystem::_mantle_path(Character& r_char, const Set& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid)
 {
-    const Guid guid = p_set.clip(p_slot);
+    const Guid guid = p_set.data.clip(p_slot);
     auto it = clips.find(guid);
     if (it == clips.end() || !it->second.loaded) return nullptr;
     Clip& clip = it->second;
     _legs(r_char, p_set, p_skeleton);
     int32_t hips = r_char.pelvis;
-    const Binding* b = _binding(guid, clip, p_skeleton, p_skeleton_guid);
+    const Binding* b = _slot_binding(p_set, p_slot, p_skeleton, p_skeleton_guid);
+    if (!b) return nullptr;
     if (hips == SKELETON_NO_JOINT) hips = b->root_joint;
     if (hips == SKELETON_NO_JOINT) return nullptr;
     r_char.top = hips;
     while (p_skeleton.parents[r_char.top] >= 0) r_char.top = p_skeleton.parents[r_char.top];
-    if (clip.path_skeleton == p_skeleton_guid && !clip.path.empty()) return &clip.path;
+    std::lock_guard<std::mutex> guard(_mantle_lock);
+    auto [found, added] = clip.paths.try_emplace(p_skeleton_guid);
+    std::vector<vec3>& path = found->second;
+    if (!added) return &path;
     const uint32_t frames = std::max(clip.anim.frame_count, 2u);
-    clip.path.resize(frames);
+    path.resize(frames);
     std::vector<JointTransform> pose;
-    _globals.resize(p_skeleton.joint_count());
+    r_char.globals.resize(p_skeleton.joint_count());
     vec3 first(0.0f);
     for (uint32_t f = 0; f < frames; ++f) {
         pose = p_skeleton.rest;
         clip_sample(BoundClip{ &clip.anim, &b->map, &b->retarget }, clip.anim.duration * (float)f / (float)(frames - 1), pose.data());
-        p_skeleton.globals(pose.data(), _globals.data());
-        const vec3 at = vec3(_globals[hips][3]);
+        p_skeleton.globals(pose.data(), r_char.globals.data());
+        const vec3 at = vec3(r_char.globals[hips][3]);
         if (f == 0) first = at;
-        clip.path[f] = at - first;
+        path[f] = at - first;
     }
-    clip.path_skeleton = p_skeleton_guid;
-    return &clip.path;
+    return &path;
 }
 
-void LocomotionSystem::_dip(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, float p_amount)
+void LocomotionSystem::_dip(Character& r_char, const Set& p_set, const LSkeleton& p_skeleton, float p_amount)
 {
     _legs(r_char, p_set, p_skeleton);
     if (r_char.pelvis == SKELETON_NO_JOINT || p_amount <= 1e-4f) return;
-    _globals.resize(p_skeleton.joint_count());
-    p_skeleton.globals(r_char.out.data(), _globals.data());
+    r_char.globals.resize(p_skeleton.joint_count());
+    p_skeleton.globals(r_char.out.data(), r_char.globals.data());
     vec3 feet[2];
     float leg = 0.0f;
     for (uint32_t side = 0; side < 2; ++side) {
         if (!r_char.legs[side].valid()) continue;
-        feet[side] = vec3(_globals[r_char.legs[side].end][3]);
-        leg = std::max(leg, length(vec3(_globals[r_char.legs[side].upper][3]) - feet[side]));
+        feet[side] = vec3(r_char.globals[r_char.legs[side].end][3]);
+        leg = std::max(leg, length(vec3(r_char.globals[r_char.legs[side].upper][3]) - feet[side]));
     }
     if (leg <= 0.0f) return;
     const int32_t parent = p_skeleton.parents[r_char.pelvis];
-    const mat3 to_parent = parent >= 0 ? inverse(mat3(_globals[parent])) : mat3(1.0f);
+    const mat3 to_parent = parent >= 0 ? inverse(mat3(r_char.globals[parent])) : mat3(1.0f);
     r_char.out[r_char.pelvis].translation += to_parent * vec3(0.0f, -leg * DIP_DEPTH * p_amount, 0.0f);
     for (uint32_t side = 0; side < 2; ++side) {
-        if (r_char.legs[side].valid()) two_bone_ik(p_skeleton, r_char.out, _globals, r_char.legs[side], feet[side], vec3(0.0f, 0.0f, 1.0f), true);
+        if (r_char.legs[side].valid()) two_bone_ik(p_skeleton, r_char.out, r_char.globals, r_char.legs[side], feet[side], vec3(0.0f, 0.0f, 1.0f), true);
     }
 }
 
@@ -388,12 +442,11 @@ bool LocomotionSystem::_one_shot(LocoSlot p_slot)
     return (stand >= LocoSlot::TURN_L90 && stand <= LocoSlot::ROTATE_R) || p_slot == LocoSlot::CROUCH_ENTER || p_slot == LocoSlot::CROUCH_EXIT || p_slot >= LocoSlot::ROLL;
 }
 
-vec3 LocomotionSystem::_travel(const LLocomotionSet& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_time)
+vec3 LocomotionSystem::_travel(const Set& p_set, LocoSlot p_slot, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_time)
 {
-    const Guid guid = p_set.clip(p_slot);
-    const Clip* clip = _clip(guid);
+    const Clip* clip = _slot_clip(p_set, p_slot);
     if (!clip || clip->anim.meta.trajectory.empty()) return vec3(0.0f);
-    const Binding* b = _binding(guid, *clip, p_skeleton, p_skeleton_guid);
+    const Binding* b = _slot_binding(p_set, p_slot, p_skeleton, p_skeleton_guid);
     if (!b->root_bone && !(p_slot == LocoSlot::ROLL && clip->anim.meta.has_root_motion())) return vec3(0.0f);
     const float scale = b->retarget.active() ? b->retarget.scale : 1.0f;
     const vec4 first = clip->anim.meta.trajectory.front();
@@ -408,7 +461,7 @@ void LocomotionSystem::_push_root(MovementComponent* r_move, const Clip& p_clip,
     r_move->root_motion += angleAxis(base, LOCO_UP) * p_model_delta;
 }
 
-void LocomotionSystem::_switch(Character& r_char, State p_state, LocoSlot p_slot, const LLocomotionSet& p_set)
+void LocomotionSystem::_switch(Character& r_char, State p_state, LocoSlot p_slot, const Set& p_set)
 {
     if (r_char.state == p_state && r_char.slot == p_slot) return;
     r_char.state = p_state;
@@ -417,11 +470,15 @@ void LocomotionSystem::_switch(Character& r_char, State p_state, LocoSlot p_slot
     r_char.aligning = false;
     r_char.turn_wait = 0.0f;
     r_char.blend_pending = !r_char.last.empty();
-    r_char.blend_time = std::max(p_set.blend_time, 0.0f);
+    r_char.blend_time = std::max(p_set.data.blend_time, 0.0f);
 }
 
-void LocomotionSystem::_blend(Character& r_char, float p_dt)
+void LocomotionSystem::_blend(Character& r_char, float p_dt, bool p_pose)
 {
+    if (!p_pose) {
+        if (!r_char.blend_pending) r_char.blend_elapsed += p_dt;
+        return;
+    }
     const size_t count = r_char.out.size();
     if (r_char.blend_pending && r_char.sampled == r_char.state) {
         r_char.blend_pending = false;
@@ -455,7 +512,7 @@ void LocomotionSystem::_blend(Character& r_char, float p_dt)
     }
 }
 
-bool LocomotionSystem::_cycle(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, const MovementComponent* p_move, float p_dt, bool p_crouch, bool p_advance, std::vector<JointTransform>& r_pose)
+bool LocomotionSystem::_cycle(Character& r_char, const Set& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, const MovementComponent* p_move, float p_dt, bool p_crouch, bool p_advance, bool p_pose, std::vector<JointTransform>& r_pose)
 {
     struct Gait { LocoSlot f, b, lf, lb, rf, rb; float native; float weight; };
     Gait gaits[3] = {
@@ -477,7 +534,7 @@ bool LocomotionSystem::_cycle(Character& r_char, const LLocomotionSet& p_set, co
         if (forward->anim.meta.speed > 0.1f) gaits[g].native = forward->anim.meta.speed;
         available[count++] = g;
     }
-    r_pose = p_skeleton.rest;
+    if (p_pose) r_pose = p_skeleton.rest;
     if (count == 0) return false;
 
     vec3 velocity = p_move ? vec3(p_move->velocity.x, 0.0f, p_move->velocity.z) : vec3(0.0f);
@@ -520,7 +577,7 @@ bool LocomotionSystem::_cycle(Character& r_char, const LLocomotionSet& p_set, co
         r_char.hips_back = want_back;
         if (sideways) {
             r_char.blend_pending = !r_char.last.empty();
-            r_char.blend_time = std::max(p_set.blend_time, 0.0f);
+            r_char.blend_time = std::max(p_set.data.blend_time, 0.0f);
         }
     }
     const bool hips_back = r_char.hips_back;
@@ -580,17 +637,19 @@ bool LocomotionSystem::_cycle(Character& r_char, const LLocomotionSet& p_set, co
     if (strided) rate = stride_rate;
     if (p_advance && duration > 1e-4f) r_char.cycle = _fract(r_char.cycle + p_dt * rate / duration);
 
-    for (uint32_t i = 0; i < entry_count; ++i) {
-        const Entry& e = entries[i];
-        const float phase = _fract(r_char.cycle + e.clip->cycle_offset);
-        _sample(p_set, e.slot, p_skeleton, p_skeleton_guid, phase * e.clip->anim.duration, r_char.scratch);
-        if (e.slot == LocoSlot::SPRINT_F && impulse && _sample(p_set, LocoSlot::SPRINT_IMPULSE, p_skeleton, p_skeleton_guid, _fract(r_char.cycle + impulse->cycle_offset) * impulse->anim.duration, r_char.impulse_pose)) _mix_pose(r_char.scratch, r_char.impulse_pose, r_char.impulse);
-        _accumulate(r_pose, r_char.scratch, e.weight, i == 0);
-    }
-    _normalize(r_pose, total);
-    if (strided) {
-        vec3 dir(-local_x, 0.0f, local_z);
-        if (length(dir) > 1e-4f) _stride_warp(r_char, p_skeleton, r_pose, stride, normalize(dir));
+    if (p_pose) {
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            const Entry& e = entries[i];
+            const float phase = _fract(r_char.cycle + e.clip->cycle_offset);
+            _sample(p_set, e.slot, p_skeleton, p_skeleton_guid, phase * e.clip->anim.duration, r_char.scratch);
+            if (e.slot == LocoSlot::SPRINT_F && impulse && _sample(p_set, LocoSlot::SPRINT_IMPULSE, p_skeleton, p_skeleton_guid, _fract(r_char.cycle + impulse->cycle_offset) * impulse->anim.duration, r_char.impulse_pose)) _mix_pose(r_char.scratch, r_char.impulse_pose, r_char.impulse);
+            _accumulate(r_pose, r_char.scratch, e.weight, i == 0);
+        }
+        _normalize(r_pose, total);
+        if (strided) {
+            vec3 dir(-local_x, 0.0f, local_z);
+            if (length(dir) > 1e-4f) _stride_warp(r_char, p_skeleton, r_pose, stride, normalize(dir));
+        }
     }
     if (!p_advance) return true;
 
@@ -619,7 +678,7 @@ bool LocomotionSystem::_cycle(Character& r_char, const LLocomotionSet& p_set, co
     return true;
 }
 
-void LocomotionSystem::_lean(Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, const MovementComponent* p_move, float p_dt)
+void LocomotionSystem::_lean(Character& r_char, const Set& p_set, const LSkeleton& p_skeleton, const MovementComponent* p_move, float p_dt, bool p_pose)
 {
     if (!p_move || p_dt <= 0.0f) return;
 
@@ -631,7 +690,7 @@ void LocomotionSystem::_lean(Character& r_char, const LLocomotionSet& p_set, con
         const vec3 right(-forward.z, 0.0f, forward.x);
         const vec3 accel = (velocity - r_char.prev_velocity) / p_dt;
         const float yaw_rate = _wrap_angle(p_move->facing - r_char.prev_facing) / p_dt;
-        const float limit = std::max(p_set.lean_acceleration, 0.1f);
+        const float limit = std::max(p_set.data.lean_acceleration, 0.1f);
         target.x = std::clamp((dot(accel, right) - yaw_rate * speed) / limit, -1.0f, 1.0f);
         target.y = std::clamp(dot(accel, forward) / limit, -1.0f, 1.0f);
         target *= std::clamp(speed, 0.0f, 1.0f);
@@ -642,15 +701,13 @@ void LocomotionSystem::_lean(Character& r_char, const LLocomotionSet& p_set, con
     r_char.prev_ready = true;
     r_char.lean += (target - r_char.lean) * std::clamp(p_dt * LEAN_SMOOTH, 0.0f, 1.0f);
 
-    if (r_char.lean_chain.empty() || length(r_char.lean) < 1e-4f) return;
-    const float share = glm::radians(p_set.lean_angle) / (float)r_char.lean_chain.size();
+    if (!p_pose || r_char.lean_chain.empty() || length(r_char.lean) < 1e-4f) return;
+    const float share = glm::radians(p_set.data.lean_angle) / (float)r_char.lean_chain.size();
     const quat tilt = angleAxis(r_char.lean.y * share, vec3(1.0f, 0.0f, 0.0f)) * angleAxis(r_char.lean.x * share, vec3(0.0f, 0.0f, 1.0f));
-    _globals.resize(p_skeleton.joint_count());
     for (int32_t j : r_char.lean_chain) {
-        p_skeleton.globals(r_char.out.data(), _globals.data());
-        const int32_t parent = p_skeleton.parents[j];
-        const quat parent_rot = parent >= 0 ? _rotation_of(_globals[parent]) : quat(1.0f, 0.0f, 0.0f, 0.0f);
-        r_char.out[j].rotation = normalize(inverse(parent_rot) * tilt * _rotation_of(_globals[j]));
+        const mat4 parent = _parent_global(p_skeleton, r_char.out, j);
+        const quat parent_rot = _rotation_of(parent);
+        r_char.out[j].rotation = normalize(inverse(parent_rot) * tilt * _rotation_of(parent * r_char.out[j].matrix()));
     }
 }
 
@@ -659,9 +716,9 @@ static uint64_t _entity_key(Entity p_entity)
     return ((uint64_t)p_entity.index << 32) | p_entity.generation;
 }
 
-void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_char, const LLocomotionSet& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_dt)
+void LocomotionSystem::_evaluate(Character& r_char, MovementComponent* p_move, TransformComponent* r_transform, const CameraComponent* p_camera, const Set& p_set, const LSkeleton& p_skeleton, Guid p_skeleton_guid, float p_dt, bool p_pose)
 {
-    MovementComponent* move = r_world.try_get<MovementComponent>(p_entity);
+    MovementComponent* move = p_move;
     const vec3 velocity = move ? vec3(move->velocity.x, 0.0f, move->velocity.z) : vec3(0.0f);
     const float speed = length(velocity);
     const bool wants = move && length(vec2(move->want_move.x, move->want_move.z)) > 0.01f;
@@ -680,7 +737,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
         r_char.stance_time = 0.0f;
         r_char.stance_x = 0.0f;
         r_char.stance_slot = clip ? change : LocoSlot::COUNT;
-        r_char.stance_duration = clip && clip->anim.duration > 0.0f ? clip->anim.duration : std::max(p_set.blend_time, 0.01f);
+        r_char.stance_duration = clip && clip->anim.duration > 0.0f ? clip->anim.duration : std::max(p_set.data.blend_time, 0.01f);
         if ((r_char.state == State::IDLE || r_char.state == State::TRANSITION) && !wants && clip) _switch(r_char, State::TRANSITION, change, p_set);
     }
     if (r_char.stance_x < 1.0f) {
@@ -702,7 +759,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             const vec2 want(move->want_move.x, move->want_move.z);
             const float before = move->facing;
             if (length(want) > 0.01f) move->facing = std::atan2(want.x, want.y);
-            if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) t->rotation = angleAxis(move->facing, LOCO_UP);
+            if (TransformComponent* t = r_transform) t->rotation = angleAxis(move->facing, LOCO_UP);
             r_char.yaw_blend = _wrap_angle(before - move->facing);
             r_char.yaw_elapsed = 0.0f;
             r_char.yaw_time = ROLL_BLEND_IN;
@@ -711,7 +768,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             r_char.roll_velocity = vec3(0.0f);
             r_char.roll_entry = speed;
             _switch(r_char, State::ROLL, LocoSlot::ROLL, p_set);
-            r_char.blend_time = std::max(p_set.blend_time, ROLL_BLEND_IN);
+            r_char.blend_time = std::max(p_set.data.blend_time, ROLL_BLEND_IN);
             move->rolling = true;
         }
     }
@@ -801,9 +858,9 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             }
             if (!move) break;
             const float diff = _wrap_angle(move->target_facing - move->facing);
-            const CameraComponent* cam = r_world.try_get<CameraComponent>(p_entity);
+            const CameraComponent* cam = p_camera;
             if (cam && cam->type == CameraType::FIRST_PERSON) {
-                if (std::abs(diff) > glm::radians(p_set.turn_threshold)) {
+                if (std::abs(diff) > glm::radians(p_set.data.turn_threshold)) {
                     const LocoSlot slot = pick(diff > 0.0f ? LocoSlot::ROTATE_L : LocoSlot::ROTATE_R);
                     if (_slot_clip(p_set, slot)) {
                         _switch(r_char, State::ROTATE, slot, p_set);
@@ -817,14 +874,14 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                     facing = _wrap_angle(facing + std::clamp(diff, -max_turn, max_turn));
                     if (std::abs(diff) <= max_turn) r_char.aligning = false;
                 }
-                const float limit = std::min(glm::radians(p_set.turn_threshold), r_char.yaw_max);
+                const float limit = std::min(glm::radians(p_set.data.turn_threshold), r_char.yaw_max);
                 const float left = _wrap_angle(move->target_facing - facing);
                 if (std::abs(left) > limit) facing = _wrap_angle(move->target_facing - (left > 0.0f ? limit : -limit));
                 move->facing = facing;
-                if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) t->rotation = angleAxis(move->facing, LOCO_UP);
+                if (TransformComponent* t = r_transform) t->rotation = angleAxis(move->facing, LOCO_UP);
                 break;
             }
-            if (std::abs(diff) <= glm::radians(p_set.turn_threshold)) {
+            if (std::abs(diff) <= glm::radians(p_set.data.turn_threshold)) {
                 r_char.turn_wait = 0.0f;
                 break;
             }
@@ -840,7 +897,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             if (!_slot_clip(p_set, slot)) {
                 const float max_turn = glm::radians(move->turn_rate) * p_dt;
                 move->facing = _wrap_angle(move->facing + std::clamp(diff, -max_turn, max_turn));
-                if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) t->rotation = angleAxis(move->facing, LOCO_UP);
+                if (TransformComponent* t = r_transform) t->rotation = angleAxis(move->facing, LOCO_UP);
                 break;
             }
             _switch(r_char, State::TURN, slot, p_set);
@@ -858,7 +915,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             break;
         }
         case State::ROTATE: {
-            const CameraComponent* cam = r_world.try_get<CameraComponent>(p_entity);
+            const CameraComponent* cam = p_camera;
             if (wants) {
                 r_char.cycle = 0.0f;
                 _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
@@ -894,7 +951,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             r_char.turn_clip = clip->anim.meta.trajectory.back().w - clip->anim.meta.trajectory.front().w;
             r_char.turn_start = _wrap_angle(move->facing - live * ((clip->anim.trajectory_at(r_char.time).w - clip->anim.trajectory_at(0.0f).w) / r_char.turn_clip));
             r_char.blend_pending = !r_char.last.empty();
-            r_char.blend_time = std::max(p_set.blend_time, 0.0f);
+            r_char.blend_time = std::max(p_set.data.blend_time, 0.0f);
             break;
         }
     }
@@ -905,7 +962,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             const LocoSlot slot = pick(LocoSlot::IDLE);
             const Clip* idle = _slot_clip(p_set, slot);
             if (idle && idle->anim.duration > 0.0f) r_char.time = std::fmod(r_char.time + p_dt, idle->anim.duration);
-            _stance_sample(r_char, p_set, p_skeleton, p_skeleton_guid, slot, r_char.time, false, r_char.out);
+            if (p_pose) _stance_sample(r_char, p_set, p_skeleton, p_skeleton_guid, slot, r_char.time, false, r_char.out);
             break;
         }
         case State::ROLL: {
@@ -928,7 +985,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 if (along < carry) move->root_motion += ahead * (carry - along);
             }
             if (p_dt > 0.0f) r_char.roll_velocity = (move->root_motion - before) / p_dt;
-            _sample(p_set, LocoSlot::ROLL, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
+            if (p_pose) _sample(p_set, LocoSlot::ROLL, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
             const float x = r_char.time / clip->anim.duration;
             move->roll_camera = std::sin(x * glm::pi<float>());
             const bool early = wants && x >= ROLL_EXIT;
@@ -946,7 +1003,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 r_char.cycle = 0.0f;
                 if (wants) _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
                 else _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
-                r_char.blend_time = std::max(p_set.blend_time, ROLL_BLEND_OUT);
+                r_char.blend_time = std::max(p_set.data.blend_time, ROLL_BLEND_OUT);
             }
             break;
         }
@@ -960,7 +1017,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             const float t0 = r_char.time;
             r_char.time = std::min(r_char.time + p_dt, clip->anim.duration);
             _push_root(move, *clip, _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time) - _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, t0), r_char.time);
-            _sample(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
+            if (p_pose) _sample(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
             if (r_char.time >= clip->anim.duration) _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
             break;
         }
@@ -999,16 +1056,16 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             const vec3 step = r_char.time > p_dt ? placed - r_char.mantle_last : vec3(0.0f);
             r_char.mantle_last = placed;
             move->facing = move->mantle_facing;
-            if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) {
+            if (TransformComponent* t = r_transform) {
                 t->position = placed;
                 t->rotation = angleAxis(move->facing, LOCO_UP);
             }
-            if (clip) {
-                const Binding* b = _binding(p_set.clip(r_char.slot), *clip, p_skeleton, p_skeleton_guid);
+            if (p_pose && clip) {
+                const Binding* b = _slot_binding(p_set, r_char.slot, p_skeleton, p_skeleton_guid);
                 r_char.out = p_skeleton.rest;
                 clip_sample(BoundClip{ &clip->anim, &b->map, &b->retarget }, r_char.time, r_char.out.data());
                 if (r_char.top != SKELETON_NO_JOINT && path) r_char.out[r_char.top].translation -= now;
-            } else if (r_char.last.size() == r_char.out.size()) {
+            } else if (p_pose && r_char.last.size() == r_char.out.size()) {
                 r_char.out = r_char.last;
             }
             move->roll_camera = std::sin(x * glm::pi<float>());
@@ -1020,7 +1077,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 r_char.cycle = 0.0f;
                 if (wants) _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
                 else _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
-                r_char.blend_time = std::max(p_set.blend_time, MANTLE_BLEND_OUT);
+                r_char.blend_time = std::max(p_set.data.blend_time, MANTLE_BLEND_OUT);
             }
             break;
         }
@@ -1030,31 +1087,32 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             const float vy = move ? move->velocity.y : 0.0f;
             auto loop = [&](LocoSlot p_slot, std::vector<JointTransform>& r_pose) {
                 const Clip* clip = _slot_clip(p_set, p_slot);
-                return clip && clip->anim.duration > 0.0f && _sample(p_set, p_slot, p_skeleton, p_skeleton_guid, std::fmod(r_char.air_clock, clip->anim.duration), r_pose);
+                return clip && clip->anim.duration > 0.0f && (!p_pose || _sample(p_set, p_slot, p_skeleton, p_skeleton_guid, std::fmod(r_char.air_clock, clip->anim.duration), r_pose));
+            };
+            auto layer = [&](const std::vector<JointTransform>& p_layer, float p_weight, bool p_have) {
+                if (!p_pose) return;
+                if (p_have) _mix_pose(r_char.out, p_layer, p_weight);
+                else r_char.out = p_layer;
             };
             const bool rise = loop(LocoSlot::JUMP_LOOP, r_char.out);
             bool have = rise;
             const float fall = std::clamp((AIR_APEX - vy) / (2.0f * AIR_APEX), 0.0f, 1.0f);
             if (loop(LocoSlot::FALL_LOOP, r_char.stance_pose)) {
-                if (have) _mix_pose(r_char.out, r_char.stance_pose, fall * fall * (3.0f - 2.0f * fall));
-                else r_char.out = r_char.stance_pose;
+                layer(r_char.stance_pose, fall * fall * (3.0f - 2.0f * fall), have);
                 have = true;
             }
             const float fast = std::clamp((-vy - FALL_FAST_FROM) / FALL_FAST_RANGE, 0.0f, 1.0f);
             if (fast > 1e-3f && loop(LocoSlot::FALL_FAST, r_char.stance_pose)) {
-                if (have) _mix_pose(r_char.out, r_char.stance_pose, fast);
-                else r_char.out = r_char.stance_pose;
+                layer(r_char.stance_pose, fast, have);
                 have = true;
             }
             const Clip* takeoff = r_char.takeoff != LocoSlot::COUNT ? _slot_clip(p_set, r_char.takeoff) : nullptr;
-            if (takeoff && r_char.time < takeoff->anim.duration && _sample(p_set, r_char.takeoff, p_skeleton, p_skeleton_guid, r_char.time, r_char.stance_pose)) {
+            if (takeoff && r_char.time < takeoff->anim.duration && (!p_pose || _sample(p_set, r_char.takeoff, p_skeleton, p_skeleton_guid, r_char.time, r_char.stance_pose))) {
                 const float left = takeoff->anim.duration - r_char.time;
-                const float w = have ? std::clamp(left / TAKEOFF_FADE, 0.0f, 1.0f) : 1.0f;
-                if (have) _mix_pose(r_char.out, r_char.stance_pose, w);
-                else r_char.out = r_char.stance_pose;
+                layer(r_char.stance_pose, have ? std::clamp(left / TAKEOFF_FADE, 0.0f, 1.0f) : 1.0f, have);
                 have = true;
             }
-            if (!have) _cycle(r_char, p_set, p_skeleton, p_skeleton_guid, move, p_dt, r_char.stance >= 0.5f, true, r_char.out);
+            if (!have) _cycle(r_char, p_set, p_skeleton, p_skeleton_guid, move, p_dt, r_char.stance >= 0.5f, true, p_pose, r_char.out);
             break;
         }
         case State::LAND: {
@@ -1065,7 +1123,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 break;
             }
             r_char.time = std::min(r_char.time + p_dt, clip->anim.duration);
-            _sample(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
+            if (p_pose) _sample(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time, r_char.out);
             if (r_char.time >= clip->anim.duration) {
                 r_char.cycle = 0.0f;
                 if (wants) _switch(r_char, State::MOVE, LocoSlot::WALK_F, p_set);
@@ -1075,9 +1133,10 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
         }
         case State::MOVE: {
             const bool dominant = r_char.stance >= 0.5f;
-            _cycle(r_char, p_set, p_skeleton, p_skeleton_guid, move, p_dt, dominant, true, r_char.out);
+            _cycle(r_char, p_set, p_skeleton, p_skeleton_guid, move, p_dt, dominant, true, p_pose, r_char.out);
+            if (!p_pose) break;
             const float other = dominant ? 1.0f - r_char.stance : r_char.stance;
-            if (other > 1e-3f && _cycle(r_char, p_set, p_skeleton, p_skeleton_guid, move, p_dt, !dominant, false, r_char.stance_pose)) _mix_pose(r_char.out, r_char.stance_pose, other);
+            if (other > 1e-3f && _cycle(r_char, p_set, p_skeleton, p_skeleton_guid, move, p_dt, !dominant, false, true, r_char.stance_pose)) _mix_pose(r_char.out, r_char.stance_pose, other);
             _effort(r_char, p_set, p_skeleton, p_skeleton_guid);
             break;
         }
@@ -1088,7 +1147,7 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
                 r_char.out = p_skeleton.rest;
                 break;
             }
-            const float threshold = std::min(glm::radians(p_set.turn_threshold), r_char.yaw_max);
+            const float threshold = std::min(glm::radians(p_set.data.turn_threshold), r_char.yaw_max);
             const float diff = _wrap_angle(move->target_facing - move->facing);
             const float rate = std::clamp(std::abs(diff) / std::max(threshold, 1e-3f), 1.0f, MAX_RATE);
             const float duration = clip->anim.duration;
@@ -1107,13 +1166,13 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             const float left = _wrap_angle(move->target_facing - facing);
             if (std::abs(left) > threshold) facing = _wrap_angle(move->target_facing - (left > 0.0f ? threshold : -threshold));
             move->facing = facing;
-            if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) t->rotation = angleAxis(move->facing, LOCO_UP);
+            if (TransformComponent* t = r_transform) t->rotation = angleAxis(move->facing, LOCO_UP);
             const vec3 moved = next >= duration
                 ? (_travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, duration) - _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, prev)) + _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, wrapped)
                 : _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, next) - _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, prev);
             r_char.time = wrapped;
             _push_root(move, *clip, moved, r_char.time);
-            _stance_sample(r_char, p_set, p_skeleton, p_skeleton_guid, r_char.slot, r_char.time / duration, true, r_char.out);
+            if (p_pose) _stance_sample(r_char, p_set, p_skeleton, p_skeleton_guid, r_char.slot, r_char.time / duration, true, r_char.out);
             break;
         }
         case State::TURN: {
@@ -1129,15 +1188,15 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
             float progress = clip->anim.duration > 0.0f ? r_char.time / clip->anim.duration : 1.0f;
             if (authored_turn) progress = (clip->anim.trajectory_at(r_char.time).w - clip->anim.trajectory_at(0.0f).w) / r_char.turn_clip;
             move->facing = _wrap_angle(r_char.turn_start + r_char.turn_total * progress);
-            if (TransformComponent* t = r_world.try_get<TransformComponent>(p_entity)) t->rotation = angleAxis(move->facing, LOCO_UP);
+            if (TransformComponent* t = r_transform) t->rotation = angleAxis(move->facing, LOCO_UP);
             _push_root(move, *clip, _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, r_char.time) - _travel(p_set, r_char.slot, p_skeleton, p_skeleton_guid, t0), r_char.time);
-            _stance_sample(r_char, p_set, p_skeleton, p_skeleton_guid, r_char.slot, clip->anim.duration > 0.0f ? r_char.time / clip->anim.duration : 1.0f, true, r_char.out);
+            if (p_pose) _stance_sample(r_char, p_set, p_skeleton, p_skeleton_guid, r_char.slot, clip->anim.duration > 0.0f ? r_char.time / clip->anim.duration : 1.0f, true, r_char.out);
             if (r_char.time >= clip->anim.duration) _switch(r_char, State::IDLE, LocoSlot::IDLE, p_set);
             break;
         }
     }
 
-    if (r_char.state != State::TRANSITION && r_char.stance_slot != LocoSlot::COUNT && r_char.stance_x < 1.0f && r_char.upper.size() == r_char.out.size()) {
+    if (p_pose && r_char.state != State::TRANSITION && r_char.stance_slot != LocoSlot::COUNT && r_char.stance_x < 1.0f && r_char.upper.size() == r_char.out.size()) {
         const float x = r_char.stance_x;
         const float w = std::sin(x * glm::pi<float>()) * STANCE_UPPER;
         if (w > 1e-3f && _sample(p_set, r_char.stance_slot, p_skeleton, p_skeleton_guid, r_char.stance_time, r_char.stance_pose)) {
@@ -1150,24 +1209,64 @@ void LocomotionSystem::_evaluate(Scene& r_world, Entity p_entity, Character& r_c
         r_char.yaw_elapsed += p_dt;
         const float x = std::clamp(r_char.yaw_elapsed / std::max(r_char.yaw_time, 1e-3f), 0.0f, 1.0f);
         const float k = 1.0f - x * x * (3.0f - 2.0f * x);
-        const quat turn = angleAxis(r_char.yaw_blend * k, LOCO_UP);
-        r_char.out[r_char.top].rotation = normalize(turn * r_char.out[r_char.top].rotation);
-        r_char.out[r_char.top].translation = turn * r_char.out[r_char.top].translation;
+        if (p_pose) {
+            const quat turn = angleAxis(r_char.yaw_blend * k, LOCO_UP);
+            r_char.out[r_char.top].rotation = normalize(turn * r_char.out[r_char.top].rotation);
+            r_char.out[r_char.top].translation = turn * r_char.out[r_char.top].translation;
+        }
         if (x >= 1.0f) r_char.yaw_blend = 0.0f;
     }
     if (r_char.dip > 0.0f) {
         r_char.dip_time += p_dt;
         const float x = r_char.dip_time / DIP_TIME;
         if (x >= 1.0f) r_char.dip = 0.0f;
-        else _dip(r_char, p_set, p_skeleton, std::sin(x * glm::pi<float>()) * r_char.dip);
+        else if (p_pose) _dip(r_char, p_set, p_skeleton, std::sin(x * glm::pi<float>()) * r_char.dip);
     }
     if (move && r_char.state != State::ROLL) move->rolling = false;
     if (move && r_char.state != State::MANTLE) move->mantling = false;
     if (move && r_char.state != State::ROLL && r_char.state != State::MANTLE) move->roll_camera = 0.0f;
     if (move) move->foot_planted = r_char.state != State::MOVE || r_char.foot_grip;
-    _lean(r_char, p_set, p_skeleton, move, p_dt);
-    _blend(r_char, p_dt);
-    r_char.last = r_char.out;
+    _lean(r_char, p_set, p_skeleton, move, p_dt, p_pose);
+    _blend(r_char, p_dt, p_pose);
+    if (p_pose) r_char.last = r_char.out;
+}
+
+void LocomotionSystem::_write_pose(const Work& p_work)
+{
+    PoseComponent* pose = p_work.pose;
+    if (!pose) return;
+    const Character& c = *p_work.character;
+    const LSkeleton& skeleton = *p_work.skeleton;
+    pose->held = !p_work.posing && pose->skeleton == p_work.skeleton_guid && pose->local.size() == c.out.size();
+    if (pose->held) return;
+    pose->skeleton = p_work.skeleton_guid;
+    pose->local = c.out;
+    pose->joints.resize(skeleton.joint_count());
+    skeleton.globals(c.out.data(), pose->joints.data());
+    pose->joints_fresh = true;
+    const CameraComponent* cam = p_work.camera;
+    pose->hidden_joint = -1;
+    if (cam && cam->type == CameraType::FIRST_PERSON && cam->hide_head && cam->viewing && cam->third_person < HEAD_SHOW) {
+        const int32_t head = skeleton_find_head(skeleton, cam->head_bone);
+        if (head != SKELETON_NO_JOINT) pose->hidden_joint = head;
+    }
+}
+
+bool LocomotionSystem::_wants_pose(const Scene& p_world, Entity p_entity, Character& r_char, uint64_t p_frame) const
+{
+    const bool was = r_char.visible;
+    r_char.visible = true;
+    if (character_is_player(p_world, p_entity) || p_world.has<CameraComponent>(p_entity)) return true;
+    const MovementComponent* move = p_world.try_get<MovementComponent>(p_entity);
+    const float height = move ? move->height : 2.0f;
+    const vec3 center = vec3(p_world.world_matrix(p_entity)[3]) + LOCO_UP * (height * 0.5f);
+    const float radius = height * 0.75f;
+    r_char.visible = relevance_visible(_view, center, radius);
+    if (!r_char.visible) return false;
+    if (!was) return true;
+    uint32_t interval = relevance_interval(relevance_band(relevance_distance(_view, center, radius), height));
+    if (interval == 0) interval = BEYOND_INTERVAL;
+    return (p_frame + p_entity.index) % interval == 0;
 }
 
 void LocomotionSystem::update(GameSession& r_session, float p_dt)
@@ -1175,28 +1274,32 @@ void LocomotionSystem::update(GameSession& r_session, float p_dt)
     if (!r_session.world || !renderer) return;
     Scene& world = *r_session.world;
     for (auto& [k, c] : characters) c.seen = false;
+    _view = relevance_view(r_session.camera);
+    _view.shadow = normalize(EnvironmentSettings::SUN_DIRECTION);
 
+    _work.clear();
     std::vector<Entity> entities;
-    world.view<MeshComponent, LocomotionComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const MeshComponent&, const LocomotionComponent&) { entities.push_back(p_entity); });
+    world.view<MeshComponent, CharacterComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const MeshComponent&, const CharacterComponent&) { entities.push_back(p_entity); });
 
     for (Entity e : entities) {
         const MeshComponent& mesh = *world.try_get<MeshComponent>(e);
-        const LocomotionComponent& loco = *world.try_get<LocomotionComponent>(e);
+        const CharacterComponent& character = *world.try_get<CharacterComponent>(e);
         const LMeshRig* rig = renderer->geometry.rig(renderer->mesh_slots.mesh_index(mesh.mesh));
         if (!rig) continue;
         const SkeletonCache::Entry* entry = renderer->skeletons.get(rig->skeleton);
         if (!entry || entry->skeleton.joint_count() == 0) continue;
         const LSkeleton& skeleton = entry->skeleton;
-        const LLocomotionSet* set = _set(loco.set);
+        Set* set = _set(character.set);
         if (!set) continue;
+        _prepare_bindings(*set, skeleton, rig->skeleton);
 
         Character& c = characters[_entity_key(e)];
         c.seen = true;
-        if (c.skeleton != rig->skeleton || c.set != loco.set || c.out.size() != skeleton.joint_count()) {
+        if (c.skeleton != rig->skeleton || c.set != character.set || c.out.size() != skeleton.joint_count()) {
             c = Character{};
             c.seen = true;
             c.skeleton = rig->skeleton;
-            c.set = loco.set;
+            c.set = character.set;
             c.out = skeleton.rest;
             std::vector<int32_t> spine;
             for (uint32_t i = 0; i < skeleton.joint_count(); ++i) {
@@ -1222,25 +1325,35 @@ void LocomotionSystem::update(GameSession& r_session, float p_dt)
 
         const LookAtComponent* look = world.try_get<LookAtComponent>(e);
         c.yaw_max = glm::radians(look ? look->yaw_max : LookAtComponent::DEFAULT_YAW_MAX);
-        _evaluate(world, e, c, *set, skeleton, rig->skeleton, p_dt);
-
-        PoseComponent* pose = world.try_get<PoseComponent>(e);
-        if (!pose) {
-            world.add<PoseComponent>(e);
-            pose = world.try_get<PoseComponent>(e);
+        const bool was_visible = c.visible;
+        const bool posing = _wants_pose(world, e, c, r_session.frame);
+        if (c.visible && !was_visible) {
+            c.last.clear();
+            c.blend_rot.clear();
+            c.blend_pending = false;
         }
-        if (!pose) continue;
-        pose->skeleton = rig->skeleton;
-        pose->local = c.out;
-        pose->joints.resize(skeleton.joint_count());
-        skeleton.globals(c.out.data(), pose->joints.data());
-        const CameraComponent* cam = world.try_get<CameraComponent>(e);
-        pose->hidden_joint = -1;
-        if (cam && cam->type == CameraType::FIRST_PERSON && cam->hide_head && cam->viewing && cam->third_person < HEAD_SHOW) {
-            const int32_t head = skeleton_find_head(skeleton, cam->head_bone);
-            if (head != SKELETON_NO_JOINT) pose->hidden_joint = head;
-        }
+        if (!world.has<PoseComponent>(e)) world.add<PoseComponent>(e);
+        Work& w = _work.emplace_back();
+        w.entity = e;
+        w.character = &c;
+        w.set = set;
+        w.skeleton = &skeleton;
+        w.skeleton_guid = rig->skeleton;
+        w.posing = posing;
     }
+
+    for (Work& w : _work) {
+        w.move = world.try_get<MovementComponent>(w.entity);
+        w.transform = world.try_get<TransformComponent>(w.entity);
+        w.camera = world.try_get<CameraComponent>(w.entity);
+        w.pose = world.try_get<PoseComponent>(w.entity);
+    }
+
+    job_system().parallel_for((uint32_t)_work.size(), 1, [&](uint32_t p_index) {
+        const Work& w = _work[p_index];
+        _evaluate(*w.character, w.move, w.transform, w.camera, *w.set, *w.skeleton, w.skeleton_guid, p_dt, w.posing);
+        _write_pose(w);
+    }, JobPriority::HIGH, "Locomotion");
 
     for (auto it = characters.begin(); it != characters.end();) {
         if (it->second.seen) ++it;

@@ -228,7 +228,7 @@ void MovementSystem::update(GameSession& r_session, float p_dt)
             r_move.simulated = true;
             return;
         }
-        if (world.has<LocomotionComponent>(p_entity) && !r_move.rolling) {
+        if (world.has<CharacterComponent>(p_entity) && !r_move.rolling) {
             const vec3 want_dir = _flat(r_move.want_move);
             const bool pressed = r_move.jump_buffer > 0.0f && (r_move.grounded || r_move.air_time < COYOTE_TIME);
             const bool catching = !r_move.grounded && want_dir != vec3(0.0f) && r_move.velocity.y < MANTLE_AIR_RISE && r_move.air_time > MANTLE_AIR_DELAY;
@@ -364,7 +364,7 @@ void MovementSystem::update(GameSession& r_session, float p_dt)
             r_transform.position = result.position;
         }
 
-        const bool turn_in_place = world.has<LocomotionComponent>(p_entity);
+        const bool turn_in_place = world.has<CharacterComponent>(p_entity);
         if (!r_move.rolling && r_move.grounded && (moving || !turn_in_place)) {
             const float delta = _wrap_angle(r_move.target_facing - r_move.facing);
             const float max_turn = glm::radians(r_move.turn_rate) * p_dt;

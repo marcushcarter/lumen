@@ -17,6 +17,8 @@ struct Project;
 
 struct PhysicsSystem : GameSystem
 {
+    PhysicsSystem() { name = "Physics"; }
+
     struct Body {
         Entity entity = ENTITY_NULL;
         PhysicsBodyId id;

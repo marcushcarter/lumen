@@ -12,6 +12,8 @@ struct PhysicsWorld;
 
 struct MovementSystem : GameSystem
 {
+    MovementSystem() { name = "Movement"; }
+
     static constexpr float WALK_INPUT = 0.5f;
     static constexpr float GROUND_PROBE = 50.0f;
     static constexpr float PIVOT_ANGLE = 120.0f;

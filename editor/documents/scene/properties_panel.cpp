@@ -609,19 +609,19 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
         if (remove) world.deferred_remove<CameraComponent>(e);
     }
 
-    const uint32_t locomotion_index = component("locomotion");
-    bool revert_locomotion = false;
-    if (LocomotionComponent* loco = world.try_get<LocomotionComponent>(e)) {
+    const uint32_t character_index = component("character");
+    bool revert_character = false;
+    if (CharacterComponent* character = world.try_get<CharacterComponent>(e)) {
         bool remove = false;
-        const LocomotionComponent* ll = has_live ? live->try_get<LocomotionComponent>(le) : nullptr;
-        if (_section("Locomotion", &remove, overridden(locomotion_index) ? &revert_locomotion : nullptr)) {
+        const CharacterComponent* ll = has_live ? live->try_get<CharacterComponent>(le) : nullptr;
+        if (_section("Character", &remove, overridden(character_index) ? &revert_character : nullptr)) {
             _name("Locomotion Set");
-            if (asset_field(ctx, "", "###loco_set", loco->set, AssetType::LOCOMOTION)) world.touch(e);
+            if (asset_field(ctx, "", "###loco_set", character->set, AssetType::LOCOMOTION)) world.touch(e);
             const AssetRegistry::Entry* entry = ll && ctx.assets ? ctx.assets->find(ll->set) : nullptr;
             if (entry) _live("%s", entry->name.c_str());
             else _live("-");
         }
-        if (remove) world.deferred_remove<LocomotionComponent>(e);
+        if (remove) world.deferred_remove<CharacterComponent>(e);
     }
 
     const uint32_t look_at_index = component("look_at");
@@ -648,8 +648,12 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
             _live_vec3(ll != nullptr, ll ? ll->split : vec3(0.0f));
             _name("Speed");
             changed |= ImGui::DragFloat("##look_speed", &look->speed, 0.1f, 0.1f, 50.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How fast the head turns to a new target");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("How tightly the head follows its target");
             _live_float(ll != nullptr, ll ? ll->speed : 0.0f);
+            _name("Turn Speed");
+            changed |= ImGui::DragFloat("##look_turn_speed", &look->turn_speed, 1.0f, 10.0f, 1000.0f, "%.0f deg/s", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Fastest the head turns. Slows down switches between attention points; following one target is unaffected.");
+            _live_float(ll != nullptr, ll ? ll->turn_speed : 0.0f, " deg/s");
             if (changed) world.touch(e);
         }
         if (remove) world.deferred_remove<LookAtComponent>(e);
@@ -906,7 +910,7 @@ void PropertiesPanel::draw_contents(EditorContext& ctx)
     if (tmpl && revert_collision) template_revert_component(world, e, *tmpl, collision_index);
     if (tmpl && revert_movement) template_revert_component(world, e, *tmpl, movement_index);
     if (tmpl && revert_camera) template_revert_component(world, e, *tmpl, camera_index);
-    if (tmpl && revert_locomotion) template_revert_component(world, e, *tmpl, locomotion_index);
+    if (tmpl && revert_character) template_revert_component(world, e, *tmpl, character_index);
     if (tmpl && revert_look_at) template_revert_component(world, e, *tmpl, look_at_index);
     if (tmpl && revert_attention) template_revert_component(world, e, *tmpl, attention_index);
     if (tmpl && revert_water) template_revert_component(world, e, *tmpl, water_index);

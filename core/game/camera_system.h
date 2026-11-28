@@ -54,7 +54,12 @@ struct CameraSystem : GameSystem
     vec3 anchor = vec3(0.0f);
     quat roll_offset = quat(1.0f, 0.0f, 0.0f, 0.0f);
 
-    CameraSystem() { late.owner = this; }
+    CameraSystem()
+    {
+        name = "Camera";
+        late.name = "Camera Late";
+        late.owner = this;
+    }
 
     void start(GameSession& r_session) override;
     void stop(GameSession& r_session) override;

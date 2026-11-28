@@ -45,12 +45,15 @@ struct StaticInstances
     }
 };
 
+struct PoseComponent;
+
 struct FrameData
 {
+    static constexpr uint32_t JOINT_FRAMES = 4;
+
     std::vector<Instance> instances_scratch;
     std::vector<Transform> transforms_scratch;
     std::vector<SkinInstance> skins_scratch;
-    std::vector<JointMatrices> joints_scratch;
     std::vector<uint32_t> candidates;
     uint32_t instance_count = 0;
     uint32_t candidate_count = 0;
@@ -100,12 +103,34 @@ struct FrameData
         std::vector<mat4> prev_view_skin;
         vec3 prev_box_min = vec3(0.0f);
         vec3 prev_box_max = vec3(0.0f);
+        uint64_t skin_revision = UINT64_MAX;
+        uint32_t joint_base = UINT32_MAX;
+        uint32_t joint_size = 0;
+        uint64_t written_curr[JOINT_FRAMES] = { UINT64_MAX, UINT64_MAX, UINT64_MAX, UINT64_MAX };
+        uint64_t written_prev[JOINT_FRAMES] = { UINT64_MAX, UINT64_MAX, UINT64_MAX, UINT64_MAX };
     };
     std::vector<EntityCache> entity_cache;
+
+    struct SkinJob {
+        uint32_t entity_index;
+        uint32_t skin_id;
+        const PoseComponent* pose;
+        uint32_t mesh_index;
+        bool continuous;
+    };
+    std::vector<SkinJob> skin_jobs;
+    std::vector<uvec2> joint_free;
+    uint32_t joint_top = 0;
+    bool joint_reset = false;
+    JointMatrices* joint_target = nullptr;
+    uint32_t joint_frame = 0;
 
     StaticInstances static_insts;
 
     void reset();
+    uint32_t joint_alloc(uint32_t p_count);
+    void joint_release(EntityCache& r_cache);
+    void joint_clear();
 };
 
 }

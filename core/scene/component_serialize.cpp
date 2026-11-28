@@ -71,7 +71,7 @@ void serialize(Archive& a, CameraComponent& r_c)
     r_c.type = type < (uint32_t)CameraType::COUNT ? (CameraType)type : CameraType::ORBIT;
 }
 
-void serialize(Archive& a, LocomotionComponent& r_c)
+void serialize(Archive& a, CharacterComponent& r_c)
 {
     a.field("set", r_c.set);
 }
@@ -81,12 +81,14 @@ void serialize(Archive& a, LookAtComponent& r_c)
     a.field("yaw_max", r_c.yaw_max);
     a.field("pitch_max", r_c.pitch_max);
     a.field("speed", r_c.speed);
+    a.field("turn_speed", r_c.turn_speed);
     a.field("camera_weight", r_c.camera_weight);
     a.field("split", r_c.split);
     if (!a.loading) return;
     r_c.yaw_max = std::clamp(r_c.yaw_max, 0.0f, 180.0f);
     r_c.pitch_max = std::clamp(r_c.pitch_max, 0.0f, 89.0f);
     r_c.speed = std::max(r_c.speed, 0.1f);
+    r_c.turn_speed = std::clamp(r_c.turn_speed, 10.0f, 1000.0f);
     r_c.camera_weight = std::clamp(r_c.camera_weight, 0.0f, 1.0f);
     r_c.split = max(r_c.split, vec3(0.0f));
 }

@@ -11,6 +11,8 @@ struct GameSession;
 
 struct GameSystem
 {
+    const char* name = "Game System";
+
     virtual ~GameSystem() = default;
     virtual void start(GameSession& r_session) { (void)r_session; }
     virtual void update(GameSession& r_session, float p_dt) = 0;

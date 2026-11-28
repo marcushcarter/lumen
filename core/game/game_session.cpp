@@ -1,4 +1,5 @@
 #include <core/game/game_session.h>
+#include <core/base/cpu_profiler.h>
 #include <core/scene/scene.h>
 
 namespace lumen {
@@ -37,7 +38,14 @@ void GameSession::update(float p_dt)
     if (mode != Mode::PLAYING || !world) return;
     time += p_dt;
     frame++;
-    for (GameSystem* s : systems) s->update(*this, p_dt);
+    CpuProfiler& cpu = cpu_profiler();
+    cpu.zone_begin("Game Update");
+    for (GameSystem* s : systems) {
+        cpu.zone_begin(s->name);
+        s->update(*this, p_dt);
+        cpu.zone_end();
+    }
+    cpu.zone_end();
     world->deferred_flush();
 }
 

@@ -12,9 +12,12 @@ struct Renderer;
 
 struct LookAtSystem : GameSystem
 {
+    LookAtSystem() { name = "Look At"; }
+
     static constexpr float MIN_SCORE = 0.05f;
     static constexpr float KEEP = 1.2f;
     static constexpr uint64_t NO_FOCUS = UINT64_MAX;
+    static constexpr float TURN_RAMP = 4.0f;
 
     struct Target {
         uint64_t key = NO_FOCUS;
@@ -31,15 +34,25 @@ struct LookAtSystem : GameSystem
         int32_t head = SKELETON_NO_JOINT;
         float yaw = 0.0f;
         float pitch = 0.0f;
+        vec2 velocity = vec2(0.0f);
         uint64_t focus = NO_FOCUS;
         bool seen = false;
+        std::vector<mat4> globals;
+    };
+
+    struct Work {
+        Entity entity;
+        Looker* looker = nullptr;
+        const LookAtComponent* look = nullptr;
+        const LSkeleton* skeleton = nullptr;
+        PoseComponent* pose = nullptr;
     };
 
     const Renderer* renderer = nullptr;
 
     std::unordered_map<uint64_t, Looker> lookers;
     std::vector<Target> _targets;
-    std::vector<mat4> _globals;
+    std::vector<Work> _work;
 
     void start(GameSession& r_session) override;
     void update(GameSession& r_session, float p_dt) override;

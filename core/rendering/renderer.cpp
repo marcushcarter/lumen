@@ -1,4 +1,5 @@
 #include <core/rendering/renderer.h>
+#include <core/base/jobs.h>
 #include <core/rendering/render_path/render_path.h>
 #include <core/scene/scene.h>
 #include <core/scene/components.h>
@@ -626,48 +627,86 @@ static vec4 _matrix_row(const mat4& p_m, int p_row)
     return vec4(p_m[0][p_row], p_m[1][p_row], p_m[2][p_row], p_m[3][p_row]);
 }
 
-static uint32_t _skin_add(FrameData& r_frame, FrameData::EntityCache& r_cache, bool p_continuous, const PoseComponent& p_pose, const GeometryPool& p_geometry, uint32_t p_mesh_index)
+static uint32_t _skin_reserve(FrameData& r_frame, FrameData::EntityCache& r_cache, uint32_t p_entity_index, bool p_continuous, const PoseComponent& p_pose, uint32_t p_mesh_index)
 {
     const uint32_t joint_count = std::min<uint32_t>((uint32_t)p_pose.skin.size(), MESH_MAX_JOINTS);
-    const bool split = joint_count > 0 && p_pose.view_skin.size() == p_pose.skin.size();
+    if (joint_count == 0 || r_frame.skins_scratch.size() >= MAX_SKINNED_INSTANCES) return SKIN_NONE;
+    const bool split = p_pose.view_skin.size() == p_pose.skin.size();
     const uint32_t needed = split ? joint_count * 2 : joint_count;
-    if (joint_count == 0 || r_frame.skins_scratch.size() >= MAX_SKINNED_INSTANCES || r_frame.joints_scratch.size() + needed > MAX_SKIN_JOINTS) return SKIN_NONE;
+    if (r_cache.joint_base == UINT32_MAX || r_cache.joint_size != needed) {
+        r_frame.joint_release(r_cache);
+        const uint32_t base = r_frame.joint_alloc(needed);
+        if (base == UINT32_MAX) return SKIN_NONE;
+        r_cache.joint_base = base;
+        r_cache.joint_size = needed;
+    }
+    const uint32_t skin_id = (uint32_t)r_frame.skins_scratch.size();
+    r_frame.skins_scratch.push_back(SkinInstance{ vec3(0.0f), r_cache.joint_base, vec3(0.0f), split ? joint_count | SKIN_VIEW_SPLIT : joint_count });
+    r_frame.skin_jobs.push_back({ p_entity_index, skin_id, &p_pose, p_mesh_index, p_continuous });
+    return skin_id;
+}
 
-    const bool has_prev = p_continuous && r_cache.prev_skin.size() == joint_count;
-    const uint32_t joint_base = (uint32_t)r_frame.joints_scratch.size();
-    auto push = [&](const std::vector<mat4>& p_curr, const std::vector<mat4>& p_prev, bool p_has_prev) {
-        for (uint32_t j = 0; j < joint_count; j++) {
-            const mat4& m = p_curr[j];
-            const mat4& pm = p_has_prev ? p_prev[j] : m;
-            JointMatrices jm;
-            for (int r = 0; r < 3; r++) {
-                jm.curr[r] = _matrix_row(m, r);
-                jm.prev[r] = _matrix_row(pm, r);
-            }
-            r_frame.joints_scratch.push_back(jm);
+static void _skin_rows(JointMatrices* r_target, const std::vector<mat4>& p_curr, const std::vector<mat4>& p_prev, bool p_has_prev, uint32_t p_count)
+{
+    for (uint32_t j = 0; j < p_count; j++) {
+        const mat4& m = p_curr[j];
+        const mat4& pm = p_has_prev ? p_prev[j] : m;
+        JointMatrices& jm = r_target[j];
+        for (int r = 0; r < 3; r++) {
+            jm.curr[r] = _matrix_row(m, r);
+            jm.prev[r] = _matrix_row(pm, r);
         }
-    };
-    push(p_pose.skin, r_cache.prev_skin, has_prev);
+    }
+}
+
+static void _skin_write(FrameData& r_frame, const FrameData::SkinJob& p_job, const GeometryPool& p_geometry)
+{
+    FrameData::EntityCache& cache = r_frame.entity_cache[p_job.entity_index];
+    const PoseComponent& pose = *p_job.pose;
+    SkinInstance& skin = r_frame.skins_scratch[p_job.skin_id];
+    const uint32_t joint_count = skin.joint_count & ~SKIN_VIEW_SPLIT;
+    const bool split = (skin.joint_count & SKIN_VIEW_SPLIT) != 0;
+    const uint64_t revision = pose.skin_revision;
+    const bool has_prev = p_job.continuous && cache.prev_skin.size() == joint_count;
+    const bool same = has_prev && cache.skin_revision == revision;
+    const uint64_t prev_revision = has_prev ? cache.skin_revision : revision;
+    const uint32_t k = r_frame.joint_frame;
+    const bool tracked = k < FrameData::JOINT_FRAMES;
+    const bool stored = !split && tracked && cache.written_curr[k] == revision && cache.written_prev[k] == prev_revision;
+
+    JointMatrices* target = r_frame.joint_target + cache.joint_base;
+    if (!stored) {
+        _skin_rows(target, pose.skin, cache.prev_skin, has_prev, joint_count);
+        if (tracked) {
+            cache.written_curr[k] = split ? UINT64_MAX : revision;
+            cache.written_prev[k] = split ? UINT64_MAX : prev_revision;
+        }
+    }
     if (split) {
-        push(p_pose.view_skin, r_cache.prev_view_skin, p_continuous && r_cache.prev_view_skin.size() == joint_count);
-        r_cache.prev_view_skin.assign(p_pose.view_skin.begin(), p_pose.view_skin.begin() + joint_count);
+        _skin_rows(target + joint_count, pose.view_skin, cache.prev_view_skin, p_job.continuous && cache.prev_view_skin.size() == joint_count, joint_count);
+        cache.prev_view_skin.assign(pose.view_skin.begin(), pose.view_skin.begin() + joint_count);
     } else {
-        r_cache.prev_view_skin.clear();
+        cache.prev_view_skin.clear();
+    }
+
+    if (same) {
+        skin.box_min = cache.prev_box_min;
+        skin.box_extent = cache.prev_box_max - cache.prev_box_min;
+        return;
     }
     vec3 lo, hi;
-    p_geometry.posed_box(p_mesh_index, p_pose.skin.data(), joint_count, lo, hi);
-
+    p_geometry.posed_box(p_job.mesh_index, pose.skin.data(), joint_count, lo, hi);
     vec3 box_lo = lo, box_hi = hi;
     if (has_prev) {
-        box_lo = glm::min(box_lo, r_cache.prev_box_min);
-        box_hi = glm::max(box_hi, r_cache.prev_box_max);
+        box_lo = glm::min(box_lo, cache.prev_box_min);
+        box_hi = glm::max(box_hi, cache.prev_box_max);
     }
-    r_cache.prev_box_min = lo;
-    r_cache.prev_box_max = hi;
-    r_cache.prev_skin.assign(p_pose.skin.begin(), p_pose.skin.begin() + joint_count);
-
-    r_frame.skins_scratch.push_back(SkinInstance{ box_lo, joint_base, box_hi - box_lo, split ? joint_count | SKIN_VIEW_SPLIT : joint_count });
-    return (uint32_t)r_frame.skins_scratch.size() - 1;
+    cache.prev_box_min = lo;
+    cache.prev_box_max = hi;
+    cache.prev_skin.assign(pose.skin.begin(), pose.skin.begin() + joint_count);
+    cache.skin_revision = revision;
+    skin.box_min = box_lo;
+    skin.box_extent = box_hi - box_lo;
 }
 
 void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
@@ -698,12 +737,21 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         static_insts.version++;
     }
 
+    if (frame.joint_reset) frame.joint_clear();
+    frame.joint_target = (JointMatrices*)r_view.joint_buffers[current_frame].mapped;
+    frame.joint_frame = current_frame;
+    uint32_t player_skin = SKIN_NONE;
+    mat4 player_model(1.0f);
+
     const uint32_t base = static_insts.count();
     p_world.view<TransformComponent, MeshComponent>(Exclude<StaticTag, DisabledTag>{}, [&](Entity p_entity, const TransformComponent&, const MeshComponent& p_model) {
         if (base + frame.instances_scratch.size() >= MAX_INSTANCES) return;
         if (p_entity.index >= frame.entity_cache.size()) frame.entity_cache.resize(p_entity.index + 1);
         FrameData::EntityCache& cache = frame.entity_cache[p_entity.index];
-        if (cache.generation != p_entity.generation) cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
+        if (cache.generation != p_entity.generation) {
+            frame.joint_release(cache);
+            cache = { mat4(1.0f), frame_number, p_entity.generation, GeometryPool::INVALID_MESH };
+        }
         if (cache.model != p_model.mesh || cache.model_version != mesh_slots.version) {
             cache.model = p_model.mesh;
             cache.model_version = mesh_slots.version;
@@ -720,7 +768,7 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         Instance instance{ cache.mesh_index, base + (uint32_t)frame.transforms_scratch.size(), p_entity.index, cache.slot_base };
         instance.tint = instance_tint(p_model.tint);
         const PoseComponent* pose = p_world.try_get<PoseComponent>(p_entity);
-        if (pose && geometry.joint_boxes(cache.mesh_index)) instance.skin_id = _skin_add(frame, cache, continuous, *pose, geometry, cache.mesh_index);
+        if (pose && frame.joint_target && geometry.joint_boxes(cache.mesh_index)) instance.skin_id = _skin_reserve(frame, cache, p_entity.index, continuous, *pose, cache.mesh_index);
         if (character_is_player(p_world, p_entity)) {
             instance.flags |= INSTANCE_FLAG_PLAYER;
             if (frame.player_instance == UINT32_MAX) {
@@ -729,12 +777,9 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
                 frame.player_mesh = cache.mesh_index;
                 frame.player_slot_base = cache.slot_base;
                 frame.player_lod_density = std::max(length(vec3(model[0])), std::max(length(vec3(model[1])), length(vec3(model[2]))));
-                if (instance.skin_id != SKIN_NONE) {
-                    const SkinInstance& skin = frame.skins_scratch[instance.skin_id];
-                    _box_transform(skin.box_min, skin.box_extent, model, frame.player_box_min, frame.player_box_max);
-                } else {
-                    _world_box(*mesh, model, frame.player_box_min, frame.player_box_max);
-                }
+                player_skin = instance.skin_id;
+                player_model = model;
+                if (instance.skin_id == SKIN_NONE) _world_box(*mesh, model, frame.player_box_min, frame.player_box_max);
             }
         }
         frame.instances_scratch.push_back(instance);
@@ -742,6 +787,14 @@ void Renderer::_frame_build(RenderView& r_view, const Scene& p_world)
         frame.cluster_ref_capacity = _ref_capacity_add(frame.cluster_ref_capacity, mesh->cluster_count);
     });
 
+    for (FrameData::EntityCache& cache : frame.entity_cache) {
+        if (cache.joint_base != UINT32_MAX && cache.frame != frame_number) frame.joint_release(cache);
+    }
+    job_system().parallel_for((uint32_t)frame.skin_jobs.size(), 8, [&](uint32_t p_index) { _skin_write(frame, frame.skin_jobs[p_index], geometry); }, JobPriority::HIGH, "Skins");
+    if (player_skin != SKIN_NONE) {
+        const SkinInstance& skin = frame.skins_scratch[player_skin];
+        _box_transform(skin.box_min, skin.box_extent, player_model, frame.player_box_min, frame.player_box_max);
+    }
 
     frame.instance_count = base + (uint32_t)frame.instances_scratch.size();
 
@@ -847,10 +900,9 @@ void Renderer::_frame_upload(RenderView& r_view)
     drivers::DeviceDriverVulkan::Buffer& jb = r_view.joint_buffers[current_frame];
     if (!frame.skins_scratch.empty()) {
         const VkDeviceSize skin_bytes = (VkDeviceSize)frame.skins_scratch.size() * sizeof(SkinInstance);
-        const VkDeviceSize joint_bytes = (VkDeviceSize)frame.joints_scratch.size() * sizeof(JointMatrices);
+        const VkDeviceSize joint_bytes = (VkDeviceSize)frame.joint_top * sizeof(JointMatrices);
         dd->buffer_update(sb, frame.skins_scratch.data(), skin_bytes);
         dd->buffer_flush(sb, 0, skin_bytes);
-        dd->buffer_update(jb, frame.joints_scratch.data(), joint_bytes);
         dd->buffer_flush(jb, 0, joint_bytes);
     }
     frame.camera.skins = sb.device_address;
@@ -983,6 +1035,7 @@ void Renderer::_view_reset(RenderView& r_view)
 {
     r_view._last_scene = nullptr;
     r_view.frame.entity_cache.clear();
+    r_view.frame.joint_clear();
     r_view.frame.static_insts.clear();
     r_view.hiz_reset_pending = true;
     r_view.camera_cut_pending = true;

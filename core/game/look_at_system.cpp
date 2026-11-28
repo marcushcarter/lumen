@@ -1,5 +1,6 @@
 #include <core/game/look_at_system.h>
 #include <core/animation/skinning.h>
+#include <core/base/jobs.h>
 #include <core/rendering/renderer.h>
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
@@ -95,10 +96,15 @@ void LookAtSystem::_look(const Scene& p_world, Entity p_entity, Looker& r_looker
         r_pitch = std::atan2(d.y, length(vec2(d.x, d.z)));
     };
 
-    _globals.resize(p_skeleton.joint_count());
-    p_skeleton.globals(r_pose.local.data(), _globals.data());
     const int32_t eye_joint = r_looker.head != SKELETON_NO_JOINT ? r_looker.head : r_looker.chain.back();
-    const vec3 eye = vec3(model * _globals[eye_joint][3]);
+    vec3 eye;
+    if (r_pose.joints_fresh && r_pose.joints.size() == p_skeleton.joint_count()) {
+        eye = vec3(model * r_pose.joints[eye_joint][3]);
+    } else {
+        r_looker.globals.resize(p_skeleton.joint_count());
+        p_skeleton.globals(r_pose.local.data(), r_looker.globals.data());
+        eye = vec3(model * r_looker.globals[eye_joint][3]);
+    }
 
     const bool attend = !busy && (!player || (p_look.camera_weight < 1.0f && !first_person));
     const uint64_t self = _key(p_entity);
@@ -132,9 +138,16 @@ void LookAtSystem::_look(const Scene& p_world, Entity p_entity, Looker& r_looker
         yaw_target = std::clamp(yaw_target, -yaw_max, yaw_max);
         pitch_target = std::clamp(pitch_target, -pitch_max, pitch_max);
     }
-    const float k = std::clamp(p_dt * p_look.speed, 0.0f, 1.0f);
-    r_looker.yaw += (yaw_target - r_looker.yaw) * k;
-    r_looker.pitch += (pitch_target - r_looker.pitch) * k;
+    if (p_dt > 0.0f) {
+        vec2 velocity = vec2(yaw_target - r_looker.yaw, pitch_target - r_looker.pitch) * std::min(p_look.speed, 1.0f / p_dt);
+        const float max_speed = glm::radians(p_look.turn_speed);
+        const float limit = std::min(max_speed, length(r_looker.velocity) + max_speed * TURN_RAMP * p_dt);
+        const float speed = length(velocity);
+        if (speed > limit) velocity *= limit / speed;
+        r_looker.velocity = velocity;
+        r_looker.yaw += velocity.x * p_dt;
+        r_looker.pitch += velocity.y * p_dt;
+    }
 
     const vec3 split = p_look.split;
     for (size_t i = 0; i < r_looker.chain.size(); ++i) {
@@ -142,14 +155,15 @@ void LookAtSystem::_look(const Scene& p_world, Entity p_entity, Looker& r_looker
         float w = split.z + (r_looker.neck ? 0.0f : split.y);
         if (i < r_looker.spines) w = split.x / (float)r_looker.spines;
         else if (r_looker.neck && i == r_looker.spines) w = split.y;
-        if (i > 0) p_skeleton.globals(r_pose.local.data(), _globals.data());
-        const int32_t parent = p_skeleton.parents[j];
-        const quat parent_rot = parent >= 0 ? _rotation_of(_globals[parent]) : quat(1.0f, 0.0f, 0.0f, 0.0f);
+        mat4 parent(1.0f);
+        for (int32_t p = p_skeleton.parents[j]; p >= 0; p = p_skeleton.parents[p]) parent = r_pose.local[p].matrix() * parent;
+        const quat parent_rot = _rotation_of(parent);
         const quat turn = angleAxis(r_looker.yaw * w, LOOK_UP) * angleAxis(r_looker.pitch * w, vec3(-1.0f, 0.0f, 0.0f));
-        r_pose.local[j].rotation = normalize(inverse(parent_rot) * turn * _rotation_of(_globals[j]));
+        r_pose.local[j].rotation = normalize(inverse(parent_rot) * turn * _rotation_of(parent * r_pose.local[j].matrix()));
     }
     r_pose.joints.resize(p_skeleton.joint_count());
     p_skeleton.globals(r_pose.local.data(), r_pose.joints.data());
+    r_pose.joints_fresh = true;
 }
 
 void LookAtSystem::update(GameSession& r_session, float p_dt)
@@ -159,11 +173,12 @@ void LookAtSystem::update(GameSession& r_session, float p_dt)
     _gather(world);
     for (auto& [k, l] : lookers) l.seen = false;
 
+    _work.clear();
     std::vector<Entity> entities;
     world.view<LookAtComponent, PoseComponent>(Exclude<DisabledTag>{}, [&](Entity p_entity, const LookAtComponent&, const PoseComponent&) { entities.push_back(p_entity); });
 
     for (Entity e : entities) {
-        if (!world.has<LocomotionComponent>(e)) continue;
+        if (!world.has<CharacterComponent>(e)) continue;
         PoseComponent& pose = *world.try_get<PoseComponent>(e);
         const SkeletonCache::Entry* entry = renderer->skeletons.get(pose.skeleton);
         if (!entry || entry->skeleton.joint_count() == 0 || pose.local.size() != entry->skeleton.joint_count()) continue;
@@ -175,9 +190,15 @@ void LookAtSystem::update(GameSession& r_session, float p_dt)
             l.skeleton = pose.skeleton;
             _rig(l, entry->skeleton, world.try_get<CameraComponent>(e));
         }
-        if (l.chain.empty()) continue;
-        _look(world, e, l, *world.try_get<LookAtComponent>(e), entry->skeleton, pose, p_dt);
+        if (l.chain.empty() || pose.held) continue;
+        _work.push_back({ e, &l, world.try_get<LookAtComponent>(e), &entry->skeleton, &pose });
     }
+
+    const Scene& view = world;
+    job_system().parallel_for((uint32_t)_work.size(), 1, [&](uint32_t p_index) {
+        const Work& w = _work[p_index];
+        _look(view, w.entity, *w.looker, *w.look, *w.skeleton, *w.pose, p_dt);
+    }, JobPriority::HIGH, "Look At");
 
     for (auto it = lookers.begin(); it != lookers.end();) {
         if (it->second.seen) ++it;
